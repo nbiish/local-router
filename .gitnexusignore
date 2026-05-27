@@ -1,0 +1,21 @@
+# Keep GitNexus focused on the fvs-code proxy implementation.
+node_modules/
+build/
+reference/
+.git/
+
+# Never index local secrets or runtime artifacts.
+.env
+.env.*
+*.log
+*.tmp
+*.db
+*.sqlite
+*.sqlite3
+
+# providers.txt is gitignored locally, but it is project metadata for this proxy.
+!providers.txt
+!tests/
+!bin/
+!src/
+!scripts/

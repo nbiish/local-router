@@ -1,0 +1,140 @@
+# TASK 2026-05-27
+
+- Active Objective: Research and PRD-anchor a first-class FVS-CODE local model router inspired by DSPy, Not Diamond, OpenRouter Auto Router, and OpenRouter Pareto Code Router.
+- Active Status: Completed research/PRD pass; no runtime code changes in this pass.
+- Active PQC Flag: Pass (no classical cryptography introduced; no secrets persisted; router design keeps CSV/JSON telemetry non-secret and redacted).
+- Notes: `llms.txt` reviewed on 2026-05-27 before research.
+- Notes: External docs checked for OpenRouter Auto Router, OpenRouter Pareto Router / Pareto Code Router, Not Diamond routing/custom-router training/custom models, and DSPy optimizers.
+- Notes: PRD updated in `llms.txt` with `Router Framework Research / PRD Direction: 2026-05-27`.
+- Notes: Router model names should use canonical `fvs-code/<router-name>` presentation, matching fallback routes.
+- Notes: Router execution must always and exclusively choose from the user-configured candidate models for that router; no hidden model pools and no provider-managed default router unless explicitly configured as a normal candidate model.
+- Notes: Router maintenance should stay in TypeScript/Node to avoid unnecessary runtime complexity; do not add Rust for CSV validation/export/import/recompute tooling.
+- Notes: Proposed non-secret files: `router-models.json`, `router-events.csv`, `router-candidates.csv`, and `router-evals.csv`, all under the existing FVS config directory with restricted permissions.
+- Notes: Banned-crypto/secret scan ran across `llms.txt`, `TASK.2026-05-27.md`, `providers.txt`, `src`, and `package.json`; no matches found.
+- Active Objective: Implement first-class local FVS-CODE router models from the anchored router PRD.
+- Active Status: Completed implementation slice.
+- Active PQC Flag: Pass (router JSON/CSV files are non-secret, redacted, `0600`, and no classical crypto was introduced).
+- Notes: Added persisted router model definitions at `~/.config/fvs-code/router-models.json`.
+- Notes: Added redacted router decision telemetry at `~/.config/fvs-code/router-events.csv`.
+- Notes: Added `GET/POST/DELETE /api/router-models`, `GET /api/router-events.csv`, and `GET /api/router-candidates.csv`.
+- Notes: Added `/config` Router Models panel with create/edit/delete, VS Code refresh, and CSV export controls.
+- Notes: Router routes present as `fvs-code/<router-name>` in `/v1/models`, `/api/tags`, `/api/show`, VS Code picker metadata, and chat completion routing.
+- Notes: Router execution only selects from explicit configured candidates and rejects nested `fvs-code` routes, missing keys, unsupported tools/images, context/output mismatches, and below-threshold coding scores.
+- Notes: Added router types `priority`, `pareto-code`, and `auto-local`.
+- Notes: Removed `scripts/router_csv.rs`; router utility work should stay in TypeScript/Node.
+- Notes: Added `ROUTER.md` as the agent-facing guide for router research, alteration, defaults, telemetry review, and future improvements.
+- Notes: Router form defaults now reset to `auto-local`, `minCodingScore=0.66`, `costQualityTradeoff=7`, and the current OpenRouter preset auto-router candidate set.
+- Notes: Added VS Code cached language model seeding for missing Ollama/FVS-CODE entries so `fvs-code/<router-name>` models appear in both picker preferences and `chat.cachedLanguageModels.v2`.
+- Notes: Added operator-provided OpenRouter preset composition to `ROUTER.md`, `llms.txt`, and default router candidate `notes` metadata for CSV/Pareto analysis.
+- Notes: Added integration coverage for router create/list/discovery/show, candidate-only routing, and CSV exports.
+- Notes: Verification passed: `npm run build`, `env CODEX_SANDBOX_NETWORK_DISABLED=0 npm run test:integration`, `git diff --check`, and banned-crypto/secret scan.
+- Active Objective: Update `llms.txt` with the current router implementation handoff before beginning the next improvement phase.
+- Active Status: Completed documentation update.
+- Active PQC Flag: Pass (documentation-only; no secrets persisted).
+- Notes: Preserved the other agent's deep router research and added `Router Implementation Handoff: 2026-05-27`.
+- Notes: Recorded live router baseline: `fvs-code/auto-local-main`, persisted `router-models.json`, CSV candidate notes, VS Code picker/cache seeding status, and default candidate set.
+- Notes: Recorded immediate implementation order: normalized scoring, dry-run endpoint, telemetry enrichment, TypeScript CSV helpers, then `bandit-local`.
+
+- Objective: Implement PRD continuation from `llms.txt` by adding redacted request/response diagnostics with browser-UI toggle control.
+- Status: Completed.
+- PQC Flag: Pass (no classical cryptography introduced; no secrets persisted).
+- Notes: `llms.txt` reviewed on 2026-05-27 before implementation.
+- Notes: Added `/api/diagnostics` read/toggle/clear endpoints plus `/config` diagnostics panel.
+- Notes: Diagnostics capture only redacted summaries (no auth headers, no API keys, no full prompt/response payloads).
+- Notes: Verification passed via `npm run build` and `npm run test:integration`.
+- Notes: Updated OpenRouter preset metadata to 1,000,000 context and 120,000 max output tokens across all preset rows; tools remain enabled.
+- Notes: Live proxy started on `127.0.0.1:11434`; verified `openrouter-presets` baseline in `/api/provider-models`, `/api/tags`, and `/v1/models` now reports 1,000,000 context + 120,000 output tokens with tools and vision enabled.
+- Notes: Ran `POST /api/vscode/configure` after metadata update (configuredModelCount=29, configuredPickerIDCount=116).
+- Notes: Ran `POST /api/show` for all 5 OpenRouter preset presented model IDs; each returned 1,000,000 context, 120,000 max output, `supports_tools=true`, `supports_vision=true`, and vision capability.
+- Notes: Updated `openrouter-presets` rows to set vision/image support enabled for all current presets while keeping 1,000,000 context + 120,000 output + tools enabled.
+- Notes: Reworked `/config` provider model management to single-model CRUD with per-model context/output fields and option toggles (tools/vision/cache/reasoning), plus delete controls per model.
+- Notes: Added provider model CRUD endpoints: `POST /api/provider-models/:provider/models` and `DELETE /api/provider-models/:provider/models/:modelId` (provider list remains immutable; only model sets are edited).
+- Notes: Updated VS Code picker metadata refresh to surface preferred display aliases (`provider:model`) in cached Ollama model names and tooltips while retaining stable presented IDs.
+- Notes: Added project CLI binary `fvs-code` (`bin/fvs-code.js`) with `start|status|stop` lifecycle commands and `route set|unset|status` for optional `ollama serve` routing into the fvs-code proxy.
+- Notes: CLI start behavior now fails closed when port 11434 is already occupied by non-fvs servers; if fvs-code is already running, it reports and exits cleanly.
+- Notes: Verified CLI flow locally (`start --port 11435`, `status`, `stop`, `route set`, `route unset`) and restarted live proxy via CLI on `127.0.0.1:11434`.
+- Notes: Extended route logic with `route custom <localhost:port>`; this installs the shim so `ollama serve` starts fvs-code on a custom localhost endpoint.
+- Notes: Added custom-route safety checks: localhost-only (`localhost` or `127.0.0.1`), port range `1024-65535`, explicit block on `11434` for custom mode, and rejection if a non-fvs process is already listening on the target port.
+- Notes: Updated `llms.txt` LM-start context to document current CLI route controls, custom-route safety constraints, one-model provider CRUD workflow, alias metadata behavior in VS Code, and latest picker ID count.
+- Notes: Added user-defined fallback routes via `/api/fallback-models` (list/create/delete), with each fallback route presented as a first-class model in `/v1/models`, `/api/tags`, and `/api/show`.
+- Notes: Implemented fallback execution engine in chat proxy: primary model attempts use 3 tries, exponential wait based on `{baseSeconds}^retryIndex` (default base 2 seconds), stage progression follows configured fallback list with bridge retries (`model1 once`, `model2 once`) before advancing to the next stage as configured.
+- Notes: Added fallback diagnostics and error surfaces: provider error previews, retry wait metadata, stage/attempt metadata, and exhaustion payload details are returned and logged without exposing secrets.
+- Notes: Added test override env `FVS_FALLBACK_BASE_RETRY_SECONDS` (default remains `2`) to keep integration tests fast while preserving production retry behavior.
+- Notes: Verification passed via `npm run build` and `npm run test:integration` after fallback implementation and coverage updates.
+- Notes: Reviewed fallback implementation after manual visibility check. Root cause of "missing" feature was that the first implementation exposed APIs/runtime behavior but did not add `/config` UI controls; also the live server needed a restart to serve the updated build.
+- Notes: Added `/config` Fallback Model Routes panel wired to `/api/fallback-models`, including add/update/delete, list rendering, and catalog refresh behavior.
+- Notes: Restarted live proxy on `127.0.0.1:11434` and verified the updated `/config` HTML includes fallback controls.
+- Notes: Created runtime review fallback route `fvs-fallback-review` with chain `wafer-ai-glm-5.1 -> wafer-ai-kimi-k2.6`; verified it appears in `/api/fallback-models`, `/v1/models`, `/api/tags`, and `/api/show` with provider family `fallback`.
+- Notes: Added persistent fallback route storage under the user config directory (`fallback-models.json`) with atomic writes and `0600` file permissions; the file stores only route IDs and model IDs.
+- Notes: `POST /api/fallback-models` and `DELETE /api/fallback-models` now persist changes before returning success and roll back memory state on persistence failure.
+- Notes: Added integration coverage for fallback route survival across a real proxy restart using an isolated temporary HOME.
+- Notes: Restarted the live proxy with the persistence build, recreated `fvs-fallback-review`, restarted again, and verified the route was restored into `/api/fallback-models`, `/v1/models`, and `/api/tags`.
+- Notes: Updated fallback route presentation to canonical provider/model form `fvs-code/<fallback-route>` while preserving short route IDs internally and accepting old short IDs as aliases.
+- Notes: Updated VS Code metadata refresh so cached Ollama metadata uses the stable presented alias as `metadata.name` instead of upstream-style display strings.
+- Notes: Added slashed model support for `GET /api/show/fvs-code/<fallback-route>` and integration coverage for that path.
+- Notes: Restarted live proxy and refreshed VS Code picker metadata via `POST /api/vscode/configure`; replaced the temporary review route with canonical `fvs-code/fallback-models` and verified picker preferences contain `ollama/FVS-CODE/fvs-code/fallback-models`, `ollama/Ollama/fvs-code/fallback-models`, and `:latest` variants.
+- Notes: Fixed VS Code/Ollama display metadata so `/api/show` reports the stable presented alias as `model_info.general.basename`, `model_info.general.name`, and `details.parameter_size`; provider raw intake IDs now stay in `model_info.general.upstream_model`.
+- Notes: Hardened `POST /api/vscode/configure` to map cached Ollama entries from identifier suffixes, canonical aliases, display aliases, upstream IDs, and `:latest` variants back to the presented alias.
+- Notes: Updated picker preference refresh to keep canonical FVS-CODE/Ollama IDs and remove stale `ollama/FVS-CODE/*` entries that caused ambiguous upstream names to remain visible in VS Code.
+- Notes: Verification passed via `npm run build` and `npm run test:integration` after VS Code alias metadata fixes.
+- Notes: Restarted live proxy on `127.0.0.1:11434`, ran `POST /api/vscode/configure`, and verified live `/api/show` for OpenRouter, Wafer, ZenMux, and `fvs-code/fallback-models` now reports provider-qualified `general.basename` values.
+- Notes: Verified VS Code `chatModelPickerPreferences` has zero stale `ollama/FVS-CODE/*` upstream/display entries by local state DB inspection; cached samples now use presented aliases for `metadata.name`.
+- Notes: Ran GitNexus MCP discovery for this repository. GitNexus currently exposes only `system-care-and-updates`; `fvs-code` is not indexed and no repo groups are configured.
+- Notes: GitNexus `detect_changes` for `/Volumes/1tb-sandisk/code-external/fvs-code` and `api_impact` for `/api/show` plus `/api/vscode/configure` failed closed with repository-not-found, so no GitNexus blast-radius report is available yet.
+- Notes: Updated `llms.txt` with the GitNexus limitation, current local verification source of truth, fallback/VS Code alias test coverage, and next step to index this repository in GitNexus before rerunning impact tools.
+- Notes: Added focused `.gitnexusignore` so GitNexus indexes implementation code and metadata while excluding dependency, build, secret, runtime, and cloned reference trees.
+- Notes: Successfully indexed this repository with `npx gitnexus analyze --force --index-only --name fvs-code`; focused index reported 771 nodes, 2,775 edges, 24 clusters, and 67 flows.
+- Notes: Removed the 162 MB `reference/` directory now that the implementation is working; future reference comparisons should use upstream docs or temporary external clones.
+- Notes: Updated `llms.txt` to replace stale local reference-codebase statements with the focused GitNexus index status and reference-removal status.
+- Notes: Refreshed GitNexus after reference removal; focused index completed again with 771 nodes, 2,775 edges, 24 clusters, and 67 flows.
+- Notes: GitNexus route impact for `/api/show`, `/api/show/:model`, and `/api/vscode/configure` is LOW with zero indexed direct consumers; shape checks found no consumer mismatch data.
+- Notes: GitNexus symbol impact is LOW for `configureVSCodeModelPicker`, `ollamaShowPayload`, `findPresentedModel`, `fallbackExecutionPlan`, and `handleChatCompletion`.
+- Notes: GitNexus symbol impact is CRITICAL for `providerModelAliases` because it feeds routing lookup, presented model lookup, and VS Code metadata refresh paths; this risk is mitigated by build, integration, live `/api/show`, and VS Code state checks for alias changes.
+- Notes: Verification after reference removal passed via `npm run build` and `npm run test:integration`.
+
+- Objective: Stop the live FVS-CODE proxy and pause testing until operator restarts dev server manually.
+- Status: Waiting for operator to run `npm run dev` in their terminal.
+- PQC Flag: Pass (no crypto/storage/network implementation changes; no secrets persisted).
+- Notes: `llms.txt` reviewed on 2026-05-27 before action.
+- Notes: Stopped the project listener on `localhost:11434` (`node build/index.js`, PID 32661) with normal termination.
+- Notes: Verified no process is listening on TCP port `11434` after shutdown.
+
+- Objective: Deep research on SOTA LLM routing to inform FVS-CODE router improvements.
+- Status: Completed research phase.
+- PQC Flag: Pass (no classical cryptography introduced; no secrets persisted; research-only artifact updates).
+- Notes: `llms.txt` and `ROUTER.md` reviewed on 2026-05-27 before research.
+- Notes: Researched OpenRouter Auto Exacto (March 2025): three-signal statistical tier system (throughput, tool-call telemetry from billions of calls, recurring benchmarks), median+MAD outlier detection every ~5 minutes, three tiers (verified good/insufficient data/deranked), up to 88% tool-call error rate reduction.
+- Notes: Researched RouteLLM (LMSys, Feb 2025): four router architectures benchmarked, matrix factorization is sweet spot (155 req/s, 80.2% APGR), PGR/APGR/CPT metrics, up to 3.66× cost reduction at 95% quality, routers transfer across model pairs without retraining.
+- Notes: Researched contextual multi-armed bandits for LLM routing across 5 papers (MAR/PILOT/ParetoBandit/LLM Bandit/Mahoraga, 2025-2026). Consensus: dLinUCB with geometric forgetting (γ=0.98). PILOT: 93% GPT-4 quality at 25% cost. ParetoBandit: 9.8ms routing on CPU, <0.4% budget error. Mahoraga: open-source LinUCB beating cloud agents on code.
+- Notes: Researched DSPy 3.0 optimizers: MIPROv2 (85%→90% router accuracy via Bayesian joint instruction+few-shot optimization), GEPA (Genetic-Pareto tree), GRPO (RL-based). Compile-then-deploy pattern maps to offline recompute workflow.
+- Notes: Researched Not Diamond custom router training (minimum 25 samples, 5-15 min training) and Prompt Adaptation (5-60% accuracy improvement via per-model prompt rewriting).
+- Notes: Researched context-aware routing: LLMRank (per-model strength profiles), BERT-based difficulty prediction, Cost-Aware Contrastive Routing, Signal-Decision architecture.
+- Notes: Analyzed current FVS-CODE scoring formula — coding score dominates (×100), latency negligible (/10000), no normalization. Proposed normalized [0,1] formula with derived weights.
+- Notes: Prioritized 8 implementation items: (1) normalized scoring, (2) request complexity features, (3) bandit-local router type with dLinUCB, (4) telemetry enrichment, (5) statistical tiering, (6) dry-run API, (7) recompute API, (8) per-candidate strength profiles.
+- Notes: Updated `ROUTER.md` with sections A-M: Auto Exacto, RouteLLM, Bandit-Based Routing, Not Diamond, DSPy, Context-Aware Routing, Scoring Formula Improvements, New Router Model Fields, New API Endpoints, Telemetry Enrichment, Implementation Priority, Known Limitations, Sources.
+- Notes: Updated `llms.txt` Router Framework Deep Research section with summarized findings and implementation recommendations.
+- Notes: Updated `llms.txt` Next Steps with prioritized router improvement plan, new router types, new API endpoints, new model fields, and known limitations.
+- Notes: Banned-crypto/secret scan: no matches in updated `llms.txt`, `ROUTER.md`, or `TASK.2026-05-27.md`.
+- Notes: No runtime code changes in this pass. All changes are documentation/planning artifacts.
+
+- Objective: Add a readable light/dark color-scheme control to the `/config` browser UI.
+- Status: Completed implementation and verification.
+- PQC Flag: Pass (UI-only local browser preference; no classical cryptography introduced; no secrets persisted).
+- Notes: `llms.txt` reviewed on 2026-05-27 before implementation.
+- Notes: Added CSS custom-property theme tokens and a persisted local `Color Scheme` range slider with Light, Balanced, and Dark stops.
+- Notes: The slider adjusts page background, surfaces, borders, text, muted text, controls, buttons, status pills, and diagnostics colors as a continuous 0-100 scale.
+- Notes: Browser plugin backend was unavailable in this session; verification used the live local `/config` response plus a browser-style JavaScript execution check for Balanced and Dark palette application.
+- Notes: Verification passed via `npm run build`, `npm run test:integration`, `git diff --check`, and banned-crypto/secret scan.
+- Notes: Updated `llms.txt` with the `/config` Color Scheme slider current state, localStorage-only persistence boundary, readability/contrast verification note, and GitNexus `/config` LOW route-risk note.
+
+- Objective: Recover live FVS-CODE proxy and VS Code model metadata after broken server state.
+- Status: Completed recovery; live proxy restored on `127.0.0.1:11434`.
+- PQC Flag: Pass (no classical cryptography introduced; no secrets read or persisted; recovery artifacts exclude `.env`).
+- Notes: `llms.txt` and `AGENTS.md` reviewed on 2026-05-27 before recovery.
+- Notes: Source code was not gone. The worktree remained on branch `fix/vscode-provider-aliases` with the broad uncommitted implementation diff intact.
+- Notes: Root cause found in the live proxy log: the orphaned `node build/index.js` listener could not open `providers.txt` and fell back to the built-in four-model catalog, causing VS Code to lose the full FVS-CODE model surface.
+- Notes: Preserved local recovery artifacts before restart: `/private/tmp/fvs-code-recovery-2026-05-27T1715.tgz` and `/private/tmp/fvs-code-tracked-diff-2026-05-27T1715.patch`.
+- Notes: Stopped the stale listener on port `11434` and restarted via `node bin/fvs-code.js start`; new state file PID is `12625`.
+- Notes: Verified live `/`, `/api/version`, `/api/tags`, `/v1/models`, `/api/provider-configs`, and `/config` after restart. Model catalog restored to 47 models and provider summary restored to 9 providers.
+- Notes: Ran `POST /api/vscode/configure`; VS Code metadata refresh succeeded with `configuredModelCount=47` and `configuredPickerIDCount=188`.
+- Notes: Verification passed via `npm run build`, `git diff --check`, live endpoint checks, and secret-pattern scan for hardcoded credential values in project files.

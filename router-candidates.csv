@@ -1,0 +1,1 @@
+router_id,presented_model,router_type,candidate_model,provider,upstream_model,context_length,output_tokens,tools,vision,cache,reasoning,coding_score,input_price,output_price,latency_ms,notes
