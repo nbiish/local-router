@@ -1,9 +1,20 @@
 # Local Router: OpenAI-Compatible Proxy Server for VS Code
 
+## Product North Star
+Local Router should become an easy local drop-in replacement for Ollama-compatible tooling: one localhost server, one familiar Ollama/OpenAI-compatible surface, and many provider-backed or locally routed models behind it.
+
+The end-state product should feel like an approachable open-source Ollama-compatible proxy with extra routing intelligence, not a closed provider gateway. Users should be able to point VS Code, Copilot Chat, Continue, Cline, Roo Code, scripts, or Ollama-native clients at `http://127.0.0.1:11434` and keep working while Local Router handles provider keys, model aliases, fallback chains, router models, diagnostics, and explicit routing policy.
+
+The project may take product inspiration from Ollama's local-first ergonomics and API shape, but it must remain its own implementation and brand. Do not copy Ollama source, trademarks, mascot assets, or visual identity unless a future license review explicitly permits it. Compatibility is the goal: same easy local mental model, same drop-in endpoint expectations, and clear behavior under open-source Local Router logic.
+
+Visual direction: Local Router should have a cool, cutesy cyberpunk Anishinaabe character and interface personality that makes the project memorable without weakening the operational tool surface. This character should be original, culturally respectful, and operator/community approved before it becomes a logo, mascot, generated asset, or default UI element. It should support the product as a first-viewport signal and documentation identity, while the app UI remains dense, readable, and useful for repeated routing/configuration work.
+
+Routing direction: auto-routing should be open, inspectable, and improvable by the community. Prefer local TypeScript/Node logic, explicit candidate lists, redacted telemetry, CSV/JSON exports, dry-run scoring, recompute tools, and documented scoring formulas over opaque hosted router behavior. Users should be able to see why a model was selected, tune the policy, share improvements, and verify that no hidden model pool or provider-managed default was used unless they configured it as a normal candidate.
+
 ## Project Context
-This project was created to provide a lightweight, OpenAI-compatible proxy server that can be used with VS Code AI extensions (like Continue, Cline, Roo Code, etc.).
-The primary goal is to avoid being locked into a single provider by running a local proxy that routes requests to various providers (Groq, OpenRouter, etc.) based on the requested model name.
-It mirrors the architecture of `fcc-server` (from fcc-claude) by utilizing lazy-loaded modules for different providers.
+This project was created to provide a lightweight, Ollama-compatible and OpenAI-compatible local proxy server that can be used with VS Code AI extensions and localhost AI tooling.
+The primary goal is to avoid lock-in to a single provider by running a local proxy that routes requests to configured provider models, fallback chains, and transparent local router models based on the requested model name and explicit user policy.
+It mirrors the architecture of `fcc-server` (from fcc-claude) by utilizing lazy-loaded modules for different providers, and it mirrors Ollama's default port and endpoint shape so existing tools can be repointed with minimal configuration.
 
 ## Architecture & How It Works
 - **Base Server Framework**: Node.js + Express + TypeScript.

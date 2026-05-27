@@ -159,3 +159,14 @@
 - Notes: Operator explicitly approved merge execution with "proceed".
 - Notes: Merged `fix/vscode-provider-aliases` into `main`, then merged `release/local-router-rebrand` into `main`. The intermediate provider-alias-only `main` failed integration on a stale test variable that was fixed by the rebrand branch; no intermediate `main` push was performed.
 - Notes: Final verified `main` is the source for the `production` branch push.
+
+- Objective: Anchor final product vision for Local Router as an Ollama-compatible drop-in proxy with open routing logic and original cyberpunk Anishinaabe character direction.
+- Status: Completed documentation pass on `docs/product-vision`; no runtime code changes.
+- PQC Flag: Pass (documentation-only; no classical cryptography introduced; no secrets persisted).
+- Notes: `AGENTS.md`, `llms.txt`, and `TASK.2026-05-27.md` reviewed on 2026-05-27 before edits.
+- Notes: Updated `llms.txt` with Product North Star: Local Router should be an easy Ollama-compatible localhost replacement at `127.0.0.1:11434`, with provider key handling, aliases, fallback chains, router models, diagnostics, and explicit routing policy.
+- Notes: Clarified that compatibility with Ollama is the goal, not copying Ollama source, trademarks, mascot assets, or visual identity without future license review.
+- Notes: Added visual direction for an original cool, cutesy cyberpunk Anishinaabe character that is culturally respectful and operator/community approved before becoming a logo, mascot, generated asset, or default UI element.
+- Notes: Added routing direction: open TypeScript/Node logic, explicit candidate lists, redacted telemetry, CSV/JSON exports, dry-run scoring, recompute tools, documented formulas, and no hidden model pools.
+- Notes: Updated `README.md` with the same public-facing vision and open-routing positioning.
+- Notes: Operator explicitly approved merging `docs/product-vision` with "proceed".

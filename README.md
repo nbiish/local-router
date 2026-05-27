@@ -6,6 +6,12 @@ Local Router is a local Ollama-compatible and OpenAI-compatible model router for
 
 It runs on Ollama's default port, exposes OpenAI-compatible and Ollama-compatible endpoints, and routes requests to your configured provider models, fallback chains, or local router models.
 
+## Vision
+
+Local Router is an Ollama-compatible drop-in replacement proxy with open routing logic. The goal is not to copy Ollama's code or brand; the goal is to keep the same local-first ease: point tools at `http://127.0.0.1:11434`, keep your workflows, and let Local Router route across explicit provider models, fallback chains, and transparent local router policies.
+
+The project identity should grow around an original cool, cutesy cyberpunk Anishinaabe character and visual language. The app still needs to stay practical and readable, but the project should have personality: memorable docs, friendly local setup, and routing tools that feel open enough for anyone to inspect, tune, and improve.
+
 ## Why
 
 Most AI coding tools already know how to talk to Ollama or an OpenAI-compatible API. Local Router uses that compatibility layer as a universal local gateway:
@@ -16,6 +22,7 @@ Most AI coding tools already know how to talk to Ollama or an OpenAI-compatible 
 - Create `local-router/<name>` fallback routes and router models.
 - Keep provider keys in memory through the local config UI.
 - Export redacted router telemetry without storing prompts, responses, or secrets.
+- Inspect, dry-run, and improve routing behavior through open local logic instead of opaque hosted router defaults.
 
 ## Endpoints
 
