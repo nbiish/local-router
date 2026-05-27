@@ -147,7 +147,7 @@ app.get('/v1/models', async (req, res) => {
     });
 });
 app.listen(PORT, () => {
-    console.log(`FVS-Code OpenAI-compatible proxy running on http://localhost:${PORT}`);
+    console.log(`Local Router OpenAI-compatible proxy running on http://localhost:${PORT}`);
     console.log(`Point your VS Code extension to: http://localhost:${PORT}/v1`);
 });
 //# sourceMappingURL=index.js.map

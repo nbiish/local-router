@@ -1,9 +1,10 @@
 {
-  "name": "fvs-code",
+  "name": "local-router",
   "version": "1.0.0",
-  "description": "",
+  "description": "A local Ollama-compatible and OpenAI-compatible model router for VS Code and localhost AI tooling.",
   "main": "index.js",
   "bin": {
+    "local-router": "bin/local-router.js",
     "fvs-code": "bin/fvs-code.js"
   },
   "scripts": {
@@ -12,9 +13,16 @@
     "start": "node build/index.js",
     "dev": "ts-node src/index.ts",
     "build": "tsc",
-    "cli": "node bin/fvs-code.js"
+    "cli": "node bin/local-router.js"
   },
-  "keywords": [],
+  "keywords": [
+    "ollama",
+    "ollama-proxy",
+    "local-llm-router",
+    "openai-compatible",
+    "vs-code",
+    "model-router"
+  ],
   "author": "",
   "license": "ISC",
   "type": "commonjs",

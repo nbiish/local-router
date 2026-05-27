@@ -136,13 +136,17 @@ const app = express();
 const DEFAULT_PORT = 11434;
 const DEFAULT_CONTEXT_LENGTH = 64000;
 const DEFAULT_OUTPUT_TOKENS = 4096;
-const FALLBACK_PROVIDER_NAME = 'fvs-code';
-const FALLBACK_PROVIDER_LEGACY_NAME = 'fallback';
+const FALLBACK_PROVIDER_NAME = 'local-router';
+const FALLBACK_PROVIDER_LEGACY_NAMES = ['fvs-code', 'fallback'];
 const FALLBACK_PRIMARY_ATTEMPTS = 3;
-const FVS_CONFIG_DIR = path.join(os.homedir(), '.config', 'fvs-code');
-const FALLBACK_MODELS_PATH = path.join(FVS_CONFIG_DIR, 'fallback-models.json');
-const ROUTER_MODELS_PATH = path.join(FVS_CONFIG_DIR, 'router-models.json');
-const ROUTER_EVENTS_PATH = path.join(FVS_CONFIG_DIR, 'router-events.csv');
+const LOCAL_ROUTER_CONFIG_DIR = path.join(os.homedir(), '.config', 'local-router');
+const LEGACY_FVS_CONFIG_DIR = path.join(os.homedir(), '.config', 'fvs-code');
+const FALLBACK_MODELS_PATH = path.join(LOCAL_ROUTER_CONFIG_DIR, 'fallback-models.json');
+const LEGACY_FALLBACK_MODELS_PATH = path.join(LEGACY_FVS_CONFIG_DIR, 'fallback-models.json');
+const ROUTER_MODELS_PATH = path.join(LOCAL_ROUTER_CONFIG_DIR, 'router-models.json');
+const LEGACY_ROUTER_MODELS_PATH = path.join(LEGACY_FVS_CONFIG_DIR, 'router-models.json');
+const ROUTER_EVENTS_PATH = path.join(LOCAL_ROUTER_CONFIG_DIR, 'router-events.csv');
+const LEGACY_ROUTER_EVENTS_PATH = path.join(LEGACY_FVS_CONFIG_DIR, 'router-events.csv');
 const DEFAULT_ROUTER_TYPE: RouterType = 'auto-local';
 const DEFAULT_ROUTER_MIN_CODING_SCORE = 0.66;
 const DEFAULT_ROUTER_COST_QUALITY_TRADEOFF = 7;
@@ -155,7 +159,10 @@ const DEFAULT_ROUTER_CANDIDATES_TEXT = [
   'openrouter-1-million-main, coding=0.82, input=1, output=2, latency=1000, notes=DeepSeek V4 Pro + DeepSeek V4 Flash + Xiaomi MiMo-V2.5-Pro',
   'openrouter-free-chain-of-draft, coding=0.72, input=0, output=1, latency=1500, notes=Composition unconfirmed'
 ].join('\n');
-const parsedFallbackBaseRetrySeconds = Number.parseInt(process.env.FVS_FALLBACK_BASE_RETRY_SECONDS || '2', 10);
+const parsedFallbackBaseRetrySeconds = Number.parseInt(
+  process.env.LOCAL_ROUTER_FALLBACK_BASE_RETRY_SECONDS || process.env.FVS_FALLBACK_BASE_RETRY_SECONDS || '2',
+  10
+);
 const FALLBACK_BASE_RETRY_SECONDS = Number.isInteger(parsedFallbackBaseRetrySeconds) && parsedFallbackBaseRetrySeconds >= 0
   ? parsedFallbackBaseRetrySeconds
   : 2;
@@ -415,11 +422,12 @@ function providerConfigs() {
 }
 
 function providerBaseUrlEnvVar(providerName: string) {
-  return `FVS_PROVIDER_${providerName.toUpperCase().replace(/[^A-Z0-9]+/g, '_')}_BASE_URL`;
+  return `LOCAL_ROUTER_PROVIDER_${providerName.toUpperCase().replace(/[^A-Z0-9]+/g, '_')}_BASE_URL`;
 }
 
 function providerBaseUrl(summary: ProviderSummary) {
-  return process.env[providerBaseUrlEnvVar(summary.name)] || summary.endpoint;
+  const legacyEnvVar = `FVS_PROVIDER_${summary.name.toUpperCase().replace(/[^A-Z0-9]+/g, '_')}_BASE_URL`;
+  return process.env[providerBaseUrlEnvVar(summary.name)] || process.env[legacyEnvVar] || summary.endpoint;
 }
 
 function parseNumberCell(value: string | undefined, fallback: number) {
@@ -488,7 +496,9 @@ function providerModelAliases(model: ProviderModel) {
 
   if (model.provider === FALLBACK_PROVIDER_NAME) {
     aliases.add(fallbackPresentedModelId(model.model));
-    aliases.add(`${FALLBACK_PROVIDER_LEGACY_NAME}/${model.model}`);
+    for (const legacyName of FALLBACK_PROVIDER_LEGACY_NAMES) {
+      aliases.add(`${legacyName}/${model.model}`);
+    }
   }
 
   for (const alias of [...aliases]) {
@@ -549,7 +559,7 @@ function parseProviderModels(providerName: string, payload: any): ProviderModelP
       if (!parsedEntry) {
         return {
           ok: false,
-          error: 'Use colon-separated model aliases: provider-required-model:presented-fvs-code-model.'
+          error: 'Use colon-separated model aliases: provider-required-model:presented-local-router-model.'
         };
       }
       model = parsedEntry.model;
@@ -688,6 +698,11 @@ function normalizeRouterRouteId(value: string) {
   if (trimmed.startsWith(`${FALLBACK_PROVIDER_NAME}/`)) {
     return trimmed.slice(FALLBACK_PROVIDER_NAME.length + 1).trim();
   }
+  for (const legacyName of FALLBACK_PROVIDER_LEGACY_NAMES) {
+    if (trimmed.startsWith(`${legacyName}/`)) {
+      return trimmed.slice(legacyName.length + 1).trim();
+    }
+  }
   return trimmed;
 }
 
@@ -808,8 +823,10 @@ function normalizeFallbackRouteId(value: string) {
   if (trimmed.startsWith(`${FALLBACK_PROVIDER_NAME}/`)) {
     return trimmed.slice(FALLBACK_PROVIDER_NAME.length + 1).trim();
   }
-  if (trimmed.startsWith(`${FALLBACK_PROVIDER_LEGACY_NAME}/`)) {
-    return trimmed.slice(FALLBACK_PROVIDER_LEGACY_NAME.length + 1).trim();
+  for (const legacyName of FALLBACK_PROVIDER_LEGACY_NAMES) {
+    if (trimmed.startsWith(`${legacyName}/`)) {
+      return trimmed.slice(legacyName.length + 1).trim();
+    }
   }
   return trimmed;
 }
@@ -829,8 +846,16 @@ function waitMs(milliseconds: number) {
   });
 }
 
-function ensureFvsConfigDir() {
-  fs.mkdirSync(FVS_CONFIG_DIR, { recursive: true, mode: 0o700 });
+function ensureLocalRouterConfigDir() {
+  fs.mkdirSync(LOCAL_ROUTER_CONFIG_DIR, { recursive: true, mode: 0o700 });
+}
+
+function existingPath(primaryPath: string, legacyPath: string) {
+  return fs.existsSync(primaryPath) ? primaryPath : legacyPath;
+}
+
+function isLocalRouterProviderName(providerName: string | undefined) {
+  return providerName === FALLBACK_PROVIDER_NAME || FALLBACK_PROVIDER_LEGACY_NAMES.includes(providerName || '');
 }
 
 function cloneFallbackModel(model: FallbackModel): FallbackModel {
@@ -864,7 +889,7 @@ function cloneRouterModel(model: RouterModel): RouterModel {
 }
 
 function persistFallbackModels() {
-  ensureFvsConfigDir();
+  ensureLocalRouterConfigDir();
   const routes = Object.values(fallbackModelStore)
     .map((model) => cloneFallbackModel(model))
     .sort((a, b) => a.id.localeCompare(b.id));
@@ -883,10 +908,11 @@ function persistFallbackModels() {
 }
 
 function loadPersistedFallbackModels() {
-  if (!fs.existsSync(FALLBACK_MODELS_PATH)) return;
+  const persistedPath = existingPath(FALLBACK_MODELS_PATH, LEGACY_FALLBACK_MODELS_PATH);
+  if (!fs.existsSync(persistedPath)) return;
 
   try {
-    const parsed = JSON.parse(fs.readFileSync(FALLBACK_MODELS_PATH, 'utf8'));
+    const parsed = JSON.parse(fs.readFileSync(persistedPath, 'utf8'));
     const entries = Array.isArray(parsed?.routes)
       ? parsed.routes
       : Array.isArray(parsed)
@@ -908,7 +934,7 @@ function loadPersistedFallbackModels() {
 }
 
 function persistRouterModels() {
-  ensureFvsConfigDir();
+  ensureLocalRouterConfigDir();
   const routers = Object.values(routerModelStore)
     .map((model) => cloneRouterModel(model))
     .sort((a, b) => a.id.localeCompare(b.id));
@@ -927,10 +953,11 @@ function persistRouterModels() {
 }
 
 function loadPersistedRouterModels() {
-  if (!fs.existsSync(ROUTER_MODELS_PATH)) return;
+  const persistedPath = existingPath(ROUTER_MODELS_PATH, LEGACY_ROUTER_MODELS_PATH);
+  if (!fs.existsSync(persistedPath)) return;
 
   try {
-    const parsed = JSON.parse(fs.readFileSync(ROUTER_MODELS_PATH, 'utf8'));
+    const parsed = JSON.parse(fs.readFileSync(persistedPath, 'utf8'));
     const entries = Array.isArray(parsed?.routers)
       ? parsed.routers
       : Array.isArray(parsed)
@@ -1061,7 +1088,7 @@ function validateFallbackReferences(model: FallbackModel) {
   const unresolved = model.models.filter((entry) => {
     if (findProviderModel(entry)) return false;
     const resolved = resolveModelTarget(entry);
-    if (!resolved || resolved.providerName === FALLBACK_PROVIDER_NAME || resolved.providerName === FALLBACK_PROVIDER_LEGACY_NAME) return true;
+    if (!resolved || isLocalRouterProviderName(resolved.providerName)) return true;
     return !getProviderSummary(resolved.providerName);
   });
 
@@ -1076,7 +1103,7 @@ function validateRouterReferences(model: RouterModel) {
   const unresolved = model.candidates.filter((candidate) => {
     if (findProviderModel(candidate.model)) return false;
     const resolved = resolveModelTarget(candidate.model);
-    if (!resolved || resolved.providerName === FALLBACK_PROVIDER_NAME || resolved.providerName === FALLBACK_PROVIDER_LEGACY_NAME) return true;
+    if (!resolved || isLocalRouterProviderName(resolved.providerName)) return true;
     return !getProviderSummary(resolved.providerName);
   });
 
@@ -1215,7 +1242,7 @@ INSERT OR REPLACE INTO ItemTable (key, value) VALUES ('${escapedKey}', '${escape
 
 function vscodeCachedOllamaModelEntry(model: ProviderModel) {
   return {
-    identifier: `ollama/FVS-CODE/${model.id}`,
+    identifier: `ollama/LocalRouter/${model.id}`,
     metadata: {
       extension: {
         value: 'GitHub.copilot-chat',
@@ -1278,7 +1305,7 @@ function configureVSCodeModelPicker(hostUrl: string) {
 
   const filtered = entries.filter((entry) => entry?.vendor !== 'ollama');
   filtered.push({
-    name: 'FVS-CODE',
+    name: 'Local Router',
     vendor: 'ollama',
     url: hostUrl
   });
@@ -1332,7 +1359,7 @@ function configureVSCodeModelPicker(hostUrl: string) {
     }
 
     for (const model of models) {
-      const identifier = `ollama/FVS-CODE/${model.id}`;
+      const identifier = `ollama/LocalRouter/${model.id}`;
       if (cachedIdentifiers.has(identifier)) continue;
       cachedModels.push(vscodeCachedOllamaModelEntry(model));
       cachedIdentifiers.add(identifier);
@@ -1343,12 +1370,12 @@ function configureVSCodeModelPicker(hostUrl: string) {
   const configuredIDs = new Set<string>();
   for (const model of models) {
     const ids = new Set<string>([
-      `ollama/FVS-CODE/${model.id}`,
+      `ollama/LocalRouter/${model.id}`,
       `ollama/Ollama/${model.id}`
     ]);
 
     if (!model.id.includes(':')) {
-      ids.add(`ollama/FVS-CODE/${model.id}:latest`);
+      ids.add(`ollama/LocalRouter/${model.id}:latest`);
       ids.add(`ollama/Ollama/${model.id}:latest`);
     }
 
@@ -1360,7 +1387,10 @@ function configureVSCodeModelPicker(hostUrl: string) {
 
   let removedPickerIDCount = 0;
   for (const id of Object.keys(prefs)) {
-    if (id.startsWith('ollama/FVS-CODE/') && !configuredIDs.has(id)) {
+    if (
+      (id.startsWith('ollama/LocalRouter/') || id.startsWith('ollama/Local Router/') || id.startsWith('ollama/FVS-CODE/'))
+      && !configuredIDs.has(id)
+    ) {
       delete prefs[id];
       removedPickerIDCount += 1;
       continue;
@@ -1371,7 +1401,8 @@ function configureVSCodeModelPicker(hostUrl: string) {
     const suffix = pickerModelName(id);
     const baseSuffix = stripOllamaLatestSuffix(suffix);
     const matchedModel = candidateToModel.get(suffix) || candidateToModel.get(baseSuffix);
-    const isFallbackAlias = baseSuffix.startsWith(`${FALLBACK_PROVIDER_NAME}/`) || baseSuffix.startsWith(`${FALLBACK_PROVIDER_LEGACY_NAME}/`);
+    const [baseProviderName] = baseSuffix.split('/');
+    const isFallbackAlias = isLocalRouterProviderName(baseProviderName);
     const isGeneratedDisplayAlias = Boolean(matchedModel) && /[:/]/.test(baseSuffix);
 
     if (isFallbackAlias || isGeneratedDisplayAlias) {
@@ -1407,7 +1438,7 @@ app.get('/config', (req: Request, res: Response) => {
     <html lang="en">
     <head>
       <meta charset="UTF-8">
-      <title>FVS-Code Config</title>
+      <title>Local Router Config</title>
       <style>
         :root {
           color-scheme: light;
@@ -1567,7 +1598,8 @@ app.get('/config', (req: Request, res: Response) => {
         }
       </style>
       <script>
-        const THEME_STORAGE_KEY = 'fvs-code-config-color-scheme-scale';
+        const THEME_STORAGE_KEY = 'local-router-config-color-scheme-scale';
+        const LEGACY_THEME_STORAGE_KEY = 'fvs-code-config-color-scheme-scale';
         const THEME_PRESETS = [
           {
             name: 'Light',
@@ -1744,7 +1776,7 @@ app.get('/config', (req: Request, res: Response) => {
         }
 
         function initializeThemeScale() {
-          const stored = localStorage.getItem(THEME_STORAGE_KEY);
+          const stored = localStorage.getItem(THEME_STORAGE_KEY) || localStorage.getItem(LEGACY_THEME_STORAGE_KEY);
           applyThemeScale(stored === null ? 0 : stored, false);
         }
 
@@ -1770,7 +1802,7 @@ app.get('/config', (req: Request, res: Response) => {
             </div>
           </div>
         </div>
-        <h2>FVS-Code Secure Key Configuration</h2>
+        <h2>Local Router Secure Key Configuration</h2>
         <p>Keys are stored securely in-memory and will be lost on server restart.</p>
         <div class="provider-picker">
           <div class="form-group">
@@ -1864,7 +1896,7 @@ app.get('/config', (req: Request, res: Response) => {
         <div class="catalog-meta">
           <div>
             <h2>Router Models</h2>
-            <p class="muted">Create a local router model from explicit candidate model IDs. Routers appear as fvs-code/&lt;name&gt; and only select from the candidates listed here.</p>
+            <p class="muted">Create a local router model from explicit candidate model IDs. Routers appear as local-router/&lt;name&gt; and only select from the candidates listed here.</p>
           </div>
           <div class="muted" id="routerCount">Loading router models...</div>
         </div>
@@ -3111,10 +3143,11 @@ app.delete('/api/router-models', (req: Request, res: Response) => {
 
 app.get('/api/router-events.csv', (req: Request, res: Response) => {
   res.type('text/csv');
-  if (!fs.existsSync(ROUTER_EVENTS_PATH)) {
+  const eventsPath = existingPath(ROUTER_EVENTS_PATH, LEGACY_ROUTER_EVENTS_PATH);
+  if (!fs.existsSync(eventsPath)) {
     return res.send('timestamp,router_id,presented_model,router_type,selected_model,status,duration_ms,stream,requires_tools,requires_images,approx_input_tokens,requested_output_tokens,candidate_scores,error_type\n');
   }
-  return res.send(fs.readFileSync(ROUTER_EVENTS_PATH, 'utf8'));
+  return res.send(fs.readFileSync(eventsPath, 'utf8'));
 });
 
 app.post('/api/router-models/:id/dry-run', (req: Request, res: Response) => {
@@ -3161,7 +3194,7 @@ app.post('/api/router-models/:id/recompute', (req: Request, res: Response) => {
   }
 
   const router = routerModelStore[routerId];
-  const eventsPath = ROUTER_EVENTS_PATH;
+  const eventsPath = existingPath(ROUTER_EVENTS_PATH, LEGACY_ROUTER_EVENTS_PATH);
 
   if (!fs.existsSync(eventsPath)) {
     return res.json({
@@ -4167,7 +4200,7 @@ function routerCandidateEligibility(router: RouterModel, candidate: RouterCandid
   const features = requestFeatureSummary(body);
   const rejectionReasons: string[] = [];
 
-  if (!target || target.providerName === FALLBACK_PROVIDER_NAME || target.providerName === FALLBACK_PROVIDER_LEGACY_NAME) {
+  if (!target || isLocalRouterProviderName(target.providerName)) {
     rejectionReasons.push('unresolved');
   }
   if (target && !providerHasConfiguredKey(target.providerName)) {
@@ -4398,7 +4431,7 @@ function routerEventFeatures(features: ReturnType<typeof requestFeatureSummary>,
 }
 
 function appendRouterEvent(event: Record<string, unknown>) {
-  ensureFvsConfigDir();
+  ensureLocalRouterConfigDir();
   const headers = [
     'timestamp',
     'router_id',
@@ -5147,7 +5180,7 @@ app.get('/v1/models', async (req: Request, res: Response) => {
   const providerModels = presentedModelList();
 
   if (requestedProvider) {
-    if (requestedProvider === FALLBACK_PROVIDER_NAME || requestedProvider === FALLBACK_PROVIDER_LEGACY_NAME) {
+    if (isLocalRouterProviderName(requestedProvider)) {
       return res.json({
         object: 'list',
         data: [...fallbackModelList(), ...routerModelList()].map((model) => ({
@@ -5292,6 +5325,6 @@ app.post('/api/generate', async (req: Request, res: Response) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`FVS-Code OpenAI-compatible proxy running on http://localhost:${PORT}`);
+  console.log(`Local Router OpenAI-compatible proxy running on http://localhost:${PORT}`);
   console.log(`Point your VS Code extension to: http://localhost:${PORT}/v1`);
 });

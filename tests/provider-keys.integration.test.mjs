@@ -20,6 +20,7 @@ let serverLogs = '';
 let skipReason = '';
 let testHome = '';
 let proxyEnv = {};
+let selectedProvider;
 
 function firstProviderSummary() {
   const content = readFileSync('providers.txt', 'utf8');
@@ -48,7 +49,7 @@ function firstProviderSummary() {
 }
 
 function providerBaseUrlEnvVar(providerName) {
-  return `FVS_PROVIDER_${providerName.toUpperCase().replace(/[^A-Z0-9]+/g, '_')}_BASE_URL`;
+  return `LOCAL_ROUTER_PROVIDER_${providerName.toUpperCase().replace(/[^A-Z0-9]+/g, '_')}_BASE_URL`;
 }
 
 async function readRequestBody(req) {
@@ -219,16 +220,16 @@ test.before(async () => {
     return;
   }
 
-  const firstProvider = firstProviderSummary();
+  selectedProvider = firstProviderSummary();
   await startFakeUpstream();
-  testHome = mkdtempSync(join(tmpdir(), 'fvs-code-test-'));
+  testHome = mkdtempSync(join(tmpdir(), 'local-router-test-'));
   proxyEnv = {
     ...process.env,
     HOME: testHome,
     PORT: port,
-    FVS_FALLBACK_BASE_RETRY_SECONDS: '0',
-    [firstProvider.keyEnvVar]: 'integration-test-provider-key',
-    [providerBaseUrlEnvVar(firstProvider.name)]: upstreamBaseUrl
+    LOCAL_ROUTER_FALLBACK_BASE_RETRY_SECONDS: '0',
+    [selectedProvider.keyEnvVar]: 'integration-test-provider-key',
+    [providerBaseUrlEnvVar(selectedProvider.name)]: upstreamBaseUrl
   };
 
   try {
@@ -308,7 +309,7 @@ test('provider key save/reset lifecycle exposes configured source', async (t) =>
   assert.equal(persistentFallbackSave.response.status, 200);
   assert.equal(persistentFallbackSave.body?.success, true);
   assert.equal(persistentFallbackSave.body?.persisted, true);
-  assert.equal(persistentFallbackSave.body?.model?.id, 'fvs-code/persistent-fallback-route');
+  assert.equal(persistentFallbackSave.body?.model?.id, 'local-router/persistent-fallback-route');
   assert.equal(persistentFallbackSave.body?.model?.routeId, 'persistent-fallback-route');
 
   await restartProxyProcess();
@@ -317,7 +318,7 @@ test('provider key save/reset lifecycle exposes configured source', async (t) =>
   assert.equal(persistedFallbackRoutes.response.status, 200);
   assert.ok(
     persistedFallbackRoutes.body?.data?.some((route) => (
-      route.id === 'fvs-code/persistent-fallback-route'
+      route.id === 'local-router/persistent-fallback-route'
       && route.routeId === 'persistent-fallback-route'
     )),
     'Expected fallback route to survive proxy restart'
@@ -326,7 +327,7 @@ test('provider key save/reset lifecycle exposes configured source', async (t) =>
   const persistedFallbackModelsList = await requestJson('/v1/models');
   assert.ok(
     persistedFallbackModelsList.body?.data?.some((model) => (
-      model.id === 'fvs-code/persistent-fallback-route' && model.owned_by === 'fvs-code'
+      model.id === 'local-router/persistent-fallback-route' && model.owned_by === 'local-router'
     )),
     'Expected persisted fallback route in OpenAI-compatible models after restart'
   );
@@ -505,14 +506,14 @@ test('provider key save/reset lifecycle exposes configured source', async (t) =>
   });
   assert.equal(fallbackRouteSave.response.status, 200);
   assert.equal(fallbackRouteSave.body?.success, true);
-  assert.equal(fallbackRouteSave.body?.model?.id, 'fvs-code/router-fallback-main');
+  assert.equal(fallbackRouteSave.body?.model?.id, 'local-router/router-fallback-main');
   assert.equal(fallbackRouteSave.body?.model?.routeId, 'router-fallback-main');
 
   const fallbackRoutes = await requestJson('/api/fallback-models');
   assert.equal(fallbackRoutes.response.status, 200);
   assert.ok(
     fallbackRoutes.body?.data?.some((route) => (
-      route.id === 'fvs-code/router-fallback-main'
+      route.id === 'local-router/router-fallback-main'
       && route.routeId === 'router-fallback-main'
     )),
     'Expected fallback route in fallback list'
@@ -521,26 +522,30 @@ test('provider key save/reset lifecycle exposes configured source', async (t) =>
   const modelsWithFallback = await requestJson('/v1/models');
   assert.ok(
     modelsWithFallback.body?.data?.some((entry) => (
-      entry.id === 'fvs-code/router-fallback-main' && entry.owned_by === 'fvs-code'
+      entry.id === 'local-router/router-fallback-main' && entry.owned_by === 'local-router'
     )),
     'Expected fallback route to appear in OpenAI-compatible model list'
   );
 
   const tagsWithFallback = await requestJson('/api/tags');
   assert.ok(
-    tagsWithFallback.body?.models?.some((entry) => entry.name === 'fvs-code/router-fallback-main'),
+    tagsWithFallback.body?.models?.some((entry) => entry.name === 'local-router/router-fallback-main'),
     'Expected fallback route to appear in Ollama tags'
   );
 
-  const fallbackShowPath = await requestJson('/api/show/fvs-code/router-fallback-main');
+  const fallbackShowPath = await requestJson('/api/show/local-router/router-fallback-main');
   assert.equal(fallbackShowPath.response.status, 200);
-  assert.equal(fallbackShowPath.body?.details?.family, 'fvs-code');
-  assert.equal(fallbackShowPath.body?.details?.parameter_size, 'fvs-code/router-fallback-main');
-  assert.equal(fallbackShowPath.body?.model_info?.['general.basename'], 'fvs-code/router-fallback-main');
+  assert.equal(fallbackShowPath.body?.details?.family, 'local-router');
+  assert.equal(fallbackShowPath.body?.details?.parameter_size, 'local-router/router-fallback-main');
+  assert.equal(fallbackShowPath.body?.model_info?.['general.basename'], 'local-router/router-fallback-main');
 
-  const fallbackShowLatestPath = await requestJson('/api/show/fvs-code/router-fallback-main:latest');
+  const fallbackShowLatestPath = await requestJson('/api/show/local-router/router-fallback-main:latest');
   assert.equal(fallbackShowLatestPath.response.status, 200);
-  assert.equal(fallbackShowLatestPath.body?.model_info?.['general.basename'], 'fvs-code/router-fallback-main');
+  assert.equal(fallbackShowLatestPath.body?.model_info?.['general.basename'], 'local-router/router-fallback-main');
+
+  const fallbackShowLegacyPath = await requestJson('/api/show/fvs-code/router-fallback-main');
+  assert.equal(fallbackShowLegacyPath.response.status, 200);
+  assert.equal(fallbackShowLegacyPath.body?.model_info?.['general.basename'], 'local-router/router-fallback-main');
 
   upstreamRequests = [];
   upstreamAttemptByModel = new Map();
@@ -548,7 +553,7 @@ test('provider key save/reset lifecycle exposes configured source', async (t) =>
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      model: 'fvs-code/router-fallback-main',
+      model: 'local-router/router-fallback-main',
       stream: false,
       messages: [{ role: 'user', content: 'fallback route test' }]
     })
@@ -601,7 +606,7 @@ test('provider key save/reset lifecycle exposes configured source', async (t) =>
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      model: 'fvs-code/router-fallback-exhausted',
+      model: 'local-router/router-fallback-exhausted',
       stream: false,
       messages: [{ role: 'user', content: 'force fallback failure' }]
     })
@@ -634,14 +639,14 @@ test('provider key save/reset lifecycle exposes configured source', async (t) =>
   assert.equal(routerRouteSave.response.status, 200);
   assert.equal(routerRouteSave.body?.success, true);
   assert.equal(routerRouteSave.body?.persisted, true);
-  assert.equal(routerRouteSave.body?.model?.id, 'fvs-code/pareto-router-main');
+  assert.equal(routerRouteSave.body?.model?.id, 'local-router/pareto-router-main');
   assert.equal(routerRouteSave.body?.model?.routeId, 'pareto-router-main');
 
   const routerRoutes = await requestJson('/api/router-models');
   assert.equal(routerRoutes.response.status, 200);
   assert.ok(
     routerRoutes.body?.data?.some((route) => (
-      route.id === 'fvs-code/pareto-router-main'
+      route.id === 'local-router/pareto-router-main'
       && route.routeId === 'pareto-router-main'
       && route.type === 'pareto-code'
     )),
@@ -651,16 +656,20 @@ test('provider key save/reset lifecycle exposes configured source', async (t) =>
   const modelsWithRouter = await requestJson('/v1/models');
   assert.ok(
     modelsWithRouter.body?.data?.some((entry) => (
-      entry.id === 'fvs-code/pareto-router-main' && entry.owned_by === 'fvs-code'
+      entry.id === 'local-router/pareto-router-main' && entry.owned_by === 'local-router'
     )),
     'Expected router route to appear in OpenAI-compatible model list'
   );
 
-  const routerShowPath = await requestJson('/api/show/fvs-code/pareto-router-main');
+  const routerShowPath = await requestJson('/api/show/local-router/pareto-router-main');
   assert.equal(routerShowPath.response.status, 200);
-  assert.equal(routerShowPath.body?.details?.family, 'fvs-code');
-  assert.equal(routerShowPath.body?.details?.parameter_size, 'fvs-code/pareto-router-main');
-  assert.equal(routerShowPath.body?.model_info?.['general.basename'], 'fvs-code/pareto-router-main');
+  assert.equal(routerShowPath.body?.details?.family, 'local-router');
+  assert.equal(routerShowPath.body?.details?.parameter_size, 'local-router/pareto-router-main');
+  assert.equal(routerShowPath.body?.model_info?.['general.basename'], 'local-router/pareto-router-main');
+
+  const routerShowLegacyPath = await requestJson('/api/show/fvs-code/pareto-router-main');
+  assert.equal(routerShowLegacyPath.response.status, 200);
+  assert.equal(routerShowLegacyPath.body?.model_info?.['general.basename'], 'local-router/pareto-router-main');
 
   upstreamRequests = [];
   upstreamAttemptByModel = new Map();
@@ -668,7 +677,7 @@ test('provider key save/reset lifecycle exposes configured source', async (t) =>
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      model: 'fvs-code/pareto-router-main',
+      model: 'local-router/pareto-router-main',
       stream: false,
       messages: [{ role: 'user', content: 'router route test' }]
     })
@@ -691,7 +700,7 @@ test('provider key save/reset lifecycle exposes configured source', async (t) =>
   assert.equal(routerCandidates.status, 200);
   const routerCandidatesText = await routerCandidates.text();
   assert.ok(routerCandidatesText.includes('router_id,presented_model,router_type,candidate_model'));
-  assert.ok(routerCandidatesText.includes('fvs-code/pareto-router-main'));
+  assert.ok(routerCandidatesText.includes('local-router/pareto-router-main'));
 
   // Router recompute pipeline
   const recomputeRes = await fetch(`${baseUrl}/api/router-models/pareto-router-main/recompute`, {
@@ -723,7 +732,7 @@ test('provider key save/reset lifecycle exposes configured source', async (t) =>
   assert.equal(importRes.status, 200);
   const importBody = await importRes.json();
   assert.equal(importBody.success, true);
-  assert.ok(importBody.imported.includes('fvs-code/pareto-router-main'));
+  assert.ok(importBody.imported.includes('local-router/pareto-router-main'));
   assert.equal(importBody.errors.length, 0);
 
   // Remove the existing persistent-fallback-route so findSystemFallback picks up ours
@@ -746,7 +755,7 @@ test('provider key save/reset lifecycle exposes configured source', async (t) =>
   assert.equal(cascadeRouterSave.response.status, 200);
 
   // Add a second model to the test provider for the fallback cascade
-  await requestJson(`/api/provider-models/${firstProvider.name}/models`, {
+  await requestJson(`/api/provider-models/${selectedProvider.name}/models`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -777,7 +786,7 @@ test('provider key save/reset lifecycle exposes configured source', async (t) =>
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      model: 'fvs-code/cascade-router',
+      model: 'local-router/cascade-router',
       stream: false,
       messages: [{ role: 'user', content: 'cascade test' }]
     })
@@ -788,9 +797,9 @@ test('provider key save/reset lifecycle exposes configured source', async (t) =>
 
   // Verify the cascade: router candidates were tried (and failed), then fallback succeeded
   const cascadeUpstreamOrder = upstreamRequests.map((entry) => entry?.body?.model).filter(Boolean);
-  assert.ok(cascadeUpstreamOrder.includes('fallback-first-fail'));
+  assert.ok(cascadeUpstreamOrder.includes('fail-always-first'));
   // Fallback model should appear after the router candidates
-  const firstRouterIdx = cascadeUpstreamOrder.indexOf('fallback-first-fail');
+  const firstRouterIdx = cascadeUpstreamOrder.indexOf('fail-always-first');
   const fallbackSuccessIdx = cascadeUpstreamOrder.findIndex((m) => !m.includes('fail-always') && !m.startsWith('fallback-'));
   assert.ok(fallbackSuccessIdx >= 0, 'System fallback candidate should appear in upstream order');
   assert.ok(fallbackSuccessIdx > firstRouterIdx, 'System fallback should be tried after router candidates fail');

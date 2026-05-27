@@ -1,4 +1,4 @@
-# fvs-code: OpenAI-Compatible Proxy Server for VS Code
+# Local Router: OpenAI-Compatible Proxy Server for VS Code
 
 ## Project Context
 This project was created to provide a lightweight, OpenAI-compatible proxy server that can be used with VS Code AI extensions (like Continue, Cline, Roo Code, etc.).
@@ -70,7 +70,7 @@ To be a true drop-in replacement, we intercept bidirectional traffic:
 ## Current Implementation State
 - The live browser UI at `http://localhost:11434/config` now serves a secure in-memory key config page and a provider selector built from `providers.txt`.
 - The `/config` browser UI includes a local `Color Scheme` range slider with Light, Balanced, and Dark stops. The 0-100 scale continuously adjusts CSS theme tokens for page background, cards, controls, borders, text, muted text, buttons, status pills, diagnostics, and catalog surfaces.
-- The color-scheme slider persists only in browser `localStorage` under `fvs-code-config-color-scheme-scale`; it does not write provider keys, prompts, model settings, route definitions, or server-side config files.
+- The color-scheme slider persists only in browser `localStorage` under `local-router-config-color-scheme-scale`; it does not write provider keys, prompts, model settings, route definitions, or server-side config files.
 - `GET /` and `HEAD /` return Ollama-compatible heartbeat responses (`Ollama is running`) so Ollama clients can detect the proxy.
 - The selector shows the provider API key configs we want to set keys for, including the provider name, endpoint, key env var, and default tool.
 - The provider key save flow stores keys in memory and maps them to the env vars listed in `providers.txt`.
@@ -78,7 +78,7 @@ To be a true drop-in replacement, we intercept bidirectional traffic:
 - The provider model manager now supports one-model-at-a-time runtime edits per provider (add/update/delete) with explicit fields for upstream model ID, presented alias, context length, max output tokens, and capability toggles (`tools`, `vision`, `cache`, `reasoning`).
 - `GET /api/provider-models`, `GET /api/provider-models/:provider`, `PUT /api/provider-models/:provider` (bulk replace), `POST /api/provider-models/:provider/models` (single-model upsert), `DELETE /api/provider-models/:provider/models/:modelId` (single-model delete), and `DELETE /api/provider-models/:provider` (reset to baseline) manage the in-memory model catalog.
 - The browser UI now includes a Fallback Model Routes panel for creating, editing, deleting, and inspecting persisted fallback route models.
-- `GET /api/fallback-models`, `POST /api/fallback-models`, and `DELETE /api/fallback-models` manage user-defined fallback routes. Routes persist to the user config directory as non-secret model-chain JSON and reload on proxy startup. Each route presents as its own provider/model-shaped model named `fvs-code/<fallback-route>` with provider family `fvs-code` in `/v1/models`, `/api/tags`, `/api/show`, and VS Code picker refreshes.
+- `GET /api/fallback-models`, `POST /api/fallback-models`, and `DELETE /api/fallback-models` manage user-defined fallback routes. Routes persist to the user config directory as non-secret model-chain JSON and reload on proxy startup. Each route presents as its own provider/model-shaped model named `local-router/<fallback-route>` with provider family `local-router` in `/v1/models`, `/api/tags`, `/api/show`, and VS Code picker refreshes.
 - Fallback route execution tries each primary stage up to three times with `{baseSeconds}^retryIndex` wait logic (default base is 2 seconds), then advances through the user-configured model chain. Before advancing beyond the second failed stage, the engine bridges back through prior models once each, then resumes three-attempt handling for the next new model.
 - `DELETE /api/keys/:provider` now clears a provider key from in-memory storage and runtime env for the current process.
 - The provider catalog is no longer hardcoded; both `GET /v1/models` and `GET /api/tags` are generated from `providers.txt`.
@@ -86,13 +86,14 @@ To be a true drop-in replacement, we intercept bidirectional traffic:
 - Runtime model overrides take precedence over `providers.txt` for the affected provider and immediately update `/v1/models`, `/api/tags`, and `/api/show`. Requests for the presented model name are routed back to the provider-required upstream model.
 - Ollama discovery compatibility includes `HEAD /api/version`, `HEAD /api/tags`, `GET /api/ps`, and `POST /api/show`.
 - Ollama model discovery now advertises per-model capabilities from `providers.txt`: `completion`, `tools` when supported, and `vision` when image input is supported.
-- `POST /api/vscode/configure` writes the VS Code `chatLanguageModels.json` Ollama vendor entry and updates `chatModelPickerPreferences` in `globalStorage/state.vscdb` so presented FVS-CODE models are visible in the Copilot model picker.
-- VS Code cached Ollama metadata is patched, when present, with stable presented alias for `id` and `name`, provider family, alias detail, upstream tooltip, `maxInputTokens`, `maxOutputTokens`, `toolCalling`, and `imageInput`. The picker preference writer enables canonical FVS-CODE and Ollama IDs only, including `fvs-code/<fallback-route>` fallback routes, and removes stale FVS-CODE picker IDs that would surface raw upstream model names.
+- `POST /api/vscode/configure` writes the VS Code `chatLanguageModels.json` Ollama vendor entry and updates `chatModelPickerPreferences` in `globalStorage/state.vscdb` so presented Local Router models are visible in the Copilot model picker.
+- VS Code cached Ollama metadata is patched, when present, with stable presented alias for `id` and `name`, provider family, alias detail, upstream tooltip, `maxInputTokens`, `maxOutputTokens`, `toolCalling`, and `imageInput`. The picker preference writer enables canonical Local Router and Ollama IDs only, including `local-router/<fallback-route>` fallback routes, and removes stale Local Router picker IDs that would surface raw upstream model names.
 - Ollama `/api/show` uses the stable presented alias as `model_info.general.basename`, `model_info.general.name`, and `details.parameter_size`; raw provider intake IDs remain exposed only as `model_info.general.upstream_model` and tooltip detail so VS Code shows provider-qualified aliases instead of ambiguous upstream basenames.
 - `GET /api/provider-configs` exposes the provider summary table to the browser UI, including `configured` and `configuredSource`.
-- The project now ships a CLI binary `fvs-code` for local lifecycle and route control: `start`, `status`, `stop`, and `route set|custom|unset|status`.
-- `fvs-code route set` configures `ollama serve` to start the fvs-code proxy on default `127.0.0.1:11434`; `route unset` restores normal Ollama behavior.
-- `fvs-code route custom <localhost:port>` configures `ollama serve` to start fvs-code on a safe custom localhost endpoint. Guardrails: host must be `localhost`/`127.0.0.1`, port must be `1024-65535`, port `11434` is blocked for custom mode, and occupied non-fvs ports are rejected.
+- The project now ships a CLI binary `local-router` for local lifecycle and route control: `start`, `status`, `stop`, and `route set|custom|unset|status`.
+- `local-router route set` configures `ollama serve` to start the local-router proxy on default `127.0.0.1:11434`; `route unset` restores normal Ollama behavior.
+- `local-router route custom <localhost:port>` configures `ollama serve` to start Local Router on a safe custom localhost endpoint. Guardrails: host must be `localhost`/`127.0.0.1`, port must be `1024-65535`, port `11434` is blocked for custom mode, and occupied non-Local Router ports are rejected.
+- Compatibility aliases remain for one release cycle: `fvs-code` CLI delegates to `local-router`, `fvs-code/<route>` and `fallback/<route>` resolve to canonical `local-router/<route>`, `~/.config/fvs-code` files are read when new `~/.config/local-router` files do not yet exist, and legacy `FVS_*` environment variables are accepted when canonical `LOCAL_ROUTER_*` variables are unset.
 - `GET /api/version` returns `0.6.4` so VS Code’s Ollama integration passes its minimum version check.
 - The server continues to run on Ollama’s default port `11434` and works as an OpenAI-compatible proxy plus an Ollama-compatible clone surface.
 - The cloned reference codebases under `reference/free-claude-code` and `reference/ollama` were removed after the proxy implementation reached a working state; future comparisons should use upstream documentation or fresh temporary clones outside this repo.
@@ -101,14 +102,14 @@ To be a true drop-in replacement, we intercept bidirectional traffic:
 - Integration coverage now also checks Ollama heartbeat/discovery endpoints (`/`, `/api/version`, `/api/tags`, `/api/ps`, `/api/show`).
 
 ## Confirmed Working State: 2026-05-27
-- VS Code was reloaded and the FVS-CODE/Ollama models are now selectable and usable through Copilot Chat.
+- VS Code was reloaded and the Local Router/Ollama models are now selectable and usable through Copilot Chat.
 - `deepseek-v4-pro` was pinned/selected in VS Code and the earlier `reasoning_content in the thinking mode must be passed back to the API` failure is resolved.
 - The server is expected to run on `http://127.0.0.1:11434` with:
   - `/` returning `Ollama is running`.
   - `/api/version` returning `0.6.4`.
-  - `/api/tags` returning the presented FVS-CODE model catalog.
+  - `/api/tags` returning the presented Local Router model catalog.
   - `/api/show` returning Ollama-style model metadata including context length, max output tokens, and per-model capabilities.
-- `POST /api/vscode/configure` refreshes VS Code's Ollama vendor entry and model picker preferences. Current picker refreshes configure canonical model IDs and clean stale FVS-CODE preference IDs that previously kept raw upstream names visible.
+- `POST /api/vscode/configure` refreshes VS Code's Ollama vendor entry and model picker preferences. Current picker refreshes configure canonical model IDs and clean stale Local Router preference IDs that previously kept raw upstream names visible.
 - Runtime provider keys are still process-local and in-memory. After a server restart, provider keys must be re-entered at `http://127.0.0.1:11434/config` unless provided by the process environment.
 - The `/config` Color Scheme slider has verified Light, Balanced, and Dark palettes. Contrast checks for text-on-surface, muted text, buttons, and primary chips pass readable thresholds across the three stops; Balanced uses a stronger blue accent (`rgb(9, 88, 154)`) to keep mid-scale chips and buttons readable.
 - Runtime model edits are still process-local and in-memory. The browser UI now manages one model at a time with explicit fields:
@@ -124,10 +125,10 @@ To be a true drop-in replacement, we intercept bidirectional traffic:
 - Preferred alias names now flow into VS Code cached Ollama metadata and Ollama show metadata (`name`, `general.basename`, `details.parameter_size`, tooltip), while raw upstream model IDs remain stable for routing.
 
 ## GitNexus / Impact Review: 2026-05-27
-- GitNexus is now indexed for this repository as `fvs-code` at `/Volumes/1tb-sandisk/code-external/fvs-code`.
+- GitNexus is now indexed for this repository as `local-router` at `/Volumes/1tb-sandisk/code-external/fvs-code` after the GitHub repository rename.
 - The focused index excludes dependency/build/reference trees with `.gitnexusignore` and keeps implementation sources, CLI, scripts, tests, docs, and `providers.txt`.
-- Latest successful focused index command: `npx gitnexus analyze --force --index-only --name fvs-code`.
-- Latest focused index stats: 771 nodes, 2,775 edges, 24 clusters, and 67 flows.
+- Latest successful focused index command: `npx gitnexus analyze --force --index-only --name local-router`.
+- Latest focused index stats: 1,008 nodes, 3,887 edges, 27 clusters, and 89 flows.
 - `npx gitnexus status` reports indexed commit `c0a3cdc`, current commit `c0a3cdc`, status up-to-date after the focused index run.
 - An earlier unconstrained index attempt was stopped because it traversed the 162 MB cloned `reference/` tree and emitted parser warnings from vendored Ollama C/C++ sources. The `reference/` tree has now been removed from the repository.
 - GitNexus `detect_changes --scope all` currently reports CRITICAL branch-level risk because this working branch contains a broad multi-feature diff: 324 changed symbols, 59 affected symbols/flows, and 4 indexed changed files.
@@ -138,7 +139,7 @@ To be a true drop-in replacement, we intercept bidirectional traffic:
 - GitNexus `shape_check` for `/api/show` and `/api/vscode/configure` found no routes with both response shapes and consumers, so no consumer shape mismatch was detected.
 - GitNexus symbol impact for `configureVSCodeModelPicker`, `ollamaShowPayload`, `findPresentedModel`, `fallbackExecutionPlan`, and `handleChatCompletion` is LOW in upstream mode.
 - GitNexus symbol impact for `providerModelAliases` is CRITICAL in upstream mode because it feeds `findProviderModel`, `findPresentedModel`, and `configureVSCodeModelPicker`, affecting routing, fallback/router presentation, eligibility scoring, and VS Code model metadata paths. Changes to this helper require full build, integration, live `/api/show`, and VS Code state verification.
-- Current live proxy state after alias work: `http://127.0.0.1:11434` is served by `fvs-code`, route shim is disabled, `/api/tags` reports 46 models, and the persisted fallback route presents as `fvs-code/fallback-models`.
+- Current live proxy state after alias work: `http://127.0.0.1:11434` is served by `local-router`, route shim is disabled, `/api/tags` reports 46 models, and the persisted fallback route presents as `local-router/fallback-models`.
 
 ## Reasoning / Thinking Compatibility Fix
 - Root cause: VS Code Copilot Chat strips or fails to replay provider-native reasoning metadata such as `reasoning_content` across turns. Some upstream providers reject follow-up requests when thinking mode is active but prior `reasoning_content` is missing.
@@ -153,13 +154,13 @@ To be a true drop-in replacement, we intercept bidirectional traffic:
   - Strips reasoning metadata from non-streaming OpenAI-compatible responses before returning to clients.
   - Strips reasoning metadata from OpenAI-compatible SSE chunks before returning to VS Code.
   - Skips empty reasoning-only chunks in Ollama stream translation so `/api/chat` and `/api/generate` do not emit blank assistant chunks for hidden thinking deltas.
-- This is intentionally a compatibility layer, not a reasoning feature. FVS-CODE should present models in a mode that VS Code can use safely without requiring client-side reasoning replay.
+- This is intentionally a compatibility layer, not a reasoning feature. Local Router should present models in a mode that VS Code can use safely without requiring client-side reasoning replay.
 
 ## VS Code / Ollama Metadata Facts Checked: 2026-05-27
 - VS Code's language model metadata shape includes `id`, `name`, `family`, `version`, `maxInputTokens`, `maxOutputTokens`, optional `detail`/`tooltip`, and `capabilities` with `toolCalling` and `imageInput`.
 - VS Code's Ollama integration expects Ollama models to be selectable from the Copilot Chat model picker, with VS Code 1.113+, Copilot Chat 0.41.0+, and Ollama 0.18.3+ behavior as the compatibility target.
 - Ollama's OpenAI-compatible `/v1/chat/completions` surface supports chat, streaming, JSON mode, vision/image content, tools, `tool_choice`, and reasoning/thinking controls.
-- Ollama's model listing and show responses carry per-model `capabilities`; relevant values for this proxy are `completion`, `tools`, and `vision`. Do not advertise `thinking` while FVS-CODE is intentionally disabling provider-native thinking metadata for VS Code compatibility.
+- Ollama's model listing and show responses carry per-model `capabilities`; relevant values for this proxy are `completion`, `tools`, and `vision`. Do not advertise `thinking` while Local Router is intentionally disabling provider-native thinking metadata for VS Code compatibility.
 - Ollama context length is the model's memory window. Ollama's docs recommend at least 64,000 tokens for agents, coding tools, and web-search-like workflows; this is the fallback when provider metadata is missing.
 - Sources checked:
   - https://code.visualstudio.com/api/extension-guides/ai/language-model-chat-provider
@@ -170,9 +171,9 @@ To be a true drop-in replacement, we intercept bidirectional traffic:
   - Local Ollama reference files were previously used during implementation review, then removed from this repository after the implementation was working.
 
 ## Provider Model Metadata Facts Checked: 2026-05-27
-- `providers.txt` and `~/.config/providers.txt` are restored to the full multi-provider operating mode. FVS-CODE should integrate all designated providers and models from this file for the Ollama/OpenAI-compatible proxy catalog, VS Code picker metadata, and downstream CLI/IDE/script tooling.
+- `providers.txt` and `~/.config/providers.txt` are restored to the full multi-provider operating mode. Local Router should integrate all designated providers and models from this file for the Ollama/OpenAI-compatible proxy catalog, VS Code picker metadata, and downstream CLI/IDE/script tooling.
 - Active providers: `wafer-serverless`, `zenmux`, `nebius`, `moonshot`, `nvidia-nim`, `modal`, `openrouter-presets`, and `xiaomi-mimo`.
-- Provider API keys are not stored in `providers.txt`, `~/.config/providers.txt`, `.env`, git, shell history, logs, or tool output. Use env vars or the FVS-CODE browser UI for runtime key configuration.
+- Provider API keys are not stored in `providers.txt`, `~/.config/providers.txt`, `.env`, git, shell history, logs, or tool output. Use env vars or the Local Router browser UI for runtime key configuration.
 - Wafer Serverless model intake IDs include `GLM-5.1`, `Kimi-K2.6`, `deepseek-v4-flash`, `deepseek-v4-pro`, and operator-designated `qwen3.7-max`.
 - The 1-million-context models are explicitly recorded with 1,000,000-token windows:
   - `wafer-serverless/deepseek-v4-flash`
@@ -215,7 +216,7 @@ To be a true drop-in replacement, we intercept bidirectional traffic:
 
 ## Provider Catalog Recovery Log: 2026-05-27
 - A temporary Wafer-only `providers.txt` was created while trying to satisfy a narrow provider-key request. That was wrong for the project goal.
-- The correct operating mode is full multi-provider integration: every provider and model designated in `providers.txt` should be available to FVS-CODE tooling, Ollama-compatible discovery, OpenAI-compatible discovery, VS Code model picker metadata, and downstream CLI/IDE/script configs.
+- The correct operating mode is full multi-provider integration: every provider and model designated in `providers.txt` should be available to Local Router tooling, Ollama-compatible discovery, OpenAI-compatible discovery, VS Code model picker metadata, and downstream CLI/IDE/script configs.
 - Restored `providers.txt` to the full multi-provider catalog and synced it to `~/.config/providers.txt`. The files match exactly.
 - Preserved the security rule that no provider API key values are written to `providers.txt`, `~/.config/providers.txt`, `llms.txt`, `.env`, git, shell history, logs, or tool output.
 - Restored active provider summary:
@@ -282,14 +283,14 @@ To be a true drop-in replacement, we intercept bidirectional traffic:
   - ZenMux model docs (implicit caching provider list)
 
 ## Router Framework Research / PRD Direction: 2026-05-27
-- FVS-CODE should add first-class custom router models that present as `fvs-code/<router-name>`, matching the canonical fallback route presentation pattern. Router IDs must be stable across `/v1/models`, `/api/tags`, `/api/show`, VS Code picker refreshes, diagnostics, and persisted config.
-- Hard invariant: FVS-CODE router execution must always and exclusively choose from the user-configured candidate models for that router. It must not silently use OpenRouter `openrouter/auto`, Not Diamond defaults, a provider-managed hidden pool, or any model outside the route's explicit candidate list.
-- OpenRouter Auto Router research: `openrouter/auto` analyzes prompt complexity, task type, and model capabilities; it can restrict allowed models through an `auto-router` plugin `allowed_models` list; responses expose the concrete selected model. FVS-CODE should copy the transparency and allowlist concepts, not the hidden model-pool dependency.
-- OpenRouter Pareto Code Router research: `openrouter/pareto-code` uses a single `min_coding_score` from `0` to `1`, maps scores into low/medium/high coding tiers, selects the cheapest currently available model in the tier (or fastest with the Nitro variant), and keeps same-tier fallbacks. FVS-CODE should copy the simple scoring knob, tiered coding routing, concrete model disclosure, and same-tier fallback policy.
-- Not Diamond research: Not Diamond selects a model from caller-provided `llm_providers`, returns a session ID for traceability, supports cost/latency/quality tradeoffs, and trains custom routers from CSV-like evaluation data containing inputs, candidate responses, and numeric scores. FVS-CODE should copy the local evaluation dataset shape and traceable session/decision IDs while avoiding external prompt disclosure by default.
-- Not Diamond custom-model research: custom models require explicit context length, input price, output price, and latency fields. FVS-CODE router candidates should store these fields from `providers.txt` plus optional user overrides so score functions can reason about capability, cost, and latency without querying an external router service.
-- DSPy research: DSPy optimizers tune LM programs against user-defined metrics using small training sets, bootstrapped examples, instruction proposals, and search. FVS-CODE should treat DSPy as inspiration for offline router improvement: collect redacted outcomes, score them with user-selected metrics, and compile revised router weights/rules. Request-time routing should remain lightweight and deterministic unless the user explicitly enables exploration.
-- Router storage should use non-secret local files under the existing FVS config directory. Proposed files:
+- Local Router should add first-class custom router models that present as `local-router/<router-name>`, matching the canonical fallback route presentation pattern. Router IDs must be stable across `/v1/models`, `/api/tags`, `/api/show`, VS Code picker refreshes, diagnostics, and persisted config.
+- Hard invariant: Local Router router execution must always and exclusively choose from the user-configured candidate models for that router. It must not silently use OpenRouter `openrouter/auto`, Not Diamond defaults, a provider-managed hidden pool, or any model outside the route's explicit candidate list.
+- OpenRouter Auto Router research: `openrouter/auto` analyzes prompt complexity, task type, and model capabilities; it can restrict allowed models through an `auto-router` plugin `allowed_models` list; responses expose the concrete selected model. Local Router should copy the transparency and allowlist concepts, not the hidden model-pool dependency.
+- OpenRouter Pareto Code Router research: `openrouter/pareto-code` uses a single `min_coding_score` from `0` to `1`, maps scores into low/medium/high coding tiers, selects the cheapest currently available model in the tier (or fastest with the Nitro variant), and keeps same-tier fallbacks. Local Router should copy the simple scoring knob, tiered coding routing, concrete model disclosure, and same-tier fallback policy.
+- Not Diamond research: Not Diamond selects a model from caller-provided `llm_providers`, returns a session ID for traceability, supports cost/latency/quality tradeoffs, and trains custom routers from CSV-like evaluation data containing inputs, candidate responses, and numeric scores. Local Router should copy the local evaluation dataset shape and traceable session/decision IDs while avoiding external prompt disclosure by default.
+- Not Diamond custom-model research: custom models require explicit context length, input price, output price, and latency fields. Local Router router candidates should store these fields from `providers.txt` plus optional user overrides so score functions can reason about capability, cost, and latency without querying an external router service.
+- DSPy research: DSPy optimizers tune LM programs against user-defined metrics using small training sets, bootstrapped examples, instruction proposals, and search. Local Router should treat DSPy as inspiration for offline router improvement: collect redacted outcomes, score them with user-selected metrics, and compile revised router weights/rules. Request-time routing should remain lightweight and deterministic unless the user explicitly enables exploration.
+- Router storage should use non-secret local files under the existing Local Router config directory. Proposed files:
   - `router-models.json`: router definitions, candidate model IDs, route type, scoring policy, weights, thresholds, fallback policy, and enabled state.
   - `router-events.csv`: append-only redacted decision telemetry with request feature summaries, selected model, candidate scores, status, latency, token counts when available, error class, and user/evaluator score when available.
   - `router-candidates.csv`: exportable candidate metadata for sharing/backups: router ID, model ID, provider, context length, output tokens, tool/image/cache/reasoning flags, cost fields, latency estimates, tier labels, and notes.
@@ -301,7 +302,7 @@ To be a true drop-in replacement, we intercept bidirectional traffic:
   - `auto-local`: local rules/weights using task features such as tool use, image input, approximate context size, requested output size, cache support, prior success rate, latency, and user/evaluator scores.
   - `bandit-local`: optional later mode with bounded exploration, per-router budget controls, and explicit user opt-in because it changes behavior over time.
 - Candidate filtering must run before scoring: reject candidates lacking required tools/image support, context window, max output, configured provider key, or route policy constraints. If no candidate survives, fail closed with a clear 400/502 diagnostic rather than falling through to an arbitrary model.
-- Response transparency: non-streaming responses should include concrete selected-model metadata where the client format permits it; streaming diagnostics should record the concrete selected model. Ollama and VS Code metadata should keep the presented `fvs-code/<router-name>` stable while exposing selected upstream details only in safe diagnostic/export surfaces.
+- Response transparency: non-streaming responses should include concrete selected-model metadata where the client format permits it; streaming diagnostics should record the concrete selected model. Ollama and VS Code metadata should keep the presented `local-router/<router-name>` stable while exposing selected upstream details only in safe diagnostic/export surfaces.
 - Config UI should add a Router Models panel parallel to Fallback Model Routes: create/edit/delete router, choose candidate models from the catalog, set route type, configure score knobs, preview eligible candidates, export/import CSV/JSON, and refresh VS Code picker.
 - API surface should be parallel to fallback routes: `GET /api/router-models`, `POST /api/router-models`, `DELETE /api/router-models`, `GET /api/router-events.csv`, `POST /api/router-events/import`, and `POST /api/router-models/:id/recompute` for TypeScript-generated updates.
 - Security/PQC guardrails: router files are non-secret and `0600`; no API keys, prompts, full responses, auth headers, `.env` data, local paths, or provider secrets are written to CSV/JSON; all imports validate model references against configured models; no classical cryptography or unauthenticated external router call is introduced.
@@ -317,7 +318,7 @@ To be a true drop-in replacement, we intercept bidirectional traffic:
 
 ## Router Framework Deep Research: 2026-05-27
 
-Second-pass deep research across the SOTA LLM routing literature. Full details in `ROUTER.md`. This section summarizes the findings that bear directly on FVS-CODE implementation decisions.
+Second-pass deep research across the SOTA LLM routing literature. Full details in `ROUTER.md`. This section summarizes the findings that bear directly on Local Router implementation decisions.
 
 ### Auto Exacto: Statistical Provider Tiering (OpenRouter, March 2025)
 - OpenRouter's Auto Exacto uses three signals re-evaluated every ~5 minutes: throughput (tokens/sec from production traffic), tool-call telemetry (JSON validity, schema conformance, tool name accuracy — billions of calls since August 2025), and benchmark scores (TauBench Airline + GPQA-Diamond, recurring runs).
@@ -325,7 +326,7 @@ Second-pass deep research across the SOTA LLM routing literature. Full details i
 - Three tiers: verified good, insufficient data (middle, not penalized), deranked (pushed to back).
 - Within-tier preserves price/latency ordering. No composite score — just push outliers back.
 - Results: GLM-5 tool call error rate dropped 88% (~8% → ~1%); DeepSeek V3.2 dropped 16% with TauBench improving 69% → 74%.
-- FVS-CODE should adopt: (a) tool-call success columns in router telemetry, (b) statistical outlier detection for candidate quality when 50+ samples accumulate per candidate, (c) optional `enableAutoTiers` flag grouping candidates into tiers before within-tier scoring.
+- Local Router should adopt: (a) tool-call success columns in router telemetry, (b) statistical outlier detection for candidate quality when 50+ samples accumulate per candidate, (c) optional `enableAutoTiers` flag grouping candidates into tiers before within-tier scoring.
 
 ### RouteLLM: Learned Scoring Architectures (LMSys, Feb 2025)
 - Four router architectures benchmarked for binary (strong vs weak) model routing:
@@ -335,7 +336,7 @@ Second-pass deep research across the SOTA LLM routing literature. Full details i
   - Causal LLM: Llama 3 8B, 42 req/s, 69.9% APGR.
 - Key metrics: PGR (Performance Gap Recovered), APGR (Average PGR across cost thresholds), CPT (Call-Performance Threshold — min % strong-model calls needed for target PGR).
 - Routers transfer across model pairs without retraining. Up to 3.66× cost reduction at 95% quality. Routing overhead <0.4% of generation cost.
-- FVS-CODE should adopt: (a) APGR-style aggregate telemetry metric, (b) embedding-similarity candidate scoring replacing regex-based `inferredCodingScore`, (c) `costThreshold` (0-1) parameter as a more intuitive alternative to `costQualityTradeoff` (0-10).
+- Local Router should adopt: (a) APGR-style aggregate telemetry metric, (b) embedding-similarity candidate scoring replacing regex-based `inferredCodingScore`, (c) `costThreshold` (0-1) parameter as a more intuitive alternative to `costQualityTradeoff` (0-10).
 
 ### Contextual Multi-Armed Bandits for LLM Routing (5 papers, 2025-2026)
 - Five papers converge on a common design: treat each candidate model as a "bandit arm," observe a context vector per request, select via UCB, update online.
@@ -344,25 +345,25 @@ Second-pass deep research across the SOTA LLM routing literature. Full details i
 - ParetoBandit enforces dollar-denominated budgets via primal-dual pacing with <0.4% budget error; routes in 9.8ms on CPU.
 - LLM Bandit uses IRT embeddings for cold-start model onboarding so new models can be added without retraining.
 - Mahoraga (open-source) demonstrates LinUCB with a 9-dim context vector beating all cloud agents on code tasks.
-- FVS-CODE should implement `bandit-local` router type: ~6-dim context vector, per-candidate A/b matrices via online ridge regression, UCB selection, geometric forgetting, persisted bandit state in `router-models.json`, ~200 lines of TypeScript. This is the highest-impact improvement identified.
+- Local Router should implement `bandit-local` router type: ~6-dim context vector, per-candidate A/b matrices via online ridge regression, UCB selection, geometric forgetting, persisted bandit state in `router-models.json`, ~200 lines of TypeScript. This is the highest-impact improvement identified.
 
 ### Not Diamond Custom Router Training & Prompt Adaptation (2026)
 - Custom routers train from evaluation CSVs (prompt, per-model responses, numeric scores). Minimum 25 samples, recommended 50-100+. Training: 5-15 minutes.
 - Tradeoff modes: quality (default), cost, latency.
 - "Prompt Adaptation": agentic system auto-rewrites prompts per target model; reports 5-60% accuracy improvements.
-- FVS-CODE should adopt: (a) `POST /api/router-models/:id/recompute` reading telemetry and proposing weight/candidate updates, (b) per-candidate latency tracking in telemetry.
+- Local Router should adopt: (a) `POST /api/router-models/:id/recompute` reading telemetry and proposing weight/candidate updates, (b) per-candidate latency tracking in telemetry.
 
 ### DSPy 3.0 Offline Router Optimization (2025)
 - MIPROv2: joint instruction + few-shot optimization via Bayesian search. Router accuracy improved 85% → 90%.
 - GEPA: Genetic-Pareto tree building Pareto frontier of prompts via natural language reflection.
 - GRPO: RL-based optimization for compound AI systems.
-- FVS-CODE should adopt: DSPy-inspired offline recompute — define metric, propose weight adjustments, user approves/rejects. Compile-then-deploy pattern keeps request-time routing deterministic.
+- Local Router should adopt: DSPy-inspired offline recompute — define metric, propose weight adjustments, user approves/rejects. Compile-then-deploy pattern keeps request-time routing deterministic.
 
 ### Context-Aware Request Classification (2025)
 - LLMRank: per-model strength profiles across task categories.
 - BERT-based difficulty prediction routes simple queries to cheap models and complex ones to expensive ones.
 - Cost-Aware Contrastive Routing uses contrastive learning for routing decisions.
-- FVS-CODE should adopt: (a) `codeDensity`, `languageCount`, `multiTurnDepth`, `instructionLength` as context vector features, (b) per-candidate success rate breakdowns by request feature in exports, (c) lightweight coding vs. general-purpose task detection for stricter `pareto-code` scoring on code tasks.
+- Local Router should adopt: (a) `codeDensity`, `languageCount`, `multiTurnDepth`, `instructionLength` as context vector features, (b) per-candidate success rate breakdowns by request feature in exports, (c) lightweight coding vs. general-purpose task detection for stricter `pareto-code` scoring on code tasks.
 
 ### Scoring Formula Analysis (Current Implementation)
 - Current formula: `score = (codingScore * 100 * qualityWeight) - (cost * costWeight) - (latencyMs / 10000) - index / 1000`
@@ -390,8 +391,8 @@ Second-pass deep research across the SOTA LLM routing literature. Full details i
 
 ## Router Framework Implementation Slice: 2026-05-27
 - Implemented first-class local router models in `src/index.ts`.
-- Router models persist to `~/.config/fvs-code/router-models.json` with `0600` permissions and load on proxy startup.
-- Router execution presents routes as `fvs-code/<router-name>` in `/v1/models`, `/api/tags`, `/api/show`, and VS Code picker metadata via the existing presented model list.
+- Router models persist to `~/.config/local-router/router-models.json` with `0600` permissions and load on proxy startup.
+- Router execution presents routes as `local-router/<router-name>` in `/v1/models`, `/api/tags`, `/api/show`, and VS Code picker metadata via the existing presented model list.
 - Router models are managed through `GET /api/router-models`, `POST /api/router-models`, `DELETE /api/router-models`, `GET /api/router-events.csv`, and `GET /api/router-candidates.csv`.
 - `/config` now includes a Router Models panel for creating, editing, deleting, refreshing VS Code picker metadata, and exporting router candidate/event CSV files.
 - Supported router types in this slice are `priority`, `pareto-code`, and `auto-local`.
@@ -404,12 +405,12 @@ Second-pass deep research across the SOTA LLM routing literature. Full details i
   - `openrouter-openrouter-personal-router`: DeepSeek V4 Pro, MoonshotAI Kimi Latest, Xiaomi MiMo-V2.5-Pro.
   - `openrouter-free-chain-of-draft`: composition not yet confirmed.
 - Router candidates can be entered as newline-delimited rows such as `model-id, coding=0.86, input=1, output=2, latency=1200`. Candidate metadata is optional; missing coding score/cost/latency falls back to local heuristic values from the presented model metadata and model name.
-- Candidate filtering runs before scoring and rejects candidates that are unresolved, nested `fvs-code` routes, missing provider keys, missing tool/image support, too small for approximate context, too small for requested output, or below the configured coding score threshold.
+- Candidate filtering runs before scoring and rejects candidates that are unresolved, nested `local-router` routes, missing provider keys, missing tool/image support, too small for approximate context, too small for requested output, or below the configured coding score threshold.
 - Router execution tries the selected/scored eligible candidates only. It never falls through to OpenRouter `openrouter/auto`, Not Diamond defaults, or any model outside the configured candidate list.
-- Router decision telemetry appends redacted non-secret rows to `~/.config/fvs-code/router-events.csv`; rows include router ID, selected model, status, latency, stream flag, approximate request features, candidate scores, and error type. No prompt text, responses, API keys, auth headers, local paths, or provider secrets are stored.
+- Router decision telemetry appends redacted non-secret rows to `~/.config/local-router/router-events.csv`; rows include router ID, selected model, status, latency, stream flag, approximate request features, candidate scores, and error type. No prompt text, responses, API keys, auth headers, local paths, or provider secrets are stored.
 - `GET /api/router-candidates.csv` exports candidate metadata for backup/sharing without secrets.
 - Added `ROUTER.md` as the agent-facing router improvement guide for research, defaults, scoring policy, telemetry review, and safe future TypeScript tooling.
-- `POST /api/vscode/configure` now seeds missing `chat.cachedLanguageModels.v2` Ollama/FVS-CODE entries in addition to picker preferences, so newly added `fvs-code/<router-name>` routes can appear without waiting for VS Code to discover and cache them independently.
+- `POST /api/vscode/configure` now seeds missing `chat.cachedLanguageModels.v2` Ollama/Local Router entries in addition to picker preferences, so newly added `local-router/<router-name>` routes can appear without waiting for VS Code to discover and cache them independently.
 - Added integration coverage in `tests/provider-keys.integration.test.mjs` for router model create/list/discovery/show, candidate-only execution, and router CSV exports.
 - Verification status:
   - `npm run build` passed.
@@ -421,12 +422,12 @@ Second-pass deep research across the SOTA LLM routing literature. Full details i
 - Preserve the other agent's `Router Framework Deep Research` section above as the research source for the next implementation phase. Do not replace it with the earlier lighter PRD notes; use it to guide concrete changes.
 - Current live baseline:
   - Proxy is running at `http://127.0.0.1:11434`.
-  - Persisted router file exists at `~/.config/fvs-code/router-models.json`.
-  - Live router model: `fvs-code/auto-local-main`.
+  - Persisted router file exists at `~/.config/local-router/router-models.json`.
+  - Live router model: `local-router/auto-local-main`.
   - `GET /api/router-models` returns the `auto-local-main` router.
   - `GET /api/router-candidates.csv` exports the OpenRouter preset candidate rows with operator-provided composition notes.
   - `POST /api/vscode/configure` has been run after adding router metadata.
-  - VS Code `chatModelPickerPreferences` and `chat.cachedLanguageModels.v2` both contain `fvs-code/auto-local-main`.
+  - VS Code `chatModelPickerPreferences` and `chat.cachedLanguageModels.v2` both contain `local-router/auto-local-main`.
 - Current default auto-router candidate set:
   - `openrouter-1-million-chain-of-draft`: `coding=0.88`, notes `DeepSeek V4 Pro + DeepSeek V4 Flash + Xiaomi MiMo-V2.5-Pro`.
   - `openrouter-chain-of-draft`: `coding=0.86`, notes `DeepSeek V4 Pro + MoonshotAI Kimi K2.6 + Xiaomi MiMo-V2.5-Pro`.
@@ -465,8 +466,8 @@ Second-pass deep research across the SOTA LLM routing literature. Full details i
   - Streaming SSE stripping of `reasoning_content`.
   - Fallback route persistence across a real proxy restart using an isolated temporary home directory.
   - Fallback execution order, including three primary attempts, bridge retries, provider error previews, retry wait metadata, and exhausted-route error payloads.
-  - Fallback model presentation as `fvs-code/<route>` in `/api/fallback-models`, `/v1/models`, `/api/tags`, `/api/show`, and chat completion routing.
-  - Router model presentation as `fvs-code/<route>` in `/api/router-models`, `/v1/models`, `/api/tags`, `/api/show`, and chat completion routing.
+  - Fallback model presentation as `local-router/<route>` in `/api/fallback-models`, `/v1/models`, `/api/tags`, `/api/show`, and chat completion routing.
+  - Router model presentation as `local-router/<route>` in `/api/router-models`, `/v1/models`, `/api/tags`, `/api/show`, and chat completion routing.
   - Router CSV exports for candidates and redacted decision events.
   - VS Code/Ollama alias metadata: `/api/show` now reports presented aliases in `model_info.general.basename`, `model_info.general.name`, and `details.parameter_size`, while raw provider intake IDs remain in `model_info.general.upstream_model`.
 
@@ -510,9 +511,9 @@ Second-pass deep research across the SOTA LLM routing literature. Full details i
 - No cross-router learning (shared candidates don't share quality signals).
 
 ### General continuation
-- Exercise a live router model through `/config`, then refresh VS Code picker metadata and verify `fvs-code/<router-name>` appears in Copilot/Ollama model selection.
+- Exercise a live router model through `/config`, then refresh VS Code picker metadata and verify `local-router/<router-name>` appears in Copilot/Ollama model selection.
 - Add import endpoints for router CSV/JSON backups after the export format settles.
-- Rerun `npx gitnexus analyze --force --index-only --name fvs-code` after major source changes, then rerun `detect_changes`, `api_impact` for `/api/show` and `/api/vscode/configure`, `route_map`, and symbol impact analysis for the fallback/VS Code metadata functions.
+- Rerun `npx gitnexus analyze --force --index-only --name local-router` after major source changes, then rerun `detect_changes`, `api_impact` for `/api/show` and `/api/vscode/configure`, `route_map`, and symbol impact analysis for the fallback/VS Code metadata functions.
 - Add integration coverage for CLI route controls (`route set`, `route custom`, `route unset`) and shim safety checks.
 - Add integration coverage for the new `bandit-local` router type (create, dLinUCB state persistence across restart, exploration/exploitation behavior, cold-start forced exploration).
 - Add integration/UI coverage for the one-model-at-a-time provider model manager workflows (add, edit, delete, reset-to-baseline).
@@ -527,7 +528,7 @@ Second-pass deep research across the SOTA LLM routing literature. Full details i
 - **Current branch:** `fix/vscode-provider-aliases` (commit `77d483c`)
 - **Target branch:** `main` (commit `c0a3cdc`)
 - **Divergence:** 1 commit ahead of `main`, zero behind
-- **Remote:** `local-router` (renamed from `origin`, points to `https://github.com/nbiish/fvs-code.git`)
+- **Remote:** `local-router` (renamed from `origin`, points to `https://github.com/nbiish/local-router.git`)
 - **Both branches pushed** to `local-router`
 
 ### Diff summary (main..fix/vscode-provider-aliases)
@@ -537,7 +538,7 @@ Second-pass deep research across the SOTA LLM routing literature. Full details i
 |---|---|
 | `src/index.ts` | +5,215 lines — local router models, fallback chains, diagnostics, CRUD, CLI |
 | `src/reasoning.ts` | +131 lines (new) — reasoning metadata stripping for VS Code compatibility |
-| `bin/fvs-code.js` | +506 lines (new) — CLI binary for proxy lifecycle |
+| `bin/local-router.js` | +506 lines (new) — CLI binary for proxy lifecycle |
 | `llms.txt` | +411 lines — expanded PRD with full provider catalog |
 | `AGENTS.md` | +112 lines (new) — PQC-native security policy |
 | `ROUTER.md` | +542 lines (new) — router architecture docs |
@@ -621,7 +622,7 @@ git worktree prune
 
 ### Session log: 2026-05-27 (Zed / MiMo V2.5 Pro)
 
-**Remote renamed:** `origin` → `local-router` (pushes to `https://github.com/nbiish/fvs-code.git`)
+**Remote renamed:** `origin` → `local-router` (pushes to `https://github.com/nbiish/local-router.git`)
 
 **What was done:**
 1. Renamed git remote from `origin` to `local-router` and pushed both branches (`main`, `fix/vscode-provider-aliases`).

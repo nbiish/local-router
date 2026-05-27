@@ -1,10 +1,10 @@
-# FVS-CODE Router Improvement Guide
+# Local Router Improvement Guide
 
-This document is the working guide for AI agents and maintainers improving FVS-CODE router logic. Keep it current when changing router scoring, defaults, telemetry, exports, or UI behavior.
+This document is the working guide for AI agents and maintainers improving Local Router logic. Keep it current when changing router scoring, defaults, telemetry, exports, or UI behavior.
 
 ## Router Goals
 
-- Present local router models as `fvs-code/<router-name>`.
+- Present local router models as `local-router/<router-name>`.
 - Select only from explicit user-configured candidate models.
 - Fail closed when no candidate is eligible.
 - Keep request-time routing lightweight and deterministic by default.
@@ -14,8 +14,8 @@ This document is the working guide for AI agents and maintainers improving FVS-C
 ## Current Files
 
 - `src/index.ts`: router API, persistence, scoring, execution, UI, metadata presentation, CSV exports.
-- `~/.config/fvs-code/router-models.json`: persisted router definitions, non-secret, `0600`.
-- `~/.config/fvs-code/router-events.csv`: redacted decision telemetry, non-secret, `0600`.
+- `~/.config/local-router/router-models.json`: persisted router definitions, non-secret, `0600`.
+- `~/.config/local-router/router-events.csv`: redacted decision telemetry, non-secret, `0600`.
 - `GET /api/router-candidates.csv`: exportable candidate metadata.
 - `GET /api/router-events.csv`: exportable decision telemetry.
 
@@ -40,7 +40,7 @@ Rationale:
 
 - OpenRouter Auto Router uses model capability, prompt complexity, price, latency, and availability signals, with an industry-style cost/quality tradeoff default of `7`.
 - Pareto Code Router uses `min_coding_score` and tiered coding quality. A `0.66` floor maps to a high-quality coding default while still allowing users to lower the floor for cheaper/faster routes.
-- Not Diamond-style routing is strongest when the candidate set is explicitly caller controlled and backed by evaluation data. FVS-CODE should keep that explicit-candidate contract.
+- Not Diamond-style routing is strongest when the candidate set is explicitly caller controlled and backed by evaluation data. Local Router should keep that explicit-candidate contract.
 - The reset/clear form action should restore a complete usable auto-router profile, including candidate models, so users can tinker and then return to a known-good default.
 
 ## OpenRouter Preset Composition
@@ -99,7 +99,7 @@ Do not store prompts, responses, API keys, auth headers, local paths, `.env` val
 A candidate must be rejected before scoring when:
 
 - The model ID does not resolve to a configured provider model.
-- It points to another `fvs-code/*` route.
+- It points to another `local-router/*` route.
 - The provider key is not configured.
 - The request needs tools and the model lacks tool support.
 - The request has images and the model lacks vision support.
@@ -149,7 +149,7 @@ Record findings in `llms.txt` with source URLs and update this file if the imple
 
 # Router Research & Improvement Opportunities (2026-05-27)
 
-This section summarizes external routing research and maps it to concrete FVS-CODE improvement opportunities. Each subsection covers a technique or finding, its source, and what FVS-CODE should adopt.
+This section summarizes external routing research and maps it to concrete Local Router improvement opportunities. Each subsection covers a technique or finding, its source, and what Local Router should adopt.
 
 ## A. OpenRouter Auto Exacto: Statistical Tier System
 
@@ -179,7 +179,7 @@ Within each tier, original price/latency ordering is preserved. No composite sco
 - DeepSeek V3.2: 16% drop in error rate; TauBench scores 69% → 74%.
 - Per-model provider tool call accuracy exposed in a public performance tab.
 
-### FVS-CODE Adoption Opportunities
+### Local Router Adoption Opportunities
 
 1. **Tool-call success tracking in telemetry** — The current `router-events.csv` captures status and error_type but does not track tool-call correctness. Add `tool_calls_requested`, `tool_calls_valid_json`, `tool_calls_schema_ok`, and `tool_calls_name_match` columns. These can be derived from upstream responses when diagnostics are enabled without storing full tool call payloads.
 
@@ -217,9 +217,9 @@ RouteLLM trains a binary router (strong vs weak model) using human preference da
 - Up to 3.66× cost reduction at 95% of GPT-4 quality on MT Bench.
 - Routing overhead is <0.4% of GPT-4 generation cost.
 
-### FVS-CODE Adoption Opportunities
+### Local Router Adoption Opportunities
 
-1. **APGR-style telemetry metric** — Compute an FVS-CODE analogue: for each router, measure what fraction of the quality gap between the best and worst eligible candidate was recovered. This gives users a single number for "how well is my router doing."
+1. **APGR-style telemetry metric** — Compute an Local Router analogue: for each router, measure what fraction of the quality gap between the best and worst eligible candidate was recovered. This gives users a single number for "how well is my router doing."
 
 2. **Embedding-similarity candidate scoring (the SW Ranking approach)** — The current `inferredCodingScore` uses regex on model names. A better approach: compute a lightweight query embedding (e.g., TF-IDF over code keywords in the prompt) and compare cosine similarity against per-candidate historical success patterns. This would make `auto-local` routing context-aware without adding an external API call.
 
@@ -256,7 +256,7 @@ Contextual multi-armed bandits treat each candidate model as an "arm." For each 
 | Cold-start | Forced exploration phase (50-150 steps) + IRT priors | New models need bounded exploration before UCB can estimate their quality |
 | Budget enforcement | Primal-dual pacing or knapsack policy | Keeps per-request cost within target without manual penalty tuning |
 
-### FVS-CODE Adoption Opportunities
+### Local Router Adoption Opportunities
 
 1. **Implement `bandit-local` router type** — This is the highest-impact improvement. Use **dLinUCB** (discounted LinUCB with UCB) because:
    - It is computationally trivial (ridge regression, no GPU needed).
@@ -296,7 +296,7 @@ Not Diamond trains custom routers from evaluation CSVs containing prompts, per-m
 - Tradeoff modes: quality (default), cost, latency.
 - Arena Mode: end-users vote on outputs for continuous personalization.
 
-### FVS-CODE Adoption Opportunities
+### Local Router Adoption Opportunities
 
 1. **Import evaluation CSV for auto-local weight tuning** — Add `POST /api/router-models/:id/recompute` that reads `router-events.csv` for the given router, computes per-candidate success rates and latency distributions, and proposes updated candidate metadata (coding score, cost, latency) in the response. The user reviews and applies the changes. This is a TypeScript script, not a new runtime.
 
@@ -317,7 +317,7 @@ DSPy optimizers tune LLM programs against user-defined metrics:
 - **GRPO** — RL-based optimization for compound AI systems.
 - **BetterTogether** — Meta-optimizer chaining prompt optimization + weight fine-tuning.
 
-### FVS-CODE Adoption Opportunities
+### Local Router Adoption Opportunities
 
 1. **Router weight optimization as a DSPy-inspired recompute script** — The `POST /api/router-models/:id/recompute` endpoint can use a DSPy-inspired approach:
    - Define a metric: composite success score from telemetry.
@@ -326,7 +326,7 @@ DSPy optimizers tune LLM programs against user-defined metrics:
    - User approves or rejects each change.
    - This keeps optimization offline and under user control, matching DSPy's compile-then-deploy pattern.
 
-2. **Router evaluation dataset generation** — Add `POST /api/router-evals/generate` that takes a router ID and produces a `router-evals.csv` from existing telemetry: redacted prompt hashes, candidate model IDs, observed status/latency, and a derived numeric score. This export is the DSPy-style evaluation dataset that could be used with external tooling if the user wants to train a custom router outside FVS-CODE.
+2. **Router evaluation dataset generation** — Add `POST /api/router-evals/generate` that takes a router ID and produces a `router-evals.csv` from existing telemetry: redacted prompt hashes, candidate model IDs, observed status/latency, and a derived numeric score. This export is the DSPy-style evaluation dataset that could be used with external tooling if the user wants to train a custom router outside Local Router.
 
 3. **Multi-metric optimization** — Current scoring uses a single linear combination. A DSPy-inspired improvement: support multiple named metrics (success_rate, latency_p50, cost_estimate, tool_call_accuracy) and let the user specify per-metric weights or a Pareto frontier view in the UI.
 
@@ -341,7 +341,7 @@ DSPy optimizers tune LLM programs against user-defined metrics:
 
 Context-aware routers classify requests by complexity or domain before selecting a model. BERT-based difficulty prediction can route simple queries to cheap models and complex queries to expensive ones. LLMRank builds per-model strength profiles across task categories.
 
-### FVS-CODE Adoption Opportunities
+### Local Router Adoption Opportunities
 
 1. **Request complexity features in the context vector** — The current `requestFeatureSummary` already extracts `approxInputTokens`, `requestedOutputTokens`, `requiresTools`, and `requiresImages`. Add:
    - `codeDensity`: ratio of code-like tokens (braces, keywords, indentation) to natural language tokens.
