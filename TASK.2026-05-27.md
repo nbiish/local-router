@@ -169,3 +169,4 @@
 - Notes: Added visual direction for an original cool, cutesy cyberpunk Anishinaabe character that is culturally respectful and operator/community approved before becoming a logo, mascot, generated asset, or default UI element.
 - Notes: Added routing direction: open TypeScript/Node logic, explicit candidate lists, redacted telemetry, CSV/JSON exports, dry-run scoring, recompute tools, documented formulas, and no hidden model pools.
 - Notes: Updated `README.md` with the same public-facing vision and open-routing positioning.
+- Notes: Operator explicitly approved merging `docs/product-vision` with "proceed".
