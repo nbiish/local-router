@@ -170,3 +170,11 @@
 - Notes: Added routing direction: open TypeScript/Node logic, explicit candidate lists, redacted telemetry, CSV/JSON exports, dry-run scoring, recompute tools, documented formulas, and no hidden model pools.
 - Notes: Updated `README.md` with the same public-facing vision and open-routing positioning.
 - Notes: Operator explicitly approved merging `docs/product-vision` with "proceed".
+
+- Objective: Normalize repository branch model to `main`, `staging`, and `develop`.
+- Status: In progress on `docs/branch-policy`.
+- PQC Flag: Pass so far (branch/docs operations only; no classical cryptography introduced; no secrets persisted).
+- Notes: `AGENTS.md`, `llms.txt`, and `TASK.2026-05-27.md` reviewed on 2026-05-27 before edits.
+- Notes: Operator approved the proposed model: `main` is user-facing/default, `staging` is operator verification one step below users, and `develop` is the working integration branch for features.
+- Notes: Updated `llms.txt` and `README.md` with the long-lived branch policy and promotion path: feature branches -> `develop` -> `staging` -> `main`.
+- Notes: `production` should be removed after `staging` exists because `main` is the production-facing branch.

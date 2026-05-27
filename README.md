@@ -119,6 +119,22 @@ npm run build
 npm run test:integration
 ```
 
+## Branch Model
+
+Long-lived branches:
+
+- `main`: user-facing default branch displayed on GitHub.
+- `staging`: operator verification branch, one step below `main`.
+- `develop`: integration branch for active feature work before promotion to `staging`.
+
+Promotion path:
+
+```text
+feature branches -> develop -> staging -> main
+```
+
+`production` is not used. `main` is the production-facing branch.
+
 Primary implementation files:
 
 - `src/index.ts`: server, routing, config UI, persistence, and compatibility surfaces.

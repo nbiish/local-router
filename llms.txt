@@ -11,6 +11,17 @@ Visual direction: Local Router should have a cool, cutesy cyberpunk Anishinaabe 
 
 Routing direction: auto-routing should be open, inspectable, and improvable by the community. Prefer local TypeScript/Node logic, explicit candidate lists, redacted telemetry, CSV/JSON exports, dry-run scoring, recompute tools, and documented scoring formulas over opaque hosted router behavior. Users should be able to see why a model was selected, tune the policy, share improvements, and verify that no hidden model pool or provider-managed default was used unless they configured it as a normal candidate.
 
+## Branch Policy
+The repository uses three long-lived branches:
+
+- `main`: user-facing default branch displayed on GitHub.
+- `staging`: operator verification branch, one step below what users see.
+- `develop`: working integration branch for active feature work.
+
+Promotion path: feature branches -> `develop` -> `staging` -> `main`.
+
+Do not use a separate `production` branch. `main` is the production-facing branch.
+
 ## Project Context
 This project was created to provide a lightweight, Ollama-compatible and OpenAI-compatible local proxy server that can be used with VS Code AI extensions and localhost AI tooling.
 The primary goal is to avoid lock-in to a single provider by running a local proxy that routes requests to configured provider models, fallback chains, and transparent local router models based on the requested model name and explicit user policy.
