@@ -170,3 +170,11 @@
 - Notes: Added routing direction: open TypeScript/Node logic, explicit candidate lists, redacted telemetry, CSV/JSON exports, dry-run scoring, recompute tools, documented formulas, and no hidden model pools.
 - Notes: Updated `README.md` with the same public-facing vision and open-routing positioning.
 - Notes: Operator explicitly approved merging `docs/product-vision` with "proceed".
+
+- Objective: Create a concrete Local Router brand and character brief before generating or shipping visual assets.
+- Status: Completed documentation pass on `docs/brand-character-brief`; no runtime code changes.
+- PQC Flag: Pass (documentation-only; no classical cryptography introduced; no secrets persisted).
+- Notes: `AGENTS.md`, `llms.txt`, and `TASK.2026-05-27.md` reviewed on 2026-05-27 before edits.
+- Notes: Added `BRAND.md` with product promise, original cyberpunk Anishinaabe character direction, cultural guardrails, visual system direction, first asset requirements, app integration rules, open-routing personality notes, and implementation sequence.
+- Notes: Updated `llms.txt` to make `BRAND.md` the working source of truth for product identity and character direction before any visual asset generation or shipping.
+- Notes: Updated `README.md` to list `BRAND.md` as a primary project file.

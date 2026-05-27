@@ -9,6 +9,8 @@ The project may take product inspiration from Ollama's local-first ergonomics an
 
 Visual direction: Local Router should have a cool, cutesy cyberpunk Anishinaabe character and interface personality that makes the project memorable without weakening the operational tool surface. This character should be original, culturally respectful, and operator/community approved before it becomes a logo, mascot, generated asset, or default UI element. It should support the product as a first-viewport signal and documentation identity, while the app UI remains dense, readable, and useful for repeated routing/configuration work.
 
+`BRAND.md` is the working source of truth for product identity and character direction. Keep it aligned with this PRD before generating or shipping visual assets.
+
 Routing direction: auto-routing should be open, inspectable, and improvable by the community. Prefer local TypeScript/Node logic, explicit candidate lists, redacted telemetry, CSV/JSON exports, dry-run scoring, recompute tools, and documented scoring formulas over opaque hosted router behavior. Users should be able to see why a model was selected, tune the policy, share improvements, and verify that no hidden model pool or provider-managed default was used unless they configured it as a normal candidate.
 
 ## Project Context

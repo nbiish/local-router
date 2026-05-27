@@ -125,3 +125,4 @@ Primary implementation files:
 - `bin/local-router.js`: CLI lifecycle and Ollama route shim.
 - `providers.txt`: provider and model metadata source.
 - `ROUTER.md`: router design notes and future routing improvements.
+- `BRAND.md`: product identity and character brief for the original cyberpunk Anishinaabe guide concept.
