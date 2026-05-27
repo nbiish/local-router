@@ -3,11 +3,16 @@
   "version": "1.0.0",
   "description": "",
   "main": "index.js",
+  "bin": {
+    "fvs-code": "bin/fvs-code.js"
+  },
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "test": "npm run test:integration",
+    "test:integration": "npm run build && node --test tests/provider-keys.integration.test.mjs",
     "start": "node build/index.js",
     "dev": "ts-node src/index.ts",
-    "build": "tsc"
+    "build": "tsc",
+    "cli": "node bin/fvs-code.js"
   },
   "keywords": [],
   "author": "",
