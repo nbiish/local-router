@@ -520,3 +520,101 @@ Second-pass deep research across the SOTA LLM routing literature. Full details i
 - Add secure local credential storage only if needed. Preferred production pattern remains KMS/HSM or approved vault/keychain integration, not `.env` plaintext.
 - Continue refining model metadata from `providers.txt` as providers publish more exact limits, especially model-specific tool limits, image MIME support, and output-token behavior.
 - Add remaining integration coverage for `/api/generate` and Ollama NDJSON streaming with tool-call-shaped payloads.
+
+## Branch Merge Review: 2026-05-27
+
+### Branch status
+- **Current branch:** `fix/vscode-provider-aliases` (commit `77d483c`)
+- **Target branch:** `main` (commit `c0a3cdc`)
+- **Divergence:** 1 commit ahead of `main`, zero behind
+- **Remote:** `local-router` (renamed from `origin`, points to `https://github.com/nbiish/fvs-code.git`)
+- **Both branches pushed** to `local-router`
+
+### Diff summary (main..fix/vscode-provider-aliases)
+12 files changed, +8,310 / -84 lines:
+
+| File | Change |
+|---|---|
+| `src/index.ts` | +5,215 lines — local router models, fallback chains, diagnostics, CRUD, CLI |
+| `src/reasoning.ts` | +131 lines (new) — reasoning metadata stripping for VS Code compatibility |
+| `bin/fvs-code.js` | +506 lines (new) — CLI binary for proxy lifecycle |
+| `llms.txt` | +411 lines — expanded PRD with full provider catalog |
+| `AGENTS.md` | +112 lines (new) — PQC-native security policy |
+| `ROUTER.md` | +542 lines (new) — router architecture docs |
+| `TASK.2026-05-27.md` | +140 lines (new) — task tracking |
+| `tests/provider-keys.integration.test.mjs` | +1,017 lines (new) — integration test |
+| `package.json` | +9/-2 — added bin, scripts, deps |
+| `.gitignore` | +121/-1 — updated patterns |
+| `.gitnexusignore` | +21 lines (new) |
+| `router-candidates.csv` | +1 line (new) |
+
+### Build status
+- `tsc` compiles with **zero errors** (verified 2026-05-27)
+- `npm run build` → clean
+
+### Issues to fix before merge
+
+**1. Stale build artifacts tracked in `src/`**
+Compiler output (`.js`, `.d.ts`, `.js.map`, `.d.ts.map`) is tracked in git inside `src/`. These belong only in `build/` (which is already gitignored). Pre-existing on both `main` and `fix/vscode-provider-aliases`.
+
+Tracked files to remove from git (keep on disk):
+```
+src/index.d.ts
+src/index.d.ts.map
+src/index.js
+src/index.js.map
+src/providers/groq.d.ts
+src/providers/groq.d.ts.map
+src/providers/groq.js
+src/providers/groq.js.map
+src/providers/openrouter.d.ts
+src/providers/openrouter.d.ts.map
+src/providers/openrouter.js
+src/providers/openrouter.js.map
+src/types.d.ts
+src/types.d.ts.map
+src/types.js
+src/types.js.map
+```
+
+Fix:
+```bash
+# Add to .gitignore
+echo 'src/**/*.js' >> .gitignore
+echo 'src/**/*.d.ts' >> .gitignore
+echo 'src/**/*.js.map' >> .gitignore
+echo 'src/**/*.d.ts.map' >> .gitignore
+
+# Remove from tracking (files stay on disk)
+git rm --cached src/index.js src/index.d.ts src/index.js.map src/index.d.ts.map
+git rm --cached src/types.js src/types.d.ts src/types.js.map src/types.d.ts.map
+git rm --cached src/providers/groq.js src/providers/groq.d.ts src/providers/groq.js.map src/providers/groq.d.ts.map
+git rm --cached src/providers/openrouter.js src/providers/openrouter.d.ts src/providers/openrouter.js.map src/providers/openrouter.d.ts.map
+```
+
+**2. Integration test needs verification**
+The 1017-line integration test (`tests/provider-keys.integration.test.mjs`) spawns a real server + fake upstream. Could not complete a run in this session due to output volume. Run manually:
+```bash
+npm test
+```
+
+### Merge procedure (requires user confirmation per AGENTS.md)
+```bash
+git checkout main
+git merge fix/vscode-provider-aliases --no-ff -m "feat(config): add local router models, fallback routes, and diagnostics"
+# Verify:
+npm run build
+npm test
+# Push:
+git push local-router main
+```
+
+### Post-merge cleanup
+```bash
+# Delete merged branch
+git branch -d fix/vscode-provider-aliases
+git push local-router --delete fix/vscode-provider-aliases
+
+# Prune stale worktrees
+git worktree prune
+```
