@@ -147,6 +147,8 @@ const ROUTER_MODELS_PATH = path.join(LOCAL_ROUTER_CONFIG_DIR, 'router-models.jso
 const LEGACY_ROUTER_MODELS_PATH = path.join(LEGACY_FVS_CONFIG_DIR, 'router-models.json');
 const ROUTER_EVENTS_PATH = path.join(LOCAL_ROUTER_CONFIG_DIR, 'router-events.csv');
 const LEGACY_ROUTER_EVENTS_PATH = path.join(LEGACY_FVS_CONFIG_DIR, 'router-events.csv');
+const PROVIDER_MODELS_PATH = path.join(LOCAL_ROUTER_CONFIG_DIR, 'provider-models.json');
+const LEGACY_PROVIDER_MODELS_PATH = path.join(LEGACY_FVS_CONFIG_DIR, 'provider-models.json');
 const DEFAULT_ROUTER_TYPE: RouterType = 'auto-local';
 const DEFAULT_ROUTER_MIN_CODING_SCORE = 0.66;
 const DEFAULT_ROUTER_COST_QUALITY_TRADEOFF = 7;
@@ -850,6 +852,28 @@ function ensureLocalRouterConfigDir() {
   fs.mkdirSync(LOCAL_ROUTER_CONFIG_DIR, { recursive: true, mode: 0o700 });
 }
 
+function migrateLegacyConfigIfNeeded() {
+  if (!fs.existsSync(LEGACY_FVS_CONFIG_DIR)) return;
+
+  const migrations: Array<[string, string]> = [
+    [LEGACY_FALLBACK_MODELS_PATH, FALLBACK_MODELS_PATH],
+    [LEGACY_ROUTER_MODELS_PATH, ROUTER_MODELS_PATH],
+    [LEGACY_PROVIDER_MODELS_PATH, PROVIDER_MODELS_PATH],
+    [LEGACY_ROUTER_EVENTS_PATH, ROUTER_EVENTS_PATH]
+  ];
+
+  for (const [legacyPath, primaryPath] of migrations) {
+    if (fs.existsSync(legacyPath) && !fs.existsSync(primaryPath)) {
+      try {
+        fs.copyFileSync(legacyPath, primaryPath);
+        fs.chmodSync(primaryPath, 0o600);
+      } catch (error: any) {
+        console.error(`Failed to migrate ${legacyPath}:`, sanitizeDiagnosticText(String(error?.message || error)));
+      }
+    }
+  }
+}
+
 function existingPath(primaryPath: string, legacyPath: string) {
   return fs.existsSync(primaryPath) ? primaryPath : legacyPath;
 }
@@ -975,6 +999,70 @@ function loadPersistedRouterModels() {
     }
   } catch (error: any) {
     console.error('Failed to load persisted router routes:', sanitizeDiagnosticText(String(error?.message || error)));
+  }
+}
+
+function persistProviderModels() {
+  ensureLocalRouterConfigDir();
+  const payload = {
+    version: 1,
+    overrides: Object.entries(modelStore).map(([provider, models]) => ({
+      provider,
+      models: models.map((model) => ({
+        id: model.id,
+        provider: model.provider,
+        model: model.model,
+        display: model.display,
+        contextLength: model.contextLength,
+        outputTokens: model.outputTokens,
+        supportsTools: model.supportsTools,
+        supportsImages: model.supportsImages,
+        supportsCache: model.supportsCache,
+        supportsReasoning: model.supportsReasoning
+      }))
+    })).sort((a, b) => a.provider.localeCompare(b.provider))
+  };
+  const temporaryPath = `${PROVIDER_MODELS_PATH}.${process.pid}.tmp`;
+
+  fs.writeFileSync(temporaryPath, `${JSON.stringify(payload, null, 2)}\n`, {
+    encoding: 'utf8',
+    mode: 0o600
+  });
+  fs.renameSync(temporaryPath, PROVIDER_MODELS_PATH);
+  fs.chmodSync(PROVIDER_MODELS_PATH, 0o600);
+}
+
+function loadPersistedProviderModels() {
+  const persistedPath = existingPath(PROVIDER_MODELS_PATH, LEGACY_PROVIDER_MODELS_PATH);
+  if (!fs.existsSync(persistedPath)) return;
+
+  try {
+    const parsed = JSON.parse(fs.readFileSync(persistedPath, 'utf8'));
+    const entries = Array.isArray(parsed?.overrides)
+      ? parsed.overrides
+      : [];
+
+    for (const entry of entries) {
+      const providerName = String(entry?.provider || '').trim();
+      if (!providerName) continue;
+      const modelList = Array.isArray(entry?.models) ? entry.models : [];
+      if (modelList.length === 0) continue;
+
+      modelStore[providerName] = modelList.map((raw: any) => ({
+        id: String(raw?.id || ''),
+        provider: String(raw?.provider || providerName),
+        model: String(raw?.model || ''),
+        display: String(raw?.display || ''),
+        contextLength: Number.isInteger(raw?.contextLength) ? raw.contextLength : DEFAULT_CONTEXT_LENGTH,
+        outputTokens: Number.isInteger(raw?.outputTokens) ? raw.outputTokens : DEFAULT_OUTPUT_TOKENS,
+        supportsTools: Boolean(raw?.supportsTools),
+        supportsImages: Boolean(raw?.supportsImages),
+        supportsCache: Boolean(raw?.supportsCache),
+        supportsReasoning: Boolean(raw?.supportsReasoning)
+      }));
+    }
+  } catch (error: any) {
+    console.error('Failed to load persisted provider models:', sanitizeDiagnosticText(String(error?.message || error)));
   }
 }
 
@@ -2950,6 +3038,7 @@ app.put('/api/provider-models/:provider', (req: Request, res: Response) => {
   }
 
   modelStore[providerName] = parsed.models.map((model) => cloneProviderModel(model));
+  persistProviderModels();
   return res.json({
     success: true,
     provider: providerName,
@@ -2984,6 +3073,7 @@ app.post('/api/provider-models/:provider/models', (req: Request, res: Response) 
   } else {
     editable.push(cloneProviderModel(nextModel));
   }
+  persistProviderModels();
 
   return res.json({
     success: true,
@@ -3014,6 +3104,7 @@ app.delete('/api/provider-models/:provider/models/:modelId', (req: Request, res:
   if (modelStore[providerName].length === previousCount) {
     return res.status(404).json({ error: `Model not found for provider ${providerName}: ${modelId}` });
   }
+  persistProviderModels();
 
   return res.json({
     success: true,
@@ -3032,6 +3123,7 @@ app.delete('/api/provider-models/:provider', (req: Request, res: Response) => {
   }
 
   delete modelStore[providerName];
+  persistProviderModels();
   return res.json({
     success: true,
     provider: providerName,
@@ -3742,8 +3834,11 @@ function modelPresentationList() {
   return providers.flatMap((provider) => effectiveProviderModels(provider.name));
 }
 
+ensureLocalRouterConfigDir();
+migrateLegacyConfigIfNeeded();
 loadPersistedFallbackModels();
 loadPersistedRouterModels();
+loadPersistedProviderModels();
 
 const DEFAULT_ROUTER_ID = 'auto-local-main';
 
