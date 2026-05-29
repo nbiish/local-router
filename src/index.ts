@@ -2,12 +2,15 @@ import express, { Request, Response } from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import { Readable, Transform } from 'stream';
+import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
 import { execFileSync } from 'child_process';
 import { ProxyProvider } from './types';
 import { sanitizeProviderRequestBody, stripReasoningMetadata } from './reasoning';
+import { loadSessions, loadFeedback, recordRequest, getSessions, getSessionById, recordFeedback } from './sessions';
+import { computeTiers } from './tiers';
 
 type ProviderModel = {
   id: string;
@@ -67,6 +70,7 @@ type RouterModel = {
   minCodingScore?: number;
   costQualityTradeoff?: number;
   explorationBudget?: number;
+  enableAutoTiers?: boolean;
   banditState?: Record<string, BanditState>;
 };
 
@@ -812,6 +816,7 @@ function parseRouterModel(payload: any): RouterModelParseResult {
       minCodingScore: parseBoundedNumber(payload?.minCodingScore, 0, 1) ?? DEFAULT_ROUTER_MIN_CODING_SCORE,
       costQualityTradeoff: parseBoundedNumber(payload?.costQualityTradeoff, 0, 10) ?? DEFAULT_ROUTER_COST_QUALITY_TRADEOFF,
       explorationBudget: parseBoundedNumber(payload?.explorationBudget, 0, 1) ?? 0.05,
+      enableAutoTiers: payload?.enableAutoTiers === true || payload?.enableAutoTiers === 'true',
       banditState: type === 'bandit-local' ? (payload?.banditState || {}) : undefined
     }
   };
@@ -1591,6 +1596,32 @@ app.get('/config', (req: Request, res: Response) => {
         .fallback-route-item .meta { font-size: 12px; color: var(--muted); margin: 3px 0; word-break: break-word; }
         .fallback-route-item .actions { margin-top: 8px; display: flex; gap: 8px; flex-wrap: wrap; }
         .fallback-route-empty { padding: 10px 12px; font-size: 13px; color: var(--muted); background: var(--surface-soft); }
+        .router-tabs { display: flex; gap: 0; margin-bottom: 0; border-bottom: 2px solid var(--border); }
+        .router-tab-btn { padding: 8px 16px; border: none; border-radius: 4px 4px 0 0; background: var(--secondary-bg); color: var(--muted); cursor: pointer; font-size: 13px; font-weight: 600; }
+        .router-tab-btn.active { background: var(--surface-raised); color: var(--primary); border: 2px solid var(--border); border-bottom-color: var(--surface-raised); margin-bottom: -2px; }
+        .router-tab-btn:hover { color: var(--text); }
+        .router-tab-content { padding: 14px; border: 1px solid var(--border); border-top: 0; border-radius: 0 0 6px 6px; background: var(--surface-raised); }
+        .dropdown-search-container { position: relative; }
+        .dropdown-search-menu { position: absolute; top: 100%; left: 0; right: 0; max-height: 240px; overflow-y: auto; background: var(--surface-raised); border: 1px solid var(--border-strong); border-radius: 4px; z-index: 100; box-shadow: 0 4px 12px var(--shadow); display: none; }
+        .dropdown-search-item { padding: 8px 10px; cursor: pointer; font-size: 13px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+        .dropdown-search-item:last-child { border-bottom: 0; }
+        .dropdown-search-item:hover, .dropdown-search-item.selected { background: var(--primary-soft); }
+        .dropdown-search-item .provider-badge { font-size: 10px; padding: 1px 6px; border-radius: 999px; background: var(--secondary-bg); color: var(--muted); white-space: nowrap; }
+        .router-candidate-list { margin-top: 8px; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+        .router-candidate-item { padding: 10px 12px; border-top: 1px solid var(--border); background: var(--surface-raised); display: flex; align-items: center; gap: 10px; }
+        .router-candidate-item:first-child { border-top: 0; }
+        .router-candidate-item.dragging { opacity: 0.5; background: var(--primary-soft); }
+        .router-candidate-item .drag-handle { cursor: grab; color: var(--muted); font-size: 18px; user-select: none; padding: 0 4px; }
+        .router-candidate-item .drag-handle:active { cursor: grabbing; }
+        .router-candidate-item .candidate-info { flex: 1; min-width: 0; }
+        .router-candidate-item .candidate-model { font-size: 14px; font-weight: 600; word-break: break-word; }
+        .router-candidate-item .provider-badge { display: inline-block; font-size: 10px; padding: 1px 6px; border-radius: 999px; background: var(--primary-soft); color: var(--primary); margin-left: 6px; vertical-align: middle; }
+        .router-candidate-item .metadata-row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 4px; }
+        .router-candidate-item .metadata-row input { width: 90px; padding: 3px 6px; font-size: 12px; border: 1px solid var(--border); border-radius: 3px; background: var(--surface-soft); }
+        .router-candidate-item .metadata-row label { font-size: 11px; font-weight: normal; color: var(--muted); margin-bottom: 1px; }
+        .router-candidate-item .remove-btn { background: none; border: none; color: var(--danger-text); cursor: pointer; font-size: 18px; padding: 2px 6px; border-radius: 4px; }
+        .router-candidate-item .remove-btn:hover { background: var(--secondary-hover); }
+        .router-candidate-empty { padding: 10px 12px; font-size: 13px; color: var(--muted); background: var(--surface-soft); }
         @media (max-width: 720px) {
           body { margin: 0 auto; padding: 12px; }
           .theme-panel, .provider-picker { grid-template-columns: 1fr; }
@@ -1930,11 +1961,43 @@ app.get('/config', (req: Request, res: Response) => {
             <p class="muted">Controls how much the bandit explores new candidates. Higher = more exploration. 0.05 is a safe default.</p>
           </div>
         </div>
+        <label class="flag-toggle" style="margin-bottom:8px;">
+          <input id="routerEnableAutoTiers" type="checkbox">
+          Enable Auto Tiers — automatically derank underperforming candidates (requires 50+ samples)
+        </label>
         <div class="form-group">
-          <label for="routerCandidatesText">Candidate Models</label>
-          <textarea id="routerCandidatesText" placeholder="wafer-ai-deepseek-v4-pro, coding=0.86, input=1, output=2, latency=1200&#10;openrouter-chain-of-draft, coding=0.80&#10;mimo-mimo-v2.5-pro, coding=0.45"></textarea>
+          <label>Candidate Models</label>
+          <div class="router-tabs">
+            <button id="tab-visual-btn" class="router-tab-btn active" onclick="switchToBuilderTab()">Visual Builder</button>
+            <button id="tab-advanced-btn" class="router-tab-btn" onclick="switchToAdvancedTab()">Advanced (Text)</button>
+          </div>
+          <div id="tab-visual" class="router-tab-content">
+            <div class="provider-picker" style="margin:0; gap:10px;">
+              <div class="form-group" style="margin:0;">
+                <label for="routerModelSearch">Add Model</label>
+                <div class="dropdown-search-container">
+                  <input id="routerModelSearch" type="text" placeholder="Search models..." autocomplete="off" oninput="filterModelDropdown()" onfocus="openModelDropdown()">
+                  <div id="routerModelDropdown" class="dropdown-search-menu"></div>
+                </div>
+              </div>
+              <div class="form-group" style="margin:0; align-self:end;">
+                <button onclick="addSelectedCandidate()">Add to Candidates</button>
+              </div>
+            </div>
+            <label class="flag-toggle" style="margin-top:10px;">
+              <input id="routerFallbackGroupToggle" type="checkbox" onchange="toggleFallbackGroupMode(this.checked)">
+              Add candidate as fallback group (same model across providers chains as fallback)
+            </label>
+            <label style="margin-top:14px;">Candidate Order (drag to reorder)</label>
+            <div id="routerCandidateList" class="router-candidate-list">
+              <div class="router-candidate-empty">No candidates added yet. Search and add models above.</div>
+            </div>
+          </div>
+          <div id="tab-advanced" class="router-tab-content" style="display:none;">
+            <textarea id="routerCandidatesText" placeholder="wafer-ai-deepseek-v4-pro, coding=0.86, input=1, output=2, latency=1200&#10;openrouter-chain-of-draft, coding=0.80&#10;mimo-mimo-v2.5-pro, coding=0.45"></textarea>
+          </div>
         </div>
-        <div class="button-row">
+        <div class="button-row" style="margin-top:14px;">
           <button onclick="saveRouterRoute()">Add / Update Router Model</button>
           <button class="button-secondary" onclick="clearRouterRouteForm()">Reset Router Defaults</button>
           <button class="button-secondary" onclick="configureVSCodePicker()">Refresh VS Code Model Picker</button>
@@ -1988,6 +2051,18 @@ app.get('/config', (req: Request, res: Response) => {
         </div>
         <pre id="diagnosticsLog" class="diagnostics-log">Loading diagnostics...</pre>
       </div>
+      <div class="card">
+        <div class="catalog-meta">
+          <div>
+            <h2>Recent Sessions</h2>
+            <p class="muted">Track CLI agent sessions by endpoint. Rate sessions thumbs up/down to inform Continuous Improvement (CIP) routing decisions.</p>
+          </div>
+          <div class="muted" id="sessionCount">Loading sessions...</div>
+        </div>
+        <div id="sessionList" class="fallback-route-list">
+          <div class="fallback-route-empty">Loading sessions...</div>
+        </div>
+      </div>
       <script>
         let providerConfigs = [];
         let fallbackRoutes = [];
@@ -1997,6 +2072,10 @@ app.get('/config', (req: Request, res: Response) => {
         let activeFallbackRouteId = '';
         let activeRouterRouteId = '';
         const DEFAULT_ROUTER_CANDIDATES_TEXT = ${JSON.stringify(DEFAULT_ROUTER_CANDIDATES_TEXT)};
+        let routerCandidateStore = [];
+        let allModelsCache = [];
+        let selectedDropdownIndex = -1;
+        let fallbackGroupMode = false;
 
         function escapeHtml(value) {
           return String(value ?? '')
@@ -2352,12 +2431,275 @@ app.get('/config', (req: Request, res: Response) => {
           await loadCatalog();
         }
 
+        // ── Visual Builder Dropdown ──
+        async function buildModelDropdown() {
+          try {
+            const res = await fetch('/api/tags');
+            const data = await res.json();
+            allModelsCache = (data.models || []).map(function(m) { return m.name; }).sort();
+          } catch (e) {
+            allModelsCache = [];
+          }
+        }
+
+        function openModelDropdown() {
+          filterModelDropdown();
+          var dd = document.getElementById('routerModelDropdown');
+          if (dd) dd.style.display = 'block';
+        }
+
+        function closeDropdown(delay) {
+          setTimeout(function() {
+            var dd = document.getElementById('routerModelDropdown');
+            if (dd) dd.style.display = 'none';
+            selectedDropdownIndex = -1;
+          }, delay || 200);
+        }
+
+        function filterModelDropdown() {
+          var search = (document.getElementById('routerModelSearch').value || '').toLowerCase();
+          var dd = document.getElementById('routerModelDropdown');
+          if (!dd) return;
+          var filtered = allModelsCache;
+          if (search) {
+            filtered = allModelsCache.filter(function(m) { return m.toLowerCase().indexOf(search) !== -1; });
+          }
+          selectedDropdownIndex = -1;
+          dd.style.display = 'block';
+          if (filtered.length === 0) {
+            dd.innerHTML = '<div class="dropdown-search-item muted">No models match "' + escapeHtml(search) + '"</div>';
+            return;
+          }
+          dd.innerHTML = filtered.map(function(m, i) {
+            var parts = m.split('-');
+            var provider = parts.length > 1 ? parts.slice(0, parts.length > 2 ? parts.length - 2 : 1).join('-') : '';
+            var badge = provider ? '<span class="provider-badge">' + escapeHtml(provider) + '</span>' : '';
+            return '<div class="dropdown-search-item" data-index="' + i + '" data-model="' + escapeHtml(m) + '" onmousedown="selectDropdownItem(' + i + ', \'' + escapeHtml(m).replace(/'/g, "\\'") + '\')">' +
+              '<span>' + escapeHtml(m) + '</span>' + badge +
+            '</div>';
+          }).join('');
+        }
+
+        function selectDropdownItem(index, model) {
+          document.getElementById('routerModelSearch').value = model;
+          selectedDropdownIndex = index;
+          closeDropdown(100);
+        }
+
+        function addSelectedCandidate() {
+          var searchInput = document.getElementById('routerModelSearch');
+          var model = searchInput.value.trim();
+          if (!model) return;
+          searchInput.value = '';
+          searchInput.focus();
+
+          if (fallbackGroupMode) {
+            addFallbackGroupCandidate(model);
+          } else {
+            addSingleCandidate(model);
+          }
+        }
+
+        function addSingleCandidate(model) {
+          routerCandidateStore.push({ model: model });
+          renderCandidateList();
+          syncCandidatesToTextarea();
+        }
+
+        function addFallbackGroupCandidate(model) {
+          var baseModel = extractBaseModel(model);
+          if (!baseModel) { addSingleCandidate(model); return; }
+
+          var existing = allModelsCache.filter(function(m) {
+            return m !== model && extractBaseModel(m) === baseModel;
+          });
+
+          routerCandidateStore.push({ model: model });
+          if (existing.length > 0) {
+            existing.forEach(function(m) {
+              if (!routerCandidateStore.some(function(c) { return c.model === m; })) {
+                routerCandidateStore.push({ model: m, fallbackOf: model });
+              }
+            });
+          }
+          renderCandidateList();
+          syncCandidatesToTextarea();
+        }
+
+        function extractBaseModel(modelId) {
+          var parts = modelId.split('-');
+          if (parts.length <= 1) return modelId;
+          var lastTwo = parts.slice(-2).join('-');
+          var knownSuffixes = ['flash', 'pro', 'preview', 'omni', 'highspeed', 'hs', 'max', 'plus', 'mini'];
+          for (var s = 0; s < knownSuffixes.length; s++) {
+            if (lastTwo === knownSuffixes[s]) return parts.slice(0, -1).join('-');
+          }
+          for (var p = parts.length - 2; p >= 1; p--) {
+            var candidate = parts.slice(p).join('-');
+            var found = false;
+            for (var s2 = 0; s2 < knownSuffixes.length; s2++) {
+              if (candidate === knownSuffixes[s2]) { found = true; break; }
+            }
+            if (found) return parts.slice(0, p).join('-');
+          }
+          return parts.slice(-1)[0];
+        }
+
+        function removeCandidateFromRouter(index) {
+          routerCandidateStore.splice(index, 1);
+          renderCandidateList();
+          syncCandidatesToTextarea();
+        }
+
+        function updateCandidateMeta(index, field, value) {
+          if (index < 0 || index >= routerCandidateStore.length) return;
+          var parsed = value.trim() === '' ? undefined : parseFloat(value);
+          if (field === 'codingScore') {
+            routerCandidateStore[index].codingScore = isNaN(parsed) ? undefined : Math.max(0, Math.min(1, parsed));
+          } else if (field === 'inputPrice') {
+            routerCandidateStore[index].inputPrice = isNaN(parsed) ? undefined : parsed;
+          } else if (field === 'outputPrice') {
+            routerCandidateStore[index].outputPrice = isNaN(parsed) ? undefined : parsed;
+          } else if (field === 'latencyMs') {
+            routerCandidateStore[index].latencyMs = isNaN(parsed) ? undefined : parsed;
+          }
+          syncCandidatesToTextarea();
+        }
+
+        function renderCandidateList() {
+          var listEl = document.getElementById('routerCandidateList');
+          if (!listEl) return;
+          if (routerCandidateStore.length === 0) {
+            listEl.innerHTML = '<div class="router-candidate-empty">No candidates added yet. Search and add models above.</div>';
+            return;
+          }
+          listEl.innerHTML = routerCandidateStore.map(function(c, i) {
+            var modelParts = c.model.split('-');
+            var provider = modelParts.length > 1 ? modelParts.slice(0, modelParts.length > 2 ? modelParts.length - 2 : 1).join('-') : '';
+            var badge = provider ? '<span class="provider-badge">' + escapeHtml(provider) + '</span>' : '';
+            var fallbackTag = c.fallbackOf ? '<span class="provider-badge" style="background:var(--warning-bg);color:var(--warning-text);">fallback</span>' : '';
+            return '<div class="router-candidate-item" draggable="true" data-candidate-index="' + i + '" ondragstart="candidateDragStart(event)" ondragover="candidateDragOver(event)" ondrop="candidateDrop(event)" ondragend="candidateDragEnd(event)">' +
+              '<span class="drag-handle" title="Drag to reorder">☰</span>' +
+              '<div class="candidate-info">' +
+                '<span class="candidate-model">' + escapeHtml(c.model) + '</span>' + badge + fallbackTag +
+                '<div class="metadata-row">' +
+                  '<div><label>coding</label><input type="number" value="' + (c.codingScore !== undefined ? c.codingScore : '') + '" min="0" max="1" step="0.01" placeholder="0-1" onchange="updateCandidateMeta(' + i + ', \'codingScore\', this.value)"></div>' +
+                  '<div><label>input $</label><input type="number" value="' + (c.inputPrice !== undefined ? c.inputPrice : '') + '" min="0" step="0.01" placeholder="per 1M" onchange="updateCandidateMeta(' + i + ', \'inputPrice\', this.value)"></div>' +
+                  '<div><label>output $</label><input type="number" value="' + (c.outputPrice !== undefined ? c.outputPrice : '') + '" min="0" step="0.01" placeholder="per 1M" onchange="updateCandidateMeta(' + i + ', \'outputPrice\', this.value)"></div>' +
+                  '<div><label>latency ms</label><input type="number" value="' + (c.latencyMs !== undefined ? c.latencyMs : '') + '" min="0" step="1" placeholder="ms" onchange="updateCandidateMeta(' + i + ', \'latencyMs\', this.value)"></div>' +
+                '</div>' +
+              '</div>' +
+              '<button class="remove-btn" title="Remove" onclick="removeCandidateFromRouter(' + i + ')">✕</button>' +
+            '</div>';
+          }).join('');
+        }
+
+        function syncCandidatesToTextarea() {
+          var textarea = document.getElementById('routerCandidatesText');
+          if (!textarea) return;
+          textarea.value = routerCandidateStore.map(function(c) {
+            var parts = [c.model];
+            if (c.codingScore !== undefined) parts.push('coding=' + c.codingScore);
+            if (c.inputPrice !== undefined) parts.push('input=' + c.inputPrice);
+            if (c.outputPrice !== undefined) parts.push('output=' + c.outputPrice);
+            if (c.latencyMs !== undefined) parts.push('latency=' + c.latencyMs);
+            return parts.join(', ');
+          }).join('\\n');
+        }
+
+        function syncTextareaToCandidates() {
+          var text = document.getElementById('routerCandidatesText').value.trim();
+          if (!text) { routerCandidateStore = []; renderCandidateList(); return; }
+          routerCandidateStore = text.split(/\\r?\\n|;/).map(function(line) {
+            var trimmed = line.trim();
+            if (!trimmed || trimmed.startsWith('#')) return null;
+            var parts = trimmed.split(',').map(function(p) { return p.trim(); });
+            var candidate = { model: parts[0] };
+            for (var i = 1; i < parts.length; i++) {
+              var kv = parts[i].split('=');
+              var key = kv[0].trim().toLowerCase();
+              var val = kv.slice(1).join('=').trim();
+              if (key === 'coding' || key === 'coding_score') candidate.codingScore = parseFloat(val) || undefined;
+              else if (key === 'input' || key === 'input_price') candidate.inputPrice = parseFloat(val) || undefined;
+              else if (key === 'output' || key === 'output_price') candidate.outputPrice = parseFloat(val) || undefined;
+              else if (key === 'latency' || key === 'latency_ms') candidate.latencyMs = parseFloat(val) || undefined;
+            }
+            return candidate;
+          }).filter(Boolean);
+          renderCandidateList();
+        }
+
+        function switchToBuilderTab() {
+          document.getElementById('tab-visual').style.display = '';
+          document.getElementById('tab-advanced').style.display = 'none';
+          document.getElementById('tab-visual-btn').classList.add('active');
+          document.getElementById('tab-advanced-btn').classList.remove('active');
+          syncTextareaToCandidates();
+        }
+
+        function switchToAdvancedTab() {
+          document.getElementById('tab-visual').style.display = 'none';
+          document.getElementById('tab-advanced').style.display = '';
+          document.getElementById('tab-visual-btn').classList.remove('active');
+          document.getElementById('tab-advanced-btn').classList.add('active');
+          syncCandidatesToTextarea();
+        }
+
+        function toggleFallbackGroupMode(enabled) {
+          fallbackGroupMode = enabled;
+        }
+
+        // ── Drag and Drop ──
+        var dragSourceIndex = -1;
+
+        function candidateDragStart(e) {
+          dragSourceIndex = parseInt(e.target.closest('[data-candidate-index]').getAttribute('data-candidate-index'), 10);
+          e.target.closest('.router-candidate-item').classList.add('dragging');
+          e.dataTransfer.effectAllowed = 'move';
+        }
+
+        function candidateDragOver(e) {
+          e.preventDefault();
+          e.dataTransfer.dropEffect = 'move';
+        }
+
+        function candidateDrop(e) {
+          e.preventDefault();
+          var targetEl = e.target.closest('[data-candidate-index]');
+          if (!targetEl || dragSourceIndex < 0) return;
+          var targetIndex = parseInt(targetEl.getAttribute('data-candidate-index'), 10);
+          if (targetIndex === dragSourceIndex) return;
+          var moved = routerCandidateStore.splice(dragSourceIndex, 1)[0];
+          routerCandidateStore.splice(targetIndex, 0, moved);
+          renderCandidateList();
+          syncCandidatesToTextarea();
+          dragSourceIndex = -1;
+        }
+
+        function candidateDragEnd(e) {
+          var items = document.querySelectorAll('.router-candidate-item.dragging');
+          items.forEach(function(el) { el.classList.remove('dragging'); });
+          dragSourceIndex = -1;
+        }
+
+        // ── Click-outside closes dropdown ──
+        document.addEventListener('click', function(e) {
+          var dd = document.getElementById('routerModelDropdown');
+          var search = document.getElementById('routerModelSearch');
+          if (!dd || !search) return;
+          if (!search.contains(e.target) && !dd.contains(e.target)) {
+            dd.style.display = 'none';
+          }
+        });
+
         function applyRouterDefaults() {
           document.getElementById('routerType').value = 'auto-local';
           document.getElementById('routerMinCodingScore').value = '0.66';
           document.getElementById('routerCostQualityTradeoff').value = '7';
           document.getElementById('routerExplorationBudget').value = '0.05';
           document.getElementById('routerCandidatesText').value = DEFAULT_ROUTER_CANDIDATES_TEXT;
+          routerCandidateStore = [];
+          renderCandidateList();
           toggleBanditFields();
         }
 
@@ -2370,6 +2712,8 @@ app.get('/config', (req: Request, res: Response) => {
           activeRouterRouteId = '';
           document.getElementById('routerRouteId').value = '';
           document.getElementById('routerRouteId').disabled = false;
+          routerCandidateStore = [];
+          renderCandidateList();
           applyRouterDefaults();
         }
 
@@ -2411,6 +2755,7 @@ app.get('/config', (req: Request, res: Response) => {
               document.getElementById('routerMinCodingScore').value = route.minCodingScore ?? '0.66';
               document.getElementById('routerCostQualityTradeoff').value = route.costQualityTradeoff ?? '7';
               document.getElementById('routerExplorationBudget').value = route.explorationBudget ?? '0.05';
+              document.getElementById('routerEnableAutoTiers').checked = route.enableAutoTiers === true;
               toggleBanditFields();
               document.getElementById('routerCandidatesText').value = Array.isArray(route.candidates)
                 ? route.candidates.map((candidate) => {
@@ -2422,6 +2767,7 @@ app.get('/config', (req: Request, res: Response) => {
                     return parts.join(', ');
                   }).join('\\n')
                 : '';
+              syncTextareaToCandidates();
             });
           });
 
@@ -2442,6 +2788,7 @@ app.get('/config', (req: Request, res: Response) => {
         async function saveRouterRoute() {
           const id = document.getElementById('routerRouteId').value.trim();
           const type = document.getElementById('routerType').value;
+          syncCandidatesToTextarea();
           const candidatesText = document.getElementById('routerCandidatesText').value.trim();
           const minCodingScoreRaw = document.getElementById('routerMinCodingScore').value;
           const costQualityTradeoffRaw = document.getElementById('routerCostQualityTradeoff').value;
@@ -2456,6 +2803,7 @@ app.get('/config', (req: Request, res: Response) => {
           if (minCodingScoreRaw !== '') payload.minCodingScore = Number(minCodingScoreRaw);
           if (costQualityTradeoffRaw !== '') payload.costQualityTradeoff = Number(costQualityTradeoffRaw);
           if (explorationBudgetRaw !== '' && type === 'bandit-local') payload.explorationBudget = Number(explorationBudgetRaw);
+          payload.enableAutoTiers = document.getElementById('routerEnableAutoTiers').checked;
 
           const res = await fetch('/api/router-models', {
             method: 'POST',
@@ -2813,8 +3161,64 @@ app.get('/config', (req: Request, res: Response) => {
         loadProviderConfigs();
         loadFallbackRoutes();
         loadRouterRoutes();
+        buildModelDropdown();
         applyRouterDefaults();
         loadCatalog();
+        loadSessionsPanel();
+
+        // ── Sessions & Feedback ──
+        async function loadSessionsPanel() {
+          var countEl = document.getElementById('sessionCount');
+          var listEl = document.getElementById('sessionList');
+          try {
+            var res = await fetch('/api/sessions');
+            var data = await res.json();
+            var sessions = Array.isArray(data.sessions) ? data.sessions : [];
+            countEl.innerText = sessions.length + ' session' + (sessions.length === 1 ? '' : 's');
+            if (!sessions.length) {
+              listEl.innerHTML = '<div class="fallback-route-empty">No recent sessions. CLI agents will appear here when they connect with X-Local-Router-Client header.</div>';
+              return;
+            }
+            listEl.innerHTML = sessions.map(function(s) {
+              var models = Object.keys(s.modelUsage || {}).map(function(m) {
+                return m + ' (' + s.modelUsage[m] + ')';
+              }).join(', ');
+              var started = new Date(s.startedAt).toLocaleString();
+              var last = new Date(s.lastActivity).toLocaleString();
+              return '<div class="fallback-route-item">' +
+                '<h4>' + escapeHtml(s.clientName) + ' <span class="provider-badge">session</span></h4>' +
+                '<div class="meta">Started: ' + escapeHtml(started) + ' | Last activity: ' + escapeHtml(last) + '</div>' +
+                '<div class="meta">Requests: ' + s.totalRequests + ' | Models: ' + escapeHtml(models || 'none') + '</div>' +
+                '<div class="meta">ID: ' + escapeHtml(s.sessionId) + '</div>' +
+                '<div class="actions">' +
+                  '<button class="button-secondary" onclick="rateSession(\'' + escapeHtml(s.sessionId).replace(/'/g, "\\'") + '\', \'up\')" style="background:var(--success-bg);color:var(--success-text);">👍 Helpful</button>' +
+                  '<button class="button-secondary" onclick="rateSession(\'' + escapeHtml(s.sessionId).replace(/'/g, "\\'") + '\', \'down\')" style="background:var(--danger-bg, #fde8e8);color:var(--danger-text);">👎 Not Helpful</button>' +
+                '</div>' +
+              '</div>';
+            }).join('');
+          } catch (e) {
+            countEl.innerText = 'Error';
+            listEl.innerHTML = '<div class="fallback-route-empty">Failed to load sessions: ' + escapeHtml(String(e.message || e)) + '</div>';
+          }
+        }
+
+        async function rateSession(sessionId, rating) {
+          try {
+            var res = await fetch('/api/sessions/' + encodeURIComponent(sessionId) + '/feedback', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ rating: rating })
+            });
+            var data = await res.json();
+            if (res.ok) {
+              setMessage('Session rated ' + (rating === 'up' ? '👍 helpful' : '👎 not helpful') + '. Thanks for the feedback!', 'success');
+            } else {
+              setMessage(data.error || 'Failed to rate session.', 'error');
+            }
+          } catch (e) {
+            setMessage('Failed to rate session: ' + String(e.message || e), 'error');
+          }
+        }
         refreshDiagnostics();
       </script>
     </body>
@@ -3145,7 +3549,7 @@ app.get('/api/router-events.csv', (req: Request, res: Response) => {
   res.type('text/csv');
   const eventsPath = existingPath(ROUTER_EVENTS_PATH, LEGACY_ROUTER_EVENTS_PATH);
   if (!fs.existsSync(eventsPath)) {
-    return res.send('timestamp,router_id,presented_model,router_type,selected_model,status,duration_ms,stream,requires_tools,requires_images,approx_input_tokens,requested_output_tokens,candidate_scores,error_type\n');
+    return res.send('timestamp,router_id,presented_model,router_type,selected_model,status,duration_ms,candidate_latency_ms,stream,requires_tools,requires_images,code_density,language_count,multi_turn_depth,instruction_length,coding_task,approx_input_tokens,requested_output_tokens,tool_calls_requested,tool_calls_valid,reward_signal,prompt_hash,candidate_scores,error_type\n');
   }
   return res.send(fs.readFileSync(eventsPath, 'utf8'));
 });
@@ -3279,8 +3683,14 @@ app.post('/api/router-models/:id/recompute', (req: Request, res: Response) => {
   const proposals: Array<Record<string, unknown>> = [];
   let totalSamples = 0;
 
+  const tierResults = router.enableAutoTiers
+    ? computeTiers(router.candidates.map((c) => c.model), eventsPath)
+    : [];
+  const tierMap = new Map(tierResults.map((t) => [t.model, t]));
+
   for (const candidate of router.candidates) {
     const stats = candidateStats[candidate.model];
+    const tier = tierMap.get(candidate.model);
     if (!stats || stats.attempts === 0) {
       proposals.push({
         model: candidate.model,
@@ -3329,6 +3739,8 @@ app.post('/api/router-models/:id/recompute', (req: Request, res: Response) => {
       toolCallAccuracy: toolAccuracy ? Number(toolAccuracy.toFixed(4)) : null,
       proposedCodingScore: proposedCoding,
       proposedLatencyMs: proposedLatency,
+      tier: tier?.tier || null,
+      tierDerankReasons: tier?.derankReasons || null,
       changes,
       needsReview: changes.length > 0
     });
@@ -3415,6 +3827,54 @@ app.post('/api/router-models/import', (req: Request, res: Response) => {
 });
 
 app.get('/api/router-candidates.csv', (req: Request, res: Response) => {
+  const eventsPath = existingPath(ROUTER_EVENTS_PATH, LEGACY_ROUTER_EVENTS_PATH);
+  const candidateStats: Record<string, {
+    successes: number; failures: number; latencies: number[];
+    toolCallSuccesses: number; toolCallAttempts: number;
+    lastObserved: string; sampleCount: number;
+  }> = {};
+
+  if (fs.existsSync(eventsPath)) {
+    const csvText = fs.readFileSync(eventsPath, 'utf8');
+    const lines = csvText.split(/\r?\n/).filter((line) => line.trim());
+    if (lines.length > 1) {
+      const rawHeaders = lines[0].split(',').map((h) => h.trim());
+      const selectedIdx = rawHeaders.indexOf('selected_model');
+      const statusIdx = rawHeaders.indexOf('status');
+      const latencyIdx = rawHeaders.indexOf('candidate_latency_ms');
+      const toolsValidIdx = rawHeaders.indexOf('tool_calls_valid');
+      const timestampIdx = rawHeaders.indexOf('timestamp');
+
+      for (let i = 1; i < lines.length; i++) {
+        const fields = parseCsvLine(lines[i]);
+        const model = selectedIdx >= 0 ? fields[selectedIdx]?.trim() : '';
+        if (!model) continue;
+        if (!candidateStats[model]) {
+          candidateStats[model] = {
+            successes: 0, failures: 0, latencies: [],
+            toolCallSuccesses: 0, toolCallAttempts: 0,
+            lastObserved: '', sampleCount: 0
+          };
+        }
+        const stats = candidateStats[model];
+        stats.sampleCount++;
+        const status = statusIdx >= 0 ? Number(fields[statusIdx]) : 0;
+        if (status >= 200 && status < 300) stats.successes++;
+        else if (status > 0) stats.failures++;
+        const latency = latencyIdx >= 0 ? Number(fields[latencyIdx]) : 0;
+        if (latency > 0) stats.latencies.push(latency);
+        const toolsValid = toolsValidIdx >= 0 ? Number(fields[toolsValidIdx]) : -1;
+        if (toolsValid >= 0) {
+          stats.toolCallAttempts++;
+          if (toolsValid > 0) stats.toolCallSuccesses++;
+        }
+        if (timestampIdx >= 0) {
+          stats.lastObserved = fields[timestampIdx]?.trim() || '';
+        }
+      }
+    }
+  }
+
   const headers = [
     'router_id',
     'presented_model',
@@ -3432,6 +3892,13 @@ app.get('/api/router-candidates.csv', (req: Request, res: Response) => {
     'input_price',
     'output_price',
     'latency_ms',
+    'success_rate',
+    'tool_call_accuracy',
+    'latency_p50_ms',
+    'latency_p95_ms',
+    'sample_count',
+    'last_observed_at',
+    'tier',
     'bandit_sample_count',
     'bandit_reward_mean',
     'exploration_budget',
@@ -3446,6 +3913,19 @@ app.get('/api/router-candidates.csv', (req: Request, res: Response) => {
       const banditRewardMean = banditState && banditState.sampleCount > 0
         ? (banditState.b.reduce((sum, val) => sum + val, 0) / banditState.sampleCount).toFixed(4)
         : '';
+      const stats = candidateStats[candidate.model];
+      const totalAttempts = stats ? (stats.successes + stats.failures) : 0;
+      const successRate = totalAttempts > 0 ? (stats!.successes / totalAttempts).toFixed(4) : '';
+      const toolAccuracy = stats && stats.toolCallAttempts > 0
+        ? (stats.toolCallSuccesses / stats.toolCallAttempts).toFixed(4) : '';
+      const sortedLatencies = stats ? [...stats.latencies].sort((a, b) => a - b) : [];
+      const p50 = sortedLatencies.length > 0
+        ? sortedLatencies[Math.floor(sortedLatencies.length * 0.5)] : '';
+      const p95 = sortedLatencies.length > 0
+        ? sortedLatencies[Math.floor(sortedLatencies.length * 0.95)] : '';
+      const sampleCount = stats?.sampleCount || 0;
+      const lastObserved = stats?.lastObserved || '';
+      const tier = sampleCount >= 50 ? 'verified' : sampleCount > 0 ? 'insufficient' : '';
       rows.push([
         router.id,
         routerPresentedModelId(router),
@@ -3463,6 +3943,13 @@ app.get('/api/router-candidates.csv', (req: Request, res: Response) => {
         candidate.inputPrice ?? '',
         candidate.outputPrice ?? '',
         candidate.latencyMs ?? '',
+        successRate,
+        toolAccuracy,
+        p50,
+        p95,
+        sampleCount || '',
+        lastObserved,
+        tier,
         banditSampleCount,
         banditRewardMean,
         router.explorationBudget ?? '',
@@ -3550,6 +4037,26 @@ app.delete('/api/fallback-models', (req: Request, res: Response) => {
   }
 
   return res.json({ success: true, persisted: true, removed: fallbackPresentedModelId(id), routeId: id });
+});
+
+// ── Session Tracking ──
+app.get('/api/sessions', (req: Request, res: Response) => {
+  return res.json({ sessions: getSessions() });
+});
+
+app.post('/api/sessions/:id/feedback', (req: Request, res: Response) => {
+  const rawSid = req.params.id;
+  const sessionId = typeof rawSid === 'string' ? rawSid : Array.isArray(rawSid) ? rawSid[0] : '';
+  const rawRating: unknown = req.body?.rating;
+  if (typeof rawRating !== 'string' || (rawRating !== 'up' && rawRating !== 'down')) {
+    return res.status(400).json({ error: 'Rating must be "up" or "down".' });
+  }
+  const rating = rawRating as 'up' | 'down';
+  const result = recordFeedback(sessionId, rating);
+  if (!result.ok) {
+    return res.status(404).json({ error: result.error });
+  }
+  return res.json({ success: true });
 });
 
 app.post('/api/vscode/configure', (req: Request, res: Response) => {
@@ -4350,6 +4857,23 @@ function selectRouterCandidate(router: RouterModel, body: any): RouterDecision |
   });
 
   const eligible = scored.filter((entry) => entry.eligible);
+
+  // Auto-tier deranking
+  if (router.enableAutoTiers) {
+    const eventsPath = existingPath(ROUTER_EVENTS_PATH, LEGACY_ROUTER_EVENTS_PATH);
+    const candidateModels = router.candidates.map((c) => c.model);
+    const tiers = computeTiers(candidateModels, eventsPath);
+    const derankedSet = new Set(tiers.filter((t) => t.tier === 'deranked').map((t) => t.model));
+    if (derankedSet.size > 0) {
+      for (const entry of scored) {
+        if (derankedSet.has(entry.candidate.model)) {
+          entry.eligible = false;
+          entry.reasons = [...(entry.reasons || []), 'auto_tier_deranked'];
+        }
+      }
+    }
+  }
+
   const allCosts = scored.map((entry) => entry.cost).filter((c) => c !== Number.MAX_SAFE_INTEGER);
   const maxCost = allCosts.length > 0 ? Math.max(...allCosts) : 1;
   const maxLatency = Math.max(...scored.map((entry) => entry.latencyMs), 1);
@@ -4414,7 +4938,46 @@ function csvEscape(value: unknown) {
   return text;
 }
 
+function parseCsvLine(line: string): string[] {
+  const fields: string[] = [];
+  let current = '';
+  let inQuotes = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (inQuotes) {
+      if (ch === '"') {
+        if (i + 1 < line.length && line[i + 1] === '"') {
+          current += '"';
+          i++;
+        } else {
+          inQuotes = false;
+        }
+      } else {
+        current += ch;
+      }
+    } else {
+      if (ch === '"') {
+        inQuotes = true;
+      } else if (ch === ',') {
+        fields.push(current);
+        current = '';
+      } else {
+        current += ch;
+      }
+    }
+  }
+  fields.push(current);
+  return fields;
+}
+
 function routerEventFeatures(features: ReturnType<typeof requestFeatureSummary>, body: any) {
+  let promptHash = '';
+  try {
+    const messages = Array.isArray(body?.messages) ? body.messages : [];
+    const sample = JSON.stringify(messages.slice(0, 3)).slice(0, 500);
+    promptHash = crypto.createHash('sha256').update(sample).digest('hex').slice(0, 16);
+  } catch { /* ignore hash failures */ }
+
   return {
     requires_tools: features.requiresTools,
     requires_images: features.requiresImages,
@@ -4426,7 +4989,9 @@ function routerEventFeatures(features: ReturnType<typeof requestFeatureSummary>,
     approx_input_tokens: features.approxInputTokens,
     requested_output_tokens: features.requestedOutputTokens,
     tool_calls_requested: Array.isArray(body?.tools) ? body.tools.length : 0,
-    reward_signal: 0
+    tool_calls_valid: 0,
+    reward_signal: 0,
+    prompt_hash: promptHash
   };
 }
 
@@ -4454,6 +5019,7 @@ function appendRouterEvent(event: Record<string, unknown>) {
     'tool_calls_requested',
     'tool_calls_valid',
     'reward_signal',
+    'prompt_hash',
     'candidate_scores',
     'error_type'
   ];
@@ -4755,6 +5321,10 @@ async function handleChatCompletion(req: Request, res: Response, bodyOverrides?:
   if (!model) {
     return res.status(400).json({ error: 'Model is required in request body.' });
   }
+
+  const rawClient = req.headers['x-local-router-client'];
+  const clientName = typeof rawClient === 'string' ? rawClient : Array.isArray(rawClient) ? rawClient[0] : 'unknown';
+  recordRequest(clientName, String(model));
 
   const routerRoute = findRouterModel(model);
   if (routerRoute) {
@@ -5324,7 +5894,18 @@ app.post('/api/generate', async (req: Request, res: Response) => {
   await handleChatCompletion(req, res, openAiReq, { outputFormat: 'ollama_generate' });
 });
 
+const isDevMode = process.env.LOCAL_ROUTER_DEV === 'true' || process.env.NODE_ENV === 'development';
+
+loadSessions();
+loadFeedback();
+
 app.listen(PORT, () => {
   console.log(`Local Router OpenAI-compatible proxy running on http://localhost:${PORT}`);
   console.log(`Point your VS Code extension to: http://localhost:${PORT}/v1`);
+  if (isDevMode) {
+    console.log(`[DEV] Hot reload enabled — file changes will restart the server automatically.`);
+    console.log(`[DEV] Config UI: http://localhost:${PORT}/config`);
+    console.log(`[DEV] Set PORT=11435 to run alongside production Ollama on 11434.`);
+    console.log(`[DEV] Use 'npm run dev' for tsx watch mode or 'npm run build:watch' for tsc --watch.`);
+  }
 });

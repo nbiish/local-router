@@ -124,8 +124,12 @@ providers**.txt
 # Scrolls ceremony cloned repos (large)
 .scrolls-ceremony/repos/
 
-# Stale TypeScript build artifacts in src/
-src/**/*.js
+# ═══════════════════════════════════════════════════════════════════════════
+# Project-specific patterns (preserved from existing .gitignore)
+# ═══════════════════════════════════════════════════════════════════════════
+
 src/**/*.d.ts
-src/**/*.js.map
 src/**/*.d.ts.map
+src/**/*.js
+src/**/*.js.map
+

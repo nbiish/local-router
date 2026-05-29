@@ -113,11 +113,52 @@ It reads legacy `~/.config/fvs-code` files when the new files do not exist yet. 
 
 ## Development
 
+### Quick Start
+
 ```bash
+npm install
 npm run dev
-npm run build
-npm run test:integration
 ```
+
+`npm run dev` starts the server with **hot reload** via `tsx watch` — edit TypeScript files and the server restarts automatically.
+
+### Dev Server (Hot Reload)
+
+For contributor convenience, set `LOCAL_ROUTER_DEV=true` in your environment. The server will log a `[DEV]` banner on startup with helpful URLs:
+
+```bash
+# Run the dev server with hot reload on the default port
+LOCAL_ROUTER_DEV=true npm run dev
+
+# Or run alongside production Ollama on a different port
+LOCAL_ROUTER_DEV=true PORT=11435 npm run dev
+```
+
+The `LOCAL_ROUTER_DEV` flag enables:
+- `[DEV]` startup banner with config UI URL and port hints
+- Full hot reload via `tsx watch` (file changes trigger automatic restart)
+
+### Dev Scripts
+
+| Command | Description |
+|---|---|
+| `npm run dev` | Start dev server with hot reload (`tsx watch`) |
+| `npm run dev:once` | Start dev server without watch (`tsx src/index.ts`) |
+| `npm run build` | Compile TypeScript to `build/` |
+| `npm run build:watch` | Watch TypeScript files and recompile on change |
+| `npm run test:integration` | Run integration test suite |
+| `npm run test` | Alias for test:integration |
+| `npm run cli -- start` | Start the built server via CLI |
+
+### Running Alongside Production Ollama
+
+If Ollama is already running on port `11434`, start the dev server on an alternate port:
+
+```bash
+PORT=11435 LOCAL_ROUTER_DEV=true npm run dev
+```
+
+VS Code and other tools can then point at `http://127.0.0.1:11435/v1`.
 
 ## Branch Model
 
