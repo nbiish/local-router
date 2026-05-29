@@ -11,8 +11,10 @@
     "test": "npm run test:integration",
     "test:integration": "npm run build && node --test tests/provider-keys.integration.test.mjs",
     "start": "node build/index.js",
-    "dev": "ts-node src/index.ts",
+    "dev": "tsx watch src/index.ts",
+    "dev:once": "tsx src/index.ts",
     "build": "tsc",
+    "build:watch": "tsc --watch",
     "cli": "node bin/local-router.js"
   },
   "keywords": [
@@ -36,6 +38,7 @@
     "@types/express": "^5.0.6",
     "@types/node": "^25.9.1",
     "ts-node": "^10.9.2",
+    "tsx": "^4.22.3",
     "typescript": "^6.0.3"
   }
 }

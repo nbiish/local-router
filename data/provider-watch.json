@@ -1,0 +1,55 @@
+{
+  "version": "1.0.0",
+  "updated": "2026-05-28",
+  "description": "Provider endpoints and model listings to monitor for changes. Used by CIP to detect new models, pricing changes, and capability updates.",
+  "providers": [
+    {
+      "name": "OpenRouter",
+      "modelsEndpoint": "https://openrouter.ai/api/v1/models",
+      "checkFields": ["id", "context_length", "max_output_tokens", "pricing", "capabilities"],
+      "refreshInterval": "daily"
+    },
+    {
+      "name": "ZenMux",
+      "modelsEndpoint": "https://zenmux.ai/api/v1/models",
+      "checkFields": ["id", "context_length", "capabilities"],
+      "refreshInterval": "daily"
+    },
+    {
+      "name": "Wafer Serverless",
+      "modelsPage": "https://app.wafer.ai/models",
+      "checkFields": ["model_id", "context_window", "pricing_cache_read", "pricing_cache_write"],
+      "refreshInterval": "daily"
+    },
+    {
+      "name": "Nebius Token Factory",
+      "modelsEndpoint": "https://api.tokenfactory.nebius.com/v1/models",
+      "requiresAuth": true,
+      "checkFields": ["id", "context_length", "capabilities"],
+      "refreshInterval": "daily"
+    },
+    {
+      "name": "Moonshot/Kimi",
+      "modelsPage": "https://platform.kimi.ai/docs/models",
+      "pricingPage": "https://platform.kimi.ai/docs/pricing",
+      "checkFields": ["model_id", "context_length", "pricing", "capabilities"],
+      "refreshInterval": "daily"
+    },
+    {
+      "name": "NVIDIA NIM",
+      "apiReference": "https://docs.api.nvidia.com/nim/reference",
+      "checkFields": ["model_id", "context_length", "capabilities"],
+      "refreshInterval": "daily"
+    },
+    {
+      "name": "Xiaomi Mimo",
+      "checkFields": ["model_id", "context_length", "pricing", "capabilities"],
+      "refreshInterval": "weekly"
+    },
+    {
+      "name": "OpenCode",
+      "checkFields": ["model_id", "context_length", "pricing", "capabilities"],
+      "refreshInterval": "daily"
+    }
+  ]
+}

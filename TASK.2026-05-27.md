@@ -178,3 +178,11 @@
 - Notes: Operator approved the proposed model: `main` is user-facing/default, `staging` is operator verification one step below users, and `develop` is the working integration branch for features.
 - Notes: Updated `llms.txt` and `README.md` with the long-lived branch policy and promotion path: feature branches -> `develop` -> `staging` -> `main`.
 - Notes: `production` should be removed after `staging` exists because `main` is the production-facing branch.
+
+- Objective: Create a concrete Local Router brand and character brief before generating or shipping visual assets.
+- Status: Completed documentation pass on `docs/brand-character-brief`; no runtime code changes.
+- PQC Flag: Pass (documentation-only; no classical cryptography introduced; no secrets persisted).
+- Notes: `AGENTS.md`, `llms.txt`, and `TASK.2026-05-27.md` reviewed on 2026-05-27 before edits.
+- Notes: Added `BRAND.md` with product promise, original cyberpunk Anishinaabe character direction, cultural guardrails, visual system direction, first asset requirements, app integration rules, open-routing personality notes, and implementation sequence.
+- Notes: Updated `llms.txt` to make `BRAND.md` the working source of truth for product identity and character direction before any visual asset generation or shipping.
+- Notes: Updated `README.md` to list `BRAND.md` as a primary project file.

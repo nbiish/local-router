@@ -118,3 +118,18 @@ scrolls-lab/output/
 **/*.vtt
 providers.txt
 **/providers.txt
+providers**.txt
+**/providers**.txt
+
+# Scrolls ceremony cloned repos (large)
+.scrolls-ceremony/repos/
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Project-specific patterns (preserved from existing .gitignore)
+# ═══════════════════════════════════════════════════════════════════════════
+
+src/**/*.d.ts
+src/**/*.d.ts.map
+src/**/*.js
+src/**/*.js.map
+
