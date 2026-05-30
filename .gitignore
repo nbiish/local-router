@@ -116,11 +116,6 @@ scrolls-lab/output/
 **/*.jpg
 **/*.mp4
 **/*.vtt
-providers.txt
-**/providers.txt
-providers**.txt
-**/providers**.txt
-
 # Scrolls ceremony cloned repos (large)
 .scrolls-ceremony/repos/
 

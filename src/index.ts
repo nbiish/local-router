@@ -1428,6 +1428,84 @@ function configureVSCodeModelPicker(hostUrl: string) {
   };
 }
 
+// ── PQC Secrets Persistence ────────────────────────────────────────────────
+
+function getPqcBinPath(): string {
+  // Resolve bin/pqc-secrets relative to this project
+  const candidates = [
+    path.resolve(__dirname, '..', 'bin', 'pqc-secrets'),
+    path.resolve(process.cwd(), 'bin', 'pqc-secrets'),
+  ];
+  for (const candidate of candidates) {
+    try {
+      fs.accessSync(candidate, fs.constants.X_OK);
+      return candidate;
+    } catch (_) { /* not found */ }
+  }
+  return '';
+}
+
+function loadPqcSecrets(): void {
+  const bin = getPqcBinPath();
+  if (!bin) return;
+  try {
+    const output = execFileSync(bin, ['export'], {
+      encoding: 'utf8',
+      timeout: 10000,
+      env: { ...process.env, PATH: process.env.PATH || '/usr/local/bin:/usr/bin:/bin' }
+    });
+    for (const line of output.split('\n')) {
+      const match = line.match(/^export\s+(\w+)=(.+)$/);
+      if (!match) continue;
+      const envVar = match[1];
+      const value = match[2];
+      process.env[envVar] = value;
+      // Map env var back to provider name
+      const provider = findProviderByEnvVar(envVar);
+      if (provider) {
+        keyStore[provider.name] = value;
+      }
+    }
+    console.log(`[PQC] Loaded keys from secrets bundle.`);
+  } catch (err) {
+    // Bundle may not exist yet — that's fine
+    if (process.env.LOCAL_ROUTER_DEV === 'true') {
+      console.log(`[PQC] No secrets bundle loaded:`, (err as Error).message);
+    }
+  }
+}
+
+function findProviderByEnvVar(envVar: string): ProviderSummary | undefined {
+  return readProviderSummaries().find((s) => s.keyEnvVar === envVar);
+}
+
+function persistPqcSecrets(): void {
+  const bin = getPqcBinPath();
+  if (!bin) return;
+  try {
+    const lines: string[] = [];
+    for (const [providerName, keyValue] of Object.entries(keyStore)) {
+      if (!keyValue) continue;
+      const summary = getProviderSummary(providerName);
+      if (summary) {
+        lines.push(`${summary.keyEnvVar}=${keyValue}`);
+      }
+    }
+    if (lines.length === 0) return;
+    execFileSync(bin, ['pack'], {
+      input: lines.join('\n') + '\n',
+      encoding: 'utf8',
+      timeout: 10000,
+      env: { ...process.env, PATH: process.env.PATH || '/usr/local/bin:/usr/bin:/bin' }
+    });
+    if (process.env.LOCAL_ROUTER_DEV === 'true') {
+      console.log(`[PQC] Persisted ${lines.length} keys to secrets bundle.`);
+    }
+  } catch (err) {
+    console.error('[PQC] Failed to persist secrets:', (err as Error).message);
+  }
+}
+
 app.head('/', (req: Request, res: Response) => {
   res.status(200).end();
 });
@@ -3258,6 +3336,7 @@ app.post('/api/keys', (req: Request, res: Response) => {
 
     keyStore[providerName] = keyValue;
     process.env[summary.keyEnvVar] = keyValue;
+    persistPqcSecrets();
     return res.json({
       success: true,
       provider: providerName,
@@ -3279,6 +3358,7 @@ app.post('/api/keys', (req: Request, res: Response) => {
     updatedLegacyProvider = true;
   }
   if (updatedLegacyProvider) {
+    persistPqcSecrets();
     return res.json({ success: true });
   }
 
@@ -3298,6 +3378,7 @@ app.delete('/api/keys/:provider', (req: Request, res: Response) => {
 
   delete keyStore[providerName];
   delete process.env[summary.keyEnvVar];
+  persistPqcSecrets();
 
   return res.json({
     success: true,
@@ -5898,6 +5979,7 @@ const isDevMode = process.env.LOCAL_ROUTER_DEV === 'true' || process.env.NODE_EN
 
 loadSessions();
 loadFeedback();
+loadPqcSecrets();
 
 app.listen(PORT, () => {
   console.log(`Local Router OpenAI-compatible proxy running on http://localhost:${PORT}`);
