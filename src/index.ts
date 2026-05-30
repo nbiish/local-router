@@ -2552,7 +2552,7 @@ app.get('/config', (req: Request, res: Response) => {
             var parts = m.split('-');
             var provider = parts.length > 1 ? parts.slice(0, parts.length > 2 ? parts.length - 2 : 1).join('-') : '';
             var badge = provider ? '<span class="provider-badge">' + escapeHtml(provider) + '</span>' : '';
-            return '<div class="dropdown-search-item" data-index="' + i + '" data-model="' + escapeHtml(m) + '" onmousedown="selectDropdownItem(' + i + ', \'' + escapeHtml(m).replace(/'/g, "\\'") + '\')">' +
+            return '<div class="dropdown-search-item" data-index="' + i + '" data-model="' + escapeHtml(m) + '" onmousedown="selectDropdownItem(' + i + ', \\'' + escapeHtml(m) + '\\')">' +
               '<span>' + escapeHtml(m) + '</span>' + badge +
             '</div>';
           }).join('');
@@ -2661,10 +2661,10 @@ app.get('/config', (req: Request, res: Response) => {
               '<div class="candidate-info">' +
                 '<span class="candidate-model">' + escapeHtml(c.model) + '</span>' + badge + fallbackTag +
                 '<div class="metadata-row">' +
-                  '<div><label>coding</label><input type="number" value="' + (c.codingScore !== undefined ? c.codingScore : '') + '" min="0" max="1" step="0.01" placeholder="0-1" onchange="updateCandidateMeta(' + i + ', \'codingScore\', this.value)"></div>' +
-                  '<div><label>input $</label><input type="number" value="' + (c.inputPrice !== undefined ? c.inputPrice : '') + '" min="0" step="0.01" placeholder="per 1M" onchange="updateCandidateMeta(' + i + ', \'inputPrice\', this.value)"></div>' +
-                  '<div><label>output $</label><input type="number" value="' + (c.outputPrice !== undefined ? c.outputPrice : '') + '" min="0" step="0.01" placeholder="per 1M" onchange="updateCandidateMeta(' + i + ', \'outputPrice\', this.value)"></div>' +
-                  '<div><label>latency ms</label><input type="number" value="' + (c.latencyMs !== undefined ? c.latencyMs : '') + '" min="0" step="1" placeholder="ms" onchange="updateCandidateMeta(' + i + ', \'latencyMs\', this.value)"></div>' +
+                  '<div><label>coding</label><input type="number" value="' + (c.codingScore !== undefined ? c.codingScore : '') + '" min="0" max="1" step="0.01" placeholder="0-1" onchange="updateCandidateMeta(' + i + ', \\'codingScore\\', this.value)"></div>' +
+                  '<div><label>input $</label><input type="number" value="' + (c.inputPrice !== undefined ? c.inputPrice : '') + '" min="0" step="0.01" placeholder="per 1M" onchange="updateCandidateMeta(' + i + ', \\'inputPrice\\', this.value)"></div>' +
+                  '<div><label>output $</label><input type="number" value="' + (c.outputPrice !== undefined ? c.outputPrice : '') + '" min="0" step="0.01" placeholder="per 1M" onchange="updateCandidateMeta(' + i + ', \\'outputPrice\\', this.value)"></div>' +
+                  '<div><label>latency ms</label><input type="number" value="' + (c.latencyMs !== undefined ? c.latencyMs : '') + '" min="0" step="1" placeholder="ms" onchange="updateCandidateMeta(' + i + ', \\'latencyMs\\', this.value)"></div>' +
                 '</div>' +
               '</div>' +
               '<button class="remove-btn" title="Remove" onclick="removeCandidateFromRouter(' + i + ')">✕</button>' +
@@ -3279,8 +3279,8 @@ app.get('/config', (req: Request, res: Response) => {
                 '<div class="meta">Requests: ' + s.totalRequests + ' | Models: ' + escapeHtml(models || 'none') + '</div>' +
                 '<div class="meta">ID: ' + escapeHtml(s.sessionId) + '</div>' +
                 '<div class="actions">' +
-                  '<button class="button-secondary" onclick="rateSession(\'' + escapeHtml(s.sessionId).replace(/'/g, "\\'") + '\', \'up\')" style="background:var(--success-bg);color:var(--success-text);">👍 Helpful</button>' +
-                  '<button class="button-secondary" onclick="rateSession(\'' + escapeHtml(s.sessionId).replace(/'/g, "\\'") + '\', \'down\')" style="background:var(--danger-bg, #fde8e8);color:var(--danger-text);">👎 Not Helpful</button>' +
+                  '<button class="button-secondary" onclick="rateSession(\\'' + escapeHtml(s.sessionId).replace(/'/g, "\\\\'") + '\\', \\'up\\')" style="background:var(--success-bg);color:var(--success-text);">👍 Helpful</button>' +
+                  '<button class="button-secondary" onclick="rateSession(\\'' + escapeHtml(s.sessionId).replace(/'/g, "\\\\'") + '\\', \\'down\\')" style="background:var(--danger-bg, #fde8e8);color:var(--danger-text);">👎 Not Helpful</button>' +
                 '</div>' +
               '</div>';
             }).join('');
