@@ -3111,10 +3111,20 @@ app.get('/config', (req: Request, res: Response) => {
         }
 
         async function loadProviderConfigs() {
-          const res = await fetch('/api/provider-configs');
-          const payload = await res.json();
-          providerConfigs = Array.isArray(payload?.data) ? payload.data : [];
-          renderProviderSelection();
+          try {
+            const res = await fetch('/api/provider-configs');
+            if (!res.ok) throw new Error('HTTP ' + res.status);
+            const payload = await res.json();
+            providerConfigs = Array.isArray(payload?.data) ? payload.data : [];
+            renderProviderSelection();
+          } catch (err) {
+            console.error('loadProviderConfigs failed:', err);
+            const selectEl = document.getElementById('providerSelect');
+            if (selectEl) {
+              selectEl.innerHTML = '<option value="">Error loading providers — check console</option>';
+            }
+            renderProviderSelection();
+          }
         }
 
         async function saveKeys() {
