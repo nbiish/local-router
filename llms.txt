@@ -14,6 +14,7 @@ Local Router is a localhost proxy server (port `11434`) that presents an Ollama-
 - **VS Code integration:** `POST /api/vscode/configure` writes Ollama vendor entry and model picker preferences
 - **CLI:** `local-router start|stop|status|route set|custom|unset|status`
 - **Reasoning compatibility:** Strips provider-native reasoning metadata (DeepSeek, Kimi, Qwen3, GLM, Z.ai, Moonshot, MiniMax) so VS Code Copilot Chat can use these models safely
+- **Custom system prompt:** Optional system prompt injection (default OFF, Chain of Draft default) across all entry points, configured via `/config` UI or `GET/PUT /api/system-prompt`
 - **Key files:** `src/index.ts` (server, routing, UI, CRUD), `src/reasoning.ts` (compatibility layer), `src/sessions.ts` (session tracking + feedback), `src/tiers.ts` (statistical tiering), `src/types.ts`, `src/providers/*.ts`, `bin/local-router.js` (CLI), `providers.txt` (model catalog), `ROUTER.md` (router improvement guide), `AGENTS.md` (security/process)
 
 ## Product North Star
@@ -375,6 +376,12 @@ Full details in `ROUTER.md`. Key findings from SOTA literature (2025-2026):
 - Provider selector shows per-provider configured state, source (`memory`/`env`/`none`), and reset/unset actions
 - One-model-at-a-time runtime edits per provider with fields: upstream model ID, presented alias, context length, max output tokens, capability toggles
 
+### Custom System Prompt
+- Optional custom system prompt injected before every LLM request across all entry points (`/v1/chat/completions`, `/api/chat`, `/api/generate`)
+- Default: OFF. Default prompt: Chain of Draft reasoning (concise ≤5-word step-by-step)
+- Toggle and textarea in `/config` UI; persisted to `~/.config/local-router/system-prompt.json` (`0600`)
+- `GET /api/system-prompt` / `PUT /api/system-prompt` for programmatic control
+
 ### Fallback Routes
 - Persisted to `~/.config/local-router/` as non-secret model-chain JSON; reload on proxy startup
 - Each route presents as `local-router/<fallback-route>` with provider family `local-router`
@@ -483,6 +490,7 @@ Coverage includes:
 5. ✅ **Session tracking & feedback** — `X-Local-Router-Client` header, 2-hour window sessions, thumbs up/down in `/config`, persisted feedback for CIP integration.
 6. ✅ **Dev server hot reload** — `LOCAL_ROUTER_DEV=true npm run dev` runs `tsx watch` with hot reload and helpful startup banner.
 7. ✅ **CIP foundation** — 4 automation scripts (`cip-daily-research.mts`, `cip-apply-findings.mts`, `crx-validate.mts`, `crx-aggregate.mts`) + daily GitHub Actions workflow.
+8. ✅ **Custom system prompt** — Optional system prompt injection before every LLM request. Default: OFF. Chain of Draft prompt default. Toggle + textarea in `/config` UI. Persisted to `system-prompt.json`. API: `GET/PUT /api/system-prompt`.
 
 **Planned:**
 1. **Normalize scoring formula** — Fix coding score dominance (×100) and latency negligible (/10000). Normalize to [0,1], derive weights from costQualityTradeoff.
