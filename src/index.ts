@@ -149,6 +149,8 @@ const FALLBACK_MODELS_PATH = path.join(LOCAL_ROUTER_CONFIG_DIR, 'fallback-models
 const LEGACY_FALLBACK_MODELS_PATH = path.join(LEGACY_FVS_CONFIG_DIR, 'fallback-models.json');
 const ROUTER_MODELS_PATH = path.join(LOCAL_ROUTER_CONFIG_DIR, 'router-models.json');
 const LEGACY_ROUTER_MODELS_PATH = path.join(LEGACY_FVS_CONFIG_DIR, 'router-models.json');
+const SYSTEM_PROMPT_PATH = path.join(LOCAL_ROUTER_CONFIG_DIR, 'system-prompt.json');
+const LEGACY_SYSTEM_PROMPT_PATH = path.join(LEGACY_FVS_CONFIG_DIR, 'system-prompt.json');
 const ROUTER_EVENTS_PATH = path.join(LOCAL_ROUTER_CONFIG_DIR, 'router-events.csv');
 const LEGACY_ROUTER_EVENTS_PATH = path.join(LEGACY_FVS_CONFIG_DIR, 'router-events.csv');
 const DEFAULT_ROUTER_TYPE: RouterType = 'auto-local';
@@ -187,6 +189,11 @@ const keyStore: Record<string, string> = {};
 const modelStore: Record<string, ProviderModel[]> = {};
 const fallbackModelStore: Record<string, FallbackModel> = {};
 const routerModelStore: Record<string, RouterModel> = {};
+const DEFAULT_CHAIN_OF_DRAFT_PROMPT = `Think step by step, but only keep a minimum draft for each thinking step, with 5 words at most. Return the answer after your thinking.`;
+const systemPromptConfig: { enabled: boolean; prompt: string } = {
+  enabled: false,
+  prompt: DEFAULT_CHAIN_OF_DRAFT_PROMPT
+};
 const SECRET_FIELD_PATTERN = /(authorization|api[_-]?key|token|secret|password|cookie|set-cookie)/i;
 const diagnosticsStore = {
   enabled: false,
@@ -981,6 +988,31 @@ function loadPersistedRouterModels() {
   } catch (error: any) {
     console.error('Failed to load persisted router routes:', sanitizeDiagnosticText(String(error?.message || error)));
   }
+}
+function loadPersistedSystemPrompt(): void {
+  const persistedPath = existingPath(SYSTEM_PROMPT_PATH, LEGACY_SYSTEM_PROMPT_PATH);
+  if (!fs.existsSync(persistedPath)) return;
+  try {
+    const parsed = JSON.parse(fs.readFileSync(persistedPath, 'utf8'));
+    if (typeof parsed?.enabled === 'boolean') {
+      systemPromptConfig.enabled = parsed.enabled;
+    }
+    if (typeof parsed?.prompt === 'string' && parsed.prompt.trim()) {
+      systemPromptConfig.prompt = parsed.prompt;
+    }
+  } catch (error: any) {
+    console.error('Failed to load persisted system prompt config:', sanitizeDiagnosticText(String(error?.message || error)));
+  }
+}
+function persistSystemPrompt(): void {
+  ensureLocalRouterConfigDir();
+  const temporaryPath = `${SYSTEM_PROMPT_PATH}.${process.pid}.tmp`;
+  fs.writeFileSync(temporaryPath, `${JSON.stringify(systemPromptConfig, null, 2)}\n`, {
+    encoding: 'utf8',
+    mode: 0o600
+  });
+  fs.renameSync(temporaryPath, SYSTEM_PROMPT_PATH);
+  fs.chmodSync(SYSTEM_PROMPT_PATH, 0o600);
 }
 
 function resolveModelTarget(modelName: string): ModelTarget | null {
@@ -2132,6 +2164,30 @@ app.get('/config', (req: Request, res: Response) => {
       <div class="card">
         <div class="catalog-meta">
           <div>
+            <h2>System Prompt</h2>
+            <p class="muted">Inject a custom system prompt before every LLM request. Default: Chain of Draft (concise step-by-step reasoning).</p>
+          </div>
+          <div class="muted" id="systemPromptStatus">Loading...</div>
+        </div>
+        <div style="margin-top:12px;">
+          <label style="display:inline-flex;align-items:center;gap:8px;font-weight:bold;cursor:pointer;">
+            <input type="checkbox" id="systemPromptToggle" onchange="toggleSystemPrompt()"> Enable custom system prompt
+          </label>
+        </div>
+        <div id="systemPromptFields" style="margin-top:12px; display:none;">
+          <div class="form-group">
+            <label for="systemPromptText">Prompt text</label>
+            <textarea id="systemPromptText" rows="6" placeholder="Enter your system prompt..."></textarea>
+          </div>
+          <div class="button-row">
+            <button onclick="saveSystemPrompt()">Save</button>
+            <button class="button-secondary" onclick="resetSystemPromptToDefault()">Reset to Default (CoD)</button>
+          </div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="catalog-meta">
+          <div>
             <h2>Recent Sessions</h2>
             <p class="muted">Track CLI agent sessions by endpoint. Rate sessions thumbs up/down to inform Continuous Improvement (CIP) routing decisions.</p>
           </div>
@@ -3109,6 +3165,77 @@ app.get('/config', (req: Request, res: Response) => {
           setMessage('Diagnostics cleared.', 'success');
           await refreshDiagnostics();
         }
+        let systemPromptDefault = '';
+        async function loadSystemPrompt() {
+          try {
+            const res = await fetch('/api/system-prompt');
+            if (!res.ok) throw new Error('HTTP ' + res.status);
+            const data = await res.json();
+            const toggleEl = document.getElementById('systemPromptToggle');
+            const fieldsEl = document.getElementById('systemPromptFields');
+            const textEl = document.getElementById('systemPromptText');
+            const statusEl = document.getElementById('systemPromptStatus');
+            systemPromptDefault = data.defaultPrompt || '';
+            if (toggleEl) toggleEl.checked = Boolean(data.enabled);
+            if (textEl) textEl.value = data.prompt || '';
+            if (fieldsEl) fieldsEl.style.display = data.enabled ? 'block' : 'none';
+            if (statusEl) statusEl.textContent = data.enabled ? 'Active — injecting into all requests' : 'Disabled';
+          } catch (err) {
+            console.error('loadSystemPrompt failed:', err);
+            const statusEl = document.getElementById('systemPromptStatus');
+            if (statusEl) statusEl.textContent = 'Failed to load';
+          }
+        }
+        async function toggleSystemPrompt() {
+          const toggleEl = document.getElementById('systemPromptToggle');
+          const fieldsEl = document.getElementById('systemPromptFields');
+          const enabled = Boolean(toggleEl?.checked);
+          if (fieldsEl) fieldsEl.style.display = enabled ? 'block' : 'none';
+          const res = await fetch('/api/system-prompt', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ enabled })
+          });
+          const payload = await res.json().catch(() => ({}));
+          if (!res.ok) {
+            setMessage(payload?.error || 'Failed to update system prompt.', 'error');
+            return;
+          }
+          const statusEl = document.getElementById('systemPromptStatus');
+          if (statusEl) statusEl.textContent = payload.enabled ? 'Active — injecting into all requests' : 'Disabled';
+          setMessage('System prompt ' + (payload.enabled ? 'enabled' : 'disabled') + '.', 'success');
+        }
+        async function saveSystemPrompt() {
+          const textEl = document.getElementById('systemPromptText');
+          const prompt = textEl ? textEl.value : '';
+          const res = await fetch('/api/system-prompt', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ prompt })
+          });
+          const payload = await res.json().catch(() => ({}));
+          if (!res.ok) {
+            setMessage(payload?.error || 'Failed to save system prompt.', 'error');
+            return;
+          }
+          if (textEl) textEl.value = payload.prompt;
+          setMessage('System prompt saved.', 'success');
+        }
+        async function resetSystemPromptToDefault() {
+          const textEl = document.getElementById('systemPromptText');
+          if (textEl) textEl.value = systemPromptDefault || '';
+          const res = await fetch('/api/system-prompt', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ prompt: systemPromptDefault })
+          });
+          const payload = await res.json().catch(() => ({}));
+          if (!res.ok) {
+            setMessage(payload?.error || 'Failed to reset system prompt.', 'error');
+            return;
+          }
+          setMessage('System prompt reset to Chain of Draft default.', 'success');
+        }
 
         async function loadProviderConfigs() {
           try {
@@ -3253,6 +3380,7 @@ app.get('/config', (req: Request, res: Response) => {
         applyRouterDefaults();
         loadCatalog();
         loadSessionsPanel();
+        loadSystemPrompt();
 
         // ── Sessions & Feedback ──
         async function loadSessionsPanel() {
@@ -4199,6 +4327,35 @@ app.delete('/api/diagnostics', (req: Request, res: Response) => {
 
   return res.json({ success: true, cleared });
 });
+// ── System Prompt ──
+app.get('/api/system-prompt', (req: Request, res: Response) => {
+  return res.json({
+    enabled: systemPromptConfig.enabled,
+    prompt: systemPromptConfig.prompt,
+    defaultPrompt: DEFAULT_CHAIN_OF_DRAFT_PROMPT
+  });
+});
+app.put('/api/system-prompt', (req: Request, res: Response) => {
+  const { enabled, prompt } = req.body ?? {};
+  if (enabled !== undefined && typeof enabled !== 'boolean') {
+    return res.status(400).json({ error: 'enabled must be a boolean.' });
+  }
+  if (prompt !== undefined) {
+    if (typeof prompt !== 'string') {
+      return res.status(400).json({ error: 'prompt must be a string.' });
+    }
+    systemPromptConfig.prompt = prompt.trim() || DEFAULT_CHAIN_OF_DRAFT_PROMPT;
+  }
+  if (enabled !== undefined) {
+    systemPromptConfig.enabled = enabled;
+  }
+  persistSystemPrompt();
+  return res.json({
+    enabled: systemPromptConfig.enabled,
+    prompt: systemPromptConfig.prompt,
+    defaultPrompt: DEFAULT_CHAIN_OF_DRAFT_PROMPT
+  });
+});
 
 app.head('/api/version', (req: Request, res: Response) => {
   res.status(200).end();
@@ -4342,6 +4499,7 @@ function modelPresentationList() {
 
 loadPersistedFallbackModels();
 loadPersistedRouterModels();
+loadPersistedSystemPrompt();
 
 const DEFAULT_ROUTER_ID = 'auto-local-main';
 
@@ -5412,7 +5570,10 @@ async function handleChatCompletion(req: Request, res: Response, bodyOverrides?:
   if (!model) {
     return res.status(400).json({ error: 'Model is required in request body.' });
   }
-
+  // Inject custom system prompt when enabled
+  if (systemPromptConfig.enabled && systemPromptConfig.prompt && Array.isArray(body.messages)) {
+    body.messages.unshift({ role: 'system', content: systemPromptConfig.prompt });
+  }
   const rawClient = req.headers['x-local-router-client'];
   const clientName = typeof rawClient === 'string' ? rawClient : Array.isArray(rawClient) ? rawClient[0] : 'unknown';
   recordRequest(clientName, String(model));
