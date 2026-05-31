@@ -1,0 +1,114 @@
+name: CRX Community Contribution Validation
+
+on:
+  pull_request:
+    paths:
+      - 'community/**'
+  push:
+    branches:
+      - main
+      - staging
+      - develop
+    paths:
+      - 'community/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate community contributions
+        id: validate
+        run: |
+          npx ts-node scripts/crx-validate.mts --strict
+        continue-on-error: true
+
+      - name: Check validation result
+        if: steps.validate.outcome == 'failure'
+        run: |
+          echo "::error::Community contribution validation failed. See output above for details."
+          echo "Run 'npx ts-node scripts/crx-validate.mts' locally to reproduce."
+          exit 1
+
+      - name: Post validation summary (PR)
+        if: github.event_name == 'pull_request' && steps.validate.outcome == 'success'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const summary = `
+            ## CRX Validation: Passed
+
+            All community contributions passed schema, security, and consistency checks.
+
+            | Check | Status |
+            |---|---|
+            | Schema validation | ✓ |
+            | Security scan | ✓ |
+            | Model references | ✓ |
+            | Consistency | ✓ |
+
+            After merge, the aggregator will update \`community/AGGREGATE.md\` with updated consensus values.
+            `;
+            await github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: summary
+            });
+
+  aggregate:
+    needs: validate
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/staging')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run aggregator
+        run: |
+          npx ts-node scripts/crx-aggregate.mts --min-samples=2
+
+      - name: Commit aggregated consensus
+        run: |
+          git config user.name "Hermes Bot"
+          git config user.email "hermes-bot@local-router.dev"
+
+          if git diff --quiet community/AGGREGATE.md data/community-consensus.json; then
+            echo "No changes to consensus data."
+            exit 0
+          fi
+
+          git add community/AGGREGATE.md data/community-consensus.json
+          git commit -m "docs(community): update aggregated consensus from community contributions
+
+      Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
+          git push
