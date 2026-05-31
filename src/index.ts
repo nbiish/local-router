@@ -666,7 +666,7 @@ function parseFallbackModel(payload: any): FallbackModelParseResult {
   const entries = Array.isArray(rawModels)
     ? rawModels
     : typeof rawModels === 'string'
-      ? rawModels.split(/[,\r\n]+/)
+      ? rawModels.split(/[,\s]+/)
       : [];
 
   if (entries.length === 0) {
@@ -1479,28 +1479,58 @@ function getPqcBinPath(): string {
 
 function loadPqcSecrets(): void {
   const bin = getPqcBinPath();
-  if (!bin) return;
+  if (!bin) {
+    console.log('[PQC] pqc-secrets binary not found — skipping bundle load.');
+    return;
+  }
   try {
     const output = execFileSync(bin, ['export'], {
       encoding: 'utf8',
       timeout: 10000,
       env: { ...process.env, PATH: process.env.PATH || '/usr/local/bin:/usr/bin:/bin' }
     });
+    const loadedProviders: string[] = [];
+    const skippedEnvVars: string[] = [];
     for (const line of output.split('\n')) {
       const match = line.match(/^export\s+(\w+)=(.+)$/);
       if (!match) continue;
       const envVar = match[1];
       const value = match[2];
       process.env[envVar] = value;
-      // Map env var back to provider name
       const provider = findProviderByEnvVar(envVar);
       if (provider) {
         keyStore[provider.name] = value;
+        loadedProviders.push(provider.name);
+      } else {
+        skippedEnvVars.push(envVar);
       }
     }
-    console.log(`[PQC] Loaded keys from secrets bundle.`);
+    if (loadedProviders.length > 0) {
+      console.log(`[PQC] Loaded ${loadedProviders.length} provider key(s): ${loadedProviders.join(', ')}`);
+    }
+    if (skippedEnvVars.length > 0) {
+      console.log(`[PQC] Env vars not mapped to providers: ${skippedEnvVars.join(', ')}`);
+    }
+    // Also load any provider keys already set in environment (env, secrets-load, etc.)
+    const allSummaries = readProviderSummaries();
+    const envLoaded: string[] = [];
+    for (const summary of allSummaries) {
+      if (keyStore[summary.name]) continue; // already loaded from PQC bundle
+      const envValue = process.env[summary.keyEnvVar];
+      if (envValue) {
+        keyStore[summary.name] = envValue;
+        envLoaded.push(summary.name);
+      }
+    }
+    if (envLoaded.length > 0) {
+      console.log(`[PQC] Loaded ${envLoaded.length} provider key(s) from environment: ${envLoaded.join(', ')}`);
+    }
+    // Report providers still missing keys
+    const missing = allSummaries.filter((s) => !keyStore[s.name]).map((s) => s.name);
+    if (missing.length > 0) {
+      console.log(`[PQC] Providers without keys: ${missing.join(', ')}`);
+    }
   } catch (err) {
-    // Bundle may not exist yet — that's fine
     if (process.env.LOCAL_ROUTER_DEV === 'true') {
       console.log(`[PQC] No secrets bundle loaded:`, (err as Error).message);
     }
@@ -2499,7 +2529,7 @@ app.get('/config', (req: Request, res: Response) => {
               activeFallbackRouteId = route.id;
               document.getElementById('fallbackRouteId').value = route.id;
               document.getElementById('fallbackRouteId').disabled = true;
-              document.getElementById('fallbackModelsText').value = Array.isArray(route.models) ? route.models.join('\\n') : '';
+              document.getElementById('fallbackModelsText').value = Array.isArray(route.models) ? route.models.join('\n') : '';
             });
           });
 
