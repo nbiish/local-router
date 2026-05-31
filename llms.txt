@@ -254,6 +254,28 @@ VS Code Copilot Chat strips or fails to replay provider-native reasoning metadat
 
 This is intentionally a compatibility layer, not a reasoning feature. Local Router presents models in a mode that VS Code can use safely without requiring client-side reasoning replay.
 
+## Custom System Prompt
+
+Local Router supports an optional custom system prompt injected before every LLM request. This is a user-facing feature for customizing model behavior across all providers via the proxy.
+
+### Configuration
+- **Default:** OFF (disabled)
+- **Default prompt:** Chain of Draft reasoning style — *"Think step by step, but only keep a minimum draft for each thinking step, with 5 words at most. Return the answer after your thinking."*
+- **Persistence:** `~/.config/local-router/system-prompt.json` (non-secret, `0600`)
+- **API:** `GET /api/system-prompt` (read), `PUT /api/system-prompt` (update `{ enabled, prompt }`)
+- **Config UI:** System Prompt card at `/config` — toggle, textarea, save, and reset-to-default
+
+### Behavior
+- When enabled, prepends `{ role: "system", content: "<prompt>" }` as the first message in the messages array before forwarding to the provider
+- Works across all entry points: `/v1/chat/completions` (OpenAI), `/api/chat` (Ollama), `/api/generate` (Ollama)
+- Prepended before any existing system message the client may have sent
+- Disabled = zero overhead, no message manipulation
+
+### Design Rationale
+- Chain of Draft (CoD) is a structured reasoning technique that constrains the model to ≤5 words per reasoning step, reducing token usage while maintaining reasoning quality
+- The prompt is user-editable to support other reasoning frameworks or behavioral customization
+- Injection happens after Ollama→OpenAI translation but before `sanitizeProviderRequestBody`, so it is compatible with all reasoning-stripping and provider-formatting logic
+
 ## VS Code / Ollama Metadata
 
 ### VS Code Compatibility Target
