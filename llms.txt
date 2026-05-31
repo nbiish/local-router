@@ -1,6 +1,23 @@
 # Local Router: OpenAI-Compatible Proxy Server for VS Code
 
+## TL;DR
+
+Local Router is a localhost proxy server (port `11434`) that presents an Ollama-compatible and OpenAI-compatible API surface. VS Code, Copilot Chat, Cline, Roo Code, Continue, scripts, and Ollama-native clients point at `http://127.0.0.1:11434` and use models from 8+ upstream providers through a single local endpoint.
+
+- **Port:** `11434` (Ollama's default — drop-in compatible)
+- **Core endpoint:** `POST /v1/chat/completions` (OpenAI-compatible) plus Ollama-native endpoints (`/api/tags`, `/api/chat`, `/api/generate`, `/api/show`)
+- **Model routing:** Clients request `provider/model-name`; the proxy lazy-loads the provider module and proxies upstream, re-mapping the model key
+- **Provider keys:** Stored in-memory via browser UI at `/config`, never in `.env` or plaintext on disk. PQC-encrypted bundle at `~/.config/pqc-secrets/` for persistence across restarts
+- **Model catalog:** `providers.txt` is the source of truth for provider/model metadata (context lengths, capabilities, costs). Synced to `~/.config/providers.txt`
+- **Router models:** First-class `local-router/<name>` models with explicit candidate lists, scoring, and telemetry. Types: `priority`, `pareto-code`, `auto-local`, `bandit-local` (planned)
+- **Fallback routes:** User-configured model chains with retry logic, persisted as non-secret JSON
+- **VS Code integration:** `POST /api/vscode/configure` writes Ollama vendor entry and model picker preferences
+- **CLI:** `local-router start|stop|status|route set|custom|unset|status`
+- **Reasoning compatibility:** Strips provider-native reasoning metadata (DeepSeek, Kimi, Qwen3, GLM, Z.ai, Moonshot, MiniMax) so VS Code Copilot Chat can use these models safely
+- **Key files:** `src/index.ts` (server, routing, UI, CRUD), `src/reasoning.ts` (compatibility layer), `src/sessions.ts` (session tracking + feedback), `src/tiers.ts` (statistical tiering), `src/types.ts`, `src/providers/*.ts`, `bin/local-router.js` (CLI), `providers.txt` (model catalog), `ROUTER.md` (router improvement guide), `AGENTS.md` (security/process)
+
 ## Product North Star
+
 Local Router should become an easy local drop-in replacement for Ollama-compatible tooling: one localhost server, one familiar Ollama/OpenAI-compatible surface, and many provider-backed or locally routed models behind it.
 
 The end-state product should feel like an approachable open-source Ollama-compatible proxy with extra routing intelligence, not a closed provider gateway. Users should be able to point VS Code, Copilot Chat, Continue, Cline, Roo Code, scripts, or Ollama-native clients at `http://127.0.0.1:11434` and keep working while Local Router handles provider keys, model aliases, fallback chains, router models, diagnostics, and explicit routing policy.
@@ -9,9 +26,12 @@ The project may take product inspiration from Ollama's local-first ergonomics an
 
 Visual direction: Local Router should have a cool, cutesy cyberpunk Anishinaabe character and interface personality that makes the project memorable without weakening the operational tool surface. This character should be original, culturally respectful, and operator/community approved before it becomes a logo, mascot, generated asset, or default UI element. It should support the product as a first-viewport signal and documentation identity, while the app UI remains dense, readable, and useful for repeated routing/configuration work.
 
+`BRAND.md` is the working source of truth for product identity and character direction. Keep it aligned with this PRD before generating or shipping visual assets.
+
 Routing direction: auto-routing should be open, inspectable, and improvable by the community. Prefer local TypeScript/Node logic, explicit candidate lists, redacted telemetry, CSV/JSON exports, dry-run scoring, recompute tools, and documented scoring formulas over opaque hosted router behavior. Users should be able to see why a model was selected, tune the policy, share improvements, and verify that no hidden model pool or provider-managed default was used unless they configured it as a normal candidate.
 
 ## Branch Policy
+
 The repository uses three long-lived branches:
 
 - `main`: user-facing default branch displayed on GitHub.
@@ -22,648 +42,458 @@ Promotion path: feature branches -> `develop` -> `staging` -> `main`.
 
 Do not use a separate `production` branch. `main` is the production-facing branch.
 
-## Project Context
-This project was created to provide a lightweight, Ollama-compatible and OpenAI-compatible local proxy server that can be used with VS Code AI extensions and localhost AI tooling.
-The primary goal is to avoid lock-in to a single provider by running a local proxy that routes requests to configured provider models, fallback chains, and transparent local router models based on the requested model name and explicit user policy.
-It mirrors the architecture of `fcc-server` (from fcc-claude) by utilizing lazy-loaded modules for different providers, and it mirrors Ollama's default port and endpoint shape so existing tools can be repointed with minimal configuration.
+Per `AGENTS.md`: never work directly on `main` or `develop`. Create a git worktree for every task. One task = one branch = one worktree.
 
-## Architecture & How It Works
-- **Base Server Framework**: Node.js + Express + TypeScript.
-- **Port**: `11434` (mimicking Ollama's default for easy configuration in extensions).
-- **Core Endpoint**: `POST /v1/chat/completions`.
-- **Model Routing**:
-  - Clients send a model string formatted as `provider_name/actual_model_name`.
-  - Example: `groq/llama3-8b-8192` or `openrouter/anthropic/claude-3-opus`.
-- **Lazy Loading**:
-  - When a request is received, the proxy extracts `provider_name`.
-  - It dynamically loads the corresponding provider file from `src/providers/${provider_name}`.
-  - Doing this keeps the memory footprint light and avoids starting providers that aren't requested.
-- **Upstream Proxying**:
-  - The proxy configures the headers with the relevant provider's API key (from `.env`).
-  - It proxies the payload upstream, re-mapping the `model` key to just the `actual_model_name`.
-  - It passes back the streaming (or non-streaming) response chunk by chunk to the VS Code extension.
+## Architecture
 
-## Folder Structure
+### Core Stack
+- **Runtime:** Node.js + Express + TypeScript
+- **Port:** `11434` (mimicking Ollama's default for drop-in compatibility)
+- **Core endpoint:** `POST /v1/chat/completions`
+- **Ollama-compatible endpoints:** `GET /api/tags`, `POST /api/generate`, `POST /api/chat`, `POST /api/show`, `HEAD /api/version`, `HEAD /api/tags`, `GET /api/ps`
+- **Discovery:** `GET /` and `HEAD /` return `Ollama is running` so Ollama clients detect the proxy
+- **Version:** `GET /api/version` returns `0.6.4` to satisfy VS Code's Ollama minimum version check
+
+### Model Routing
+- Clients send a model string formatted as `provider_name/actual_model_name` (e.g., `groq/llama3-8b-8192`, `openrouter/anthropic/claude-3-opus`)
+- The proxy extracts `provider_name`, dynamically loads the corresponding provider module from `src/providers/`
+- It configures headers with the relevant provider's API key (from in-memory storage), remaps `model` to just the actual model name, and proxies upstream
+- Responses are streamed (SSE) or returned as non-streaming JSON
+
+### Lazy Loading
+- Provider modules are loaded on first request, keeping memory footprint light
+- The provider catalog is generated from `providers.txt` — no hardcoded provider lists
+
+### Key Management
+- Provider API keys are configured via the browser UI at `http://localhost:11434/config`
+- Keys are stored in-memory only; never written to `.env`, git, logs, or plaintext config
+- PQC-encrypted persistence is available via `~/.config/pqc-secrets/secrets.bundle.json` (ML-KEM-768 + AES-256-GCM)
+- `DELETE /api/keys/:provider` clears a provider key from memory
+
+### Stream Translation (Ollama ↔ OpenAI)
+- **Inbound:** Ollama JSON schema → OpenAI JSON schema
+- **Outbound:** OpenAI Server-Sent Events (SSE: `data: {...}`) → Ollama NDJSON streams (`{"model": "...", "message": {...}, "done": false}`)
+- Ollama image arrays are converted into OpenAI-compatible image content parts before forwarding
+- Ollama-format responses can carry translated tool calls
+
+### CLI Binary
+- `local-router start|stop|status` — proxy lifecycle
+- `local-router route set|custom|unset|status` — configure Ollama serve to proxy through Local Router
+- Compatibility aliases: `fvs-code` delegates to `local-router`; `fvs-code/<route>` and `fallback/<route>` resolve to `local-router/<route>`
+
+### File Map
+
+```
 .
-├── .env.example
+├── AGENTS.md                          # Security policy (PQC, worktree isolation, audit)
+├── ROUTER.md                          # Router improvement guide (deep research, scoring, defaults)
+├── CIP.md                             # Community Improvement Proposal process
+├── README.md                          # Project README
+├── llms.txt                           # This file — PRD anchor and project reference
+├── providers.txt                      # Source of truth for provider/model metadata (286 lines, 9 providers, 53 models)
+├── CIP.md                             # Community Improvement Proposal process spec
+├── .env.example                       # Environment variable template (no real keys)
 ├── tsconfig.json
 ├── package.json
-└── src
-    ├── index.ts              # Express API (Routes: /v1/chat/completions, /v1/models)
-    ├── types.ts              # Interfaces (e.g., ProxyProvider)
-    └── providers
-        ├── groq.ts           # Groq provider configuration & model fetching
-        └── openrouter.ts     # OpenRouter provider configuration
+├── bin/
+│   ├── local-router.js                # CLI binary (proxy lifecycle + route control)
+│   └── fvs-code.js                    # Compatibility alias for local-router
+├── src/
+│   ├── index.ts                       # Express server, routing, CRUD, config UI, router models, VS Code integration, session tracking
+│   ├── types.ts                       # TypeScript interfaces (ProxyProvider, etc.)
+│   ├── reasoning.ts                   # Reasoning/thinking metadata stripping for VS Code compatibility
+│   ├── sessions.ts                    # Session tracking + thumbs up/down feedback
+│   ├── tiers.ts                       # Statistical tiering (median+MAD outlier detection)
+│   └── providers/
+│       ├── groq.ts                    # Groq provider
+│       └── openrouter.ts             # OpenRouter provider
+├── tests/
+│   └── provider-keys.integration.test.mjs  # Integration test suite
+├── scripts/
+│   ├── cip-daily-research.mts         # CIP GATHER → ANALYZE → PROPOSE → RECORD pipeline
+│   ├── cip-apply-findings.mts         # Apply high-confidence CIP proposals
+│   ├── crx-validate.mts               # Community provider contribution validation
+│   └── crx-aggregate.mts              # Community consensus computation
+├── data/                              # CIP reports, manifests, provider-watch data
+├── community/                         # Community docs (CONTRIBUTING, SCHEMA, AGGREGATE)
+├── .github/workflows/
+│   └── cip-daily.yml                  # Daily CIP research automation (3:17am UTC)
+└── .agents/                           # Agent task files
+```
 
 ## Setup & Testing
-1. **Environment Setup**:
-   - `cp .env.example .env` (This relies on environment variables for initial bootstrapping or fallback).
-   - *NEW*: Keys will be configured primarily via a secure browser interface to eliminate plaintext `.env` storage, mirroring `fcc-server`.
-2. **Commands**:
+
+1. **Environment Setup:**
+   - `cp .env.example .env` (fallback only; keys are primarily configured via browser UI)
+   - Provider keys: configure at `http://localhost:11434/config` (stored in-memory)
+2. **Commands:**
    - `npm install`
-   - `npm run dev` (Runs `ts-node src/index.ts`)
-   - `npm run build` (Compiles TS -> JS to `./build`)
-3. **Usage in VS Code Extension**:
+   - `npm run dev` (Runs `tsx watch src/index.ts` with hot reload)
+   - `npm run dev:once` (Runs `tsx src/index.ts` without watch)
+   - `npm run build` (Compiles TS → JS to `./build`)
+   - `npm run build:watch` (Watch mode: `tsc --watch`)
+   - `npm test` or `npm run test:integration` (integration tests; requires `CODEX_SANDBOX_NETWORK_DISABLED=0`)
+   - Set `LOCAL_ROUTER_DEV=true` for a `[DEV]` startup banner with helpful URLs
+   - Use `PORT=11435` to run dev server alongside production Ollama on 11434
+3. **Usage in VS Code Extension:**
    - Provider Type: `OpenAI Compatible` or `Ollama`
    - Base URL: `http://localhost:11434/v1` (for OpenAI) or `http://localhost:11434` (for Ollama compatibility)
-   - API Key: Managed securely in memory via browser UI.
+   - API Key: Managed securely in memory via browser UI
    - Model Name: `groq/llama-3.1-70b-versatile`
 
 ## Web & Architectural Inspiration
-- **Free Claude Code (`fcc-server`)**:
-  - Repo: [https://github.com/Alishahryar1/free-claude-code](https://github.com/Alishahryar1/free-claude-code)
-  - **How it works**: It is a proxy layer that sits between Claude Code (CLI/VSCode extensions) and multiple LLM backends (like OpenRouter, DeepSeek, Ollama). By wrapping `Anthropic Messages API` traffic in an local proxy without requiring Anthropic keys directly, it allows users to route API traffic freely.
-  - **Browser UI Key Management**: We follow this pattern by serving a local web UI over `http://localhost:11434` to securely collect provider API keys and store them entirely in-memory—avoiding plaintext leakage on disk (`.env`), which fully complies with strict local operation security and prevents `.env` accidental key commitments.
-- **Ollama**:
-  - Repo: [https://github.com/ollama/ollama](https://github.com/ollama/ollama)
-  - **How it works**: We mirror Ollama’s default port, HTTP route shape, and streaming response conventions so existing tools can point at `http://localhost:11434` with minimal or no reconfiguration.
 
-## Ollama Drop-In Replacement Support
-Since many developers build tools natively for Ollama, this server operates on port `11434` and will additionally support native Ollama endpoints:
-- `GET /api/tags` -> Exposes dynamically available models.
-- `POST /api/generate` -> Handles standard Ollama text generation payloads.
-- `POST /api/chat` -> Handles standard Ollama chat JSON payloads.
+- **Free Claude Code (`fcc-server`):** Repo: https://github.com/Alishahryar1/free-claude-code — A proxy layer between Claude Code and multiple LLM backends. Local Router follows its pattern of browser UI key management and in-memory key storage.
+- **Ollama:** Repo: https://github.com/ollama/ollama — Local Router mirrors Ollama's default port, HTTP route shape, and streaming response conventions so existing tools can repoint with minimal configuration.
 
-**Stream Translation (Ollama `<->` OpenAI)**:
-To be a true drop-in replacement, we intercept bidirectional traffic:
-- **Inbound**: Ollama JSON schema -> OpenAI JSON schema
-- **Outbound**: OpenAI Server-Sent Events (SSE: `data: {...}`) -> Ollama NDJSON streams (`{"model": "...", "message": {...}, "done": false}`). This was originally compared against Ollama and fcc-server reference implementations, but those cloned reference trees have now been removed from this repository after the working implementation was completed.
+## Provider Catalog
+
+`providers.txt` is the factual source of truth for provider/model metadata. It is synced to `~/.config/providers.txt` and intended to be copied across projects. Runtime model overrides (via `/api/provider-models`) take precedence and immediately update `/v1/models`, `/api/tags`, and `/api/show`.
+
+### Active Providers (9 providers, 53 models as of 2026-05-29)
+
+| Provider | Models | Endpoint |
+|---|---|---|
+| `wafer-serverless` | 5 | Wafer Serverless API |
+| `zenmux` | 12 | `https://zenmux.ai/api/v1` |
+| `nebius` | 4 | Nebius Token Factory |
+| `moonshot` | 4 | Moonshot/Kimi API |
+| `nvidia-nim` | 3 | NVIDIA NIM API |
+| `modal` | 1 | Modal GLM endpoint |
+| `openrouter-presets` | 6 | OpenRouter API |
+| `xiaomi-mimo` | 2 | `https://token-plan-sgp.xiaomimimo.com/v1` |
+| `opencode` | 16 | OpenCode API |
+
+### Key Model Metadata
+
+**1-million-context models** (1,000,000-token windows):
+- `wafer-serverless/deepseek-v4-flash`, `wafer-serverless/deepseek-v4-pro`, `wafer-serverless/qwen3.7-max`
+- `zenmux/qwen/qwen3.7-max`, `zenmux/deepseek/deepseek-v4-pro`
+- `nebius/deepseek-ai/DeepSeek-V4-Pro`
+- `openrouter-presets/@preset/chain-of-draft`, `openrouter-presets/@preset/openrouter-personal-router`
+- `openrouter-presets/@preset/free-chain-of-draft`, `openrouter-presets/@preset/1-million-main`, `openrouter-presets/@preset/1-million-chain-of-draft`
+- `xiaomi-mimo/mimo-v2.5-pro`, `xiaomi-mimo/mimo-v2.5`
+
+**Notable model specs:**
+- Wafer Serverless intake IDs: `GLM-5.1`, `Kimi-K2.6`, `deepseek-v4-flash`, `deepseek-v4-pro`, `qwen3.7-max`
+- ZenMux models (12): `deepseek/deepseek-chat`, `deepseek/deepseek-v4-pro`, `z-ai/glm-5.1`, `qwen/qwen3.7-max`, `google/gemini-3.1-pro-preview`, `google/gemini-3.5-flash`, `minimax/minimax-m2.7`, `minimax/minimax-m2.7-highspeed` (204.8K, 131K output, tools), `stepfun/step-3.7-flash` (256K, 256K output, tools+vision+cache+reasoning), `sapiens-ai/agnes-2.0-flash` (256K, 32.8K output, tools+vision+reasoning), `xiaomi/mimo-v2.5-pro` (1M, 128K output, tools+cache), `xiaomi/mimo-v2.5` (1M, 128K output, tools+vision+cache)
+- Moonshot/Kimi K2.6: 256K context, multimodal input, tool calling. v1 models: 8K/32K/128K contexts
+- NVIDIA NIM: `nvidia/nemotron-3-nano-omni-30b-a3b-reasoning` (256K, multimodal, tools), `minimaxai/minimax-m2.5` (text-only, 204.8K), `minimaxai/minimax-m2.7` (204.8K, tools, reasoning, no vision)
+- Modal: `zai-org/GLM-5.1-FP8` — context/output/tool limits sourced from Z.ai GLM-5.1 public facts
+- Xiaomi Mimo: `mimo-v2.5-pro` and `mimo-v2.5` — both 1M context, tool calling; mimo-v2.5 has vision
+- OpenRouter presets: 1M context, 120K max output, tools + vision enabled. Also `stepfun/step-3.7-flash` (256K, 256K output, tools+vision+cache, native reasoning). All compositions must be confirmed with preset owner
+- MiniMax M2.7: 204.8K context, 131K max output, tools YES, vision NO, reasoning YES (stripped for VS Code)
+
+### Prompt Caching by Provider
+
+| Provider | Cache Support | Mechanism |
+|---|---|---|
+| **DeepSeek models** (all providers) | YES | Automatic disk-based KV cache. TTL: hours-days. Read ~1/10-1/50 of input cost. Detected via `prompt_cache_hit_tokens`. |
+| **ZenMux** | YES | Explicit `cache_control: {"type": "ephemeral"}` (Anthropic-style) + implicit for OpenAI/DeepSeek/xAI/Google/Qwen/MoonshotAI/ZhipuAI/InclusionAI. Up to 4 breakpoints. TTL: 5 min (1.25x) or 1h (2x). |
+| **Wafer Serverless** | YES | All 5 models show cache read pricing. Passes through underlying model caching. |
+| **Moonshot/Kimi K2.6** | YES | Implicit/automatic. No user-facing API parameters. |
+| **Xiaomi Mimo** | YES | Both models show tiered cache_read pricing via OpenRouter. |
+| **OpenRouter Presets** | YES | Passes through upstream caching. All current presets support it. |
+| **Nebius** | NO | Platform does not document or price caching. |
+| **NVIDIA NIM** | NO | No caching docs or pricing. |
+| **Modal** | NO | GLM-5.1-FP8 upstream supports it but Modal doesn't expose it. |
+| **Moonshot v1 series** | NO | No cache pricing or docs. |
+
+### Provider Management API
+
+- `GET /api/provider-configs` — provider summary table (configured state, source)
+- `GET /api/provider-models` — full model catalog
+- `GET /api/provider-models/:provider` — single provider's models
+- `PUT /api/provider-models/:provider` — bulk replace provider models
+- `POST /api/provider-models/:provider/models` — single-model upsert (upstream model ID, presented alias, context length, max output tokens, capability toggles: tools/vision/cache/reasoning)
+- `DELETE /api/provider-models/:provider/models/:modelId` — single-model delete
+- `DELETE /api/provider-models/:provider` — reset to baseline from `providers.txt`
+- `DELETE /api/keys/:provider` — clear provider key from memory
+
+### Provider Metadata Sources
+- https://app.wafer.ai/models
+- https://zenmux.ai/api/v1/models
+- https://zenmux.ai/api/frontend/model/available/list
+- https://docs.zenmux.ai/guide/advanced/prompt-cache.html
+- https://platform.kimi.ai/docs/models
+- https://platform.kimi.ai/docs/guide/kimi-k2-6-quickstart
+- https://docs.z.ai/guides/llm/glm-5.1
+- https://api-docs.deepseek.com/quick_start/pricing
+- https://api-docs.deepseek.com/guides/kv_cache
+- https://build.nvidia.com/deepseek-ai/deepseek-v4-flash/modelcard
+- https://build.nvidia.com/deepseek-ai/deepseek-v4-pro/modelcard
+- https://docs.api.nvidia.com/nim/reference/moonshotai-kimi-k2-6
+- https://docs.api.nvidia.com/nim/reference/nvidia-nemotron-3-nano-omni-30b-a3b-reasoning
+- https://docs.api.nvidia.com/nim/reference/minimaxai-minimax-m2.5
+- https://docs.api.nvidia.com/nim/reference/z-ai-glm5.1
+- https://docs.tokenfactory.nebius.com/
+- https://modal.com/glm-5-endpoint
+- https://openrouter.ai/api/v1/models
+
+### Provider Security Rules
+- No API key values in `providers.txt`, `~/.config/providers.txt`, `.env`, git, shell history, logs, or tool output
+- Use env vars or the Local Router browser UI for runtime key configuration
+- OpenRouter custom presets must not be inferred from naming alone — confirm with preset owner before adding/updating
+
+## Reasoning / Thinking Compatibility
+
+VS Code Copilot Chat strips or fails to replay provider-native reasoning metadata (e.g., `reasoning_content`) across turns. Some upstream providers reject follow-up requests when thinking mode is active but prior `reasoning_content` is missing. Local Router handles this as a compatibility layer in `src/reasoning.ts`.
+
+### Request Sanitization
+- Strips `reasoning_content`, `reasoning_details`, `redacted_thinking`, reasoning signatures, and nested thinking/reasoning content blocks before forwarding upstream
+- Removes Ollama-only `think` before sending OpenAI-compatible provider requests
+- Forces no-thinking hints for native reasoning-prone model names matching DeepSeek, Kimi, Qwen3, GLM, Z.ai, Zai, Moonshot, or MiniMax patterns
+- Forces no-thinking hints for provider+model combos matching DeepSeek, Kimi, Qwen3, GLM, Z.ai, Zai, Moonshot, MiniMax, StepFun, or Sapiens patterns
+- Uses upstream-compatible no-thinking hints: `reasoning_effort: "none"`, `thinking: { "type": "disabled" }`
+- Preserves existing `extra_body` but removes `reasoning_budget` and sets `chat_template_kwargs.thinking` / `chat_template_kwargs.enable_thinking` to `false`
+
+### Response Sanitization
+- Strips reasoning metadata from non-streaming OpenAI-compatible responses
+- Strips reasoning metadata from OpenAI-compatible SSE chunks
+- Skips empty reasoning-only chunks in Ollama stream translation so `/api/chat` and `/api/generate` don't emit blank assistant chunks for hidden thinking deltas
+
+This is intentionally a compatibility layer, not a reasoning feature. Local Router presents models in a mode that VS Code can use safely without requiring client-side reasoning replay.
+
+## VS Code / Ollama Metadata
+
+### VS Code Compatibility Target
+- VS Code 1.113+, Copilot Chat 0.41.0+, Ollama 0.18.3+
+- VS Code model metadata shape: `id`, `name`, `family`, `version`, `maxInputTokens`, `maxOutputTokens`, optional `detail`/`tooltip`, and `capabilities` with `toolCalling` and `imageInput`
+
+### Ollama Compatibility
+- Endpoints: `/api/tags`, `/api/show`, `/api/chat`, `/api/generate`, `/api/version`, `/api/ps`
+- Per-model `capabilities`: `completion`, `tools`, `vision`. Do NOT advertise `thinking` while Local Router is intentionally disabling provider-native thinking for VS Code compatibility
+- Context length fallback: 64,000 tokens (Ollama's recommendation for agents/coding tools) when provider metadata is missing
+- Ollama `/api/show` uses presented alias as `model_info.general.basename`, `model_info.general.name`, and `details.parameter_size`; raw provider intake IDs exposed only in `model_info.general.upstream_model` and tooltip
+
+### VS Code Integration (`POST /api/vscode/configure`)
+- Writes VS Code `chatLanguageModels.json` Ollama vendor entry
+- Updates `chatModelPickerPreferences` in `globalStorage/state.vscdb`
+- Seeds `chat.cachedLanguageModels.v2` entries for Ollama/Local Router models
+- Patches cached Ollama metadata with stable presented alias, provider family, context/output tokens, tool calling, and image input
+- Enables canonical Local Router and Ollama IDs; removes stale picker IDs that would surface raw upstream model names
+
+### Ollama Discovery Compatibility
+- `HEAD /api/version`, `HEAD /api/tags`, `GET /api/ps`, `POST /api/show`
+- Advertised per-model capabilities from `providers.txt`: `completion`, `tools` (when supported), `vision` (when image input supported)
+
+### Sources
+- https://code.visualstudio.com/api/extension-guides/ai/language-model-chat-provider
+- https://code.visualstudio.com/api/references/vscode-api
+- https://docs.ollama.com/integrations/vscode
+- https://docs.ollama.com/api/openai-compatibility
+- https://docs.ollama.com/context-length
+
+## Router Framework
+
+Local Router supports first-class router models presented as `local-router/<router-name>`. Router models persist to `~/.config/local-router/router-models.json` (non-secret, `0600`) and are managed through the `/config` UI and API.
+
+### Hard Invariants
+- Router execution must always and exclusively choose from the user-configured candidate models
+- Never silently use OpenRouter `openrouter/auto`, Not Diamond defaults, a provider-managed hidden pool, or any model outside the explicit candidate list
+- If no candidate survives filtering, fail closed with a clear 400/502 diagnostic
+
+### Router Types
+
+| Type | Behavior | Status |
+|---|---|---|
+| `priority` | Deterministic ordered candidate list with fallback semantics | Implemented |
+| `pareto-code` | Coding-focused: `min_coding_score`, cost/latency tie-breaks, capability filters, same-tier fallback | Implemented |
+| `auto-local` | Local rules/weights using task features (tool use, image input, context size, cache support, prior success rate, latency) | Implemented |
+| `bandit-local` | dLinUCB with bounded exploration, geometric forgetting (γ=0.98), per-candidate A/b matrices, UCB selection, persisted state | Planned — highest impact from research |
+
+### Default Auto Router Profile
+- Type: `auto-local`
+- `minCodingScore`: `0.66`
+- `costQualityTradeoff`: `7`
+- Default candidates (OpenRouter presets): `1-million-chain-of-draft` (coding=0.88), `chain-of-draft` (0.86), `openrouter-personal-router` (0.84), `1-million-main` (0.82), `free-chain-of-draft` (0.72)
+- The Router Models UI reset action restores this complete default profile
+
+### Router API
+- `GET /api/router-models` — list router definitions
+- `POST /api/router-models` — create/update router
+- `DELETE /api/router-models` — delete router
+- `GET /api/router-events.csv` — redacted decision telemetry (prompt_hash, coding_task, tool_calls_valid, reward_signal, candidate_scores, error_type)
+- `GET /api/router-candidates.csv` — candidate metadata export (success_rate, tool_call_accuracy, latency_p50_ms, latency_p95_ms, sample_count, tier, last_observed_at)
+- `POST /api/router-models/:id/recompute` — recompute candidate stats + tiers from telemetry
+- `POST /api/router-models/:id/dry-run` — score candidates without upstream call (planned)
+- `GET /api/sessions` — list active sessions (2-hour window)
+- `POST /api/sessions/:id/feedback` — rate a session (`{ "rating": "up" | "down" }`)
+
+### Router Files (all non-secret, `0600`, no API keys/prompts/responses)
+- `router-models.json`: router definitions, candidate model IDs, route type, scoring policy, weights, thresholds, `enableAutoTiers` flag
+- `router-events.csv`: append-only redacted decision telemetry (timestamp, router_id, presented_model, router_type, selected_model, status, duration_ms, candidate_latency_ms, stream, request features, coding_task, approx_input_tokens, requested_output_tokens, tool_calls_*, reward_signal, prompt_hash, candidate_scores, error_type)
+- `router-candidates.csv`: exportable candidate metadata (model ID, provider, upstream_model, context/output, capabilities, cost, latency, success_rate, tool_call_accuracy, latency_p50_ms, latency_p95_ms, sample_count, tier, last_observed_at)
+- `sessions.json`: session tracking data (sessionId, clientName, modelUsage, totalRequests) — fully redacted
+- `session-feedback.json`: thumbs up/down ratings with session/client/models metadata
+- `router-evals.csv`: optional evaluation rows (prompt hash, candidate model, metric, score, latency, cost, timestamp)
+
+### Known Router Limitations
+- Single-attempt per candidate (no retry within candidate; unlike fallback routes)
+- No streaming-aware scoring (time-to-first-token vs total time)
+- No cache-awareness in scoring (multi-turn cache hit potential ignored)
+- Candidate metadata partially validated via telemetry (success_rate, latency percentiles, tier); not yet validated against provider-published specs
+- No cross-router learning (shared candidates don't share quality signals)
+
+### Router Research Summary
+Full details in `ROUTER.md`. Key findings from SOTA literature (2025-2026):
+
+- **Auto Exacto** (OpenRouter): Statistical tiering via median+MAD, re-evaluated every ~5min. Three tiers: verified good, insufficient data, deranked. Within-tier preserves price/latency ordering. Tool-call error rates dropped 88% for GLM-5.
+- **RouteLLM** (LMSys): Matrix factorization achieves 80.2% APGR, 155 req/s, 3.66× cost reduction at 95% quality. Embedding-similarity scoring replaces regex-based heuristics.
+- **dLinUCB** (5 papers converge): Discounted LinUCB with geometric forgetting is the consensus bandit algorithm — computationally trivial (ridge regression, no GPU), proven sublinear regret, handles non-stationary quality/pricing.
+- **Not Diamond**: Custom routers train from evaluation CSVs (min 25 samples). Per-model prompt adaptation reports 5-60% accuracy improvements.
+- **DSPy 3.0**: MIPROv2 joint instruction+few-shot optimization. Compile-then-deploy pattern keeps request-time routing deterministic.
 
 ## Current Implementation State
-- The live browser UI at `http://localhost:11434/config` now serves a secure in-memory key config page and a provider selector built from `providers.txt`.
-- The `/config` browser UI includes a local `Color Scheme` range slider with Light, Balanced, and Dark stops. The 0-100 scale continuously adjusts CSS theme tokens for page background, cards, controls, borders, text, muted text, buttons, status pills, diagnostics, and catalog surfaces.
-- The color-scheme slider persists only in browser `localStorage` under `local-router-config-color-scheme-scale`; it does not write provider keys, prompts, model settings, route definitions, or server-side config files.
-- `GET /` and `HEAD /` return Ollama-compatible heartbeat responses (`Ollama is running`) so Ollama clients can detect the proxy.
-- The selector shows the provider API key configs we want to set keys for, including the provider name, endpoint, key env var, and default tool.
-- The provider key save flow stores keys in memory and maps them to the env vars listed in `providers.txt`.
-- The provider selector now displays per-provider configured state, source (`memory`/`env`/`none`), and includes a reset/unset action for each provider.
-- The provider model manager now supports one-model-at-a-time runtime edits per provider (add/update/delete) with explicit fields for upstream model ID, presented alias, context length, max output tokens, and capability toggles (`tools`, `vision`, `cache`, `reasoning`).
-- `GET /api/provider-models`, `GET /api/provider-models/:provider`, `PUT /api/provider-models/:provider` (bulk replace), `POST /api/provider-models/:provider/models` (single-model upsert), `DELETE /api/provider-models/:provider/models/:modelId` (single-model delete), and `DELETE /api/provider-models/:provider` (reset to baseline) manage the in-memory model catalog.
-- The browser UI now includes a Fallback Model Routes panel for creating, editing, deleting, and inspecting persisted fallback route models.
-- `GET /api/fallback-models`, `POST /api/fallback-models`, and `DELETE /api/fallback-models` manage user-defined fallback routes. Routes persist to the user config directory as non-secret model-chain JSON and reload on proxy startup. Each route presents as its own provider/model-shaped model named `local-router/<fallback-route>` with provider family `local-router` in `/v1/models`, `/api/tags`, `/api/show`, and VS Code picker refreshes.
-- Fallback route execution tries each primary stage up to three times with `{baseSeconds}^retryIndex` wait logic (default base is 2 seconds), then advances through the user-configured model chain. Before advancing beyond the second failed stage, the engine bridges back through prior models once each, then resumes three-attempt handling for the next new model.
-- `DELETE /api/keys/:provider` now clears a provider key from in-memory storage and runtime env for the current process.
-- The provider catalog is no longer hardcoded; both `GET /v1/models` and `GET /api/tags` are generated from `providers.txt`.
-- `providers.txt` is the factual source of truth for provider/model metadata and is intended to be copied/synced across projects as needed.
-- Runtime model overrides take precedence over `providers.txt` for the affected provider and immediately update `/v1/models`, `/api/tags`, and `/api/show`. Requests for the presented model name are routed back to the provider-required upstream model.
-- Ollama discovery compatibility includes `HEAD /api/version`, `HEAD /api/tags`, `GET /api/ps`, and `POST /api/show`.
-- Ollama model discovery now advertises per-model capabilities from `providers.txt`: `completion`, `tools` when supported, and `vision` when image input is supported.
-- `POST /api/vscode/configure` writes the VS Code `chatLanguageModels.json` Ollama vendor entry and updates `chatModelPickerPreferences` in `globalStorage/state.vscdb` so presented Local Router models are visible in the Copilot model picker.
-- VS Code cached Ollama metadata is patched, when present, with stable presented alias for `id` and `name`, provider family, alias detail, upstream tooltip, `maxInputTokens`, `maxOutputTokens`, `toolCalling`, and `imageInput`. The picker preference writer enables canonical Local Router and Ollama IDs only, including `local-router/<fallback-route>` fallback routes, and removes stale Local Router picker IDs that would surface raw upstream model names.
-- Ollama `/api/show` uses the stable presented alias as `model_info.general.basename`, `model_info.general.name`, and `details.parameter_size`; raw provider intake IDs remain exposed only as `model_info.general.upstream_model` and tooltip detail so VS Code shows provider-qualified aliases instead of ambiguous upstream basenames.
-- `GET /api/provider-configs` exposes the provider summary table to the browser UI, including `configured` and `configuredSource`.
-- The project now ships a CLI binary `local-router` for local lifecycle and route control: `start`, `status`, `stop`, and `route set|custom|unset|status`.
-- `local-router route set` configures `ollama serve` to start the local-router proxy on default `127.0.0.1:11434`; `route unset` restores normal Ollama behavior.
-- `local-router route custom <localhost:port>` configures `ollama serve` to start Local Router on a safe custom localhost endpoint. Guardrails: host must be `localhost`/`127.0.0.1`, port must be `1024-65535`, port `11434` is blocked for custom mode, and occupied non-Local Router ports are rejected.
-- Compatibility aliases remain for one release cycle: `fvs-code` CLI delegates to `local-router`, `fvs-code/<route>` and `fallback/<route>` resolve to canonical `local-router/<route>`, `~/.config/fvs-code` files are read when new `~/.config/local-router` files do not yet exist, and legacy `FVS_*` environment variables are accepted when canonical `LOCAL_ROUTER_*` variables are unset.
-- `GET /api/version` returns `0.6.4` so VS Code’s Ollama integration passes its minimum version check.
-- The server continues to run on Ollama’s default port `11434` and works as an OpenAI-compatible proxy plus an Ollama-compatible clone surface.
-- The cloned reference codebases under `reference/free-claude-code` and `reference/ollama` were removed after the proxy implementation reached a working state; future comparisons should use upstream documentation or fresh temporary clones outside this repo.
-- The project builds successfully with `npm run build`.
-- Integration coverage was added for provider key lifecycle (`save -> status -> reset`) and provider model override lifecycle (`save -> catalog -> show -> reset`) using `tests/provider-keys.integration.test.mjs` with `npm run test:integration`.
-- Integration coverage now also checks Ollama heartbeat/discovery endpoints (`/`, `/api/version`, `/api/tags`, `/api/ps`, `/api/show`).
 
-## Confirmed Working State: 2026-05-27
-- VS Code was reloaded and the Local Router/Ollama models are now selectable and usable through Copilot Chat.
-- `deepseek-v4-pro` was pinned/selected in VS Code and the earlier `reasoning_content in the thinking mode must be passed back to the API` failure is resolved.
-- The server is expected to run on `http://127.0.0.1:11434` with:
-  - `/` returning `Ollama is running`.
-  - `/api/version` returning `0.6.4`.
-  - `/api/tags` returning the presented Local Router model catalog.
-  - `/api/show` returning Ollama-style model metadata including context length, max output tokens, and per-model capabilities.
-- `POST /api/vscode/configure` refreshes VS Code's Ollama vendor entry and model picker preferences. Current picker refreshes configure canonical model IDs and clean stale Local Router preference IDs that previously kept raw upstream names visible.
-- Runtime provider keys are still process-local and in-memory. After a server restart, provider keys must be re-entered at `http://127.0.0.1:11434/config` unless provided by the process environment.
-- The `/config` Color Scheme slider has verified Light, Balanced, and Dark palettes. Contrast checks for text-on-surface, muted text, buttons, and primary chips pass readable thresholds across the three stops; Balanced uses a stronger blue accent (`rgb(9, 88, 154)`) to keep mid-scale chips and buttons readable.
-- Runtime model edits are still process-local and in-memory. The browser UI now manages one model at a time with explicit fields:
-  - upstream model ID sent to provider
-  - presented alias shown by `/api/tags`, `/api/show`, `/v1/models`, and VS Code
-  - context length and max output tokens
-  - capability toggles (`tools`, `vision`, `cache`, `reasoning`)
-- Fallback route edits persist across server restarts. The persisted route file contains only route IDs and model IDs, not provider API keys or prompt/response data.
-- Bulk provider model replacement via `PUT /api/provider-models/:provider` remains available for automation/scripts; single-model CRUD is preferred for interactive edits.
-- Baseline `providers.txt` models now get readable presented aliases by default. For example, `wafer-serverless` models present with the `wafer-ai-` prefix instead of `wafer-serverless/...`.
-- `GET /api/tags`, `GET /v1/models`, and `POST /api/show` now expose context length, max output tokens, tool support, image support, cache support, and reasoning metadata derived from the provider table where applicable.
-- `/api/chat` and `/api/generate` convert Ollama image arrays into OpenAI-compatible image content parts before forwarding, and Ollama-format responses can now carry translated tool calls.
-- Preferred alias names now flow into VS Code cached Ollama metadata and Ollama show metadata (`name`, `general.basename`, `details.parameter_size`, tooltip), while raw upstream model IDs remain stable for routing.
+### Server & Routing
+- Live browser UI at `http://localhost:11434/config` for key management, provider selection, model editing, fallback routes, router models, and color scheme
+- Color scheme slider (Light/Balanced/Dark) persists in browser `localStorage` only; no server-side config written
+- Provider key save flow stores keys in-memory, mapped to env vars from `providers.txt`
+- Provider selector shows per-provider configured state, source (`memory`/`env`/`none`), and reset/unset actions
+- One-model-at-a-time runtime edits per provider with fields: upstream model ID, presented alias, context length, max output tokens, capability toggles
 
-## GitNexus / Impact Review: 2026-05-27
-- GitNexus is now indexed for this repository as `local-router` at `/Volumes/1tb-sandisk/code-external/fvs-code` after the GitHub repository rename.
-- The focused index excludes dependency/build/reference trees with `.gitnexusignore` and keeps implementation sources, CLI, scripts, tests, docs, and `providers.txt`.
-- Latest successful focused index command: `npx gitnexus analyze --force --index-only --name local-router`.
-- Latest focused index stats: 1,008 nodes, 3,887 edges, 27 clusters, and 89 flows.
-- `npx gitnexus status` reports indexed commit `c0a3cdc`, current commit `c0a3cdc`, status up-to-date after the focused index run.
-- An earlier unconstrained index attempt was stopped because it traversed the 162 MB cloned `reference/` tree and emitted parser warnings from vendored Ollama C/C++ sources. The `reference/` tree has now been removed from the repository.
-- GitNexus `detect_changes --scope all` currently reports CRITICAL branch-level risk because this working branch contains a broad multi-feature diff: 324 changed symbols, 59 affected symbols/flows, and 4 indexed changed files.
-- GitNexus `api_impact` for `/api/show` and `/api/show/:model` reports LOW route risk, 0 direct consumers, and 59 affected execution flows.
-- GitNexus `api_impact` for `/api/vscode/configure` reports LOW route risk, 0 direct consumers, and 59 affected execution flows.
-- GitNexus `api_impact` for `/config` reports LOW route risk with zero indexed direct consumers. The theme update is UI-only and stays inside the inline `/config` HTML/CSS/JS served by `src/index.ts`.
-- GitNexus `route_map` confirms `/api/show`, `/api/show/:model`, and `/api/vscode/configure` are handled by `src/index.ts` with no indexed downstream consumers.
-- GitNexus `shape_check` for `/api/show` and `/api/vscode/configure` found no routes with both response shapes and consumers, so no consumer shape mismatch was detected.
-- GitNexus symbol impact for `configureVSCodeModelPicker`, `ollamaShowPayload`, `findPresentedModel`, `fallbackExecutionPlan`, and `handleChatCompletion` is LOW in upstream mode.
-- GitNexus symbol impact for `providerModelAliases` is CRITICAL in upstream mode because it feeds `findProviderModel`, `findPresentedModel`, and `configureVSCodeModelPicker`, affecting routing, fallback/router presentation, eligibility scoring, and VS Code model metadata paths. Changes to this helper require full build, integration, live `/api/show`, and VS Code state verification.
-- Current live proxy state after alias work: `http://127.0.0.1:11434` is served by `local-router`, route shim is disabled, `/api/tags` reports 46 models, and the persisted fallback route presents as `local-router/fallback-models`.
+### Fallback Routes
+- Persisted to `~/.config/local-router/` as non-secret model-chain JSON; reload on proxy startup
+- Each route presents as `local-router/<fallback-route>` with provider family `local-router`
+- Execution: three attempts per stage with `{baseSeconds}^retryIndex` wait logic (default base: 2s), then advance. Before advancing beyond second failed stage, bridge back through prior models once each
 
-## Reasoning / Thinking Compatibility Fix
-- Root cause: VS Code Copilot Chat strips or fails to replay provider-native reasoning metadata such as `reasoning_content` across turns. Some upstream providers reject follow-up requests when thinking mode is active but prior `reasoning_content` is missing.
-- Fix location: `src/reasoning.ts`.
-- Request sanitization now:
-  - Strips `reasoning_content`, `reasoning_details`, `redacted_thinking`, reasoning signatures, and nested thinking/reasoning content blocks from messages before forwarding upstream.
-  - Removes Ollama-only `think` before sending OpenAI-compatible provider requests.
-  - Forces no-thinking hints for native reasoning-prone model names matching DeepSeek, Kimi, Qwen3, GLM, Z.ai, Zai, or Moonshot patterns.
-  - Uses upstream-compatible no-thinking hints such as `reasoning_effort: "none"` and `thinking: { "type": "disabled" }`.
-  - Preserves existing `extra_body` but removes `reasoning_budget` and sets `chat_template_kwargs.thinking` / `chat_template_kwargs.enable_thinking` to `false` when those fields exist.
-- Response sanitization now:
-  - Strips reasoning metadata from non-streaming OpenAI-compatible responses before returning to clients.
-  - Strips reasoning metadata from OpenAI-compatible SSE chunks before returning to VS Code.
-  - Skips empty reasoning-only chunks in Ollama stream translation so `/api/chat` and `/api/generate` do not emit blank assistant chunks for hidden thinking deltas.
-- This is intentionally a compatibility layer, not a reasoning feature. Local Router should present models in a mode that VS Code can use safely without requiring client-side reasoning replay.
+### Session Tracking & Feedback
 
-## VS Code / Ollama Metadata Facts Checked: 2026-05-27
-- VS Code's language model metadata shape includes `id`, `name`, `family`, `version`, `maxInputTokens`, `maxOutputTokens`, optional `detail`/`tooltip`, and `capabilities` with `toolCalling` and `imageInput`.
-- VS Code's Ollama integration expects Ollama models to be selectable from the Copilot Chat model picker, with VS Code 1.113+, Copilot Chat 0.41.0+, and Ollama 0.18.3+ behavior as the compatibility target.
-- Ollama's OpenAI-compatible `/v1/chat/completions` surface supports chat, streaming, JSON mode, vision/image content, tools, `tool_choice`, and reasoning/thinking controls.
-- Ollama's model listing and show responses carry per-model `capabilities`; relevant values for this proxy are `completion`, `tools`, and `vision`. Do not advertise `thinking` while Local Router is intentionally disabling provider-native thinking metadata for VS Code compatibility.
-- Ollama context length is the model's memory window. Ollama's docs recommend at least 64,000 tokens for agents, coding tools, and web-search-like workflows; this is the fallback when provider metadata is missing.
-- Sources checked:
-  - https://code.visualstudio.com/api/extension-guides/ai/language-model-chat-provider
-  - https://code.visualstudio.com/api/references/vscode-api
-  - https://docs.ollama.com/integrations/vscode
-  - https://docs.ollama.com/api/openai-compatibility
-  - https://docs.ollama.com/context-length
-  - Local Ollama reference files were previously used during implementation review, then removed from this repository after the implementation was working.
+- CLI agents and tools send `X-Local-Router-Client: <agent-name>` header on requests
+- Server groups requests by `(clientName, 2-hour window)` into sessions
+- Sessions persist to `~/.config/local-router/sessions.json` (non-secret, `0600`)
+- Session data: `sessionId`, `clientName`, `startedAt`, `lastActivity`, `modelUsage: {model: count}`, `totalRequests`
+- No prompts, responses, or API keys stored in session data — fully redacted
+- Max 200 sessions; auto-saves every 10 requests
+- **Session Feedback:** Thumbs up/down panel in `/config` UI under "Recent Sessions"
+- Feedback stored in `~/.config/local-router/session-feedback.json` (non-secret, `0600`)
+- Max 500 feedback entries; each records session ID, client name, rating, models used, timestamp
+- `GET /api/sessions` — list active sessions
+- `POST /api/sessions/:id/feedback` — rate a session (`{ "rating": "up" | "down" }`)
+- Feedback data feeds into router recompute pipeline for quality signal integration
 
-## Provider Model Metadata Facts Checked: 2026-05-27
-- `providers.txt` and `~/.config/providers.txt` are restored to the full multi-provider operating mode. Local Router should integrate all designated providers and models from this file for the Ollama/OpenAI-compatible proxy catalog, VS Code picker metadata, and downstream CLI/IDE/script tooling.
-- Active providers: `wafer-serverless`, `zenmux`, `nebius`, `moonshot`, `nvidia-nim`, `modal`, `openrouter-presets`, and `xiaomi-mimo`.
-- Provider API keys are not stored in `providers.txt`, `~/.config/providers.txt`, `.env`, git, shell history, logs, or tool output. Use env vars or the Local Router browser UI for runtime key configuration.
-- Wafer Serverless model intake IDs include `GLM-5.1`, `Kimi-K2.6`, `deepseek-v4-flash`, `deepseek-v4-pro`, and operator-designated `qwen3.7-max`.
-- The 1-million-context models are explicitly recorded with 1,000,000-token windows:
-  - `wafer-serverless/deepseek-v4-flash`
-  - `wafer-serverless/deepseek-v4-pro`
-  - `wafer-serverless/qwen3.7-max`
-  - `zenmux/qwen/qwen3.7-max`
-  - `zenmux/deepseek/deepseek-v4-pro`
-  - `nebius/deepseek-ai/DeepSeek-V4-Pro`
-  - `openrouter-presets/@preset/chain-of-draft`
-  - `openrouter-presets/@preset/openrouter-personal-router`
-  - `openrouter-presets/@preset/free-chain-of-draft`
-  - `openrouter-presets/@preset/1-million-main`
-  - `openrouter-presets/@preset/1-million-chain-of-draft`
-  - `xiaomi-mimo/mimo-v2.5-pro`
-  - `xiaomi-mimo/mimo-v2.5`
-- All current `openrouter-presets` rows are recorded with 1,000,000 context, 120,000 max output tokens, tool calling enabled, and vision/image input enabled.
-- ZenMux's public model APIs confirm exact rows for `deepseek/deepseek-chat`, `deepseek/deepseek-v4-pro`, `z-ai/glm-5.1`, `qwen/qwen3.7-max`, `google/gemini-3.1-pro-preview`, and `google/gemini-3.5-flash`.
-- Moonshot/Kimi docs confirm Kimi-K2.6 at 256K context with native multimodal input and tool calling. Moonshot v1 model contexts remain 8K, 32K, and 128K.
-- NVIDIA NIM docs confirm exact public IDs `nvidia/nemotron-3-nano-omni-30b-a3b-reasoning` and `minimaxai/minimax-m2.5`. Nemotron is 256K-context multimodal with tool calling; MiniMax-M2.5 is text-only with 204,800 context.
-- Modal's GLM endpoint page confirms `zai-org/GLM-5.1-FP8` as the API model ID. Modal does not publish context/output/tool limits on that page, so `providers.txt` uses Z.ai GLM-5.1 public model facts for context/output/capability metadata.
-- Nebius Token Factory `/v1/models` and `/v1/models?verbose=true` require authentication and were not queried with a token. Nebius rows use upstream model-card facts where Nebius does not publish provider-specific unauthenticated metadata.
-- Xiaomi Mimo was added from operator-provided metadata with endpoint `https://token-plan-sgp.xiaomimimo.com/v1` and key env var `XIAOMI_MIMO_API_KEY`. Xiaomi Mimo rows have tool calling; `mimo-v2.5` has full-modal understanding represented as Ollama `vision` plus tools.
-- OpenRouter custom presets must not be inferred from preset naming alone. For any `@preset/<custom-user-name>` row, follow up with the preset owner and confirm max context window, max output tokens, multimodal support, tool calling, cache support, and reasoning behavior before adding or updating `providers.txt`.
-- Sources checked:
-  - https://app.wafer.ai/models
-  - https://zenmux.ai/api/v1/models
-  - https://zenmux.ai/api/frontend/model/available/list
-  - https://platform.kimi.ai/docs/models
-  - https://platform.kimi.ai/docs/guide/kimi-k2-6-quickstart
-  - https://docs.z.ai/guides/llm/glm-5.1
-  - https://api-docs.deepseek.com/quick_start/pricing
-  - https://build.nvidia.com/deepseek-ai/deepseek-v4-flash/modelcard
-  - https://build.nvidia.com/deepseek-ai/deepseek-v4-pro/modelcard
-  - https://docs.api.nvidia.com/nim/reference/moonshotai-kimi-k2-6
-  - https://docs.api.nvidia.com/nim/reference/nvidia-nemotron-3-nano-omni-30b-a3b-reasoning
-  - https://docs.api.nvidia.com/nim/reference/minimaxai-minimax-m2.5
-  - https://docs.api.nvidia.com/nim/reference/z-ai-glm5.1
-  - https://modal.com/glm-5-endpoint
-  - https://openrouter.ai/api/v1/models
+### Ollama Drop-In Compatibility
+- `GET /` and `HEAD /` return `Ollama is running`
+- `GET /api/version` returns `0.6.4`
+- `/api/tags` and `/v1/models` generated from `providers.txt` with runtime overrides applied
+- Ollama discovery: `HEAD /api/version`, `HEAD /api/tags`, `GET /api/ps`, `POST /api/show`
+- Image arrays in `/api/chat` and `/api/generate` converted to OpenAI-compatible image content parts
+- Tool call translation in Ollama-format responses
 
-## Provider Catalog Recovery Log: 2026-05-27
-- A temporary Wafer-only `providers.txt` was created while trying to satisfy a narrow provider-key request. That was wrong for the project goal.
-- The correct operating mode is full multi-provider integration: every provider and model designated in `providers.txt` should be available to Local Router tooling, Ollama-compatible discovery, OpenAI-compatible discovery, VS Code model picker metadata, and downstream CLI/IDE/script configs.
-- Restored `providers.txt` to the full multi-provider catalog and synced it to `~/.config/providers.txt`. The files match exactly.
-- Preserved the security rule that no provider API key values are written to `providers.txt`, `~/.config/providers.txt`, `llms.txt`, `.env`, git, shell history, logs, or tool output.
-- Restored active provider summary:
-  - `wafer-serverless`: 5 models.
-  - `zenmux`: 6 models.
-  - `nebius`: 4 models.
-  - `moonshot`: 4 models.
-  - `nvidia-nim`: 2 models.
-  - `modal`: 1 model.
-  - `openrouter-presets`: 5 models.
-  - `xiaomi-mimo`: 2 models.
-- Restored active model total: 29 models.
-- Restored Wafer Serverless rows with exact Wafer intake names:
-  - `GLM-5.1`
-  - `Kimi-K2.6`
-  - `deepseek-v4-flash`
-  - `deepseek-v4-pro`
-  - `qwen3.7-max`
-- Verified live `/api/provider-configs` sees 8 providers and correct model counts.
-- Verified live `/api/tags` sees 29 presented models.
-- Verified live Wafer presented aliases:
-  - `wafer-ai-glm-5.1`
-  - `wafer-ai-kimi-k2.6`
-  - `wafer-ai-deepseek-v4-flash`
-  - `wafer-ai-deepseek-v4-pro`
-  - `wafer-ai-qwen3.7-max`
-- Verified `wafer-ai-qwen3.7-max` via `/api/show`: 1,000,000 context, 64,000 max output, `completion` and `tools` capabilities.
-- Verified Xiaomi Mimo `mimo-v2.5` via `/api/show`: 1,000,000 context, 128,000 max output, `completion`, `tools`, and `vision` capabilities.
-- Verified OpenRouter presets via `/api/show`: 1,000,000 context, 120,000 max output, `completion`, `tools`, and `vision` capabilities.
-- Refreshed VS Code picker metadata with `POST /api/vscode/configure`: 29 presented models and 174 picker IDs.
-- Ran `npm run build`; TypeScript build passed.
-- Did not rerun `npm run test:integration` after reloading the live server because that reset-style test starts/stops test server state and can disrupt the live process/in-memory provider key state. Previous integration coverage still exists and should be run when live key state does not need to be preserved.
-- Secret-token scan checked `providers.txt`, `~/.config/providers.txt`, `llms.txt`, `.env`, and `.env.example`; no Wafer/Xiaomi token-shaped values were found.
-- Banned-crypto scan checked touched provider/docs/code/test files; no banned classical crypto patterns were found.
+### VS Code Integration
+- `POST /api/vscode/configure` writes vendor entry, picker preferences, and cached model metadata
+- Presented aliases flow into VS Code cached metadata (`name`, `general.basename`, `details.parameter_size`, tooltip)
+- Raw upstream model IDs remain stable for routing
 
-## Provider Prompt Caching Verification: 2026-05-27
-- Audited all 29 models across 8 providers to verify the `Cache` column in `providers.txt`. Each provider was checked against their own docs, model pages, and cross-referenced with OpenRouter's `/v1/models` pricing data (which signals cache support via `input_cache_read`/`input_cache_write`).
-- **Three corrections applied to `providers.txt`:**
-  - `moonshot/kimi-k2.6`: Cache NO → YES. Kimi K2.6 supports implicit prompt caching (confirmed via ZenMux model docs listing MoonshotAI/Kimi under implicit cache providers, and OpenRouter showing `cache_read` pricing for the model).
-  - `xiaomi-mimo/mimo-v2.5-pro`: Cache NO → YES. OpenRouter `/v1/models` shows `cache_read` (tiered) pricing for MiMo-V2.5-Pro.
-  - `xiaomi-mimo/mimo-v2.5`: Cache NO → YES. OpenRouter `/v1/models` shows `cache_read` (tiered) pricing for MiMo-V2.5.
-- **Cache mechanism breakdown by provider:**
-  - **DeepSeek models (all providers)**: Automatic disk-based KV cache. No API parameters — fully transparent. Cache TTL: hours to days (best-effort eviction). Cache read ~1/10-1/50 of input cost. Detected via `prompt_cache_hit_tokens` in usage response. Applies to deepseek-v4-flash, deepseek-v4-pro, deepseek-chat on wafer-serverless, zenmux, nebius, and openrouter-presets.
-  - **ZenMux**: Full explicit `cache_control: {"type": "ephemeral"}` with optional `ttl: "1h"` (Anthropic-style). Also supports implicit caching for OpenAI, DeepSeek, xAI, Google, Qwen, MoonshotAI, ZhipuAI, and InclusionAI models. Up to 4 breakpoints per request. Min cached tokens: 256 (Qwen) to 2,048 (Claude Haiku). Default TTL: 5 min (1.25x write cost), extended: 1 hour (2x write cost). Cache read: ~10% of input cost.
-  - **Wafer Serverless**: All 5 models show `Cache read` pricing on `app.wafer.ai/models`. Likely passes through underlying model caching (DeepSeek auto-cache for DeepSeek models, implicit for GLM/Kimi/Qwen).
-  - **Moonshot/Kimi K2.6**: Implicit/automatic caching — no user-facing API parameters to control. Confirmed via ZenMux implicit-cache provider list and OpenRouter cache_read pricing.
-  - **Xiaomi Mimo**: Both models show tiered `cache_read` pricing via OpenRouter upstream data. Likely implicit/automatic caching.
-  - **OpenRouter Presets**: Cache support indicated by `input_cache_read` pricing in `/v1/models`. Passes through upstream caching mechanisms. All current presets support caching.
-- **Confirmed NO-cache providers** (verified against docs; no caching documented or priced):
-  - **Nebius**: Platform does not document or price prompt caching, despite upstream models supporting it natively.
-  - **NVIDIA NIM**: No caching docs or pricing found. OpenRouter's free Nemotron tier also lacks cache pricing.
-  - **Modal**: No caching docs. GLM-5.1-FP8 upstream supports implicit caching but Modal's thin serving layer does not appear to expose it.
-  - **Moonshot v1 series** (8k/32k/128k): No cache pricing or docs found anywhere.
-- **Sources checked for caching:**
-  - https://app.wafer.ai/models (cache_read pricing for all models)
-  - https://docs.zenmux.ai/guide/advanced/prompt-cache.html (full prompt caching reference)
-  - https://api-docs.deepseek.com/guides/kv_cache (DeepSeek context caching)
-  - https://api-docs.deepseek.com/quick_start/pricing (DeepSeek cache-hit pricing)
-  - https://docs.tokenfactory.nebius.com/ (no caching features documented)
-  - https://platform.kimi.ai/docs/models (no caching documented)
-  - https://platform.kimi.ai/docs/pricing (no caching pricing)
-  - https://docs.api.nvidia.com/nim/reference (no caching documented)
-  - https://openrouter.ai/api/v1/models (cache_read/cache_write pricing signals)
-  - ZenMux model docs (implicit caching provider list)
+### Compatibility Aliases (one release cycle)
+- `fvs-code` CLI → `local-router`
+- `fvs-code/<route>` and `fallback/<route>` → `local-router/<route>`
+- `~/.config/fvs-code/` files read when `~/.config/local-router/` files don't exist
+- Legacy `FVS_*` env vars accepted when `LOCAL_ROUTER_*` vars are unset
 
-## Router Framework Research / PRD Direction: 2026-05-27
-- Local Router should add first-class custom router models that present as `local-router/<router-name>`, matching the canonical fallback route presentation pattern. Router IDs must be stable across `/v1/models`, `/api/tags`, `/api/show`, VS Code picker refreshes, diagnostics, and persisted config.
-- Hard invariant: Local Router router execution must always and exclusively choose from the user-configured candidate models for that router. It must not silently use OpenRouter `openrouter/auto`, Not Diamond defaults, a provider-managed hidden pool, or any model outside the route's explicit candidate list.
-- OpenRouter Auto Router research: `openrouter/auto` analyzes prompt complexity, task type, and model capabilities; it can restrict allowed models through an `auto-router` plugin `allowed_models` list; responses expose the concrete selected model. Local Router should copy the transparency and allowlist concepts, not the hidden model-pool dependency.
-- OpenRouter Pareto Code Router research: `openrouter/pareto-code` uses a single `min_coding_score` from `0` to `1`, maps scores into low/medium/high coding tiers, selects the cheapest currently available model in the tier (or fastest with the Nitro variant), and keeps same-tier fallbacks. Local Router should copy the simple scoring knob, tiered coding routing, concrete model disclosure, and same-tier fallback policy.
-- Not Diamond research: Not Diamond selects a model from caller-provided `llm_providers`, returns a session ID for traceability, supports cost/latency/quality tradeoffs, and trains custom routers from CSV-like evaluation data containing inputs, candidate responses, and numeric scores. Local Router should copy the local evaluation dataset shape and traceable session/decision IDs while avoiding external prompt disclosure by default.
-- Not Diamond custom-model research: custom models require explicit context length, input price, output price, and latency fields. Local Router router candidates should store these fields from `providers.txt` plus optional user overrides so score functions can reason about capability, cost, and latency without querying an external router service.
-- DSPy research: DSPy optimizers tune LM programs against user-defined metrics using small training sets, bootstrapped examples, instruction proposals, and search. Local Router should treat DSPy as inspiration for offline router improvement: collect redacted outcomes, score them with user-selected metrics, and compile revised router weights/rules. Request-time routing should remain lightweight and deterministic unless the user explicitly enables exploration.
-- Router storage should use non-secret local files under the existing Local Router config directory. Proposed files:
-  - `router-models.json`: router definitions, candidate model IDs, route type, scoring policy, weights, thresholds, fallback policy, and enabled state.
-  - `router-events.csv`: append-only redacted decision telemetry with request feature summaries, selected model, candidate scores, status, latency, token counts when available, error class, and user/evaluator score when available.
-  - `router-candidates.csv`: exportable candidate metadata for sharing/backups: router ID, model ID, provider, context length, output tokens, tool/image/cache/reasoning flags, cost fields, latency estimates, tier labels, and notes.
-  - `router-evals.csv`: optional evaluation rows: prompt/task hash or redacted label, candidate model ID, metric name, numeric score, latency, cost estimate, outcome label, and timestamp. No prompts, provider keys, responses, local paths, or secrets.
-- Router maintenance, export/import, and recompute tooling should stay in TypeScript/Node so the codebase does not gain another runtime for CSV processing. Future scripts should validate CSV schemas, normalize model IDs against `/api/provider-models` exports, compute Pareto tiers, update local router weights, and emit portable CSV/JSON backups.
-- Recommended router types:
-  - `priority`: deterministic ordered candidate list with existing fallback semantics.
-  - `pareto-code`: coding-focused route using `min_coding_score`, cost/latency tie-breaks, capability filters, and same-tier fallback.
-  - `auto-local`: local rules/weights using task features such as tool use, image input, approximate context size, requested output size, cache support, prior success rate, latency, and user/evaluator scores.
-  - `bandit-local`: optional later mode with bounded exploration, per-router budget controls, and explicit user opt-in because it changes behavior over time.
-- Candidate filtering must run before scoring: reject candidates lacking required tools/image support, context window, max output, configured provider key, or route policy constraints. If no candidate survives, fail closed with a clear 400/502 diagnostic rather than falling through to an arbitrary model.
-- Response transparency: non-streaming responses should include concrete selected-model metadata where the client format permits it; streaming diagnostics should record the concrete selected model. Ollama and VS Code metadata should keep the presented `local-router/<router-name>` stable while exposing selected upstream details only in safe diagnostic/export surfaces.
-- Config UI should add a Router Models panel parallel to Fallback Model Routes: create/edit/delete router, choose candidate models from the catalog, set route type, configure score knobs, preview eligible candidates, export/import CSV/JSON, and refresh VS Code picker.
-- API surface should be parallel to fallback routes: `GET /api/router-models`, `POST /api/router-models`, `DELETE /api/router-models`, `GET /api/router-events.csv`, `POST /api/router-events/import`, and `POST /api/router-models/:id/recompute` for TypeScript-generated updates.
-- Security/PQC guardrails: router files are non-secret and `0600`; no API keys, prompts, full responses, auth headers, `.env` data, local paths, or provider secrets are written to CSV/JSON; all imports validate model references against configured models; no classical cryptography or unauthenticated external router call is introduced.
-- Sources checked (initial research):
-  - https://openrouter.ai/docs/guides/routing/routers/auto-router
-  - https://openrouter.ai/docs/guides/routing/routers/pareto-router
-  - https://openrouter.ai/openrouter/pareto-code/router
-  - https://docs.notdiamond.ai/docs/key-concepts
-  - https://docs.notdiamond.ai/docs/quickstart-routing
-  - https://docs.notdiamond.ai/docs/router-training-quickstart
-  - https://docs.notdiamond.ai/docs/routing-between-custom-models
-  - https://github.com/stanfordnlp/dspy/blob/main/docs/docs/learn/optimization/optimizers.md
+### Router Framework
+- Router models persist and reload; execution uses candidate-only routing; decision telemetry appended to CSV
+- Auto Exacto statistical tiering: `enableAutoTiers` flag, median+MAD outlier detection, verified/insufficient/deranked tiers
+- Telemetry enrichment: prompt_hash (SHA-256), coding_task, tool_calls_valid, reward_signal in events; computed success_rate, latency percentiles, tier in candidates export
+- Recompute endpoint integrates tier data into proposals
+- Session tracking: `X-Local-Router-Client` header, 2-hour windows, thumbs up/down feedback in `/config`
+- VS Code picker preferences and cached model metadata include `local-router/<router-name>` entries
 
-## Router Framework Deep Research: 2026-05-27
+### Build & Test
+- `npm run build` passes (TypeScript compilation to `./build`)
+- `npm run dev` runs `tsx watch src/index.ts` with hot reload; `LOCAL_ROUTER_DEV=true` enables `[DEV]` banner with helpful URLs
+- `npm run dev:once` runs `tsx src/index.ts` without watch
+- `LOCAL_ROUTER_DEV=true npm run dev` launches dev server on port 11434; use `PORT=11435` alongside production Ollama
+- Integration tests in `tests/provider-keys.integration.test.mjs` cover key lifecycle, model CRUD, Ollama discovery, fallback execution, router models, reasoning sanitization, and VS Code metadata
+- Integration tests require `CODEX_SANDBOX_NETWORK_DISABLED=0`
 
-Second-pass deep research across the SOTA LLM routing literature. Full details in `ROUTER.md`. This section summarizes the findings that bear directly on Local Router implementation decisions.
+## Community Improvement Proposal (CIP) System
 
-### Auto Exacto: Statistical Provider Tiering (OpenRouter, March 2025)
-- OpenRouter's Auto Exacto uses three signals re-evaluated every ~5 minutes: throughput (tokens/sec from production traffic), tool-call telemetry (JSON validity, schema conformance, tool name accuracy — billions of calls since August 2025), and benchmark scores (TauBench Airline + GPQA-Diamond, recurring runs).
-- Statistical method: median + MAD (median absolute deviation) per model/provider. Flag only statistical outliers.
-- Three tiers: verified good, insufficient data (middle, not penalized), deranked (pushed to back).
-- Within-tier preserves price/latency ordering. No composite score — just push outliers back.
-- Results: GLM-5 tool call error rate dropped 88% (~8% → ~1%); DeepSeek V3.2 dropped 16% with TauBench improving 69% → 74%.
-- Local Router should adopt: (a) tool-call success columns in router telemetry, (b) statistical outlier detection for candidate quality when 50+ samples accumulate per candidate, (c) optional `enableAutoTiers` flag grouping candidates into tiers before within-tier scoring.
+The CIP system automates data-driven router improvements from telemetry. Spec: `CIP.md`.
 
-### RouteLLM: Learned Scoring Architectures (LMSys, Feb 2025)
-- Four router architectures benchmarked for binary (strong vs weak) model routing:
-  - SW Ranking: Bradley-Terry + cosine similarity, no training, 2.9 req/s, 74.6% APGR.
-  - Matrix Factorization: bilinear scoring, 10 epochs on 8GB GPU, 155 req/s, **80.2% APGR** (best).
-  - BERT Classifier: BERT_BASE + logistic head, 69 req/s, 72.3% APGR.
-  - Causal LLM: Llama 3 8B, 42 req/s, 69.9% APGR.
-- Key metrics: PGR (Performance Gap Recovered), APGR (Average PGR across cost thresholds), CPT (Call-Performance Threshold — min % strong-model calls needed for target PGR).
-- Routers transfer across model pairs without retraining. Up to 3.66× cost reduction at 95% quality. Routing overhead <0.4% of generation cost.
-- Local Router should adopt: (a) APGR-style aggregate telemetry metric, (b) embedding-similarity candidate scoring replacing regex-based `inferredCodingScore`, (c) `costThreshold` (0-1) parameter as a more intuitive alternative to `costQualityTradeoff` (0-10).
+### Pipeline (GATHER → ANALYZE → PROPOSE → RECORD)
+- `scripts/cip-daily-research.mts`: Reads `router-events.csv`, computes per-model stats, compares to global medians. Detects: insufficient data (<10 samples), deranked models (success rate below median), latency warnings (>1.5× median). Appends findings as JSONL to `~/.config/local-router/cip-findings.jsonl`.
+- `scripts/cip-apply-findings.mts`: Reads findings JSONL, filters high-confidence proposals, updates `router-models.json` (enables autoTiers for deranked models, adjusts codingScore).
+- `scripts/crx-validate.mts`: Validates community provider contributions (provider existence, model ID format, capability toggles).
+- `scripts/crx-aggregate.mts`: Computes consensus from multiple `providers.txt` proposals (majority-wins spec merging, high-consensus models at 3+ votes).
 
-### Contextual Multi-Armed Bandits for LLM Routing (5 papers, 2025-2026)
-- Five papers converge on a common design: treat each candidate model as a "bandit arm," observe a context vector per request, select via UCB, update online.
-- **dLinUCB** (discounted LinUCB with geometric forgetting γ=0.98) is the consensus algorithm: computationally trivial (ridge regression, no GPU), proven sublinear regret, handles non-stationary model quality/pricing.
-- PILOT achieves 93% of GPT-4 quality at 25% cost using LinUCB with preference priors.
-- ParetoBandit enforces dollar-denominated budgets via primal-dual pacing with <0.4% budget error; routes in 9.8ms on CPU.
-- LLM Bandit uses IRT embeddings for cold-start model onboarding so new models can be added without retraining.
-- Mahoraga (open-source) demonstrates LinUCB with a 9-dim context vector beating all cloud agents on code tasks.
-- Local Router should implement `bandit-local` router type: ~6-dim context vector, per-candidate A/b matrices via online ridge regression, UCB selection, geometric forgetting, persisted bandit state in `router-models.json`, ~200 lines of TypeScript. This is the highest-impact improvement identified.
+### GitHub Actions
+- `.github/workflows/cip-daily.yml`: Runs `cip-daily-research.mts` at 3:17am UTC daily. Creates GitHub issue with findings.
 
-### Not Diamond Custom Router Training & Prompt Adaptation (2026)
-- Custom routers train from evaluation CSVs (prompt, per-model responses, numeric scores). Minimum 25 samples, recommended 50-100+. Training: 5-15 minutes.
-- Tradeoff modes: quality (default), cost, latency.
-- "Prompt Adaptation": agentic system auto-rewrites prompts per target model; reports 5-60% accuracy improvements.
-- Local Router should adopt: (a) `POST /api/router-models/:id/recompute` reading telemetry and proposing weight/candidate updates, (b) per-candidate latency tracking in telemetry.
-
-### DSPy 3.0 Offline Router Optimization (2025)
-- MIPROv2: joint instruction + few-shot optimization via Bayesian search. Router accuracy improved 85% → 90%.
-- GEPA: Genetic-Pareto tree building Pareto frontier of prompts via natural language reflection.
-- GRPO: RL-based optimization for compound AI systems.
-- Local Router should adopt: DSPy-inspired offline recompute — define metric, propose weight adjustments, user approves/rejects. Compile-then-deploy pattern keeps request-time routing deterministic.
-
-### Context-Aware Request Classification (2025)
-- LLMRank: per-model strength profiles across task categories.
-- BERT-based difficulty prediction routes simple queries to cheap models and complex ones to expensive ones.
-- Cost-Aware Contrastive Routing uses contrastive learning for routing decisions.
-- Local Router should adopt: (a) `codeDensity`, `languageCount`, `multiTurnDepth`, `instructionLength` as context vector features, (b) per-candidate success rate breakdowns by request feature in exports, (c) lightweight coding vs. general-purpose task detection for stricter `pareto-code` scoring on code tasks.
-
-### Scoring Formula Analysis (Current Implementation)
-- Current formula: `score = (codingScore * 100 * qualityWeight) - (cost * costWeight) - (latencyMs / 10000) - index / 1000`
-- Issues: coding score dominates (×100), latency negligible (/10000), no normalization, cost heuristic is regex-based on model names.
-- Proposed: normalize all terms to [0,1], derive weights from `costQualityTradeoff`, better cost estimation from model metadata (context length tiers), add temperature consideration.
-
-### Deep Research Sources
-- https://openrouter.ai/announcements/auto-exacto
-- https://openrouter.ai/announcements/january-release-spotlight
-- https://arxiv.org/abs/2406.18665 (RouteLLM, revised Feb 2025)
-- https://openreview.net/pdf?id=AfA3qNY0Fq (MAR: Multi-Armed Router, ICLR 2025)
-- https://www.emergentmind.com/topics/preference-prior-informed-linucb-pilot (PILOT, EMNLP 2025)
-- https://www.opentrain.ai/tools/hf-eval-papers/paper/ad9748f5-9cb3-4bc7-b071-d09ac1617e95/ (ParetoBandit, March 2026)
-- https://arxiv.org/abs/2502.02743 (LLM Bandit, ICLR 2025)
-- https://github.com/pockanoodles/Mahoraga (LinUCB orchestrator)
-- https://github.com/stanfordnlp/dspy/releases/tag/3.0.0 (DSPy 3.0)
-- https://arxiv.org/html/2507.03620 (DSPy multi-use-case study, July 2025)
-- https://deepwiki.com/stanfordnlp/dspy/4-program-optimization
-- https://ar5iv.labs.arxiv.org/html/2510.01234 (LLMRank, 2025)
-- https://arxiv.org/html/2508.12491v1 (Cost-Aware Contrastive Routing, 2025)
-- https://ieeexplore.ieee.org/document/11294975 (BERT-Based Difficulty Prediction, IEEE 2025)
-- https://docs.notdiamond.ai/docs/router-training-quickstart (updated 2026)
-- https://blog.vllm.com.cn/2025/11/19/signal-decision.html (Signal-Decision Architecture)
-- https://github.com/withmartian/routerbench (RouterBench)
-
-## Router Framework Implementation Slice: 2026-05-27
-- Implemented first-class local router models in `src/index.ts`.
-- Router models persist to `~/.config/local-router/router-models.json` with `0600` permissions and load on proxy startup.
-- Router execution presents routes as `local-router/<router-name>` in `/v1/models`, `/api/tags`, `/api/show`, and VS Code picker metadata via the existing presented model list.
-- Router models are managed through `GET /api/router-models`, `POST /api/router-models`, `DELETE /api/router-models`, `GET /api/router-events.csv`, and `GET /api/router-candidates.csv`.
-- `/config` now includes a Router Models panel for creating, editing, deleting, refreshing VS Code picker metadata, and exporting router candidate/event CSV files.
-- Supported router types in this slice are `priority`, `pareto-code`, and `auto-local`.
-- Default router UI/profile is `auto-local` with `minCodingScore=0.66`, `costQualityTradeoff=7`, and the current OpenRouter preset auto-router candidate set. This matches the SOTA-inspired balance from OpenRouter Auto Router's cost/quality default and Pareto Code Router's high coding-quality floor. Resetting the router form restores the complete usable default, including candidate models.
-- Operator-provided OpenRouter preset composition is recorded in `ROUTER.md` and included in default router candidate `notes` metadata so `/api/router-candidates.csv` exports useful Pareto-analysis context.
-- Current confirmed preset stacks:
-  - `openrouter-1-million-main`: DeepSeek V4 Pro, DeepSeek V4 Flash, Xiaomi MiMo-V2.5-Pro.
-  - `openrouter-1-million-chain-of-draft`: DeepSeek V4 Pro, DeepSeek V4 Flash, Xiaomi MiMo-V2.5-Pro.
-  - `openrouter-chain-of-draft`: DeepSeek V4 Pro, MoonshotAI Kimi K2.6, Xiaomi MiMo-V2.5-Pro.
-  - `openrouter-openrouter-personal-router`: DeepSeek V4 Pro, MoonshotAI Kimi Latest, Xiaomi MiMo-V2.5-Pro.
-  - `openrouter-free-chain-of-draft`: composition not yet confirmed.
-- Router candidates can be entered as newline-delimited rows such as `model-id, coding=0.86, input=1, output=2, latency=1200`. Candidate metadata is optional; missing coding score/cost/latency falls back to local heuristic values from the presented model metadata and model name.
-- Candidate filtering runs before scoring and rejects candidates that are unresolved, nested `local-router` routes, missing provider keys, missing tool/image support, too small for approximate context, too small for requested output, or below the configured coding score threshold.
-- Router execution tries the selected/scored eligible candidates only. It never falls through to OpenRouter `openrouter/auto`, Not Diamond defaults, or any model outside the configured candidate list.
-- Router decision telemetry appends redacted non-secret rows to `~/.config/local-router/router-events.csv`; rows include router ID, selected model, status, latency, stream flag, approximate request features, candidate scores, and error type. No prompt text, responses, API keys, auth headers, local paths, or provider secrets are stored.
-- `GET /api/router-candidates.csv` exports candidate metadata for backup/sharing without secrets.
-- Added `ROUTER.md` as the agent-facing router improvement guide for research, defaults, scoring policy, telemetry review, and safe future TypeScript tooling.
-- `POST /api/vscode/configure` now seeds missing `chat.cachedLanguageModels.v2` Ollama/Local Router entries in addition to picker preferences, so newly added `local-router/<router-name>` routes can appear without waiting for VS Code to discover and cache them independently.
-- Added integration coverage in `tests/provider-keys.integration.test.mjs` for router model create/list/discovery/show, candidate-only execution, and router CSV exports.
-- Verification status:
-  - `npm run build` passed.
-  - `npm run test:integration` passed after clearing the sandbox test-skip flag with `env CODEX_SANDBOX_NETWORK_DISABLED=0 npm run test:integration`.
-  - `git diff --check` passed for touched files.
-  - Banned-crypto/secret scan found no matches in `llms.txt`, `TASK.2026-05-27.md`, `ROUTER.md`, `providers.txt`, `src`, `tests`, or `package.json`.
-
-## Router Implementation Handoff: 2026-05-27
-- Preserve the other agent's `Router Framework Deep Research` section above as the research source for the next implementation phase. Do not replace it with the earlier lighter PRD notes; use it to guide concrete changes.
-- Current live baseline:
-  - Proxy is running at `http://127.0.0.1:11434`.
-  - Persisted router file exists at `~/.config/local-router/router-models.json`.
-  - Live router model: `local-router/auto-local-main`.
-  - `GET /api/router-models` returns the `auto-local-main` router.
-  - `GET /api/router-candidates.csv` exports the OpenRouter preset candidate rows with operator-provided composition notes.
-  - `POST /api/vscode/configure` has been run after adding router metadata.
-  - VS Code `chatModelPickerPreferences` and `chat.cachedLanguageModels.v2` both contain `local-router/auto-local-main`.
-- Current default auto-router candidate set:
-  - `openrouter-1-million-chain-of-draft`: `coding=0.88`, notes `DeepSeek V4 Pro + DeepSeek V4 Flash + Xiaomi MiMo-V2.5-Pro`.
-  - `openrouter-chain-of-draft`: `coding=0.86`, notes `DeepSeek V4 Pro + MoonshotAI Kimi K2.6 + Xiaomi MiMo-V2.5-Pro`.
-  - `openrouter-openrouter-personal-router`: `coding=0.84`, notes `DeepSeek V4 Pro + MoonshotAI Kimi Latest + Xiaomi MiMo-V2.5-Pro`.
-  - `openrouter-1-million-main`: `coding=0.82`, notes `DeepSeek V4 Pro + DeepSeek V4 Flash + Xiaomi MiMo-V2.5-Pro`.
-  - `openrouter-free-chain-of-draft`: `coding=0.72`, notes `Composition unconfirmed`.
-- The Router Models UI reset action must continue to restore the complete default auto-router profile: `type=auto-local`, `minCodingScore=0.66`, `costQualityTradeoff=7`, and the full candidate list above. This lets users tinker and then return to a known-good default.
-- Keep router utility work in TypeScript/Node. Do not reintroduce Rust or another runtime for CSV validation/import/recompute unless the operator explicitly approves a cross-runtime design.
-- Immediate implementation order:
-  1. Normalize the scoring formula while preserving current router behavior behind the same `auto-local` API.
-  2. Add a dry-run scoring endpoint before adding online learning: `POST /api/router-models/:id/dry-run`.
-  3. Enrich redacted router telemetry with request features and candidate-level outcome fields needed by later Auto Exacto-style tiering and dLinUCB.
-  4. Add TypeScript CSV import/export validation helpers after the telemetry schema is stable.
-  5. Implement `bandit-local` only after dry-run, normalized scoring, and telemetry tests exist.
-- Implementation safety gates for every router change:
-  - `npm run build`
-  - `env CODEX_SANDBOX_NETWORK_DISABLED=0 npm run test:integration`
-  - `git diff --check`
-  - banned-crypto/secret scan across `llms.txt`, `TASK.2026-05-27.md`, `ROUTER.md`, `providers.txt`, `src`, `tests`, and `package.json`
-  - live `/api/router-models`, `/api/router-candidates.csv`, `/v1/models`, `/api/show`, and `/api/vscode/configure` verification when model presentation or VS Code metadata changes.
+### Community Contribution
+- `community/CONTRIBUTING.md`: Provider contribution guidelines
+- `community/SCHEMA.md`: providers.txt schema specification
+- `community/AGGREGATE.md`: Consensus aggregation process
 
 ## Current Test Coverage
-- `npm run test:integration` builds the project and runs `tests/provider-keys.integration.test.mjs`.
-- The integration test starts a fake upstream OpenAI-compatible provider so request forwarding can be inspected without using real provider keys.
-- Coverage includes:
-  - Ollama heartbeat and discovery endpoints.
-  - Provider key save/status/reset lifecycle.
-  - Provider model override save/catalog/show/reset lifecycle.
-  - Single-model provider CRUD (`POST /api/provider-models/:provider/models` and `DELETE /api/provider-models/:provider/models/:modelId`) including custom context/output/capability fields.
-  - Presented model name routing back to upstream model name.
-  - Colon-separated model aliases and rejection of the old pipe-separated mapping format.
-  - Ollama image-array forwarding into OpenAI-compatible image content parts.
-  - Ollama tool-call response translation.
-  - Reasoning/thinking request sanitization for DeepSeek-style models.
-  - Non-streaming response stripping of `reasoning_content`.
-  - Streaming SSE stripping of `reasoning_content`.
-  - Fallback route persistence across a real proxy restart using an isolated temporary home directory.
-  - Fallback execution order, including three primary attempts, bridge retries, provider error previews, retry wait metadata, and exhausted-route error payloads.
-  - Fallback model presentation as `local-router/<route>` in `/api/fallback-models`, `/v1/models`, `/api/tags`, `/api/show`, and chat completion routing.
-  - Router model presentation as `local-router/<route>` in `/api/router-models`, `/v1/models`, `/api/tags`, `/api/show`, and chat completion routing.
-  - Router CSV exports for candidates and redacted decision events.
-  - VS Code/Ollama alias metadata: `/api/show` now reports presented aliases in `model_info.general.basename`, `model_info.general.name`, and `details.parameter_size`, while raw provider intake IDs remain in `model_info.general.upstream_model`.
 
-## Next Steps / Continuation
+`npm run test:integration` builds the project and runs `tests/provider-keys.integration.test.mjs`. The integration test starts a fake upstream OpenAI-compatible provider so request forwarding can be inspected without real provider keys.
 
-### Router Improvements (prioritized, from ROUTER.md deep research)
-1. **Normalize scoring formula** — Fix current formula where coding score dominates (×100) and latency is negligible (/10000). Normalize all terms to [0,1], derive weights from costQualityTradeoff, improve cost estimation from model metadata.
-2. **Add request complexity features** — `codeDensity`, `languageCount`, `multiTurnDepth`, `instructionLength` to the context vector. Enables all downstream improvements (bandit context, better auto-local scoring, per-candidate strength profiles).
-3. **Implement `bandit-local` router type** — dLinUCB with geometric forgetting (γ=0.98). ~6-dim context vector, per-candidate A/b matrices via online ridge regression, UCB selection, persisted bandit state in `router-models.json`. ~200 lines of TypeScript. Highest-impact new feature.
-4. **Enrich router telemetry** — Add `candidate_latency_ms`, `tool_calls_requested`, `tool_calls_valid`, `reward_signal`, `prompt_hash`, `coding_task` columns to `router-events.csv`. Add `success_rate`, `tool_call_accuracy`, `latency_p50_ms`, `latency_p95_ms`, `sample_count`, `tier` to `router-candidates.csv`.
-5. **Statistical tiering for candidates** — Auto Exacto-style median+MAD outlier detection from accumulated telemetry. Group candidates into verified/insufficient/deranked tiers. Activate when 50+ samples per candidate. Expose in UI and CSV exports.
-6. **Dry-run API** — `POST /api/router-models/:id/dry-run` to score candidates for a given request body without calling upstream.
-7. **Recompute API** — `POST /api/router-models/:id/recompute` for DSPy-inspired offline weight/candidate optimization from telemetry.
-8. **Per-candidate strength profiles** — Success rate breakdowns by request features (tools/no-tools, images/no-images, small/large context). Exposed in UI and CSV exports.
+Coverage includes:
+- Ollama heartbeat and discovery endpoints
+- Provider key save/status/reset lifecycle
+- Provider model override save/catalog/show/reset lifecycle
+- Single-model provider CRUD including custom context/output/capability fields
+- Presented model name routing back to upstream model name
+- Colon-separated model aliases and rejection of old pipe-separated mapping format
+- Ollama image-array forwarding into OpenAI-compatible image content parts
+- Ollama tool-call response translation
+- Reasoning/thinking request sanitization for DeepSeek-style models
+- Non-streaming response stripping of `reasoning_content`
+- Streaming SSE stripping of `reasoning_content`
+- Fallback route persistence across proxy restart (isolated temp home directory)
+- Fallback execution order (three primary attempts, bridge retries, error previews, retry wait metadata, exhausted-route errors)
+- Fallback model presentation as `local-router/<route>` in discovery and routing
+- Router model presentation as `local-router/<route>` in discovery and routing
+- Router CSV exports for candidates and redacted decision events
+- VS Code/Ollama alias metadata in `/api/show`
 
-### Router type additions
-- `bandit-local`: dLinUCB with bounded exploration, geometric forgetting, optional budget controls, explicit user opt-in. This moves from "optional later mode" (original PRD) to priority 3 based on the strength of the 2025-2026 bandit routing literature.
+## Next Steps / Roadmap
 
-### New API endpoints (planned)
+### Router Improvements (prioritized, from ROUTER.md)
+
+✅ **Completed:**
+1. ✅ **Enrich router telemetry** — Events CSV: `prompt_hash` (SHA-256), `coding_task`, `tool_calls_valid`, `reward_signal`. Candidates CSV: `success_rate`, `tool_call_accuracy`, `latency_p50_ms`, `latency_p95_ms`, `sample_count`, `last_observed_at`, `tier`.
+2. ✅ **Statistical tiering** — Auto Exacto-style median+MAD outlier detection. Three tiers: `verified` (50+ samples, within MAD threshold), `insufficient` (<50 samples), `deranked` (outlier or below 0.85 success rate). Toggle via `enableAutoTiers` flag per router. Implementation: `src/tiers.ts` (~205 lines).
+3. ✅ **Recompute API** — `POST /api/router-models/:id/recompute` computes tiers from telemetry, returns proposals with tier and derank reasons.
+4. ✅ **Router config UI overhaul** — Dropdown model selector with provider badges, drag-to-reorder candidate list, fallback group toggle, advanced textarea tab for power users.
+5. ✅ **Session tracking & feedback** — `X-Local-Router-Client` header, 2-hour window sessions, thumbs up/down in `/config`, persisted feedback for CIP integration.
+6. ✅ **Dev server hot reload** — `LOCAL_ROUTER_DEV=true npm run dev` runs `tsx watch` with hot reload and helpful startup banner.
+7. ✅ **CIP foundation** — 4 automation scripts (`cip-daily-research.mts`, `cip-apply-findings.mts`, `crx-validate.mts`, `crx-aggregate.mts`) + daily GitHub Actions workflow.
+
+**Planned:**
+1. **Normalize scoring formula** — Fix coding score dominance (×100) and latency negligible (/10000). Normalize to [0,1], derive weights from costQualityTradeoff.
+2. **Add request complexity features** — `codeDensity`, `languageCount`, `multiTurnDepth`, `instructionLength` to context vector.
+3. **Implement `bandit-local`** — dLinUCB with geometric forgetting (γ=0.98), ~6-dim context, per-candidate A/b matrices, UCB selection. ~200 lines TypeScript. Highest-impact new feature.
+4. **Dry-run API** — `POST /api/router-models/:id/dry-run` to score candidates without upstream call.
+5. **Per-candidate strength profiles** — Success rate breakdowns by request features in UI and CSV exports.
+
+### Planned API Endpoints
 - `POST /api/router-models/:id/dry-run` — score candidates without upstream call
-- `POST /api/router-models/:id/recompute` — TypeScript weight optimization from telemetry
 - `GET /api/router-models/:id/bandit-state` — export dLinUCB state for debugging
 - `POST /api/router-models/:id/reset-bandit` — reset bandit learning, keep config
 - `POST /api/router-evals/generate` — export DSPy-style evaluation CSV
 - `POST /api/router-events/import` — import events CSV for backup/restore/migration
 - `POST /api/router-benchmark` — run small benchmark suite against candidate models
 
-### New router model fields (planned)
-- `explorationBudget` (0-1, default 0.05): UCB exploration coefficient for bandit-local
-- `enableAutoTiers` (boolean, default false): statistical outlier tiering
+✅ Completed: `POST /api/router-models/:id/recompute`, `GET /api/sessions`, `POST /api/sessions/:id/feedback`
+
+### Planned Router Fields
+- `explorationBudget` (0-1, default 0.05): UCB exploration coefficient for bandit-local — ✅ implemented
+- `enableAutoTiers` (boolean, default false): statistical outlier tiering — ✅ implemented
 - `costThreshold` (0-1): RouteLLM-style cost/quality threshold
 - `metricWeights`: per-metric weights for multi-objective scoring
-- `banditState`: persisted dLinUCB A/b matrices per candidate
-- `tier`, `toolCallAccuracy`, `successRate`, `sampleCount`, `lastObservedAt`, `promptHint`: new candidate fields
+- `banditState`: persisted dLinUCB A/b matrices per candidate (planned)
+- `tier`, `toolCallAccuracy`, `successRate`, `sampleCount`, `lastObservedAt`: ✅ implemented in candidates CSV export
 
-### Known router limitations (current implementation)
-- Single-attempt per candidate (no retry within candidate; unlike fallback routes).
-- No streaming-aware scoring (time-to-first-token vs total time).
-- No cache-awareness in scoring (multi-turn cache hit potential ignored).
-- Candidate metadata is purely advisory (not validated against observed behavior).
-- No cross-router learning (shared candidates don't share quality signals).
-
-### General continuation
-- Exercise a live router model through `/config`, then refresh VS Code picker metadata and verify `local-router/<router-name>` appears in Copilot/Ollama model selection.
-- Add import endpoints for router CSV/JSON backups after the export format settles.
-- Rerun `npx gitnexus analyze --force --index-only --name local-router` after major source changes, then rerun `detect_changes`, `api_impact` for `/api/show` and `/api/vscode/configure`, `route_map`, and symbol impact analysis for the fallback/VS Code metadata functions.
-- Add integration coverage for CLI route controls (`route set`, `route custom`, `route unset`) and shim safety checks.
-- Add integration coverage for the new `bandit-local` router type (create, dLinUCB state persistence across restart, exploration/exploitation behavior, cold-start forced exploration).
-- Add integration/UI coverage for the one-model-at-a-time provider model manager workflows (add, edit, delete, reset-to-baseline).
-- Decide whether runtime model overrides should stay in-memory only or gain a gitignored local bootstrap file. Provider keys should not be written to plaintext config.
-- Add secure local credential storage only if needed. Preferred production pattern remains KMS/HSM or approved vault/keychain integration, not `.env` plaintext.
-- Continue refining model metadata from `providers.txt` as providers publish more exact limits, especially model-specific tool limits, image MIME support, and output-token behavior.
-- Add remaining integration coverage for `/api/generate` and Ollama NDJSON streaming with tool-call-shaped payloads.
-
-## Branch Merge Review: 2026-05-27
-
-### Branch status
-- **Current branch:** `fix/vscode-provider-aliases` (commit `77d483c`)
-- **Target branch:** `main` (commit `c0a3cdc`)
-- **Divergence:** 1 commit ahead of `main`, zero behind
-- **Remote:** `local-router` (renamed from `origin`, points to `https://github.com/nbiish/local-router.git`)
-- **Both branches pushed** to `local-router`
-
-### Diff summary (main..fix/vscode-provider-aliases)
-12 files changed, +8,310 / -84 lines:
-
-| File | Change |
-|---|---|
-| `src/index.ts` | +5,215 lines — local router models, fallback chains, diagnostics, CRUD, CLI |
-| `src/reasoning.ts` | +131 lines (new) — reasoning metadata stripping for VS Code compatibility |
-| `bin/local-router.js` | +506 lines (new) — CLI binary for proxy lifecycle |
-| `llms.txt` | +411 lines — expanded PRD with full provider catalog |
-| `AGENTS.md` | +112 lines (new) — PQC-native security policy |
-| `ROUTER.md` | +542 lines (new) — router architecture docs |
-| `TASK.2026-05-27.md` | +140 lines (new) — task tracking |
-| `tests/provider-keys.integration.test.mjs` | +1,017 lines (new) — integration test |
-| `package.json` | +9/-2 — added bin, scripts, deps |
-| `.gitignore` | +121/-1 — updated patterns |
-| `.gitnexusignore` | +21 lines (new) |
-| `router-candidates.csv` | +1 line (new) |
-
-### Build status
-- `tsc` compiles with **zero errors** (verified 2026-05-27)
-- `npm run build` → clean
-
-### Issues to fix before merge
-
-**1. Stale build artifacts tracked in `src/`**
-Compiler output (`.js`, `.d.ts`, `.js.map`, `.d.ts.map`) is tracked in git inside `src/`. These belong only in `build/` (which is already gitignored). Pre-existing on both `main` and `fix/vscode-provider-aliases`.
-
-Tracked files to remove from git (keep on disk):
-```
-src/index.d.ts
-src/index.d.ts.map
-src/index.js
-src/index.js.map
-src/providers/groq.d.ts
-src/providers/groq.d.ts.map
-src/providers/groq.js
-src/providers/groq.js.map
-src/providers/openrouter.d.ts
-src/providers/openrouter.d.ts.map
-src/providers/openrouter.js
-src/providers/openrouter.js.map
-src/types.d.ts
-src/types.d.ts.map
-src/types.js
-src/types.js.map
-```
-
-Fix:
-```bash
-# Add to .gitignore
-echo 'src/**/*.js' >> .gitignore
-echo 'src/**/*.d.ts' >> .gitignore
-echo 'src/**/*.js.map' >> .gitignore
-echo 'src/**/*.d.ts.map' >> .gitignore
-
-# Remove from tracking (files stay on disk)
-git rm --cached src/index.js src/index.d.ts src/index.js.map src/index.d.ts.map
-git rm --cached src/types.js src/types.d.ts src/types.js.map src/types.d.ts.map
-git rm --cached src/providers/groq.js src/providers/groq.d.ts src/providers/groq.js.map src/providers/groq.d.ts.map
-git rm --cached src/providers/openrouter.js src/providers/openrouter.d.ts src/providers/openrouter.js.map src/providers/openrouter.d.ts.map
-```
-
-**2. Integration test needs verification**
-The 1017-line integration test (`tests/provider-keys.integration.test.mjs`) spawns a real server + fake upstream. Could not complete a run in this session due to output volume. Run manually:
-```bash
-npm test
-```
-
-### Merge procedure (requires user confirmation per AGENTS.md)
-```bash
-git checkout main
-git merge fix/vscode-provider-aliases --no-ff -m "feat(config): add local router models, fallback routes, and diagnostics"
-# Verify:
-npm run build
-npm test
-# Push:
-git push local-router main
-```
-
-### Post-merge cleanup
-```bash
-# Delete merged branch
-git branch -d fix/vscode-provider-aliases
-git push local-router --delete fix/vscode-provider-aliases
-
-# Prune stale worktrees
-git worktree prune
-```
-
-### Session log: 2026-05-27 (Zed / MiMo V2.5 Pro)
-
-**Remote renamed:** `origin` → `local-router` (pushes to `https://github.com/nbiish/local-router.git`)
-
-**What was done:**
-1. Renamed git remote from `origin` to `local-router` and pushed both branches (`main`, `fix/vscode-provider-aliases`).
-2. Reviewed all branches — only one diverges from `main`: `fix/vscode-provider-aliases` (1 commit ahead, `77d483c`).
-3. Verified `tsc` builds cleanly with zero errors (ran `npm run build` multiple times).
-4. Removed stale `build/src/` directory from disk (leftover from older tsconfig `rootDir` setting).
-5. Discovered 16 compiler output files (`.js`, `.d.ts`, `.map`) tracked in git inside `src/` — these should be gitignored and removed from tracking. Full list and fix commands are in the "Branch Merge Review" section above.
-6. Attempted to run `npm test` (integration test) — test spawns a full Express server + fake upstream and was too large/heavy to complete in this session. Needs manual verification.
-7. Created temporary `scripts/run-test.sh` and `scripts/run-test-quiet.sh` for debugging — deleted after session, not committed.
-8. Added "Branch Merge Review: 2026-05-27" section to this file with full diff summary, issues, fix commands, and merge procedure.
-9. Committed documentation update as `5d5a25e` on `fix/vscode-provider-aliases` and pushed to `local-router`.
-
-**Current commit state:**
-- `fix/vscode-provider-aliases` → `5d5a25e` (pushed to `local-router`)
-- `main` → `c0a3cdc` (unchanged, pushed to `local-router`)
-
-**What remains (next session):**
-1. Fix stale build artifacts in `src/` (gitignore + `git rm --cached` — commands in merge review section).
-2. Run `npm test` and verify integration tests pass.
-3. Merge `fix/vscode-provider-aliases` into `main` with `--no-ff`.
-4. Rebuild, re-test, push `main` to `local-router`.
-5. Delete merged branch and prune worktrees.
+### General Continuation
+- Exercise live router model through `/config`, refresh VS Code picker, verify selection in Copilot Chat
+- Add import endpoints for router CSV/JSON backups after export format settles
+- Add integration coverage for CLI route controls and `bandit-local` router type
+- Add integration/UI coverage for one-model-at-a-time provider model manager workflows
+- Decide whether runtime model overrides should gain a gitignored local bootstrap file (not plaintext keys)
+- Continue refining model metadata from `providers.txt` as providers publish more exact limits
+- Add remaining integration coverage for `/api/generate` and Ollama NDJSON streaming with tool-call payloads
+- Add secure local credential storage only if needed; preferred pattern: KMS/HSM or approved vault/keychain integration
+- Rerun `npx gitnexus analyze --force --index-only --name local-router` after major source changes

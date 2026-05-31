@@ -1,0 +1,174 @@
+{
+  "runId": "CIP-2026-05-28T18-12-22",
+  "timestamp": "2026-05-28 18:12:22",
+  "itemsToCheck": [
+    {
+      "name": "arxiv:cs.AI",
+      "type": "arxiv",
+      "url": "https://arxiv.org/list/cs.AI/new",
+      "instructions": "WebFetch the URL, scan paper titles/abstracts for routing, model selection, LLM evaluation, bandit, cost optimization keywords. Record any relevant papers as findings."
+    },
+    {
+      "name": "arxiv:cs.CL",
+      "type": "arxiv",
+      "url": "https://arxiv.org/list/cs.CL/new",
+      "instructions": "WebFetch the URL, scan paper titles/abstracts for routing, model selection, LLM evaluation, bandit, cost optimization keywords. Record any relevant papers as findings."
+    },
+    {
+      "name": "arxiv:cs.LG",
+      "type": "arxiv",
+      "url": "https://arxiv.org/list/cs.LG/new",
+      "instructions": "WebFetch the URL, scan paper titles/abstracts for routing, model selection, LLM evaluation, bandit, cost optimization keywords. Record any relevant papers as findings."
+    },
+    {
+      "name": "arxiv:stat.ML",
+      "type": "arxiv",
+      "url": "https://arxiv.org/list/stat.ML/new",
+      "instructions": "WebFetch the URL, scan paper titles/abstracts for routing, model selection, LLM evaluation, bandit, cost optimization keywords. Record any relevant papers as findings."
+    },
+    {
+      "name": "arxiv-search:LLM routing model selection cost optimization",
+      "type": "arxiv",
+      "url": "https://arxiv.org/search/?query=LLM%20routing%20model%20selection%20cost%20optimization&searchtype=all&start=0",
+      "instructions": "WebFetch the URL, scan paper titles/abstracts for routing, model selection, LLM evaluation, bandit, cost optimization keywords. Record any relevant papers as findings."
+    },
+    {
+      "name": "arxiv-search:multi-armed bandit large language model routing",
+      "type": "arxiv",
+      "url": "https://arxiv.org/search/?query=multi-armed%20bandit%20large%20language%20model%20routing&searchtype=all&start=0",
+      "instructions": "WebFetch the URL, scan paper titles/abstracts for routing, model selection, LLM evaluation, bandit, cost optimization keywords. Record any relevant papers as findings."
+    },
+    {
+      "name": "arxiv-search:LLM benchmark evaluation model comparison quality",
+      "type": "arxiv",
+      "url": "https://arxiv.org/search/?query=LLM%20benchmark%20evaluation%20model%20comparison%20quality&searchtype=all&start=0",
+      "instructions": "WebFetch the URL, scan paper titles/abstracts for routing, model selection, LLM evaluation, bandit, cost optimization keywords. Record any relevant papers as findings."
+    },
+    {
+      "name": "arxiv-search:prompt caching KV cache optimization inference routing",
+      "type": "arxiv",
+      "url": "https://arxiv.org/search/?query=prompt%20caching%20KV%20cache%20optimization%20inference%20routing&searchtype=all&start=0",
+      "instructions": "WebFetch the URL, scan paper titles/abstracts for routing, model selection, LLM evaluation, bandit, cost optimization keywords. Record any relevant papers as findings."
+    },
+    {
+      "name": "arxiv-search:tool calling function calling LLM evaluation accuracy",
+      "type": "arxiv",
+      "url": "https://arxiv.org/search/?query=tool%20calling%20function%20calling%20LLM%20evaluation%20accuracy&searchtype=all&start=0",
+      "instructions": "WebFetch the URL, scan paper titles/abstracts for routing, model selection, LLM evaluation, bandit, cost optimization keywords. Record any relevant papers as findings."
+    },
+    {
+      "name": "github:openrouter/openrouter",
+      "type": "github_repo",
+      "url": "https://github.com/openrouter/openrouter",
+      "instructions": "Check recent releases, commits, and issues. Look for new routing features, benchmarks, or algorithm implementations."
+    },
+    {
+      "name": "github:stanfordnlp/dspy",
+      "type": "github_repo",
+      "url": "https://github.com/stanfordnlp/dspy",
+      "instructions": "Check recent releases, commits, and issues. Look for new routing features, benchmarks, or algorithm implementations."
+    },
+    {
+      "name": "github:pockanoodles/Mahoraga",
+      "type": "github_repo",
+      "url": "https://github.com/pockanoodles/Mahoraga",
+      "instructions": "Check recent releases, commits, and issues. Look for new routing features, benchmarks, or algorithm implementations."
+    },
+    {
+      "name": "github:withmartian/routerbench",
+      "type": "github_repo",
+      "url": "https://github.com/withmartian/routerbench",
+      "instructions": "Check recent releases, commits, and issues. Look for new routing features, benchmarks, or algorithm implementations."
+    },
+    {
+      "name": "github:lmsys/chatbot-arena",
+      "type": "github_repo",
+      "url": "https://github.com/lmsys/chatbot-arena",
+      "instructions": "Check recent releases, commits, and issues. Look for new routing features, benchmarks, or algorithm implementations."
+    },
+    {
+      "name": "provider:OpenRouter",
+      "type": "provider_announcement",
+      "url": "https://openrouter.ai/announcements",
+      "instructions": "Check for new model announcements, pricing changes, capability updates, or deprecations. Record as model changes."
+    },
+    {
+      "name": "provider:OpenRouter Changelog",
+      "type": "provider_announcement",
+      "url": "https://openrouter.ai/docs/changelog",
+      "instructions": "Check for new model announcements, pricing changes, capability updates, or deprecations. Record as model changes."
+    },
+    {
+      "name": "provider:DeepSeek",
+      "type": "provider_announcement",
+      "url": "https://api-docs.deepseek.com/news",
+      "instructions": "Check for new model announcements, pricing changes, capability updates, or deprecations. Record as model changes."
+    },
+    {
+      "name": "provider:Anthropic",
+      "type": "provider_announcement",
+      "url": "https://docs.anthropic.com/en/release-notes",
+      "instructions": "Check for new model announcements, pricing changes, capability updates, or deprecations. Record as model changes."
+    },
+    {
+      "name": "provider:Google AI",
+      "type": "provider_announcement",
+      "url": "https://ai.google.dev/gemini-api/docs/changelog",
+      "instructions": "Check for new model announcements, pricing changes, capability updates, or deprecations. Record as model changes."
+    },
+    {
+      "name": "conference:ICLR 2026",
+      "type": "conference",
+      "url": "https://openreview.net/group?id=ICLR.cc/2026/Conference",
+      "instructions": "Scan recent proceedings for routing-related papers. Record findings with URL and excerpt."
+    },
+    {
+      "name": "conference:NeurIPS 2025",
+      "type": "conference",
+      "url": "https://papers.nips.cc",
+      "instructions": "Scan recent proceedings for routing-related papers. Record findings with URL and excerpt."
+    },
+    {
+      "name": "conference:ICML 2025",
+      "type": "conference",
+      "url": "https://proceedings.mlr.press",
+      "instructions": "Scan recent proceedings for routing-related papers. Record findings with URL and excerpt."
+    },
+    {
+      "name": "conference:ACL 2025",
+      "type": "conference",
+      "url": "https://aclanthology.org",
+      "instructions": "Scan recent proceedings for routing-related papers. Record findings with URL and excerpt."
+    },
+    {
+      "name": "conference:EMNLP 2025",
+      "type": "conference",
+      "url": "https://aclanthology.org",
+      "instructions": "Scan recent proceedings for routing-related papers. Record findings with URL and excerpt."
+    },
+    {
+      "name": "benchmark:LiveBench",
+      "type": "benchmark_registry",
+      "url": "https://livebench.ai",
+      "instructions": "Check for new model entries, updated scores, or new evaluation categories. Record benchmark_result findings."
+    },
+    {
+      "name": "benchmark:Chatbot Arena",
+      "type": "benchmark_registry",
+      "url": "https://chat.lmsys.org",
+      "instructions": "Check for new model entries, updated scores, or new evaluation categories. Record benchmark_result findings."
+    },
+    {
+      "name": "benchmark:OpenRouter Performance",
+      "type": "benchmark_registry",
+      "url": "https://openrouter.ai/models",
+      "instructions": "Check for new model entries, updated scores, or new evaluation categories. Record benchmark_result findings."
+    },
+    {
+      "name": "benchmark:Artificial Analysis",
+      "type": "benchmark_registry",
+      "url": "https://artificialanalysis.ai",
+      "instructions": "Check for new model entries, updated scores, or new evaluation categories. Record benchmark_result findings."
+    }
+  ]
+}

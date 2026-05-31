@@ -20,7 +20,7 @@ const REASONING_BLOCK_TYPES = new Set([
   'reasoning_content'
 ]);
 
-const NATIVE_REASONING_MODEL_PATTERN = /(deepseek|kimi|qwen[-_/]?(?:qwen)?3|qwen3|glm|z-ai|zai-org|moonshotai)/i;
+const NATIVE_REASONING_MODEL_PATTERN = /(deepseek|kimi|qwen[-_/]?(?:qwen)?3|qwen3|glm|z-ai|zai-org|moonshotai|minimax|stepfun|sapiens)/i;
 
 function isObject(value: unknown): value is JsonObject {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);

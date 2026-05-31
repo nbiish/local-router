@@ -1,0 +1,51 @@
+{
+  "version": "1.0.0",
+  "updated": "2026-05-28",
+  "description": "Curated research sources for the Continuous Improvement Pipeline. AI agents should check these daily for new information relevant to LLM routing.",
+  "arxiv_categories": [
+    { "id": "cs.AI", "description": "Artificial Intelligence", "keywords": ["LLM routing", "model selection", "cost optimization", "quality estimation"] },
+    { "id": "cs.CL", "description": "Computation and Language", "keywords": ["language model evaluation", "benchmark", "model comparison", "routing"] },
+    { "id": "cs.LG", "description": "Machine Learning", "keywords": ["bandit", "online learning", "model selection", "multi-armed bandit", "contextual bandit"] },
+    { "id": "stat.ML", "description": "Machine Learning (Statistics)", "keywords": ["UCB", "Thompson sampling", "regret bound", "sequential decision"] }
+  ],
+  "arxiv_searches": [
+    { "query": "LLM routing model selection cost optimization", "max_results": 20 },
+    { "query": "multi-armed bandit large language model routing", "max_results": 15 },
+    { "query": "LLM benchmark evaluation model comparison quality", "max_results": 15 },
+    { "query": "prompt caching KV cache optimization inference routing", "max_results": 10 },
+    { "query": "tool calling function calling LLM evaluation accuracy", "max_results": 10 }
+  ],
+  "github_repos": [
+    { "owner": "openrouter", "repo": "openrouter", "watch": ["releases", "commits"], "description": "OpenRouter announcements and routing features" },
+    { "owner": "stanfordnlp", "repo": "dspy", "watch": ["releases"], "description": "DSPy optimizer releases for routing program optimization" },
+    { "owner": "pockanoodles", "repo": "Mahoraga", "watch": ["releases", "commits"], "description": "Open-source LinUCB LLM orchestrator" },
+    { "owner": "withmartian", "repo": "routerbench", "watch": ["releases", "commits"], "description": "RouterBench: standardized LLM routing benchmarks" },
+    { "owner": "lmsys", "repo": "chatbot-arena", "watch": ["releases"], "description": "Chatbot Arena: human preference data for model quality" }
+  ],
+  "provider_announcements": [
+    { "name": "OpenRouter", "url": "https://openrouter.ai/announcements", "check_for": ["new models", "routing features", "pricing changes", "auto-router updates"] },
+    { "name": "OpenRouter Changelog", "url": "https://openrouter.ai/docs/changelog", "check_for": ["model additions", "routing changes", "API updates"] },
+    { "name": "DeepSeek", "url": "https://api-docs.deepseek.com/news", "check_for": ["new models", "pricing changes", "cache updates"] },
+    { "name": "Anthropic", "url": "https://docs.anthropic.com/en/release-notes", "check_for": ["model releases", "pricing", "features"] },
+    { "name": "Google AI", "url": "https://ai.google.dev/gemini-api/docs/changelog", "check_for": ["Gemini model updates", "pricing"] }
+  ],
+  "conference_proceedings": [
+    { "name": "ICLR 2026", "url": "https://openreview.net/group?id=ICLR.cc/2026/Conference", "relevant_tracks": ["routing", "model selection", "bandit"] },
+    { "name": "NeurIPS 2025", "url": "https://papers.nips.cc", "relevant_tracks": ["LLM evaluation", "routing", "cost optimization"] },
+    { "name": "ICML 2025", "url": "https://proceedings.mlr.press", "relevant_tracks": ["bandit algorithms", "model selection"] },
+    { "name": "ACL 2025", "url": "https://aclanthology.org", "relevant_tracks": ["LLM evaluation", "benchmarking", "routing"] },
+    { "name": "EMNLP 2025", "url": "https://aclanthology.org", "relevant_tracks": ["LLM routing", "efficiency", "model comparison"] }
+  ],
+  "industry_blogs": [
+    { "name": "OpenRouter Blog", "url": "https://openrouter.ai/announcements" },
+    { "name": "Not Diamond Blog", "url": "https://docs.notdiamond.ai/blog" },
+    { "name": "vLLM Blog", "url": "https://blog.vllm.ai" },
+    { "name": "Martian Blog", "url": "https://blog.barndoor.ai" }
+  ],
+  "benchmark_registries": [
+    { "name": "LiveBench", "url": "https://livebench.ai", "description": "Continuously updated LLM benchmark" },
+    { "name": "Chatbot Arena", "url": "https://chat.lmsys.org", "description": "Human preference ELO ratings" },
+    { "name": "OpenRouter Performance", "url": "https://openrouter.ai/models", "description": "Per-model provider performance data" },
+    { "name": "Artificial Analysis", "url": "https://artificialanalysis.ai", "description": "LLM quality, speed, price comparisons" }
+  ]
+}

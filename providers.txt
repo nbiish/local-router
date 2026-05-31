@@ -1,0 +1,286 @@
+# =============================================================================
+# UNIFIED LLM PROVIDER CONFIGURATION REFERENCE
+# =============================================================================
+# Path:    ~/.config/providers.txt  (source of truth)
+#          agents-research/providers.txt (project copy)
+# Updated: 2026-05-29
+# Purpose: Master config reference for ALL agentic tools.
+#          kilo, crush, pi, goose, dcode, hermes, cline, qwen-code, Zed, etc.
+#
+# NAMING CONVENTION: <provider-namespace>/<model>
+#   Provider namespace = custom provider key (lowercase, hyphens)
+#   Model = upstream model ID or preset slug
+#
+# SECURITY: Provider API keys are never stored in this file. Load keys through
+#           secure runtime environments or through the FVS-CODE browser UI.
+# =============================================================================
+
+# =============================================================================
+# PROVIDER SUMMARY TABLE
+# =============================================================================
+# │ Provider           │ Endpoint                              │ Key Env Var              │ Default │
+# │--------------------+---------------------------------------+--------------------------+---------│
+# │ wafer-serverless   │ https://pass.wafer.ai/v1              │ WAFER_SERVERLESS_API_KEY │ Hermes  │
+# │ zenmux             │ https://zenmux.ai/api/v1              │ ZENMUX_API_KEY           │ —       │
+# │ nebius             │ https://api.tokenfactory.nebius.com/v1│ NEBIUS_API_KEY           │ —       │
+# │ moonshot           │ https://api.moonshot.ai/v1            │ MOONSHOT_API_KEY         │ —       │
+# │ nvidia-nim         │ https://integrate.api.nvidia.com/v1   │ NVIDIA_NIM_API_KEY       │ —       │
+# │ modal              │ https://api.us-west-2.modal.direct/v1 │ MODAL_API_KEY            │ —       │
+# │ openrouter-presets │ https://openrouter.ai/api/v1          │ OPENROUTER_API_KEY       │ —       │
+# │ xiaomi-mimo        │ https://token-plan-sgp.xiaomimimo.com/v1│ XIAOMI_MIMO_API_KEY     │ —       │
+# │ opencode           │ https://opencode.ai/zen/go/v1          │ OPENCODE_API_KEY        │ Hermes  │
+
+# =============================================================================
+# MASTER MODEL SPECIFICATION
+# =============================================================================
+# │ # │ Provider           │ Model ID (API)                      │ Zed Display                  │ Context  │ Output   │ Tools │ Img  │ Cache │ Reasoning │
+# │───+--------------------+-------------------------------------+------------------------------+----------+----------+-------+------+-------+-----------│
+# │ 1 │ wafer-serverless   │ GLM-5.1                             │ wsvr:GLM-5.1                 │ 200,000  │ 128,000  │ YES   │ NO   │ YES   │ NO*       │
+# │ 2 │ wafer-serverless   │ Kimi-K2.6                           │ wsvr:Kimi-K2.6               │ 262,144  │ 32,768   │ YES   │ YES  │ YES   │ NO*       │
+# │ 3 │ wafer-serverless   │ deepseek-v4-flash                   │ wsvr:deepseek-v4-flash       │1,000,000 │ 384,000  │ YES   │ NO   │ YES   │ NO*       │
+# │ 4 │ wafer-serverless   │ deepseek-v4-pro                     │ wsvr:deepseek-v4-pro         │1,000,000 │ 384,000  │ YES   │ NO   │ YES   │ NO*       │
+# │ 5 │ wafer-serverless   │ qwen3.7-max                         │ wsvr:qwen3.7-max             │1,000,000 │ 64,000   │ YES   │ NO   │ YES   │ NO*       │
+# │ 6 │ zenmux             │ deepseek/deepseek-chat              │ zenm:deepseek-chat           │ 128,000  │ 8,000    │ YES   │ NO   │ YES   │ NO        │
+# │ 7 │ zenmux             │ z-ai/glm-5.1                        │ zenm:z-ai/glm-5.1            │ 200,000  │ 128,000  │ YES   │ NO   │ YES   │ NO*       │
+# │ 8 │ zenmux             │ qwen/qwen3.7-max                    │ zenm:qwen3.7-max             │1,000,000 │ 64,000   │ YES   │ NO   │ YES   │ NO*       │
+# │ 9 │ zenmux             │ google/gemini-3.1-pro-preview       │ zenm:gemini-3.1-pro-preview  │1,048,576 │ 65,535   │ YES   │ YES  │ YES   │ NO*       │
+# │10 │ zenmux             │ google/gemini-3.5-flash             │ zenm:gemini-3.5-flash        │1,048,576 │ 65,535   │ YES   │ YES  │ YES   │ NO*       │
+# │11 │ nebius             │ moonshotai/Kimi-K2.6                │ nebs:moonshotai/Kimi-K2.6    │ 256,000  │ 32,768   │ YES   │ YES  │ NO    │ NO*       │
+# │12 │ nebius             │ deepseek-ai/DeepSeek-V4-Pro         │ nebs:deepseek-ai/DeepSeek-V4-Pro│1,000,000│ 384,000  │ YES   │ NO   │ YES   │ NO*       │
+# │13 │ nebius             │ nvidia/Nemotron-3-Nano-Omni         │ nebs:nvidia/Nemotron-3-Nano-Omni│ 256,000│ 20,480   │ YES   │ YES  │ NO    │ NO*       │
+# │14 │ nebius             │ zai-org/GLM-5.1                     │ nebs:zai-org/GLM-5.1         │ 200,000  │ 128,000  │ YES   │ NO   │ NO    │ NO*       │
+# │15 │ moonshot           │ moonshot-v1-8k                      │ mons:moonshot-v1-8k          │ 8,192    │ 4,096    │ NO    │ NO   │ NO    │ NO        │
+# │16 │ moonshot           │ moonshot-v1-32k                     │ mons:moonshot-v1-32k         │ 32,768   │ 16,384   │ NO    │ NO   │ NO    │ NO        │
+# │17 │ moonshot           │ moonshot-v1-128k                    │ mons:moonshot-v1-128k        │ 131,072  │ 65,536   │ NO    │ NO   │ NO    │ NO        │
+# │18 │ moonshot           │ kimi-k2.6                           │ mons:kimi-k2.6               │ 256,000  │ 32,768   │ YES   │ YES  │ YES   │ NO*       │
+# │19 │ nvidia-nim         │ nvidia/nemotron-3-nano-omni-30b-a3b-reasoning │ nvnm:nemotron-omni │ 256,000 │ 20,480   │ YES   │ YES  │ NO    │ NO*       │
+# │20 │ nvidia-nim         │ minimaxai/minimax-m2.5              │ nvnm:minimax-m2.5            │ 204,800  │ 32,000   │ YES   │ NO   │ NO    │ NO        │
+# │21 │ nvidia-nim         │ minimaxai/minimax-m2.7              │ nvnm:minimax-m2.7            │ 204,800  │ 131,072  │ YES   │ NO   │ NO    │ NO*       │
+# │22 │ modal              │ zai-org/GLM-5.1-FP8                 │ modl:GLM-5.1-FP8             │ 200,000  │ 128,000  │ YES   │ NO   │ NO    │ NO*       │
+# │23 │ openrouter-presets │ @preset/chain-of-draft              │ orps:chain-of-draft          │1,000,000 │ 120,000  │ YES   │ YES  │ YES   │ NO        │
+# │24 │ openrouter-presets │ @preset/openrouter-personal-router  │ orps:personal-router         │1,000,000 │ 120,000  │ YES   │ YES  │ YES   │ NO        │
+# │25 │ openrouter-presets │ @preset/free-chain-of-draft         │ orps:free-chain-draft        │1,000,000 │ 120,000  │ YES   │ YES  │ YES   │ NO        │
+# │26 │ openrouter-presets │ @preset/1-million-main              │ orps:1-million-main          │1,000,000 │ 120,000  │ YES   │ YES  │ YES   │ NO        │
+# │27 │ openrouter-presets │ @preset/1-million-chain-of-draft    │ orps:1-million-chain-draft   │1,000,000 │ 120,000  │ YES   │ YES  │ YES   │ NO        │
+# │28 │ openrouter-presets │ stepfun/step-3.7-flash              │ orps:step-3.7-flash          │ 256,000  │ 256,000  │ YES   │ YES  │ YES   │ YES       │
+# │29 │ zenmux             │ deepseek/deepseek-v4-pro            │ zenm:deepseek-v4-pro         │1,000,000 │ 384,000  │ YES   │ NO   │ YES   │ NO*       │
+# │30 │ zenmux             │ minimax/minimax-m2.7                 │ zenm:minimax-m2.7             │ 204,800  │ 131,072  │ YES   │ NO   │ NO    │ NO*       │
+# │31 │ zenmux             │ minimax/minimax-m2.7-highspeed       │ zenm:minimax-m2.7-hs          │ 204,800  │ 131,072  │ YES   │ NO   │ NO    │ NO*       │
+# │32 │ zenmux             │ stepfun/step-3.7-flash               │ zenm:step-3.7-flash           │ 256,000  │ 256,000  │ YES   │ YES  │ YES   │ YES       │
+# │33 │ zenmux             │ sapiens-ai/agnes-2.0-flash           │ zenm:agnes-2.0-flash          │ 256,000  │ 32,768   │ YES   │ YES  │ NO    │ YES       │
+# │34 │ zenmux             │ xiaomi/mimo-v2.5-pro                 │ zenm:mimo-v2.5-pro            │1,048,576 │ 128,000  │ YES   │ NO   │ YES   │ NO*       │
+# │35 │ zenmux             │ xiaomi/mimo-v2.5                     │ zenm:mimo-v2.5                │1,048,576 │ 128,000  │ YES   │ YES  │ YES   │ NO*       │
+# │36 │ xiaomi-mimo        │ mimo-v2.5-pro                       │ mimo:mimo-v2.5-pro           │1,000,000 │ 128,000  │ YES   │ NO   │ YES   │ NO        │
+# │37 │ xiaomi-mimo        │ mimo-v2.5                           │ mimo:mimo-v2.5               │1,000,000 │ 128,000  │ YES   │ YES  │ YES   │ NO        │
+# │38 │ opencode           │ minimax-m2.7                        │ opc:minimax-m2.7              │ 204,800  │ 131,072  │ YES   │ NO   │ NO    │ NO*       │
+# │39 │ opencode           │ minimax-m2.5                        │ opc:minimax-m2.5              │ 204,800  │ 32,000   │ YES   │ NO   │ NO    │ NO        │
+# │40 │ opencode           │ kimi-k2.6                           │ opc:kimi-k2.6                 │ 256,000  │ 32,768   │ YES   │ YES  │ YES   │ NO*       │
+# │41 │ opencode           │ kimi-k2.5                           │ opc:kimi-k2.5                 │ 131,072  │ 16,384   │ YES   │ YES  │ NO    │ NO        │
+# │42 │ opencode           │ glm-5.1                             │ opc:glm-5.1                   │ 200,000  │ 128,000  │ YES   │ NO   │ YES   │ NO*       │
+# │43 │ opencode           │ glm-5                               │ opc:glm-5                     │ 128,000  │ 8,000    │ YES   │ NO   │ NO    │ NO        │
+# │44 │ opencode           │ deepseek-v4-pro                     │ opc:deepseek-v4-pro           │1,000,000 │ 384,000  │ YES   │ NO   │ YES   │ NO*       │
+# │45 │ opencode           │ deepseek-v4-flash                   │ opc:deepseek-v4-flash         │1,000,000 │ 384,000  │ YES   │ NO   │ YES   │ NO*       │
+# │46 │ opencode           │ qwen3.7-max                         │ opc:qwen3.7-max               │1,000,000 │ 64,000   │ YES   │ NO   │ YES   │ NO*       │
+# │47 │ opencode           │ qwen3.6-plus                        │ opc:qwen3.6-plus              │ 131,072  │ 8,192    │ YES   │ NO   │ NO    │ NO        │
+# │48 │ opencode           │ qwen3.5-plus                        │ opc:qwen3.5-plus              │ 131,072  │ 8,192    │ YES   │ NO   │ NO    │ NO        │
+# │49 │ opencode           │ mimo-v2-pro                         │ opc:mimo-v2-pro               │ 256,000  │ 64,000   │ YES   │ NO   │ NO    │ NO        │
+# │50 │ opencode           │ mimo-v2-omni                        │ opc:mimo-v2-omni              │ 256,000  │ 64,000   │ YES   │ YES  │ NO    │ NO        │
+# │51 │ opencode           │ mimo-v2.5-pro                       │ opc:mimo-v2.5-pro             │1,000,000 │ 128,000  │ YES   │ NO   │ YES   │ NO        │
+# │52 │ opencode           │ mimo-v2.5                           │ opc:mimo-v2.5                 │1,000,000 │ 128,000  │ YES   │ YES  │ YES   │ NO        │
+# │53 │ opencode           │ hy3-preview                         │ opc:hy3-preview               │ 128,000  │ 8,000    │ YES   │ NO   │ NO    │ NO        │
+#
+# * Native reasoning DISABLED — VS Code/Copilot Chat and Zed cannot reliably
+#   preserve provider-native reasoning metadata across turns. FVS-CODE strips
+#   reasoning fields and sends no-thinking hints for compatibility.
+
+# =============================================================================
+# PROVIDER DETAILS
+# =============================================================================
+
+## wafer-pass [DEPRECATED — REMOVED 2026-05-26] ____________________________
+# Replaced by wafer-serverless. All models and the API endpoint are identical;
+# only the key env var differed (WAFER_PASS_API_KEY). Remove from all tool
+# configs and use wafer-serverless exclusively.
+
+## wafer-serverless ________________________________________________________
+# Tier:        Wafer AI Serverless
+# Endpoint:    https://pass.wafer.ai/v1
+# Key env:     WAFER_SERVERLESS_API_KEY
+# Zed prefix:  wsvr
+# Cross-tool:  All agents (openai_compatible format)
+# Models:      5  —  GLM-5.1, Kimi-K2.6, deepseek-v4-flash, deepseek-v4-pro, qwen3.7-max
+# Notes:       Shares endpoint with wafer-pass. Must be separate provider
+#              entry to avoid key collision.
+#              Canonical Hermes default: deepseek-v4-flash.
+#              Primary provider for deepseek-v4-pro in Zed.
+#              DeepSeek models produce reasoning_content; FVS-CODE disables
+#              provider-native reasoning metadata for VS Code compatibility.
+#              Wafer's public model page confirms exact serverless IDs for
+#              GLM-5.1, Kimi-K2.6, deepseek-v4-flash, and deepseek-v4-pro.
+#              qwen3.7-max is operator-designated for Wafer Serverless.
+#              Do not store Wafer API keys in providers.txt, .env, git,
+#              shell history, logs, or tool output.
+
+## zenmux __________________________________________________________________
+# Tier:        Aggregator (60+ upstream models)
+# Endpoint:    https://zenmux.ai/api/v1
+# Key env:     ZENMUX_API_KEY
+# Zed prefix:  zenm
+# Cross-tool:  All agents (openai_compatible). DeepAgents: full model list.
+# Models:      12 —  deepseek-chat, deepseek/deepseek-v4-pro,
+#                     z-ai/glm-5.1, qwen3.7-max,
+#                     gemini-3.1-pro-preview, gemini-3.5-flash,
+#                     minimax/minimax-m2.7, minimax/minimax-m2.7-highspeed,
+#                     stepfun/step-3.7-flash, sapiens-ai/agnes-2.0-flash,
+#                     xiaomi/mimo-v2.5-pro, xiaomi/mimo-v2.5
+# Notes:       ZenMux's public model APIs currently list
+#              google/gemini-3.1-pro-preview, not google/gemini-3.1-pro.
+#              qwen/qwen3.7-max and deepseek/deepseek-v4-pro are
+#              1,000,000-token context models.
+#              minimax/minimax-m2.7 is 204,800 context, 131,072 output,
+#              text-only with tool calling and native reasoning. MiniMax
+#              native reasoning is stripped for VS Code compatibility.
+#              minimax-minimax-m2.7-highspeed is a faster non-reasoning
+#              variant with same context/output specs.
+#              stepfun/step-3.7-flash is 256,000 context/output with
+#              tool calling, vision, prompt caching, and native reasoning.
+#              sapiens-ai/agnes-2.0-flash is 256,000 context, 32,768
+#              output, with tool calling, vision, and native reasoning.
+#              xiaomi/mimo-v2.5-pro and mimo-v2.5 are 1,048,576 context,
+#              128,000 output with tool calling and prompt caching.
+#              mimo-v2.5-pro is text-only; mimo-v2.5 has full-modal input.
+
+## nebius __________________________________________________________________
+# Tier:        Nebius Token Factory
+# Endpoint:    https://api.tokenfactory.nebius.com/v1
+# Key env:     NEBIUS_API_KEY
+# Zed prefix:  nebs
+# Cross-tool:  All agents. DeepAgents: subset + temp=0.
+# Models:      4  —  moonshotai/Kimi-K2.6, deepseek-ai/DeepSeek-V4-Pro,
+#                     nvidia/Nemotron-3-Nano-Omni, zai-org/GLM-5.1
+# Notes:       Nebius /v1/models rich metadata requires authentication.
+#              Context/output/capability values above are sourced from
+#              upstream model cards where public Nebius facts are unavailable.
+
+## moonshot ________________________________________________________________
+# Tier:        Moonshot / Kimi
+# Endpoint:    https://api.moonshot.ai/v1
+# Key env:     MOONSHOT_API_KEY
+# Zed prefix:  mons
+# Cross-tool:  All agents
+# Models:      4  —  moonshot-v1-8k, moonshot-v1-32k, moonshot-v1-128k, kimi-k2.6
+# Notes:       kimi-k2.6 is the flagship reasoning model. Moonshot's model
+#              docs list Kimi-K2.6 at 256K context with text/image/video/file
+#              multimodal input. The moonshot-v1 models are 8K/32K/128K.
+#              Kimi K2.6 supports implicit prompt caching (confirmed via
+#              ZenMux model docs and OpenRouter cache_read pricing). Moonshot
+#              v1 models do not advertise cache support.
+
+## nvidia-nim ______________________________________________________________
+# Tier:        NVIDIA NIM
+# Endpoint:    https://integrate.api.nvidia.com/v1
+# Key env:     NVIDIA_NIM_API_KEY
+# Zed prefix:  nvnm
+# Cross-tool:  All agents. Hermes: custom provider.
+# Models:      3  —  nvidia/nemotron-3-nano-omni-30b-a3b-reasoning,
+#                     minimaxai/minimax-m2.5, minimaxai/minimax-m2.7
+# Notes:       IDs and context values are taken from NVIDIA NIM public API
+#              reference pages. Nemotron-3-Nano-Omni is multimodal
+#              (video/audio/image/text) with 256K context. MiniMax-M2.5 is
+#              text-only with 204,800-token context.
+#              MiniMax-M2.7 is the upgraded model with native reasoning
+#              (include_reasoning), stripped for VS Code compatibility.
+
+## modal ___________________________________________________________________
+# Tier:        Modal Direct Inference
+# Endpoint:    https://api.us-west-2.modal.direct/v1
+# Key env:     MODAL_API_KEY
+# Zed prefix:  modl
+# Cross-tool:  All agents
+# Models:      1  —  zai-org/GLM-5.1-FP8
+# Notes:       Modal's GLM endpoint page confirms the API model ID. Context,
+#              output, and capability values are inherited from Z.ai GLM-5.1
+#              public docs because Modal does not publish those limits on the
+#              endpoint page.
+
+## openrouter-presets ______________________________________________________
+# Tier:        OpenRouter Presets (CUSTOM, not built-in)
+# Endpoint:    https://openrouter.ai/api/v1
+# Key env:     OPENROUTER_API_KEY
+# Zed prefix:  orps
+# Cross-tool:  All agents. Hermes: discover=false (prevents 300+ model flood).
+# Models:      6  —  @preset/chain-of-draft, @preset/openrouter-personal-router,
+#                     @preset/free-chain-of-draft, @preset/1-million-main,
+#                     @preset/1-million-chain-of-draft,
+#                     stepfun/step-3.7-flash
+# Notes:       Presets are PRIVATE — not listed in /v1/models.
+#              All current presets are recorded at 1,000,000 context,
+#              120,000 max output tokens, tool calling enabled, and
+#              vision/image input enabled.
+#              stepfun/step-3.7-flash is a direct (non-preset) model on
+#              OpenRouter. 256,000 context/output, tool calling, vision,
+#              prompt caching, and native reasoning — included here to
+#              provide stepfun access through the OpenRouter gateway.
+#              For any new @preset/<custom-user-name> row, follow up with the
+#              preset owner before committing metadata. Confirm: max context
+#              window, max output tokens, multimodal support (image/audio/
+#              video/file), tool calling, cache support, and reasoning mode.
+
+## opencode ________________________________________________________________
+# Tier:        OpenCode Zen/Go Subscription
+# Endpoint:    https://opencode.ai/zen/go/v1
+# Key env:     OPENCODE_API_KEY
+# Zed prefix:  opc
+# Cross-tool:  All agents (openai_compatible format)
+# Models:      16 — minimax-m2.7, minimax-m2.5, kimi-k2.6, kimi-k2.5,
+#                     glm-5.1, glm-5, deepseek-v4-pro, deepseek-v4-flash,
+#                     qwen3.7-max, qwen3.6-plus, qwen3.5-plus,
+#                     mimo-v2-pro, mimo-v2-omni, mimo-v2.5-pro, mimo-v2.5,
+#                     hy3-preview
+# Notes:       OpenCode Zen/Go is a curated subscription service providing
+#              access to top-tier models optimized for coding agents.
+#              Non-subscription models are also listed for users who only
+#              have a standard OpenCode API key.
+#              Model metadata is cross-referenced with provider model cards
+#              and existing providers.txt entries where available.
+#              DeepSeek models use transparent auto KV-caching.
+#              MiniMax M2.7 has native reasoning (include_reasoning); Local
+#              Router strips reasoning metadata for VS Code compatibility.
+#              Do not store OpenCode API keys in providers.txt, .env, git,
+#              shell history, logs, or tool output.
+
+## xiaomi-mimo _____________________________________________________________
+# Tier:        Xiaomi Mimo
+# Endpoint:    https://token-plan-sgp.xiaomimimo.com/v1
+# Key env:     XIAOMI_MIMO_API_KEY
+# Zed prefix:  mimo
+# Cross-tool:  All agents (openai_compatible format)
+# Models:      2  —  mimo-v2.5-pro, mimo-v2.5
+# Notes:       Operator-provided metadata: both models have 1,000,000-token
+#              context, 128,000 max output, and tool calling.
+#              mimo-v2.5-pro is text-only. mimo-v2.5 supports full-modal
+#              understanding: text, image, video, and audio. FVS-CODE
+#              currently advertises this as Ollama vision/image capability
+#              plus tool calling.
+#              Both models support prompt caching with tiered cache_read
+#              pricing (confirmed via OpenRouter /v1/models upstream data).
+#              Do not store Xiaomi Mimo keys in providers.txt, .env, git,
+#              shell history, logs, or tool output.
+
+# =============================================================================
+# CROSS-TOOL CONFIGURATION MATRIX
+# =============================================================================
+# │ Provider           │ Hermes │ DeepAgents │ Zed       │ kilo │ crush │ pi  │ goose │ dcode │ cline │ qwen-code │
+# │--------------------+--------+------------+-----------+------+-------+-----+-------+-------+-------+-----------│
+# │ wafer-serverless   │ YES    │ YES        │ YES custom│ YES  │ YES   │ YES │ YES   │ YES   │ YES   │ YES       │
+# │ zenmux             │ YES    │ YES        │ YES custom│ YES  │ YES   │ YES │ YES   │ YES   │ YES   │ YES       │
+# │ nebius             │ YES    │ YES        │ YES custom│ YES  │ YES   │ YES │ YES   │ YES   │ YES   │ YES       │
+# │ moonshot           │ YES    │ NO         │ YES custom│ YES  │ YES   │ YES │ YES   │ YES   │ YES   │ YES       │
+# │ nvidia-nim         │ YES    │ NO         │ YES custom│ YES  │ YES   │ YES │ YES   │ YES   │ YES   │ YES       │
+# │ modal              │ YES    │ NO         │ YES custom│ YES  │ YES   │ YES │ YES   │ YES   │ YES   │ YES       │
+# │ openrouter-presets │ YES    │ YES        │ YES custom│ YES  │ YES   │ YES │ YES   │ YES   │ YES   │ YES       │
+# │ xiaomi-mimo        │ YES    │ NO         │ YES custom│ YES  │ YES   │ YES │ YES   │ YES   │ YES   │ YES       │
+# │ opencode           │ YES    │ YES        │ YES custom│ YES  │ YES   │ YES │ YES   │ YES   │ YES   │ YES       │
+#
+# All providers use standard OpenAI-compatible API format (POST /v1/chat/completions).
+# Any tool that supports custom OpenAI-compatible endpoints can use these configs.
