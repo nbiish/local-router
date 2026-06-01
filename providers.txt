@@ -56,38 +56,39 @@
 # │19 │ nvidia-nim         │ nvidia/nemotron-3-nano-omni-30b-a3b-reasoning │ nvnm:nemotron-omni │ 256,000 │ 20,480   │ YES   │ YES  │ NO    │ NO*       │
 # │20 │ nvidia-nim         │ minimaxai/minimax-m2.5              │ nvnm:minimax-m2.5            │ 204,800  │ 32,000   │ YES   │ NO   │ NO    │ NO        │
 # │21 │ nvidia-nim         │ minimaxai/minimax-m2.7              │ nvnm:minimax-m2.7            │ 204,800  │ 131,072  │ YES   │ NO   │ NO    │ NO*       │
-# │22 │ modal              │ zai-org/GLM-5.1-FP8                 │ modl:GLM-5.1-FP8             │ 200,000  │ 128,000  │ YES   │ NO   │ NO    │ NO*       │
-# │23 │ openrouter-presets │ @preset/chain-of-draft              │ orps:chain-of-draft          │1,000,000 │ 120,000  │ YES   │ YES  │ YES   │ NO        │
-# │24 │ openrouter-presets │ @preset/openrouter-personal-router  │ orps:personal-router         │1,000,000 │ 120,000  │ YES   │ YES  │ YES   │ NO        │
-# │25 │ openrouter-presets │ @preset/free-chain-of-draft         │ orps:free-chain-draft        │1,000,000 │ 120,000  │ YES   │ YES  │ YES   │ NO        │
-# │26 │ openrouter-presets │ @preset/1-million-main              │ orps:1-million-main          │1,000,000 │ 120,000  │ YES   │ YES  │ YES   │ NO        │
-# │27 │ openrouter-presets │ @preset/1-million-chain-of-draft    │ orps:1-million-chain-draft   │1,000,000 │ 120,000  │ YES   │ YES  │ YES   │ NO        │
-# │28 │ openrouter-presets │ stepfun/step-3.7-flash              │ orps:step-3.7-flash          │ 256,000  │ 256,000  │ YES   │ YES  │ YES   │ YES       │
-# │29 │ zenmux             │ deepseek/deepseek-v4-pro            │ zenm:deepseek-v4-pro         │1,000,000 │ 384,000  │ YES   │ NO   │ YES   │ NO*       │
-# │30 │ zenmux             │ minimax/minimax-m2.7                 │ zenm:minimax-m2.7             │ 204,800  │ 131,072  │ YES   │ NO   │ NO    │ NO*       │
-# │31 │ zenmux             │ minimax/minimax-m2.7-highspeed       │ zenm:minimax-m2.7-hs          │ 204,800  │ 131,072  │ YES   │ NO   │ NO    │ NO*       │
-# │32 │ zenmux             │ stepfun/step-3.7-flash               │ zenm:step-3.7-flash           │ 256,000  │ 256,000  │ YES   │ YES  │ YES   │ YES       │
-# │33 │ zenmux             │ sapiens-ai/agnes-2.0-flash           │ zenm:agnes-2.0-flash          │ 256,000  │ 32,768   │ YES   │ YES  │ NO    │ YES       │
-# │34 │ zenmux             │ xiaomi/mimo-v2.5-pro                 │ zenm:mimo-v2.5-pro            │1,048,576 │ 128,000  │ YES   │ NO   │ YES   │ NO*       │
-# │35 │ zenmux             │ xiaomi/mimo-v2.5                     │ zenm:mimo-v2.5                │1,048,576 │ 128,000  │ YES   │ YES  │ YES   │ NO*       │
-# │36 │ xiaomi-mimo        │ mimo-v2.5-pro                       │ mimo:mimo-v2.5-pro           │1,000,000 │ 128,000  │ YES   │ NO   │ YES   │ NO        │
-# │37 │ xiaomi-mimo        │ mimo-v2.5                           │ mimo:mimo-v2.5               │1,000,000 │ 128,000  │ YES   │ YES  │ YES   │ NO        │
-# │38 │ opencode           │ minimax-m2.7                        │ opc:minimax-m2.7              │ 204,800  │ 131,072  │ YES   │ NO   │ NO    │ NO*       │
-# │39 │ opencode           │ minimax-m2.5                        │ opc:minimax-m2.5              │ 204,800  │ 32,000   │ YES   │ NO   │ NO    │ NO        │
-# │40 │ opencode           │ kimi-k2.6                           │ opc:kimi-k2.6                 │ 256,000  │ 32,768   │ YES   │ YES  │ YES   │ NO*       │
-# │41 │ opencode           │ kimi-k2.5                           │ opc:kimi-k2.5                 │ 131,072  │ 16,384   │ YES   │ YES  │ NO    │ NO        │
-# │42 │ opencode           │ glm-5.1                             │ opc:glm-5.1                   │ 200,000  │ 128,000  │ YES   │ NO   │ YES   │ NO*       │
-# │43 │ opencode           │ glm-5                               │ opc:glm-5                     │ 128,000  │ 8,000    │ YES   │ NO   │ NO    │ NO        │
-# │44 │ opencode           │ deepseek-v4-pro                     │ opc:deepseek-v4-pro           │1,000,000 │ 384,000  │ YES   │ NO   │ YES   │ NO*       │
-# │45 │ opencode           │ deepseek-v4-flash                   │ opc:deepseek-v4-flash         │1,000,000 │ 384,000  │ YES   │ NO   │ YES   │ NO*       │
-# │46 │ opencode           │ qwen3.7-max                         │ opc:qwen3.7-max               │1,000,000 │ 64,000   │ YES   │ NO   │ YES   │ NO*       │
-# │47 │ opencode           │ qwen3.6-plus                        │ opc:qwen3.6-plus              │ 131,072  │ 8,192    │ YES   │ NO   │ NO    │ NO        │
-# │48 │ opencode           │ qwen3.5-plus                        │ opc:qwen3.5-plus              │ 131,072  │ 8,192    │ YES   │ NO   │ NO    │ NO        │
-# │49 │ opencode           │ mimo-v2-pro                         │ opc:mimo-v2-pro               │ 256,000  │ 64,000   │ YES   │ NO   │ NO    │ NO        │
-# │50 │ opencode           │ mimo-v2-omni                        │ opc:mimo-v2-omni              │ 256,000  │ 64,000   │ YES   │ YES  │ NO    │ NO        │
-# │51 │ opencode           │ mimo-v2.5-pro                       │ opc:mimo-v2.5-pro             │1,000,000 │ 128,000  │ YES   │ NO   │ YES   │ NO        │
-# │52 │ opencode           │ mimo-v2.5                           │ opc:mimo-v2.5                 │1,000,000 │ 128,000  │ YES   │ YES  │ YES   │ NO        │
-# │53 │ opencode           │ hy3-preview                         │ opc:hy3-preview               │ 128,000  │ 8,000    │ YES   │ NO   │ NO    │ NO        │
+# │22 │ nvidia-nim         │ stepfun-ai/step-3.7-flash          │ nvnm:step-3.7-flash          │ 256,000  │ 256,000  │ YES   │ YES  │ YES   │ YES       │
+# │23 │ modal              │ zai-org/GLM-5.1-FP8                 │ modl:GLM-5.1-FP8             │ 200,000  │ 128,000  │ YES   │ NO   │ NO    │ NO*       │
+# │24 │ openrouter-presets │ @preset/chain-of-draft              │ orps:chain-of-draft          │1,000,000 │ 120,000  │ YES   │ YES  │ YES   │ NO        │
+# │25 │ openrouter-presets │ @preset/openrouter-personal-router  │ orps:personal-router         │1,000,000 │ 120,000  │ YES   │ YES  │ YES   │ NO        │
+# │26 │ openrouter-presets │ @preset/free-chain-of-draft         │ orps:free-chain-draft        │1,000,000 │ 120,000  │ YES   │ YES  │ YES   │ NO        │
+# │27 │ openrouter-presets │ @preset/1-million-main              │ orps:1-million-main          │1,000,000 │ 120,000  │ YES   │ YES  │ YES   │ NO        │
+# │28 │ openrouter-presets │ @preset/1-million-chain-of-draft    │ orps:1-million-chain-draft   │1,000,000 │ 120,000  │ YES   │ YES  │ YES   │ NO        │
+# │29 │ openrouter-presets │ stepfun/step-3.7-flash              │ orps:step-3.7-flash          │ 256,000  │ 256,000  │ YES   │ YES  │ YES   │ YES       │
+# │30 │ zenmux             │ deepseek/deepseek-v4-pro            │ zenm:deepseek-v4-pro         │1,000,000 │ 384,000  │ YES   │ NO   │ YES   │ NO*       │
+# │31 │ zenmux             │ minimax/minimax-m2.7                 │ zenm:minimax-m2.7             │ 204,800  │ 131,072  │ YES   │ NO   │ NO    │ NO*       │
+# │32 │ zenmux             │ minimax/minimax-m2.7-highspeed       │ zenm:minimax-m2.7-hs          │ 204,800  │ 131,072  │ YES   │ NO   │ NO    │ NO*       │
+# │33 │ zenmux             │ stepfun/step-3.7-flash               │ zenm:step-3.7-flash           │ 256,000  │ 256,000  │ YES   │ YES  │ YES   │ YES       │
+# │34 │ zenmux             │ sapiens-ai/agnes-2.0-flash           │ zenm:agnes-2.0-flash          │ 256,000  │ 32,768   │ YES   │ YES  │ NO    │ YES       │
+# │35 │ zenmux             │ xiaomi/mimo-v2.5-pro                 │ zenm:mimo-v2.5-pro            │1,048,576 │ 128,000  │ YES   │ NO   │ YES   │ NO*       │
+# │36 │ zenmux             │ xiaomi/mimo-v2.5                     │ zenm:mimo-v2.5                │1,048,576 │ 128,000  │ YES   │ YES  │ YES   │ NO*       │
+# │37 │ xiaomi-mimo        │ mimo-v2.5-pro                       │ mimo:mimo-v2.5-pro           │1,000,000 │ 128,000  │ YES   │ NO   │ YES   │ NO        │
+# │38 │ xiaomi-mimo        │ mimo-v2.5                           │ mimo:mimo-v2.5               │1,000,000 │ 128,000  │ YES   │ YES  │ YES   │ NO        │
+# │39 │ opencode           │ minimax-m2.7                        │ opc:minimax-m2.7              │ 204,800  │ 131,072  │ YES   │ NO   │ NO    │ NO*       │
+# │40 │ opencode           │ minimax-m2.5                        │ opc:minimax-m2.5              │ 204,800  │ 32,000   │ YES   │ NO   │ NO    │ NO        │
+# │41 │ opencode           │ kimi-k2.6                           │ opc:kimi-k2.6                 │ 256,000  │ 32,768   │ YES   │ YES  │ YES   │ NO*       │
+# │42 │ opencode           │ kimi-k2.5                           │ opc:kimi-k2.5                 │ 131,072  │ 16,384   │ YES   │ YES  │ NO    │ NO        │
+# │43 │ opencode           │ glm-5.1                             │ opc:glm-5.1                   │ 200,000  │ 128,000  │ YES   │ NO   │ YES   │ NO*       │
+# │44 │ opencode           │ glm-5                               │ opc:glm-5                     │ 128,000  │ 8,000    │ YES   │ NO   │ NO    │ NO        │
+# │45 │ opencode           │ deepseek-v4-pro                     │ opc:deepseek-v4-pro           │1,000,000 │ 384,000  │ YES   │ NO   │ YES   │ NO*       │
+# │46 │ opencode           │ deepseek-v4-flash                   │ opc:deepseek-v4-flash         │1,000,000 │ 384,000  │ YES   │ NO   │ YES   │ NO*       │
+# │47 │ opencode           │ qwen3.7-max                         │ opc:qwen3.7-max               │1,000,000 │ 64,000   │ YES   │ NO   │ YES   │ NO*       │
+# │48 │ opencode           │ qwen3.6-plus                        │ opc:qwen3.6-plus              │ 131,072  │ 8,192    │ YES   │ NO   │ NO    │ NO        │
+# │49 │ opencode           │ qwen3.5-plus                        │ opc:qwen3.5-plus              │ 131,072  │ 8,192    │ YES   │ NO   │ NO    │ NO        │
+# │50 │ opencode           │ mimo-v2-pro                         │ opc:mimo-v2-pro               │ 256,000  │ 64,000   │ YES   │ NO   │ NO    │ NO        │
+# │51 │ opencode           │ mimo-v2-omni                        │ opc:mimo-v2-omni              │ 256,000  │ 64,000   │ YES   │ YES  │ NO    │ NO        │
+# │52 │ opencode           │ mimo-v2.5-pro                       │ opc:mimo-v2.5-pro             │1,000,000 │ 128,000  │ YES   │ NO   │ YES   │ NO        │
+# │53 │ opencode           │ mimo-v2.5                           │ opc:mimo-v2.5                 │1,000,000 │ 128,000  │ YES   │ YES  │ YES   │ NO        │
+# │54 │ opencode           │ hy3-preview                         │ opc:hy3-preview               │ 128,000  │ 8,000    │ YES   │ NO   │ NO    │ NO        │
 #
 # * Native reasoning DISABLED — VS Code/Copilot Chat and Zed cannot reliably
 #   preserve provider-native reasoning metadata across turns. FVS-CODE strips
@@ -182,14 +183,18 @@
 # Key env:     NVIDIA_NIM_API_KEY
 # Zed prefix:  nvnm
 # Cross-tool:  All agents. Hermes: custom provider.
-# Models:      3  —  nvidia/nemotron-3-nano-omni-30b-a3b-reasoning,
-#                     minimaxai/minimax-m2.5, minimaxai/minimax-m2.7
+# Models:      4  —  nvidia/nemotron-3-nano-omni-30b-a3b-reasoning,
+#                     minimaxai/minimax-m2.5, minimaxai/minimax-m2.7,
+#                     stepfun-ai/step-3.7-flash
 # Notes:       IDs and context values are taken from NVIDIA NIM public API
 #              reference pages. Nemotron-3-Nano-Omni is multimodal
 #              (video/audio/image/text) with 256K context. MiniMax-M2.5 is
 #              text-only with 204,800-token context.
 #              MiniMax-M2.7 is the upgraded model with native reasoning
 #              (include_reasoning), stripped for VS Code compatibility.
+#              StepFun Step-3.7-Flash is 256K context with tools, vision,
+#              cache, and native reasoning support. Live on NIM since
+#              late May 2026.
 
 ## modal ___________________________________________________________________
 # Tier:        Modal Direct Inference

@@ -106,6 +106,7 @@ It reads legacy `~/.config/fvs-code` files when the new files do not exist yet. 
 
 ## Security Notes
 
+- **Recommended:** Store all API keys in the PQC-encrypted secrets bundle (`~/.config/pqc-secrets/secrets.bundle.json`) using ML-KEM-768 + AES-256-GCM. Keys load automatically at server startup. Use `bin/pqc-secrets pack` to add keys — see `AGENTS.md` for the full lifecycle.
 - Provider keys are process-local unless supplied by the environment.
 - Router telemetry is redacted and does not store prompt text, responses, API keys, auth headers, local paths, or provider secrets.
 - Route definitions store model IDs and routing metadata only.

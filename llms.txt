@@ -151,15 +151,14 @@ Per `AGENTS.md`: never work directly on `main` or `develop`. Create a git worktr
 
 `providers.txt` is the factual source of truth for provider/model metadata. It is synced to `~/.config/providers.txt` and intended to be copied across projects. Runtime model overrides (via `/api/provider-models`) take precedence and immediately update `/v1/models`, `/api/tags`, and `/api/show`.
 
-### Active Providers (9 providers, 53 models as of 2026-05-29)
-
+### Active Providers (9 providers, 54 models as of 2026-05-31)
 | Provider | Models | Endpoint |
 |---|---|---|
 | `wafer-serverless` | 5 | Wafer Serverless API |
 | `zenmux` | 12 | `https://zenmux.ai/api/v1` |
 | `nebius` | 4 | Nebius Token Factory |
 | `moonshot` | 4 | Moonshot/Kimi API |
-| `nvidia-nim` | 3 | NVIDIA NIM API |
+| `nvidia-nim` | 4 | NVIDIA NIM API |
 | `modal` | 1 | Modal GLM endpoint |
 | `openrouter-presets` | 6 | OpenRouter API |
 | `xiaomi-mimo` | 2 | `https://token-plan-sgp.xiaomimimo.com/v1` |
@@ -232,8 +231,9 @@ Per `AGENTS.md`: never work directly on `main` or `develop`. Create a git worktr
 - https://openrouter.ai/api/v1/models
 
 ### Provider Security Rules
+- **Preferred:** All API keys stored in PQC-encrypted bundle (`~/.config/pqc-secrets/secrets.bundle.json`) using ML-KEM-768 + AES-256-GCM. Loaded automatically at startup.
 - No API key values in `providers.txt`, `~/.config/providers.txt`, `.env`, git, shell history, logs, or tool output
-- Use env vars or the Local Router browser UI for runtime key configuration
+- In-memory-only keys (via browser UI) are acceptable but less secure — they are lost on server restart and not hardware-backed
 - OpenRouter custom presets must not be inferred from naming alone — confirm with preset owner before adding/updating
 
 ## Reasoning / Thinking Compatibility
