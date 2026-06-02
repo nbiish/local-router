@@ -161,11 +161,33 @@ const DEFAULT_ROUTER_COST_QUALITY_TRADEOFF = 7;
 const ROUTER_CANDIDATE_RETRIES = 2;
 const SYSTEM_FALLBACK_ROUTE_ID = 'fallback-models';
 const DEFAULT_ROUTER_CANDIDATES_TEXT = [
-  'openrouter-1-million-chain-of-draft, coding=0.88, input=1, output=2, latency=1200, notes=DeepSeek V4 Pro + DeepSeek V4 Flash + Xiaomi MiMo-V2.5-Pro',
-  'openrouter-chain-of-draft, coding=0.86, input=1, output=2, latency=1300, notes=DeepSeek V4 Pro + MoonshotAI Kimi K2.6 + Xiaomi MiMo-V2.5-Pro',
-  'openrouter-openrouter-personal-router, coding=0.84, input=1, output=2, latency=1100, notes=DeepSeek V4 Pro + MoonshotAI Kimi Latest + Xiaomi MiMo-V2.5-Pro',
-  'openrouter-1-million-main, coding=0.82, input=1, output=2, latency=1000, notes=DeepSeek V4 Pro + DeepSeek V4 Flash + Xiaomi MiMo-V2.5-Pro',
-  'openrouter-free-chain-of-draft, coding=0.72, input=0, output=1, latency=1500, notes=Composition unconfirmed'
+  // ── Tier 0: Flagship coding (highest quality) ──
+  'zenmux-deepseek-v4-pro, coding=0.91, input=1, output=2, latency=900, notes=ZenMux DeepSeek V4 Pro 1M ctx',
+  'wafer-ai-deepseek-v4-pro, coding=0.90, input=1, output=2, latency=800, notes=Wafer DeepSeek V4 Pro 1M ctx',
+  'opencode-deepseek-v4-pro, coding=0.89, input=1, output=2, latency=850, notes=OpenCode DeepSeek V4 Pro 1M ctx',
+  // ── Tier 1: High quality, good cost ──
+  'wafer-ai-deepseek-v4-flash, coding=0.87, input=0.5, output=1, latency=600, notes=Wafer DeepSeek V4 Flash 1M ctx',
+  'opencode-deepseek-v4-flash, coding=0.86, input=0.5, output=1, latency=650, notes=OpenCode DeepSeek V4 Flash 1M ctx',
+  'zenmux-deepseek-v4-flash, coding=0.86, input=0.5, output=1, latency=700, notes=ZenMux DeepSeek V4 Flash 1M ctx',
+  // ── Tier 1: OpenRouter presets ──
+  'openrouter-1-million-chain-of-draft, coding=0.88, input=1, output=2, latency=1200, notes=OR preset: DS V4 Pro + V4 Flash + MiMo',
+  'openrouter-chain-of-draft, coding=0.86, input=1, output=2, latency=1300, notes=OR preset: DS V4 Pro + Kimi K2.6 + MiMO',
+  // ── Tier 1: Specialized / reasoning models ──
+  'zenmux-step-3.7-flash, coding=0.84, input=0.5, output=1, latency=700, notes=ZenMux Step 3.7 Flash 256K ctx reasoning',
+  'nebius-cosmos3-super-reasoner, coding=0.78, input=0.1, output=0.3, latency=1200, notes=Nebius Cosmos3 Reasoner cheap reasoning',
+  'modal-glm-5.1-fp8, coding=0.83, input=0.5, output=1, latency=800, notes=Modal GLM-5.1 FP8 200K ctx',
+  'zai-code-pass-glm-5.1, coding=0.83, input=0.5, output=1, latency=750, notes=Z.ai Code Pass GLM-5.1 200K ctx',
+  // ── Tier 2: Strong alternatives ──
+  'zenmux-minimax-m3, coding=0.85, input=0.3, output=1.2, latency=700, notes=ZenMux MiniMax M3 512K ctx multimodal+reasoning',
+  'opencode-minimax-m3, coding=0.85, input=0.3, output=1.2, latency=650, notes=OpenCode MiniMax M3 512K ctx multimodal+reasoning',
+  'nvidia-nim-minimax-m3, coding=0.84, input=0.3, output=1.2, latency=750, notes=NVIDIA NIM MiniMax M3 multimodal+reasoning',
+  'zenmux-minimax-m2.7, coding=0.82, input=0.3, output=1.2, latency=900, notes=ZenMux MiniMax M2.7 fallback reasoning',
+  'xiaomi-mimo-mimo-v2.5-pro, coding=0.80, input=0.3, output=0.6, latency=1000, notes=Xiaomi MiMo V2.5 Pro 1M ctx',
+  'xiaomi-mimo-mimo-v2.5, coding=0.76, input=0.3, output=0.6, latency=1100, notes=Xiaomi MiMo V2.5 1M ctx multimodal',
+  // ── Tier 2: Budget / free ──
+  'openrouter-openrouter-personal-router, coding=0.84, input=1, output=2, latency=1100, notes=OR preset: DS V4 Pro + Kimi + MiMO',
+  'openrouter-1-million-main, coding=0.82, input=1, output=2, latency=1000, notes=OR preset: DS V4 Pro + V4 Flash + MiMO',
+  'openrouter-free-chain-of-draft, coding=0.72, input=0, output=0, latency=1500, notes=OR preset: free tier fallback'
 ].join('\n');
 const parsedFallbackBaseRetrySeconds = Number.parseInt(
   process.env.LOCAL_ROUTER_FALLBACK_BASE_RETRY_SECONDS || process.env.FVS_FALLBACK_BASE_RETRY_SECONDS || '2',
@@ -5191,6 +5213,9 @@ function routerCandidateEligibility(router: RouterModel, candidate: RouterCandid
   if (target && !providerHasConfiguredKey(target.providerName)) {
     rejectionReasons.push('missing_provider_key');
   }
+  if (target && rejectionReasons.includes('missing_provider_key')) {
+    console.warn(`[router] Skipping candidate "${candidate.model}" — provider "${target.providerName}" has no configured API key`);
+  }
   if (resolved) {
     if (features.requiresTools && !resolved.supportsTools) rejectionReasons.push('tools_required');
     if (features.requiresImages && !resolved.supportsImages) rejectionReasons.push('vision_required');
@@ -5274,8 +5299,17 @@ function selectBanditCandidate(router: RouterModel, body: any): RouterDecision |
 
   const eligibleEntries = scored.filter((entry) => entry.eligible);
   if (eligibleEntries.length === 0) {
+    const missingProviders = [...new Set(
+      scored
+        .filter((e) => e.reasons?.includes('missing_provider_key'))
+        .map((e) => { const t = resolveModelTarget(e.candidate.model); return t?.providerName; })
+        .filter(Boolean) as string[]
+    )];
+    const detail = missingProviders.length > 0
+      ? ` Configure one of these providers: ${missingProviders.join(', ')}.`
+      : '';
     return {
-      error: 'Router has no eligible configured candidate models for this request.',
+      error: `Router has no eligible configured candidate models for this request.${detail}`,
       candidateScores
     };
   }
@@ -5390,8 +5424,17 @@ function selectRouterCandidate(router: RouterModel, body: any): RouterDecision |
 
   const eligibleEntries = scoredNormalized.filter((entry) => entry.eligible && Number.isFinite(entry.score));
   if (eligibleEntries.length === 0) {
+    const missingProviders = [...new Set(
+      scoredNormalized
+        .filter((e) => e.reasons?.includes('missing_provider_key'))
+        .map((e) => { const t = resolveModelTarget(e.candidate.model); return t?.providerName; })
+        .filter(Boolean) as string[]
+    )];
+    const detail = missingProviders.length > 0
+      ? ` Configure one of these providers: ${missingProviders.join(', ')}.`
+      : '';
     return {
-      error: 'Router has no eligible configured candidate models for this request.',
+      error: `Router has no eligible configured candidate models for this request.${detail}`,
       candidateScores
     };
   }
