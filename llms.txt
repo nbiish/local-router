@@ -13,7 +13,7 @@ Local Router is a localhost proxy server (port `11434`) that presents an Ollama-
 - **Fallback routes:** User-configured model chains with retry logic, persisted as non-secret JSON
 - **VS Code integration:** `POST /api/vscode/configure` writes Ollama vendor entry and model picker preferences
 - **CLI:** `local-router start|stop|status|route set|custom|unset|status`
-- **Reasoning compatibility:** Strips provider-native reasoning metadata (DeepSeek, Kimi, Qwen3, GLM, Z.ai, Moonshot, MiniMax) so VS Code Copilot Chat can use these models safely
+- **Reasoning compatibility:** Configurable thinking levels (none/low/medium/high/xhigh) per provider with global default. Preserves `reasoning_content` in request bodies for multi-turn tool use while stripping from responses for VS Code safety
 - **Custom system prompt:** Optional system prompt injection (default OFF, Chain of Draft default) across all entry points, configured via `/config` UI or `GET/PUT /api/system-prompt`
 - **Key files:** `src/index.ts` (server, routing, UI, CRUD), `src/reasoning.ts` (compatibility layer), `src/sessions.ts` (session tracking + feedback), `src/tiers.ts` (statistical tiering), `src/types.ts`, `src/providers/*.ts`, `bin/local-router.js` (CLI), `providers.txt` (model catalog), `ROUTER.md` (router improvement guide), `AGENTS.md` (security/process)
 
@@ -102,7 +102,7 @@ Per `AGENTS.md`: never work directly on `main` or `develop`. Create a git worktr
 ├── src/
 │   ├── index.ts                       # Express server, routing, CRUD, config UI, router models, VS Code integration, session tracking
 │   ├── types.ts                       # TypeScript interfaces (ProxyProvider, etc.)
-│   ├── reasoning.ts                   # Reasoning/thinking metadata stripping for VS Code compatibility
+│   ├── reasoning.ts                   # Reasoning/thinking metadata handling + configurable thinking levels per provider
 │   ├── sessions.ts                    # Session tracking + thumbs up/down feedback
 │   ├── tiers.ts                       # Statistical tiering (median+MAD outlier detection)
 │   └── providers/
@@ -238,22 +238,50 @@ Per `AGENTS.md`: never work directly on `main` or `develop`. Create a git worktr
 
 ## Reasoning / Thinking Compatibility
 
-VS Code Copilot Chat strips or fails to replay provider-native reasoning metadata (e.g., `reasoning_content`) across turns. Some upstream providers reject follow-up requests when thinking mode is active but prior `reasoning_content` is missing. Local Router handles this as a compatibility layer in `src/reasoning.ts`.
+VS Code Copilot Chat strips or fails to replay provider-native reasoning metadata (e.g., `reasoning_content`) across turns. Some upstream providers reject follow-up requests when thinking mode is active but prior `reasoning_content` is missing in assistant tool_call messages. Local Router handles this as a compatibility layer in `src/reasoning.ts`.
 
-### Request Sanitization
-- Strips `reasoning_content`, `reasoning_details`, `redacted_thinking`, reasoning signatures, and nested thinking/reasoning content blocks before forwarding upstream
+### Critical Fix: Request Body Preservation
+
+**Previous behavior (bug):** `sanitizeProviderRequestBody` called `stripReasoningMetadata` on the entire request body, which removed `reasoning_content` from assistant messages in the conversation history. When VS Code sent the conversation back for the next turn, providers like Moonshot saw assistant messages with `tool_calls` but missing `reasoning_content` and rejected the request with: *"thinking is enabled but reasoning_content is missing in assistant tool call message"*.
+
+**Fixed behavior:** `sanitizeProviderRequestBody` no longer strips reasoning metadata from request bodies. It only applies thinking-level configuration (none/low/medium/high/xhigh) via provider-specific parameters. Reasoning metadata is only stripped from **responses** (via `stripReasoningMetadata`), ensuring VS Code receives clean output while preserving conversation integrity for multi-turn tool use.
+
+### Thinking Level Configuration
+
+Local Router supports configurable thinking levels per provider with a global default. This replaces the previous hardcoded "always disable" approach.
+
+**Levels:** `none` (default), `low`, `medium`, `high`, `xhigh`
+
+**Provider-specific parameter mapping:**
+- **OpenAI-style** (most providers): `reasoning_effort: "low" | "medium" | "high"`
+- **DeepSeek, Qwen, GLM, Z.ai, MiniMax, StepFun, Sapiens**: `enable_thinking: true`
+- **Moonshot/Kimi**: `enable_thinking: true`
+- **none**: `reasoning_effort: "none"`, `thinking: { type: "disabled" }`
+
+**Configuration:**
+- **Global default:** Set via `/config` UI or `PUT /api/system-prompt` with `{ thinkingLevel: "none" | "low" | "medium" | "high" | "xhigh" }`
+- **Per-provider override:** Set via `/config` UI dropdown per provider or `PUT /api/thinking-level` with `{ provider: "<name>", level: "<level>" }`
+- **Clear override:** `DELETE /api/thinking-level/:provider` falls back to global
+- **Persistence:** `~/.config/local-router/thinking-config.json` (non-secret, `0600`)
+
+**API Endpoints:**
+- `GET /api/thinking-level` — returns `{ global, default, providers: [{ name, level }] }`
+- `PUT /api/thinking-level` — set global or per-provider level
+- `DELETE /api/thinking-level/:provider` — clear per-provider override
+
+**Default behavior:** `none` for VS Code compatibility. When set to `none`, native reasoning models (DeepSeek, Kimi, Qwen3, GLM, Z.ai, Moonshot, MiniMax, StepFun, Sapiens) receive disable hints. When set to any other level, the appropriate enable parameters are sent.
+
+### Request Sanitization (Updated)
+- No longer strips `reasoning_content` from request bodies — only from responses
 - Removes Ollama-only `think` before sending OpenAI-compatible provider requests
-- Forces no-thinking hints for native reasoning-prone model names matching DeepSeek, Kimi, Qwen3, GLM, Z.ai, Zai, Moonshot, or MiniMax patterns
-- Forces no-thinking hints for provider+model combos matching DeepSeek, Kimi, Qwen3, GLM, Z.ai, Zai, Moonshot, MiniMax, StepFun, or Sapiens patterns
-- Uses upstream-compatible no-thinking hints: `reasoning_effort: "none"`, `thinking: { "type": "disabled" }`
-- Preserves existing `extra_body` but removes `reasoning_budget` and sets `chat_template_kwargs.thinking` / `chat_template_kwargs.enable_thinking` to `false`
+- Applies thinking-level configuration based on global default or per-provider override
+- Respects explicit user `reasoning_effort: "none"` or `thinking: { type: "disabled" }` requests
+- Preserves existing `extra_body` while merging thinking parameters
 
 ### Response Sanitization
 - Strips reasoning metadata from non-streaming OpenAI-compatible responses
 - Strips reasoning metadata from OpenAI-compatible SSE chunks
 - Skips empty reasoning-only chunks in Ollama stream translation so `/api/chat` and `/api/generate` don't emit blank assistant chunks for hidden thinking deltas
-
-This is intentionally a compatibility layer, not a reasoning feature. Local Router presents models in a mode that VS Code can use safely without requiring client-side reasoning replay.
 
 ## Custom System Prompt
 
@@ -262,9 +290,10 @@ Local Router supports an optional custom system prompt injected before every LLM
 ### Configuration
 - **Default:** OFF (disabled)
 - **Default prompt:** Chain of Draft reasoning style — *"Think step by step, but only keep a minimum draft for each thinking step, with 5 words at most. Return the answer after your thinking."*
-- **Persistence:** `~/.config/local-router/system-prompt.json` (non-secret, `0600`)
-- **API:** `GET /api/system-prompt` (read), `PUT /api/system-prompt` (update `{ enabled, prompt }`)
-- **Config UI:** System Prompt card at `/config` — toggle, textarea, save, and reset-to-default
+- **Thinking level:** Global default `none` (VS Code safe). Configurable per provider via `/config` UI or API.
+- **Persistence:** `~/.config/local-router/system-prompt.json` (non-secret, `0600`); thinking config at `~/.config/local-router/thinking-config.json`
+- **API:** `GET /api/system-prompt` (read), `PUT /api/system-prompt` (update `{ enabled, prompt, thinkingLevel }`)
+- **Config UI:** System Prompt card at `/config` — toggle, textarea, thinking level selector, per-provider overrides, save, and reset-to-default
 
 ### Behavior
 - When enabled, prepends `{ role: "system", content: "<prompt>" }` as the first message in the messages array before forwarding to the provider

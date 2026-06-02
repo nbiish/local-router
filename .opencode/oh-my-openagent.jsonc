@@ -1,0 +1,9 @@
+// oh-my-openagent project config — team-mode for fvs-code
+{
+  "team_mode": {
+    "enabled": true,
+    "max_parallel_members": 4,
+    "max_members": 8,
+    "tmux_visualization": false
+  }
+}
