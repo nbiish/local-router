@@ -106,6 +106,7 @@
 # │ 67 │ openrouter-presets │ minimax/minimax-m3                  │ orps:minimax-m3               │1,050,000 │ 512,000  │ YES   │ YES  │ YES   │ YES*      │
 # │ 68 │ opencode           │ minimax-m3                          │ opc:minimax-m3                │ 512,000  │ 512,000  │ YES   │ YES  │ YES   │ YES*      │
 # │ 69 │ nvidia-nim         │ minimaxai/minimax-m3                │ nvnm:minimax-m3               │ 512,000  │ 512,000  │ YES   │ YES  │ YES   │ YES*      │
+# │ 70 │ openrouter-presets │ qwen/qwen3.7-max                    │ orps:qwen3.7-max              │1,000,000 │ 64,000   │ YES   │ NO   │ YES   │ NO*       │
 # #
 # * Native reasoning DISABLED — VS Code/Copilot Chat and Zed cannot reliably
 #   preserve provider-native reasoning metadata across turns. FVS-CODE strips
