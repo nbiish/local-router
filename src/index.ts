@@ -2599,7 +2599,7 @@ app.get('/config', (req: Request, res: Response) => {
               activeFallbackRouteId = route.id;
               document.getElementById('fallbackRouteId').value = route.id;
               document.getElementById('fallbackRouteId').disabled = true;
-              document.getElementById('fallbackModelsText').value = Array.isArray(route.models) ? route.models.join('\n') : '';
+              document.getElementById('fallbackModelsText').value = Array.isArray(route.models) ? route.models.join('\\\\n') : '';
             });
           });
 
