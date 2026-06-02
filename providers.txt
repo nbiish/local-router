@@ -29,6 +29,7 @@
 # │ openrouter-presets │ https://openrouter.ai/api/v1          │ OPENROUTER_API_KEY       │ —       │
 # │ xiaomi-mimo        │ https://token-plan-sgp.xiaomimimo.com/v1│ XIAOMI_MIMO_API_KEY     │ —       │
 # │ opencode           │ https://opencode.ai/zen/go/v1          │ OPENCODE_API_KEY        │ Hermes  │
+# │ ollama             │ http://127.0.0.1:11435/v1              │ OLLAMA_API_KEY          │ —       │
 
 # =============================================================================
 # MASTER MODEL SPECIFICATION
