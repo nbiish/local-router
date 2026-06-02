@@ -1,5 +1,9 @@
 type JsonObject = Record<string, any>;
 
+export type ThinkingLevel = 'none' | 'low' | 'medium' | 'high' | 'xhigh';
+
+export const DEFAULT_THINKING_LEVEL: ThinkingLevel = 'none';
+
 const RESPONSE_REASONING_KEYS = new Set([
   'reasoning_content',
   'reasoningContent',
@@ -106,6 +110,37 @@ function applyNoThinkingHints(body: JsonObject): JsonObject {
   return next;
 }
 
+/**
+ * Map thinking level to provider-specific request parameters.
+ * Different providers use different parameter names for reasoning/thinking.
+ */
+export function getThinkingRequestParams(
+  level: ThinkingLevel,
+  providerName: string,
+  modelName: string
+): JsonObject {
+  if (level === 'none') {
+    return { reasoning_effort: 'none', thinking: { type: 'disabled' } };
+  }
+
+  const normalized = `${providerName}/${modelName}`.toLowerCase();
+
+  // DeepSeek, Qwen, GLM, Z.ai, MiniMax, StepFun, Sapiens use enable_thinking
+  if (/(deepseek|qwen|glm|z-ai|zai|minimax|stepfun|sapiens)/.test(normalized)) {
+    return { enable_thinking: true };
+  }
+
+  // Moonshot/Kimi uses enable_thinking
+  if (/(moonshot|kimi)/.test(normalized)) {
+    return { enable_thinking: true };
+  }
+
+  // Default: OpenAI-style reasoning_effort (low, medium, high)
+  // xhigh maps to high for providers that don't support it
+  const effort = level === 'xhigh' ? 'high' : level;
+  return { reasoning_effort: effort };
+}
+
 export function shouldDisableNativeThinking(providerName: string, modelName: string): boolean {
   return NATIVE_REASONING_MODEL_PATTERN.test(`${providerName}/${modelName}`);
 }
@@ -114,18 +149,50 @@ export function stripReasoningMetadata<T>(value: T): T {
   return stripReasoningMetadataInternal(value, 0) as T;
 }
 
+/**
+ * Sanitize provider request body before forwarding upstream.
+ *
+ * CRITICAL: We do NOT strip reasoning_metadata from request bodies.
+ * Stripping reasoning_content from assistant messages breaks multi-turn
+ * conversations with providers like Moonshot that require reasoning_content
+ * to be present in assistant tool_call messages when thinking is enabled.
+ *
+ * Reasoning metadata is only stripped from responses (see stripReasoningMetadata).
+ */
 export function sanitizeProviderRequestBody<T extends JsonObject>(
   body: T,
-  options: { providerName: string; modelName: string }
+  options: { providerName: string; modelName: string; thinkingLevel?: ThinkingLevel }
 ): T {
-  const sanitized = stripReasoningMetadata(body) as JsonObject;
-  const disableThinking = hasExplicitNoThinkingRequest(body)
-    || shouldDisableNativeThinking(options.providerName, options.modelName);
+  const level = options.thinkingLevel ?? DEFAULT_THINKING_LEVEL;
 
-  if (!disableThinking) {
+  // Respect explicit user request to disable thinking
+  if (hasExplicitNoThinkingRequest(body)) {
+    const sanitized = { ...body } as JsonObject;
     delete sanitized.think;
-    return sanitized as T;
+    return applyNoThinkingHints(sanitized) as T;
   }
 
-  return applyNoThinkingHints(sanitized) as T;
+  // For native reasoning models, default to disabling unless explicitly enabled
+  const isNativeReasoning = shouldDisableNativeThinking(options.providerName, options.modelName);
+  if (isNativeReasoning && level === 'none') {
+    return applyNoThinkingHints(body) as T;
+  }
+
+  // Apply configured thinking level
+  const sanitized = { ...body } as JsonObject;
+  delete sanitized.think;
+
+  const thinkingParams = getThinkingRequestParams(level, options.providerName, options.modelName);
+
+  // Merge thinking params, preserving existing extra_body
+  const result: JsonObject = { ...sanitized };
+  for (const [key, value] of Object.entries(thinkingParams)) {
+    if (key === 'extra_body' && isObject(result.extra_body) && isObject(value)) {
+      result.extra_body = { ...result.extra_body, ...value };
+    } else {
+      result[key] = value;
+    }
+  }
+
+  return result as T;
 }

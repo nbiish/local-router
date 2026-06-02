@@ -8,7 +8,7 @@ import path from 'path';
 import os from 'os';
 import { execFileSync } from 'child_process';
 import { ProxyProvider } from './types';
-import { sanitizeProviderRequestBody, stripReasoningMetadata } from './reasoning';
+import { sanitizeProviderRequestBody, stripReasoningMetadata, ThinkingLevel, DEFAULT_THINKING_LEVEL } from './reasoning';
 import { loadSessions, loadFeedback, recordRequest, getSessions, getSessionById, recordFeedback } from './sessions';
 import { computeTiers } from './tiers';
 
@@ -151,6 +151,8 @@ const ROUTER_MODELS_PATH = path.join(LOCAL_ROUTER_CONFIG_DIR, 'router-models.jso
 const LEGACY_ROUTER_MODELS_PATH = path.join(LEGACY_FVS_CONFIG_DIR, 'router-models.json');
 const SYSTEM_PROMPT_PATH = path.join(LOCAL_ROUTER_CONFIG_DIR, 'system-prompt.json');
 const LEGACY_SYSTEM_PROMPT_PATH = path.join(LEGACY_FVS_CONFIG_DIR, 'system-prompt.json');
+const THINKING_CONFIG_PATH = path.join(LOCAL_ROUTER_CONFIG_DIR, 'thinking-config.json');
+const LEGACY_THINKING_CONFIG_PATH = path.join(LEGACY_FVS_CONFIG_DIR, 'thinking-config.json');
 const ROUTER_EVENTS_PATH = path.join(LOCAL_ROUTER_CONFIG_DIR, 'router-events.csv');
 const LEGACY_ROUTER_EVENTS_PATH = path.join(LEGACY_FVS_CONFIG_DIR, 'router-events.csv');
 const DEFAULT_ROUTER_TYPE: RouterType = 'auto-local';
@@ -190,9 +192,10 @@ const modelStore: Record<string, ProviderModel[]> = {};
 const fallbackModelStore: Record<string, FallbackModel> = {};
 const routerModelStore: Record<string, RouterModel> = {};
 const DEFAULT_CHAIN_OF_DRAFT_PROMPT = `Think step by step, but only keep a minimum draft for each thinking step, with 5 words at most. Return the answer after your thinking.`;
-const systemPromptConfig: { enabled: boolean; prompt: string } = {
+const systemPromptConfig: { enabled: boolean; prompt: string; thinkingLevel: ThinkingLevel } = {
   enabled: false,
-  prompt: DEFAULT_CHAIN_OF_DRAFT_PROMPT
+  prompt: DEFAULT_CHAIN_OF_DRAFT_PROMPT,
+  thinkingLevel: DEFAULT_THINKING_LEVEL
 };
 const SECRET_FIELD_PATTERN = /(authorization|api[_-]?key|token|secret|password|cookie|set-cookie)/i;
 const diagnosticsStore = {
@@ -1013,6 +1016,49 @@ function persistSystemPrompt(): void {
   });
   fs.renameSync(temporaryPath, SYSTEM_PROMPT_PATH);
   fs.chmodSync(SYSTEM_PROMPT_PATH, 0o600);
+}
+
+// ── Thinking Level Configuration ───────────────────────────────────────────
+
+const thinkingLevelStore: Record<string, ThinkingLevel> = {};
+
+function loadPersistedThinkingConfig(): void {
+  const persistedPath = existingPath(THINKING_CONFIG_PATH, LEGACY_THINKING_CONFIG_PATH);
+  if (!fs.existsSync(persistedPath)) return;
+  try {
+    const parsed = JSON.parse(fs.readFileSync(persistedPath, 'utf8'));
+    if (typeof parsed?.global === 'string') {
+      systemPromptConfig.thinkingLevel = parsed.global as ThinkingLevel;
+    }
+    if (parsed?.providers && typeof parsed.providers === 'object' && !Array.isArray(parsed.providers)) {
+      for (const [provider, level] of Object.entries(parsed.providers)) {
+        if (typeof level === 'string') {
+          thinkingLevelStore[provider] = level as ThinkingLevel;
+        }
+      }
+    }
+  } catch (error: any) {
+    console.error('Failed to load persisted thinking config:', sanitizeDiagnosticText(String(error?.message || error)));
+  }
+}
+
+function persistThinkingConfig(): void {
+  ensureLocalRouterConfigDir();
+  const payload = {
+    global: systemPromptConfig.thinkingLevel,
+    providers: { ...thinkingLevelStore }
+  };
+  const temporaryPath = `${THINKING_CONFIG_PATH}.${process.pid}.tmp`;
+  fs.writeFileSync(temporaryPath, `${JSON.stringify(payload, null, 2)}\n`, {
+    encoding: 'utf8',
+    mode: 0o600
+  });
+  fs.renameSync(temporaryPath, THINKING_CONFIG_PATH);
+  fs.chmodSync(THINKING_CONFIG_PATH, 0o600);
+}
+
+function getEffectiveThinkingLevel(providerName: string): ThinkingLevel {
+  return thinkingLevelStore[providerName] ?? systemPromptConfig.thinkingLevel ?? DEFAULT_THINKING_LEVEL;
 }
 
 function resolveModelTarget(modelName: string): ModelTarget | null {
@@ -2179,6 +2225,22 @@ app.get('/config', (req: Request, res: Response) => {
             <label for="systemPromptText">Prompt text</label>
             <textarea id="systemPromptText" rows="6" placeholder="Enter your system prompt..."></textarea>
           </div>
+          <div class="form-group" style="margin-top:14px;">
+            <label for="thinkingLevelSelect">Global Thinking Level</label>
+            <p class="muted">Controls reasoning/thinking for all providers. Per-provider overrides available below. Default: none (disabled for VS Code compatibility).</p>
+            <select id="thinkingLevelSelect" onchange="saveThinkingLevel()">
+              <option value="none">none — disable reasoning (VS Code safe)</option>
+              <option value="low">low — minimal reasoning</option>
+              <option value="medium">medium — balanced reasoning</option>
+              <option value="high">high — extended reasoning</option>
+              <option value="xhigh">xhigh — maximum reasoning</option>
+            </select>
+          </div>
+          <div class="form-group" id="providerThinkingLevels" style="margin-top:14px;">
+            <label>Per-Provider Thinking Levels</label>
+            <p class="muted">Override the global level for specific providers. Cleared overrides fall back to global.</p>
+            <div id="providerThinkingGrid" style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:8px;"></div>
+          </div>
           <div class="button-row">
             <button onclick="saveSystemPrompt()">Save</button>
             <button class="button-secondary" onclick="resetSystemPromptToDefault()">Reset to Default (CoD)</button>
@@ -3166,6 +3228,7 @@ app.get('/config', (req: Request, res: Response) => {
           await refreshDiagnostics();
         }
         let systemPromptDefault = '';
+        let thinkingConfig = { global: 'none', default: 'none', providers: [] };
         async function loadSystemPrompt() {
           try {
             const res = await fetch('/api/system-prompt');
@@ -3180,11 +3243,98 @@ app.get('/config', (req: Request, res: Response) => {
             if (textEl) textEl.value = data.prompt || '';
             if (fieldsEl) fieldsEl.style.display = data.enabled ? 'block' : 'none';
             if (statusEl) statusEl.textContent = data.enabled ? 'Active — injecting into all requests' : 'Disabled';
+            // Load thinking level
+            const levelSelect = document.getElementById('thinkingLevelSelect');
+            if (levelSelect) levelSelect.value = data.thinkingLevel || data.defaultThinkingLevel || 'none';
+            await loadThinkingConfig();
           } catch (err) {
             console.error('loadSystemPrompt failed:', err);
             const statusEl = document.getElementById('systemPromptStatus');
             if (statusEl) statusEl.textContent = 'Failed to load';
           }
+        }
+        async function loadThinkingConfig() {
+          try {
+            const res = await fetch('/api/thinking-level');
+            if (!res.ok) throw new Error('HTTP ' + res.status);
+            thinkingConfig = await res.json();
+            const levelSelect = document.getElementById('thinkingLevelSelect');
+            if (levelSelect) levelSelect.value = thinkingConfig.global || 'none';
+            renderProviderThinkingGrid();
+          } catch (err) {
+            console.error('loadThinkingConfig failed:', err);
+          }
+        }
+        function renderProviderThinkingGrid() {
+          const grid = document.getElementById('providerThinkingGrid');
+          if (!grid) return;
+          const providers = Array.isArray(thinkingConfig.providers) ? thinkingConfig.providers : [];
+          if (providers.length === 0) {
+            grid.innerHTML = '<div class="muted">No providers configured yet.</div>';
+            return;
+          }
+          grid.innerHTML = providers.map(function(p) {
+            const level = p.level || 'none';
+            const isGlobal = level === (thinkingConfig.global || 'none');
+            return '<div style="display:flex;align-items:center;gap:8px;">' +
+              '<span style="font-size:13px;font-weight:600;flex:1;">' + escapeHtml(p.name) + '</span>' +
+              '<select data-thinking-provider="' + escapeHtml(p.name) + '" onchange="saveProviderThinkingLevel(this)" style="width:auto;min-width:120px;">' +
+                '<option value=""' + (isGlobal ? ' selected' : '') + '>Global (' + escapeHtml(thinkingConfig.global || 'none') + ')</option>' +
+                '<option value="none"' + (level === 'none' && !isGlobal ? ' selected' : '') + '>none</option>' +
+                '<option value="low"' + (level === 'low' && !isGlobal ? ' selected' : '') + '>low</option>' +
+                '<option value="medium"' + (level === 'medium' && !isGlobal ? ' selected' : '') + '>medium</option>' +
+                '<option value="high"' + (level === 'high' && !isGlobal ? ' selected' : '') + '>high</option>' +
+                '<option value="xhigh"' + (level === 'xhigh' && !isGlobal ? ' selected' : '') + '>xhigh</option>' +
+              '</select>' +
+            '</div>';
+          }).join('');
+        }
+        async function saveThinkingLevel() {
+          const levelSelect = document.getElementById('thinkingLevelSelect');
+          const level = levelSelect ? levelSelect.value : 'none';
+          const res = await fetch('/api/thinking-level', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ global: level })
+          });
+          const payload = await res.json().catch(() => ({}));
+          if (!res.ok) {
+            setMessage(payload?.error || 'Failed to save thinking level.', 'error');
+            return;
+          }
+          thinkingConfig = payload;
+          renderProviderThinkingGrid();
+          setMessage('Global thinking level set to: ' + level, 'success');
+        }
+        async function saveProviderThinkingLevel(selectEl) {
+          const provider = selectEl.getAttribute('data-thinking-provider');
+          const level = selectEl.value;
+          if (!level) {
+            // Clear override
+            const res = await fetch('/api/thinking-level/' + encodeURIComponent(provider), { method: 'DELETE' });
+            const payload = await res.json().catch(() => ({}));
+            if (!res.ok) {
+              setMessage(payload?.error || 'Failed to clear thinking override.', 'error');
+              return;
+            }
+            thinkingConfig = payload;
+            renderProviderThinkingGrid();
+            setMessage('Cleared thinking override for ' + escapeHtml(provider), 'success');
+            return;
+          }
+          const res = await fetch('/api/thinking-level', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ provider, level })
+          });
+          const payload = await res.json().catch(() => ({}));
+          if (!res.ok) {
+            setMessage(payload?.error || 'Failed to save thinking level.', 'error');
+            return;
+          }
+          thinkingConfig = payload;
+          renderProviderThinkingGrid();
+          setMessage('Thinking level for ' + escapeHtml(provider) + ' set to: ' + level, 'success');
         }
         async function toggleSystemPrompt() {
           const toggleEl = document.getElementById('systemPromptToggle');
@@ -4332,11 +4482,13 @@ app.get('/api/system-prompt', (req: Request, res: Response) => {
   return res.json({
     enabled: systemPromptConfig.enabled,
     prompt: systemPromptConfig.prompt,
-    defaultPrompt: DEFAULT_CHAIN_OF_DRAFT_PROMPT
+    defaultPrompt: DEFAULT_CHAIN_OF_DRAFT_PROMPT,
+    thinkingLevel: systemPromptConfig.thinkingLevel,
+    defaultThinkingLevel: DEFAULT_THINKING_LEVEL
   });
 });
 app.put('/api/system-prompt', (req: Request, res: Response) => {
-  const { enabled, prompt } = req.body ?? {};
+  const { enabled, prompt, thinkingLevel } = req.body ?? {};
   if (enabled !== undefined && typeof enabled !== 'boolean') {
     return res.status(400).json({ error: 'enabled must be a boolean.' });
   }
@@ -4346,6 +4498,13 @@ app.put('/api/system-prompt', (req: Request, res: Response) => {
     }
     systemPromptConfig.prompt = prompt.trim() || DEFAULT_CHAIN_OF_DRAFT_PROMPT;
   }
+  if (thinkingLevel !== undefined) {
+    const validLevels: ThinkingLevel[] = ['none', 'low', 'medium', 'high', 'xhigh'];
+    if (!validLevels.includes(thinkingLevel)) {
+      return res.status(400).json({ error: `thinkingLevel must be one of: ${validLevels.join(', ')}` });
+    }
+    systemPromptConfig.thinkingLevel = thinkingLevel;
+  }
   if (enabled !== undefined) {
     systemPromptConfig.enabled = enabled;
   }
@@ -4353,7 +4512,76 @@ app.put('/api/system-prompt', (req: Request, res: Response) => {
   return res.json({
     enabled: systemPromptConfig.enabled,
     prompt: systemPromptConfig.prompt,
-    defaultPrompt: DEFAULT_CHAIN_OF_DRAFT_PROMPT
+    defaultPrompt: DEFAULT_CHAIN_OF_DRAFT_PROMPT,
+    thinkingLevel: systemPromptConfig.thinkingLevel,
+    defaultThinkingLevel: DEFAULT_THINKING_LEVEL
+  });
+});
+
+// ── Thinking Level API ─────────────────────────────────────────────────────
+app.get('/api/thinking-level', (req: Request, res: Response) => {
+  const providers = readProviderSummaries().map((summary) => ({
+    name: summary.name,
+    level: getEffectiveThinkingLevel(summary.name)
+  }));
+  res.json({
+    global: systemPromptConfig.thinkingLevel,
+    default: DEFAULT_THINKING_LEVEL,
+    providers
+  });
+});
+
+app.put('/api/thinking-level', (req: Request, res: Response) => {
+  const { global: globalLevel, provider, level } = req.body ?? {};
+
+  const validLevels: ThinkingLevel[] = ['none', 'low', 'medium', 'high', 'xhigh'];
+
+  if (globalLevel !== undefined) {
+    if (!validLevels.includes(globalLevel)) {
+      return res.status(400).json({ error: `Invalid thinking level: ${globalLevel}. Must be one of: ${validLevels.join(', ')}` });
+    }
+    systemPromptConfig.thinkingLevel = globalLevel;
+  }
+
+  if (provider !== undefined && level !== undefined) {
+    if (typeof provider !== 'string' || !provider.trim()) {
+      return res.status(400).json({ error: 'provider must be a non-empty string.' });
+    }
+    if (!validLevels.includes(level)) {
+      return res.status(400).json({ error: `Invalid thinking level: ${level}. Must be one of: ${validLevels.join(', ')}` });
+    }
+    const summary = getProviderSummary(provider);
+    if (!summary) {
+      return res.status(404).json({ error: `Unknown provider: ${provider}` });
+    }
+    thinkingLevelStore[provider] = level;
+  }
+
+  persistThinkingConfig();
+  return res.json({
+    global: systemPromptConfig.thinkingLevel,
+    default: DEFAULT_THINKING_LEVEL,
+    providers: readProviderSummaries().map((summary) => ({
+      name: summary.name,
+      level: getEffectiveThinkingLevel(summary.name)
+    }))
+  });
+});
+
+app.delete('/api/thinking-level/:provider', (req: Request, res: Response) => {
+  const providerName = String(req.params.provider || '').trim();
+  if (!providerName) {
+    return res.status(400).json({ error: 'provider is required.' });
+  }
+  delete thinkingLevelStore[providerName];
+  persistThinkingConfig();
+  return res.json({
+    global: systemPromptConfig.thinkingLevel,
+    default: DEFAULT_THINKING_LEVEL,
+    providers: readProviderSummaries().map((summary) => ({
+      name: summary.name,
+      level: getEffectiveThinkingLevel(summary.name)
+    }))
   });
 });
 
@@ -4500,6 +4728,7 @@ function modelPresentationList() {
 loadPersistedFallbackModels();
 loadPersistedRouterModels();
 loadPersistedSystemPrompt();
+loadPersistedThinkingConfig();
 
 const DEFAULT_ROUTER_ID = 'auto-local-main';
 
@@ -5346,7 +5575,8 @@ async function proxyModelAttempt(
   };
   const safeRequestBody = sanitizeProviderRequestBody(requestBody, {
     providerName: target.providerName,
-    modelName: target.actualModel
+    modelName: target.actualModel,
+    thinkingLevel: getEffectiveThinkingLevel(target.providerName)
   });
   const finalBody = provider.formatBody ? provider.formatBody(safeRequestBody) : safeRequestBody;
 
