@@ -1,5 +1,5 @@
 ---
-description: PQC secrets for all API keys. Worktree per task. Polyglot ecosystem (Rust, TS, Py, etc). Chain-of-Draft (CoD) reasoning: strictly ≤5 words per step. Mimic human shorthand: pure logic/state transformations. Separate final output via ####. Ask before merging. Output full production code. Live infrastructure at ~/.config/pqc-secrets/. llms.txt is the PRD anchor. Read it. No secrets in tasks or PRD. FIPS 203/204/205 for secrets ops. Standard crypto for transport. Audit for banned algorithms and secrets every cycle. Never work on main. Create a worktree for every task. Branch naming: `<type>/<scope>-<slug>`. Pre-merge checklist: gates, diff, user confirmation. Fail closed on any conflict or unconfirmed merge.
+description: PQC secrets for all API keys. Worktree per task. Polyglot ecosystem (Rust, TS, Py, etc). Chain-of-Draft (CoD) reasoning: strictly ≤5 words per step. Mimic human shorthand: pure logic/state transformations. Separate final output via ####. Ask before merging. Output full production code. llms.txt is the PRD anchor. Read it. No secrets in tasks or PRD. FIPS 203/204/205 for secrets ops. Standard crypto for transport. Audit for banned algorithms and secrets every cycle. Never work on main. Create a worktree for every task. Branch naming: `<type>/<scope>-<slug>`. Pre-merge checklist: gates, diff, user confirmation. Fail closed on any conflict or unconfirmed merge.
 ---
 
 # 🚧 WORKTREE GATE — MANDATORY CHECKPOINT
@@ -7,7 +7,7 @@ description: PQC secrets for all API keys. Worktree per task. Polyglot ecosystem
 **Run this check BEFORE any code edit, file read, or git operation.**
 
 □ 1. What branch am I on?   → git branch --show-current
-   If "main" or "dev": STOP. Do nothing else. Create a worktree immediately (step 3).
+   If "main" or "develop": STOP. Do nothing else. Create a worktree immediately (step 3).
 
 □ 2. Am I in a worktree?   → git worktree list
    If the cwd is the main worktree (no separate path): STOP. Create a worktree.
@@ -21,15 +21,15 @@ description: PQC secrets for all API keys. Worktree per task. Polyglot ecosystem
 - `chore/<scope>-<slug>` — housekeeping (e.g. `chore/agents-skill-hygiene`)
 - `docs/<scope>-<slug>` — documentation only (e.g. `docs/agents-md-enhance`)
 
-**Worktree path:** Sibling of main repo (e.g. `../kimi-nim-minimax-m3-free` for the main repo at `/Volumes/.../fvs-code`). Sibling paths keep worktrees discoverable and prevent nesting the worktree inside the main repo.
+**Worktree path:** Sibling of main repo (e.g. `../my-feature`). Sibling paths keep worktrees discoverable and prevent nesting the worktree inside the main repo.
 
 **Rules:**
-- **NEVER** read, edit, or commit files while on `main` or `dev`.
+- **NEVER** read, edit, or commit files while on `main` or `develop`.
 - **NEVER** run `git commit` from the main repository directory during active development.
 - One task = one branch = one worktree. No exceptions.
-- If you discover you're on `main` or `dev` after already making changes: stash, create worktree, pop stash in worktree, then continue.
+- If you discover you're on `main` or `develop` after already making changes: stash, create worktree, pop stash in worktree, then continue.
 
-**Why:** `main` is release surface. `develop` is integration. Only `feature/*` and `docs/*` branches do work. Worktrees physically isolate state, preventing accidental cross-contamination of stable branches. The sibling worktree path also lets you run a verification server on an alternate port (e.g. `11435`) alongside the production server on `11434` without conflict.
+**Why:** `main` is release surface. `develop` is integration. Only `feature/*` and `docs/*` branches do work. Worktrees physically isolate state, preventing accidental cross-contamination of stable branches.
 
 ---
 
@@ -49,7 +49,7 @@ Conflict → fail closed, explain, ask.
 <TASK_PRIMER>
 ## TASK COORDINATION & CHAIN-OF-DRAFT
 
-- **Task File:** Every task writes to .agents/tasks/`TASK.$(date).md` in its dedicated git worktree. Chain-of-Draft format strictly enforced: limit each reasoning step to **≤5 words**. Record only essential calculations, semantic core logic, or state transformations. Zero conversational preamble. Terminate drafting and output deliverables after a `####` separator. Read → Execute → Write. No secrets or keys.
+- **Task File:** Every task writes to `.agents/tasks/TASK.$(date).md` in its dedicated git worktree. Chain-of-Draft format strictly enforced: limit each reasoning step to **≤5 words**. Record only essential calculations, semantic core logic, or state transformations. Zero conversational preamble. Terminate drafting and output deliverables after a `####` separator. Read → Execute → Write. No secrets or keys.
 - **PRD Anchor:** `llms.txt` is the authoritative Product Requirements Document. Read unconditionally if present. Overrides conflicting sources per Priority 2. If task drifts, re-read. Never skip.
 - **Artifact Hygiene:** Task files and PRD inherit all security rules. Audit per cycle for banned crypto and secrets. Default classification: Confidential.
 </TASK_PRIMER>
@@ -71,7 +71,7 @@ This is the core of the system. Every API key for every application — CLI tool
 
 **Infrastructure (live at `~/.config/pqc-secrets/`):**
 
-macOS Keychain                    ~/.config/pqc-secrets/
+OS Keystore                        ~/.config/pqc-secrets/
 ┌──────────────────────┐          ┌────────────────────────────┐
 │ service: pqc-secrets │          │ recipient.pub              │
 │ ML-KEM-768 secret key│          │ ML-KEM-768 public key      │
@@ -83,28 +83,28 @@ macOS Keychain                    ~/.config/pqc-secrets/
 │                    secrets.bundle.json                        │
 │  ┌─────────────────┐  ┌──────────────────────────────────┐   │
 │  │ kem.ciphertext  │  │ data.ciphertext (AES-256-GCM)     │   │
-│  │ (ML-KEM-768)    │  │ 24 API keys encrypted at rest     │   │
+│  │ (ML-KEM-768)    │  │ N API keys encrypted at rest      │   │
 │  └─────────────────┘  └──────────────┬───────────────────┘   │
 └──────────────────────────────────────┼────────────────────────┘
 │ decrypt
 ▼
 ┌──────────────────────────────────────────────────────────────┐
 │  Exported environment variables (never touch disk)           │
-│  ANTHROPIC_AUTH_TOKEN  ZENMUX_API_KEY  NEBIUS_API_KEY        │
-│  OPENROUTER_API_KEY    WAFER_API_KEY    ... (24 total)        │
+│  PROVIDER_A_API_KEY  PROVIDER_B_API_KEY  PROVIDER_C_KEY      │
+│  ... (N total — names depend on your stack)                   │
 └──────────────────────────────────────────────────────────────┘
 
 **Rules:**
 - No hardcoded secrets. No `.env` files with API keys. No plaintext on disk. Ever.
 - All API keys live encrypted in `~/.config/pqc-secrets/secrets.bundle.json`. This file is safe to commit — every value is AES-256-GCM ciphertext wrapped by ML-KEM-768.
-- The ML-KEM-768 private key lives exclusively in the macOS Keychain. On T2/M-series hardware, this is hardware-backed.
-- Load secrets on-demand into shell environment: `secrets-load` (zsh function) or `pqc-secrets export`. Never persist them.
+- The ML-KEM-768 private key lives exclusively in the OS keystore (macOS Keychain, GNOME Keyring, Windows Credential Manager). On T2/M-series hardware, this is hardware-backed.
+- Load secrets on-demand into shell environment: `secrets-load` (shell function) or `pqc-secrets export`. Never persist them.
 - Application integration: Apps read `os.environ` (or `std::env::var`, `process.env`) populated in-memory. They never interact with the PQC bundle directly.
   - **CLI / TUI**: Must inherit environment variables loaded via `secrets-load` from the terminal session in which they are launched.
-  - **GUI Applications (macOS)**: Because GUI apps (Cursor, Windsurf, VS Code, etc.) launched from Finder/Dock do not inherit shell environment variables, they must either:
-    1. Be launched from the terminal (e.g. `open -a Windsurf` or `code .`) after running `secrets-load` so they inherit the environment, OR
-    2. Dynamically execute the binary `bin/pqc-secrets export --format json` at startup to fetch and load secrets directly into memory.
-  - **Scripts / Daemons**: Scripts should dynamically fetch exports via `bin/pqc-secrets export` or parse the JSON format to load secrets in-memory without plain env files on disk.
+  - **GUI Applications**: Because GUI apps (IDEs, editors, etc.) launched from Finder/Dock/Start Menu do not inherit shell environment variables, they must either:
+    1. Be launched from the terminal after running `secrets-load` so they inherit the environment, OR
+    2. Dynamically execute the secrets binary at startup to fetch and load secrets directly into memory.
+  - **Scripts / Daemons**: Scripts should dynamically fetch exports via the secrets binary or parse the JSON format to load secrets in-memory without plain env files on disk.
 
 ### Supply Chain & Polyglot Ecosystems
 
@@ -129,76 +129,53 @@ Validate types and paths (CWE-22). Parameterize SQL. `shell=False` for subproces
 
 | Branch | Purpose | Writes allowed? |
 |--------|---------|----------------|
-| `main` | Release surface | **NO** — only merges from `dev` |
-| `dev` | Integration / pre-release staging | **NO** — only merges from `feature/*` |
+| `main` | Release surface | **NO** — only merges from `develop` |
+| `develop` | Integration / pre-release staging | **NO** — only merges from `feature/*` |
 | `feature/<slug>` | Active development | **YES** — one task, one branch, one worktree |
 
 ### Development & Iteration Loop
 
-1. **Isolate:** Create branch + worktree from `develop`. Read `llms.txt` → write `TASK.$(date).md`.
+1. **Isolate:** Create branch + worktree from `develop`. Read `llms.txt` → write `.agents/tasks/TASK.$(date).md`.
 2. **Iterate & Track:** Commit atomically and frequently within the worktree. Write descriptive commit messages. Excellent git history is required so we can step backward through logical iterations if an approach fails.
 3. **Audit:** Scan code, task file, and `llms.txt` for banned crypto or secrets every cycle.
 4. **Pre-Commit:** Pass native ecosystem gates (e.g., `cargo clippy`, `tsc`, `ruff`), plus security gates (`gitleaks`, `detect-secrets`).
 5. **Verify:** Smoke-test the change before asking the user to merge. See [Verification Procedure](#verification-procedure) below.
 6. **Merge (Two-Hop Promotion):**
    - `feature/*` → `develop`: gates pass, diff clean, no conflicts. Ask: *"Ready to merge `feature/<slug>` → `develop`? [diff summary]. Confirm?"*
-   - `develop` → `staging` → `main`: full audit, tests green. Ask: *"Ready to promote `develop` → `staging` → `main`? [diff summary]. Confirm?"*
+   - `develop` → `main`: full audit, tests green. Ask: *"Ready to promote `develop` → `main`? [diff summary]. Confirm?"*
    - Fail closed on ambiguity. Clean up branches and worktrees post-merge. See [Post-Merge Cleanup](#post-merge-cleanup) below.
 
 ### Verification Procedure
 
-**Read-only, safe to run on any branch including `develop`.** Run after step 4 (Pre-Commit) and before step 6 (Merge) to confirm the change is observable in a live server.
+**Read-only, safe to run on any branch including `develop`.** Run after step 4 (Pre-Commit) and before step 6 (Merge) to confirm the change is observable in a live environment.
 
 ```bash
-# 1. Kill any stray servers on the verification port
-lsof -ti:11435 | xargs -r kill 2>/dev/null
+# 1. Kill any stray processes on the verification port
+lsof -ti:<VERIFY_PORT> | xargs -r kill 2>/dev/null
 
-# 2. Start a verification server in the worktree (NOT the main repo)
-#    Use a non-default port to avoid clashing with production on 11434
+# 2. Start a verification instance in the worktree (NOT the main repo)
+#    Use a non-default port to avoid clashing with production
 cd <worktree-path>
-LOCAL_ROUTER_DEV=true PORT=11435 npx tsx src/index.ts > /tmp/verify.log 2>&1 &
+<START_COMMAND> > /tmp/verify.log 2>&1 &
 echo $! > /tmp/verify.pid
 sleep 4
 
-# 3. Discovery checks (Ollama / VS Code compat)
-curl -s http://127.0.0.1:11435/                  # expect: "Ollama is running"
-curl -s http://127.0.0.1:11435/api/version        # expect: {"version":"0.6.4"}
+# 3. Smoke-test the change is observable
+#    Adjust checks to the current task (API endpoints, CLI output, etc.)
+<SMOKE_TEST_COMMAND>
 
-# 4. Smoke-test new model entries are present
-curl -s http://127.0.0.1:11435/api/tags | python3 -c "
-import json, sys
-data = json.load(sys.stdin)
-models = [m['name'] for m in data.get('models', [])]
-print(f'Total models: {len(models)}')
-# Adjust the search terms for the current task
-for needle in ['kimi-k2.6', 'minimax-m3-free']:
-    hits = [m for m in models if needle in m]
-    print(f'{needle}: {len(hits)} entries — {hits}')"
-
-# 5. Verify provider-level counts (proves the catalog loaded)
-curl -s http://127.0.0.1:11435/api/provider-configs | python3 -c "
-import json, sys
-data = json.load(sys.stdin)
-for p in data.get('data', []):
-    print(f\"{p['name']}: modelCount={p['modelCount']}, configured={p['configured']}\")"
-
-# 6. (Optional) VS Code picker integration
-curl -s -X POST http://127.0.0.1:11435/api/vscode/configure
-# Inspect: ~/Library/Application Support/Code/User/chatLanguageModels.json
-
-# 7. Stop the verification server, switch back to main for safety
+# 4. Stop the verification instance, switch back to main for safety
 kill $(cat /tmp/verify.pid) 2>/dev/null
 cd <main-repo-path>
 git checkout main
 ```
 
 **What to look for:**
-- New model IDs from the diff appear in `/api/tags` with correct `provider` and `model` upstream IDs
-- `/api/provider-configs` modelCount matches the expected delta (e.g. `nvidia-nim` 5→6, `opencode` 19→20)
+- New entries from the diff appear in the output with correct identifiers
 - PQC key bundle loads (look for `[PQC] Loaded N provider key(s)` in the log)
-- No errors in the log beyond expected pre-existing test failures
+- No errors in the log beyond expected pre-existing failures
 
-**Why:** Verification catches catalog wiring bugs, missing provider keys, and presentation-name collisions before they reach the user. It also produces a screenshot-ready receipt for the merge PR.
+**Why:** Verification catches wiring bugs, missing keys, and naming collisions before they reach the user. It also produces a screenshot-ready receipt for the merge PR.
 
 ### Post-Merge Cleanup
 
@@ -207,7 +184,6 @@ git checkout main
 ```bash
 # 1. Remove the merged worktree (path: sibling of main repo)
 git worktree remove <worktree-path>
-# e.g. git worktree remove /Volumes/.../kimi-nim-minimax-m3-free
 
 # 2. Delete the feature branch from the main repo
 cd <main-repo-path>
@@ -233,7 +209,7 @@ git status                                # expect: clean
 git checkout main
 ```
 
-**Why:** Orphaned worktrees and merged branches accumulate fast and confuse future tasks. Cleaning up after every merge keeps the worktree list and branch namespace small and auditable. The task file (`TASK.$(date).md`) survives worktree deletion because it lives in the merged branch, not the worktree's working copy.
+**Why:** Orphaned worktrees and merged branches accumulate fast and confuse future tasks. Cleaning up after every merge keeps the worktree list and branch namespace small and auditable. The task file (`.agents/tasks/TASK.$(date).md`) survives worktree deletion because it lives in the merged branch, not the worktree's working copy.
 </WORKFLOW>
 
 ---
@@ -253,10 +229,10 @@ git checkout main
 
 ### Commands
 
-- `bin/pqc-secrets keygen` — Generate ML-KEM-768 keypair. Private key → macOS Keychain, public key → `~/.config/pqc-secrets/recipient.pub`.
-- `bin/pqc-secrets pack` — Encrypt stdin `KEY=VAL` lines via AES-256-GCM, wrap data key via ML-KEM-768, and write `~/.config/pqc-secrets/secrets.bundle.json`.
-- `bin/pqc-secrets export` — Decrypt bundle via Keychain and output shell `export KEY=VALUE` lines.
-- `secrets-load` — Zsh function evaluating `bin/pqc-secrets export` to inject secrets into current shell memory.
+- `pqc-secrets keygen` — Generate ML-KEM-768 keypair. Private key → OS keystore, public key → `~/.config/pqc-secrets/recipient.pub`.
+- `pqc-secrets pack` — Encrypt stdin `KEY=VAL` lines via AES-256-GCM, wrap data key via ML-KEM-768, and write `~/.config/pqc-secrets/secrets.bundle.json`.
+- `pqc-secrets export` — Decrypt bundle via keystore and output shell `export KEY=VALUE` lines.
+- `secrets-load` — Shell function evaluating `pqc-secrets export` to inject secrets into current shell memory.
 </REFERENCE>
 
 ---
@@ -266,13 +242,13 @@ git checkout main
 
 Run before any code that touches cryptography, secrets storage, or network communication:
 
-- Task/PRD present — `TASK.$(date).md` exists, `llms.txt` has been read, no secrets in either
+- Task/PRD present — `.agents/tasks/TASK.$(date).md` exists, `llms.txt` has been read, no secrets in either
 - Algorithms — only FIPS 203/204/205 for secrets operations, zero classical crypto for keys
 - Supply chain — native language respected, versions pinned, lockfiles committed, provenance verified
 - Secrets — platform keystore used, AES-256-GCM + ML-KEM-768 wrapping, no plaintext, no `.env`
 - History — frequent, atomic commits made within the worktree to preserve iteration history
-- **Verification** — server smoke-tested via `/api/tags`, `/api/version`, `/api/provider-configs`; new model entries visible; PQC bundle loaded; no unexpected errors in the log
-- Merge readiness — all gates passing, diff summarized, feature → `develop` merged before `develop` → `staging` → `main` promotion
+- **Verification** — change smoke-tested via verification procedure; new entries visible; PQC bundle loaded; no unexpected errors in the log
+- Merge readiness — all gates passing, diff summarized, feature → `develop` merged before `develop` → `main` promotion
 - **Post-merge cleanup** — merged worktree removed (`git worktree list` shows only main), feature branch deleted (`git branch` shows no merged-feature rows), working tree clean, on `main` for safety
 - Worktree hygiene — Pass the WORKTREE GATE first. Not stale, not dirty, not on `main` or `develop`.
 
@@ -282,5 +258,5 @@ Run before any code that touches cryptography, secrets storage, or network commu
 ---
 
 <REINFORCEMENT>
-PQC for every API key. Respect the target codebase language (Rust, TS, Python). Isolate every task in its own git worktree to maintain pristine iteration history. Feature → `dev` → `main` promotion pipeline. Never self-approve merges — ask the user at every hop. Chain-of-Draft task files: strictly ≤5 words per reasoning step, transition with ####. Output full production code.
+PQC for every API key. Respect the target codebase language (Rust, TS, Python). Isolate every task in its own git worktree to maintain pristine iteration history. Feature → `develop` → `main` promotion pipeline. Never self-approve merges — ask the user at every hop. Chain-of-Draft task files: strictly ≤5 words per reasoning step, transition with ####. Output full production code.
 </REINFORCEMENT>
