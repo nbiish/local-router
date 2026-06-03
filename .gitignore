@@ -128,3 +128,7 @@ src/**/*.d.ts.map
 src/**/*.js
 src/**/*.js.map
 
+
+# oh-my-openagent team-mode local config
+.opencode/
+.omo/
