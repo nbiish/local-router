@@ -158,6 +158,10 @@ const ROUTER_EVENTS_PATH = path.join(LOCAL_ROUTER_CONFIG_DIR, 'router-events.csv
 const LEGACY_ROUTER_EVENTS_PATH = path.join(LEGACY_FVS_CONFIG_DIR, 'router-events.csv');
 const PROVIDER_MODELS_PATH = path.join(LOCAL_ROUTER_CONFIG_DIR, 'provider-models.json');
 const LEGACY_PROVIDER_MODELS_PATH = path.join(LEGACY_FVS_CONFIG_DIR, 'provider-models.json');
+const MODEL_SOURCE_CONFIG_PATH = path.join(LOCAL_ROUTER_CONFIG_DIR, 'model-source-config.json');
+const LEGACY_MODEL_SOURCE_CONFIG_PATH = path.join(LEGACY_FVS_CONFIG_DIR, 'model-source-config.json');
+const ENDPOINT_MODELS_CACHE_PATH = path.join(LOCAL_ROUTER_CONFIG_DIR, 'endpoint-models-cache.json');
+const LEGACY_ENDPOINT_MODELS_CACHE_PATH = path.join(LEGACY_FVS_CONFIG_DIR, 'endpoint-models-cache.json');
 const DEFAULT_ROUTER_TYPE: RouterType = 'auto-local';
 const DEFAULT_ROUTER_MIN_CODING_SCORE = 0.66;
 const DEFAULT_ROUTER_COST_QUALITY_TRADEOFF = 7;
@@ -204,6 +208,8 @@ const keyStore: Record<string, string> = {};
 const modelStore: Record<string, ProviderModel[]> = {};
 const fallbackModelStore: Record<string, FallbackModel> = {};
 const routerModelStore: Record<string, RouterModel> = {};
+const modelSourceConfig: { source: 'custom' | 'endpoints' } = { source: 'custom' };
+let endpointModelsCache: ProviderModel[] = [];
 const DEFAULT_CHAIN_OF_DRAFT_PROMPT = `Think step by step, but only keep a minimum draft for each thinking step, with 5 words at most. Return the answer after your thinking.`;
 const systemPromptConfig: { enabled: boolean; prompt: string; thinkingLevel: ThinkingLevel } = {
   enabled: false,
@@ -1160,6 +1166,109 @@ function loadPersistedProviderModels() {
   }
 }
 
+function loadModelSourceConfig(): void {
+  const persistedPath = existingPath(MODEL_SOURCE_CONFIG_PATH, LEGACY_MODEL_SOURCE_CONFIG_PATH);
+  if (!fs.existsSync(persistedPath)) return;
+  try {
+    const parsed = JSON.parse(fs.readFileSync(persistedPath, 'utf8'));
+    if (parsed && (parsed.source === 'custom' || parsed.source === 'endpoints')) {
+      modelSourceConfig.source = parsed.source;
+    }
+  } catch (error: any) {
+    console.error('Failed to load persisted model source config:', sanitizeDiagnosticText(String(error?.message || error)));
+  }
+}
+
+function persistModelSourceConfig(): void {
+  ensureLocalRouterConfigDir();
+  const temporaryPath = `${MODEL_SOURCE_CONFIG_PATH}.${process.pid}.tmp`;
+  fs.writeFileSync(temporaryPath, `${JSON.stringify(modelSourceConfig, null, 2)}\n`, {
+    encoding: 'utf8',
+    mode: 0o600
+  });
+  fs.renameSync(temporaryPath, MODEL_SOURCE_CONFIG_PATH);
+  fs.chmodSync(MODEL_SOURCE_CONFIG_PATH, 0o600);
+}
+
+function loadEndpointModelsCache(): void {
+  const persistedPath = existingPath(ENDPOINT_MODELS_CACHE_PATH, LEGACY_ENDPOINT_MODELS_CACHE_PATH);
+  if (!fs.existsSync(persistedPath)) return;
+  try {
+    const parsed = JSON.parse(fs.readFileSync(persistedPath, 'utf8'));
+    if (Array.isArray(parsed)) {
+      endpointModelsCache = parsed;
+    }
+  } catch (error: any) {
+    console.error('Failed to load persisted endpoint models cache:', sanitizeDiagnosticText(String(error?.message || error)));
+  }
+}
+
+function persistEndpointModelsCache(): void {
+  ensureLocalRouterConfigDir();
+  const temporaryPath = `${ENDPOINT_MODELS_CACHE_PATH}.${process.pid}.tmp`;
+  fs.writeFileSync(temporaryPath, `${JSON.stringify(endpointModelsCache, null, 2)}\n`, {
+    encoding: 'utf8',
+    mode: 0o600
+  });
+  fs.renameSync(temporaryPath, ENDPOINT_MODELS_CACHE_PATH);
+  fs.chmodSync(ENDPOINT_MODELS_CACHE_PATH, 0o600);
+}
+
+async function queryAllProviderEndpoints(): Promise<ProviderModel[]> {
+  const providers = readProviderSummaries();
+  const baselineModels = readProviderModels();
+  const results = await Promise.all(
+    providers.map(async (providerSummary) => {
+      const providerModels: ProviderModel[] = [];
+      try {
+        const provider = await loadProvider(providerSummary.name);
+        if (provider && provider.getModels) {
+          const rawModels = await provider.getModels();
+          for (const raw of rawModels) {
+            const modelId = raw.id;
+            const presentedId = defaultPresentedModelName(providerSummary.name, modelId);
+            
+            const matchingBaseline = baselineModels.find(
+              (bm) => bm.provider === providerSummary.name && bm.model === modelId
+            );
+            
+            if (matchingBaseline) {
+              providerModels.push({
+                ...matchingBaseline,
+                id: presentedId
+              });
+            } else {
+              providerModels.push({
+                id: presentedId,
+                provider: providerSummary.name,
+                model: modelId,
+                display: providerModelDisplay(providerSummary.name, modelId),
+                contextLength: DEFAULT_CONTEXT_LENGTH,
+                outputTokens: DEFAULT_OUTPUT_TOKENS,
+                supportsTools: true,
+                supportsImages: false,
+                supportsCache: false,
+                supportsReasoning: false
+              });
+            }
+          }
+        }
+      } catch (err) {
+        console.error(`Error querying models for provider ${providerSummary.name}:`, err);
+      }
+      return providerModels;
+    })
+  );
+  return results.flat();
+}
+
+function activeProviderModelList(): ProviderModel[] {
+  if (modelSourceConfig.source === 'endpoints' && endpointModelsCache.length > 0) {
+    return endpointModelsCache;
+  }
+  return modelPresentationList();
+}
+
 function resolveModelTarget(modelName: string): ModelTarget | null {
   const configuredModel = findProviderModel(modelName);
   if (configuredModel) {
@@ -1240,7 +1349,7 @@ function routerModelList() {
 }
 
 function presentedModelList() {
-  return [...modelPresentationList(), ...fallbackModelList(), ...routerModelList()];
+  return [...activeProviderModelList(), ...fallbackModelList(), ...routerModelList()];
 }
 
 function findFallbackModel(modelName: string): FallbackModel | undefined {
@@ -1297,7 +1406,7 @@ function validateRouterReferences(model: RouterModel) {
 }
 
 function findPresentedNameConflict(providerName: string, presentedName: string) {
-  const modelConflict = modelPresentationList().find((model) => (
+  const modelConflict = activeProviderModelList().find((model) => (
     model.provider !== providerName && model.id === presentedName
   ));
   if (modelConflict) return modelConflict;
@@ -1344,7 +1453,7 @@ function ollamaTag(model: ProviderModel) {
 
 function findProviderModel(modelName: string): ProviderModel | undefined {
   const lookup = stripOllamaLatestSuffix(modelName.trim());
-  return modelPresentationList().find((model) => providerModelAliases(model).has(lookup));
+  return activeProviderModelList().find((model) => providerModelAliases(model).has(lookup));
 }
 
 function findPresentedModel(modelName: string): ProviderModel | undefined {
@@ -2305,7 +2414,18 @@ app.get('/config', (req: Request, res: Response) => {
         <div class="catalog-meta">
           <div>
             <h2>Available Providers & Models</h2>
-            <p class="muted">This list is generated from providers.txt and powers both the OpenAI-compatible and Ollama-compatible endpoints.</p>
+            <p class="muted" id="catalogDescription">This list is generated from providers.txt and powers both the OpenAI-compatible and Ollama-compatible endpoints.</p>
+            <div style="margin-top: 12px; display: flex; align-items: center; gap: 16px; flex-wrap: wrap;">
+              <span class="flag-toggle">
+                <input type="radio" id="modelSourceCustom" name="modelSource" value="custom" onchange="setModelSource('custom')" checked>
+                <label for="modelSourceCustom" style="font-weight: 500; margin-bottom: 0; cursor: pointer;">Custom Models (providers.txt / edits)</label>
+              </span>
+              <span class="flag-toggle">
+                <input type="radio" id="modelSourceEndpoints" name="modelSource" value="endpoints" onchange="setModelSource('endpoints')">
+                <label for="modelSourceEndpoints" style="font-weight: 500; margin-bottom: 0; cursor: pointer;">Endpoint Models (query upstream)</label>
+              </span>
+              <button id="refreshEndpointsBtn" class="button-secondary" onclick="refreshEndpointModels()" style="padding: 4px 10px; font-size: 13px; display: none;">🔄 Refresh Endpoints</button>
+            </div>
           </div>
           <div class="muted" id="catalogCount">Loading catalog...</div>
         </div>
@@ -3625,6 +3745,15 @@ app.get('/config', (req: Request, res: Response) => {
             const payload = await res.json();
             const data = Array.isArray(payload?.data) ? payload.data : [];
 
+            const descEl = document.getElementById('catalogDescription');
+            if (descEl) {
+              if (modelSource === 'endpoints') {
+                descEl.innerHTML = 'This list is fetched from active provider endpoints and powers both the OpenAI-compatible and Ollama-compatible endpoints.';
+              } else {
+                descEl.innerHTML = 'This list is generated from providers.txt (with any edits) and powers both the OpenAI-compatible and Ollama-compatible endpoints.';
+              }
+            }
+
             const grouped = data.reduce((acc, model) => {
               const provider = model.owned_by || 'unknown';
               if (!acc[provider]) acc[provider] = [];
@@ -3651,6 +3780,94 @@ app.get('/config', (req: Request, res: Response) => {
           }
         }
 
+        let modelSource = 'custom';
+
+        async function loadModelSource() {
+          try {
+            const res = await fetch('/api/model-source');
+            const data = await res.json();
+            modelSource = data.source || 'custom';
+            
+            const customRadio = document.getElementById('modelSourceCustom');
+            const endpointsRadio = document.getElementById('modelSourceEndpoints');
+            const refreshBtn = document.getElementById('refreshEndpointsBtn');
+            
+            if (modelSource === 'endpoints') {
+              if (endpointsRadio) endpointsRadio.checked = true;
+              if (refreshBtn) refreshBtn.style.display = 'inline-block';
+            } else {
+              if (customRadio) customRadio.checked = true;
+              if (refreshBtn) refreshBtn.style.display = 'none';
+            }
+          } catch (e) {
+            console.error('Failed to load model source setting:', e);
+          }
+        }
+
+        async function setModelSource(source) {
+          try {
+            const res = await fetch('/api/model-source', {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ source })
+            });
+            if (res.ok) {
+              const data = await res.json();
+              modelSource = data.source;
+              const refreshBtn = document.getElementById('refreshEndpointsBtn');
+              if (modelSource === 'endpoints') {
+                if (refreshBtn) refreshBtn.style.display = 'inline-block';
+                const catalogRes = await fetch('/v1/models');
+                const catalogData = await catalogRes.json();
+                const providerModelsCount = (catalogData.data || []).filter(m => {
+                  const o = m.owned_by;
+                  return !(o === 'local-router' || o === 'fvs-code' || o === 'fallback');
+                }).length;
+                if (providerModelsCount === 0) {
+                  await refreshEndpointModels();
+                }
+              } else {
+                if (refreshBtn) refreshBtn.style.display = 'none';
+              }
+              setMessage('Model source switched to: ' + (modelSource === 'endpoints' ? 'Endpoint Models' : 'Custom Models'), 'success');
+              await loadCatalog();
+              await buildModelDropdown();
+            }
+          } catch (e) {
+            setMessage('Failed to update model source: ' + e.message, 'error');
+          }
+        }
+
+        async function refreshEndpointModels() {
+          const refreshBtn = document.getElementById('refreshEndpointsBtn');
+          const countEl = document.getElementById('catalogCount');
+          if (refreshBtn) {
+            refreshBtn.disabled = true;
+            refreshBtn.innerText = '⏳ Refreshing...';
+          }
+          if (countEl) {
+            countEl.innerText = 'Refreshing endpoint models...';
+          }
+          try {
+            const res = await fetch('/api/refresh-endpoint-models', { method: 'POST' });
+            const data = await res.json();
+            if (res.ok) {
+              setMessage('Refreshed ' + data.count + ' models from provider endpoints successfully.', 'success');
+              await loadCatalog();
+              await buildModelDropdown();
+            } else {
+              setMessage(data.error || 'Failed to refresh endpoint models.', 'error');
+            }
+          } catch (e) {
+            setMessage('Failed to refresh: ' + e.message, 'error');
+          } finally {
+            if (refreshBtn) {
+              refreshBtn.disabled = false;
+              refreshBtn.innerText = '🔄 Refresh Endpoints';
+            }
+          }
+        }
+
         initializeThemeScale();
         loadProviderConfigs();
         loadFallbackRoutes();
@@ -3660,6 +3877,7 @@ app.get('/config', (req: Request, res: Response) => {
         loadCatalog();
         loadSessionsPanel();
         loadSystemPrompt();
+        loadModelSource();
 
         // ── Sessions & Feedback ──
         async function loadSessionsPanel() {
@@ -3804,6 +4022,30 @@ app.delete('/api/keys/:provider', (req: Request, res: Response) => {
     configured: false,
     configuredSource: 'none'
   });
+});
+app.get('/api/model-source', (req: Request, res: Response) => {
+  res.json(modelSourceConfig);
+});
+
+app.put('/api/model-source', (req: Request, res: Response) => {
+  const { source } = req.body;
+  if (source !== 'custom' && source !== 'endpoints') {
+    return res.status(400).json({ error: 'source must be "custom" or "endpoints"' });
+  }
+  modelSourceConfig.source = source;
+  persistModelSourceConfig();
+  res.json({ success: true, ...modelSourceConfig });
+});
+
+app.post('/api/refresh-endpoint-models', async (req: Request, res: Response) => {
+  try {
+    const fetchedModels = await queryAllProviderEndpoints();
+    endpointModelsCache = fetchedModels;
+    persistEndpointModelsCache();
+    res.json({ success: true, count: endpointModelsCache.length, data: endpointModelsCache });
+  } catch (error: any) {
+    res.status(500).json({ error: error?.message || 'Failed to refresh endpoint models' });
+  }
 });
 
 app.get('/api/provider-configs', (req: Request, res: Response) => {
@@ -3979,7 +4221,7 @@ app.post('/api/router-models', (req: Request, res: Response) => {
   }
 
   const canonicalRouterId = routerPresentedModelId(parsed.model);
-  const sameIdAsProvider = modelPresentationList().some((model) => (
+  const sameIdAsProvider = activeProviderModelList().some((model) => (
     model.id === parsed.model.id || model.id === canonicalRouterId
   ));
   if (sameIdAsProvider || findFallbackModel(parsed.model.id)) {
@@ -4470,7 +4712,7 @@ app.post('/api/fallback-models', (req: Request, res: Response) => {
   }
 
   const canonicalFallbackId = fallbackPresentedModelId(parsed.model);
-  const sameIdAsProvider = modelPresentationList().some((model) => (
+  const sameIdAsProvider = activeProviderModelList().some((model) => (
     model.id === parsed.model.id || model.id === canonicalFallbackId
   ));
   if (sameIdAsProvider || findRouterModel(parsed.model.id)) {
@@ -4753,6 +4995,30 @@ async function loadProvider(name: string): Promise<ProxyProvider | null> {
         };
       },
       getModels: async () => {
+        const key = keyStore[summary.name] || process.env[summary.keyEnvVar];
+        if (key) {
+          try {
+            const url = providerBaseUrl(summary);
+            const res = await fetch(`${url}/models`, {
+              headers: {
+                'Authorization': `Bearer ${key}`
+              },
+              signal: AbortSignal.timeout(6000)
+            });
+            if (res.ok) {
+              const data = await res.json();
+              if (Array.isArray(data.data)) {
+                return data.data.map((m: any) => ({
+                  id: m.id,
+                  object: 'model',
+                  owned_by: summary.name
+                }));
+              }
+            }
+          } catch (e) {
+            console.error(`Failed to fetch models from endpoint for provider ${summary.name}:`, e);
+          }
+        }
         const models = effectiveProviderModels(summary.name);
         return models.map((model) => ({
           id: model.model,
@@ -4865,6 +5131,8 @@ loadPersistedRouterModels();
 loadPersistedSystemPrompt();
 loadPersistedThinkingConfig();
 loadPersistedProviderModels();
+loadModelSourceConfig();
+loadEndpointModelsCache();
 
 const DEFAULT_ROUTER_ID = 'auto-local-main';
 
