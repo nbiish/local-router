@@ -16,7 +16,9 @@ const provider: ProxyProvider = {
   getModels: async () => {
     // Lazy-load OpenRouter models
     try {
-      const res = await fetch('https://openrouter.ai/api/v1/models');
+      const res = await fetch('https://openrouter.ai/api/v1/models', {
+        signal: AbortSignal.timeout(5000)
+      });
       const data = await res.json();
       return data.data || [];
     } catch (err) {

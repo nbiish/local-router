@@ -1,12 +1,13 @@
 import express, { Request, Response } from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
-import { Readable, Transform } from 'stream';
+import { Readable, Transform, Writable } from 'stream';
 import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
 import { execFileSync } from 'child_process';
+import { WebSocket, WebSocketServer } from 'ws';
 import { ProxyProvider } from './types';
 import { sanitizeProviderRequestBody, stripReasoningMetadata, ThinkingLevel, DEFAULT_THINKING_LEVEL } from './reasoning';
 import { loadSessions, loadFeedback, recordRequest, getSessions, getSessionById, recordFeedback } from './sessions';
@@ -111,7 +112,7 @@ type AttemptResult =
   | { ok: true; value: AttemptSuccess }
   | { ok: false; error: AttemptFailure };
 
-type CompletionOutputFormat = 'openai' | 'ollama_chat' | 'ollama_generate';
+type CompletionOutputFormat = 'openai' | 'ollama_chat' | 'ollama_generate' | 'openai_responses';
 
 type DiagnosticEventName =
   | 'proxy_request'
@@ -157,6 +158,10 @@ const ROUTER_EVENTS_PATH = path.join(LOCAL_ROUTER_CONFIG_DIR, 'router-events.csv
 const LEGACY_ROUTER_EVENTS_PATH = path.join(LEGACY_FVS_CONFIG_DIR, 'router-events.csv');
 const PROVIDER_MODELS_PATH = path.join(LOCAL_ROUTER_CONFIG_DIR, 'provider-models.json');
 const LEGACY_PROVIDER_MODELS_PATH = path.join(LEGACY_FVS_CONFIG_DIR, 'provider-models.json');
+const MODEL_SOURCE_CONFIG_PATH = path.join(LOCAL_ROUTER_CONFIG_DIR, 'model-source-config.json');
+const LEGACY_MODEL_SOURCE_CONFIG_PATH = path.join(LEGACY_FVS_CONFIG_DIR, 'model-source-config.json');
+const ENDPOINT_MODELS_CACHE_PATH = path.join(LOCAL_ROUTER_CONFIG_DIR, 'endpoint-models-cache.json');
+const LEGACY_ENDPOINT_MODELS_CACHE_PATH = path.join(LEGACY_FVS_CONFIG_DIR, 'endpoint-models-cache.json');
 const DEFAULT_ROUTER_TYPE: RouterType = 'auto-local';
 const DEFAULT_ROUTER_MIN_CODING_SCORE = 0.66;
 const DEFAULT_ROUTER_COST_QUALITY_TRADEOFF = 7;
@@ -203,6 +208,8 @@ const keyStore: Record<string, string> = {};
 const modelStore: Record<string, ProviderModel[]> = {};
 const fallbackModelStore: Record<string, FallbackModel> = {};
 const routerModelStore: Record<string, RouterModel> = {};
+const modelSourceConfig: { source: 'custom' | 'endpoints' } = { source: 'custom' };
+let endpointModelsCache: ProviderModel[] = [];
 const DEFAULT_CHAIN_OF_DRAFT_PROMPT = `Think step by step, but only keep a minimum draft for each thinking step, with 5 words at most. Return the answer after your thinking.`;
 const systemPromptConfig: { enabled: boolean; prompt: string; thinkingLevel: ThinkingLevel } = {
   enabled: false,
@@ -1159,6 +1166,109 @@ function loadPersistedProviderModels() {
   }
 }
 
+function loadModelSourceConfig(): void {
+  const persistedPath = existingPath(MODEL_SOURCE_CONFIG_PATH, LEGACY_MODEL_SOURCE_CONFIG_PATH);
+  if (!fs.existsSync(persistedPath)) return;
+  try {
+    const parsed = JSON.parse(fs.readFileSync(persistedPath, 'utf8'));
+    if (parsed && (parsed.source === 'custom' || parsed.source === 'endpoints')) {
+      modelSourceConfig.source = parsed.source;
+    }
+  } catch (error: any) {
+    console.error('Failed to load persisted model source config:', sanitizeDiagnosticText(String(error?.message || error)));
+  }
+}
+
+function persistModelSourceConfig(): void {
+  ensureLocalRouterConfigDir();
+  const temporaryPath = `${MODEL_SOURCE_CONFIG_PATH}.${process.pid}.tmp`;
+  fs.writeFileSync(temporaryPath, `${JSON.stringify(modelSourceConfig, null, 2)}\n`, {
+    encoding: 'utf8',
+    mode: 0o600
+  });
+  fs.renameSync(temporaryPath, MODEL_SOURCE_CONFIG_PATH);
+  fs.chmodSync(MODEL_SOURCE_CONFIG_PATH, 0o600);
+}
+
+function loadEndpointModelsCache(): void {
+  const persistedPath = existingPath(ENDPOINT_MODELS_CACHE_PATH, LEGACY_ENDPOINT_MODELS_CACHE_PATH);
+  if (!fs.existsSync(persistedPath)) return;
+  try {
+    const parsed = JSON.parse(fs.readFileSync(persistedPath, 'utf8'));
+    if (Array.isArray(parsed)) {
+      endpointModelsCache = parsed;
+    }
+  } catch (error: any) {
+    console.error('Failed to load persisted endpoint models cache:', sanitizeDiagnosticText(String(error?.message || error)));
+  }
+}
+
+function persistEndpointModelsCache(): void {
+  ensureLocalRouterConfigDir();
+  const temporaryPath = `${ENDPOINT_MODELS_CACHE_PATH}.${process.pid}.tmp`;
+  fs.writeFileSync(temporaryPath, `${JSON.stringify(endpointModelsCache, null, 2)}\n`, {
+    encoding: 'utf8',
+    mode: 0o600
+  });
+  fs.renameSync(temporaryPath, ENDPOINT_MODELS_CACHE_PATH);
+  fs.chmodSync(ENDPOINT_MODELS_CACHE_PATH, 0o600);
+}
+
+async function queryAllProviderEndpoints(): Promise<ProviderModel[]> {
+  const providers = readProviderSummaries();
+  const baselineModels = readProviderModels();
+  const results = await Promise.all(
+    providers.map(async (providerSummary) => {
+      const providerModels: ProviderModel[] = [];
+      try {
+        const provider = await loadProvider(providerSummary.name);
+        if (provider && provider.getModels) {
+          const rawModels = await provider.getModels();
+          for (const raw of rawModels) {
+            const modelId = raw.id;
+            const presentedId = defaultPresentedModelName(providerSummary.name, modelId);
+            
+            const matchingBaseline = baselineModels.find(
+              (bm) => bm.provider === providerSummary.name && bm.model === modelId
+            );
+            
+            if (matchingBaseline) {
+              providerModels.push({
+                ...matchingBaseline,
+                id: presentedId
+              });
+            } else {
+              providerModels.push({
+                id: presentedId,
+                provider: providerSummary.name,
+                model: modelId,
+                display: providerModelDisplay(providerSummary.name, modelId),
+                contextLength: DEFAULT_CONTEXT_LENGTH,
+                outputTokens: DEFAULT_OUTPUT_TOKENS,
+                supportsTools: true,
+                supportsImages: false,
+                supportsCache: false,
+                supportsReasoning: false
+              });
+            }
+          }
+        }
+      } catch (err) {
+        console.error(`Error querying models for provider ${providerSummary.name}:`, err);
+      }
+      return providerModels;
+    })
+  );
+  return results.flat();
+}
+
+function activeProviderModelList(): ProviderModel[] {
+  if (modelSourceConfig.source === 'endpoints' && endpointModelsCache.length > 0) {
+    return endpointModelsCache;
+  }
+  return modelPresentationList();
+}
+
 function resolveModelTarget(modelName: string): ModelTarget | null {
   const configuredModel = findProviderModel(modelName);
   if (configuredModel) {
@@ -1239,7 +1349,7 @@ function routerModelList() {
 }
 
 function presentedModelList() {
-  return [...modelPresentationList(), ...fallbackModelList(), ...routerModelList()];
+  return [...activeProviderModelList(), ...fallbackModelList(), ...routerModelList()];
 }
 
 function findFallbackModel(modelName: string): FallbackModel | undefined {
@@ -1296,7 +1406,7 @@ function validateRouterReferences(model: RouterModel) {
 }
 
 function findPresentedNameConflict(providerName: string, presentedName: string) {
-  const modelConflict = modelPresentationList().find((model) => (
+  const modelConflict = activeProviderModelList().find((model) => (
     model.provider !== providerName && model.id === presentedName
   ));
   if (modelConflict) return modelConflict;
@@ -1343,7 +1453,7 @@ function ollamaTag(model: ProviderModel) {
 
 function findProviderModel(modelName: string): ProviderModel | undefined {
   const lookup = stripOllamaLatestSuffix(modelName.trim());
-  return modelPresentationList().find((model) => providerModelAliases(model).has(lookup));
+  return activeProviderModelList().find((model) => providerModelAliases(model).has(lookup));
 }
 
 function findPresentedModel(modelName: string): ProviderModel | undefined {
@@ -2304,7 +2414,18 @@ app.get('/config', (req: Request, res: Response) => {
         <div class="catalog-meta">
           <div>
             <h2>Available Providers & Models</h2>
-            <p class="muted">This list is generated from providers.txt and powers both the OpenAI-compatible and Ollama-compatible endpoints.</p>
+            <p class="muted" id="catalogDescription">This list is generated from providers.txt and powers both the OpenAI-compatible and Ollama-compatible endpoints.</p>
+            <div style="margin-top: 12px; display: flex; align-items: center; gap: 16px; flex-wrap: wrap;">
+              <span class="flag-toggle">
+                <input type="radio" id="modelSourceCustom" name="modelSource" value="custom" onchange="setModelSource('custom')" checked>
+                <label for="modelSourceCustom" style="font-weight: 500; margin-bottom: 0; cursor: pointer;">Custom Models (providers.txt / edits)</label>
+              </span>
+              <span class="flag-toggle">
+                <input type="radio" id="modelSourceEndpoints" name="modelSource" value="endpoints" onchange="setModelSource('endpoints')">
+                <label for="modelSourceEndpoints" style="font-weight: 500; margin-bottom: 0; cursor: pointer;">Endpoint Models (query upstream)</label>
+              </span>
+              <button id="refreshEndpointsBtn" class="button-secondary" onclick="refreshEndpointModels()" style="padding: 4px 10px; font-size: 13px; display: none;">🔄 Refresh Endpoints</button>
+            </div>
           </div>
           <div class="muted" id="catalogCount">Loading catalog...</div>
         </div>
@@ -3624,6 +3745,15 @@ app.get('/config', (req: Request, res: Response) => {
             const payload = await res.json();
             const data = Array.isArray(payload?.data) ? payload.data : [];
 
+            const descEl = document.getElementById('catalogDescription');
+            if (descEl) {
+              if (modelSource === 'endpoints') {
+                descEl.innerHTML = 'This list is fetched from active provider endpoints and powers both the OpenAI-compatible and Ollama-compatible endpoints.';
+              } else {
+                descEl.innerHTML = 'This list is generated from providers.txt (with any edits) and powers both the OpenAI-compatible and Ollama-compatible endpoints.';
+              }
+            }
+
             const grouped = data.reduce((acc, model) => {
               const provider = model.owned_by || 'unknown';
               if (!acc[provider]) acc[provider] = [];
@@ -3650,6 +3780,94 @@ app.get('/config', (req: Request, res: Response) => {
           }
         }
 
+        let modelSource = 'custom';
+
+        async function loadModelSource() {
+          try {
+            const res = await fetch('/api/model-source');
+            const data = await res.json();
+            modelSource = data.source || 'custom';
+            
+            const customRadio = document.getElementById('modelSourceCustom');
+            const endpointsRadio = document.getElementById('modelSourceEndpoints');
+            const refreshBtn = document.getElementById('refreshEndpointsBtn');
+            
+            if (modelSource === 'endpoints') {
+              if (endpointsRadio) endpointsRadio.checked = true;
+              if (refreshBtn) refreshBtn.style.display = 'inline-block';
+            } else {
+              if (customRadio) customRadio.checked = true;
+              if (refreshBtn) refreshBtn.style.display = 'none';
+            }
+          } catch (e) {
+            console.error('Failed to load model source setting:', e);
+          }
+        }
+
+        async function setModelSource(source) {
+          try {
+            const res = await fetch('/api/model-source', {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ source })
+            });
+            if (res.ok) {
+              const data = await res.json();
+              modelSource = data.source;
+              const refreshBtn = document.getElementById('refreshEndpointsBtn');
+              if (modelSource === 'endpoints') {
+                if (refreshBtn) refreshBtn.style.display = 'inline-block';
+                const catalogRes = await fetch('/v1/models');
+                const catalogData = await catalogRes.json();
+                const providerModelsCount = (catalogData.data || []).filter(m => {
+                  const o = m.owned_by;
+                  return !(o === 'local-router' || o === 'fvs-code' || o === 'fallback');
+                }).length;
+                if (providerModelsCount === 0) {
+                  await refreshEndpointModels();
+                }
+              } else {
+                if (refreshBtn) refreshBtn.style.display = 'none';
+              }
+              setMessage('Model source switched to: ' + (modelSource === 'endpoints' ? 'Endpoint Models' : 'Custom Models'), 'success');
+              await loadCatalog();
+              await buildModelDropdown();
+            }
+          } catch (e) {
+            setMessage('Failed to update model source: ' + e.message, 'error');
+          }
+        }
+
+        async function refreshEndpointModels() {
+          const refreshBtn = document.getElementById('refreshEndpointsBtn');
+          const countEl = document.getElementById('catalogCount');
+          if (refreshBtn) {
+            refreshBtn.disabled = true;
+            refreshBtn.innerText = '⏳ Refreshing...';
+          }
+          if (countEl) {
+            countEl.innerText = 'Refreshing endpoint models...';
+          }
+          try {
+            const res = await fetch('/api/refresh-endpoint-models', { method: 'POST' });
+            const data = await res.json();
+            if (res.ok) {
+              setMessage('Refreshed ' + data.count + ' models from provider endpoints successfully.', 'success');
+              await loadCatalog();
+              await buildModelDropdown();
+            } else {
+              setMessage(data.error || 'Failed to refresh endpoint models.', 'error');
+            }
+          } catch (e) {
+            setMessage('Failed to refresh: ' + e.message, 'error');
+          } finally {
+            if (refreshBtn) {
+              refreshBtn.disabled = false;
+              refreshBtn.innerText = '🔄 Refresh Endpoints';
+            }
+          }
+        }
+
         initializeThemeScale();
         loadProviderConfigs();
         loadFallbackRoutes();
@@ -3659,6 +3877,7 @@ app.get('/config', (req: Request, res: Response) => {
         loadCatalog();
         loadSessionsPanel();
         loadSystemPrompt();
+        loadModelSource();
 
         // ── Sessions & Feedback ──
         async function loadSessionsPanel() {
@@ -3803,6 +4022,30 @@ app.delete('/api/keys/:provider', (req: Request, res: Response) => {
     configured: false,
     configuredSource: 'none'
   });
+});
+app.get('/api/model-source', (req: Request, res: Response) => {
+  res.json(modelSourceConfig);
+});
+
+app.put('/api/model-source', (req: Request, res: Response) => {
+  const { source } = req.body;
+  if (source !== 'custom' && source !== 'endpoints') {
+    return res.status(400).json({ error: 'source must be "custom" or "endpoints"' });
+  }
+  modelSourceConfig.source = source;
+  persistModelSourceConfig();
+  res.json({ success: true, ...modelSourceConfig });
+});
+
+app.post('/api/refresh-endpoint-models', async (req: Request, res: Response) => {
+  try {
+    const fetchedModels = await queryAllProviderEndpoints();
+    endpointModelsCache = fetchedModels;
+    persistEndpointModelsCache();
+    res.json({ success: true, count: endpointModelsCache.length, data: endpointModelsCache });
+  } catch (error: any) {
+    res.status(500).json({ error: error?.message || 'Failed to refresh endpoint models' });
+  }
 });
 
 app.get('/api/provider-configs', (req: Request, res: Response) => {
@@ -3978,7 +4221,7 @@ app.post('/api/router-models', (req: Request, res: Response) => {
   }
 
   const canonicalRouterId = routerPresentedModelId(parsed.model);
-  const sameIdAsProvider = modelPresentationList().some((model) => (
+  const sameIdAsProvider = activeProviderModelList().some((model) => (
     model.id === parsed.model.id || model.id === canonicalRouterId
   ));
   if (sameIdAsProvider || findFallbackModel(parsed.model.id)) {
@@ -4469,7 +4712,7 @@ app.post('/api/fallback-models', (req: Request, res: Response) => {
   }
 
   const canonicalFallbackId = fallbackPresentedModelId(parsed.model);
-  const sameIdAsProvider = modelPresentationList().some((model) => (
+  const sameIdAsProvider = activeProviderModelList().some((model) => (
     model.id === parsed.model.id || model.id === canonicalFallbackId
   ));
   if (sameIdAsProvider || findRouterModel(parsed.model.id)) {
@@ -4752,6 +4995,30 @@ async function loadProvider(name: string): Promise<ProxyProvider | null> {
         };
       },
       getModels: async () => {
+        const key = keyStore[summary.name] || process.env[summary.keyEnvVar];
+        if (key) {
+          try {
+            const url = providerBaseUrl(summary);
+            const res = await fetch(`${url}/models`, {
+              headers: {
+                'Authorization': `Bearer ${key}`
+              },
+              signal: AbortSignal.timeout(6000)
+            });
+            if (res.ok) {
+              const data = await res.json();
+              if (Array.isArray(data.data)) {
+                return data.data.map((m: any) => ({
+                  id: m.id,
+                  object: 'model',
+                  owned_by: summary.name
+                }));
+              }
+            }
+          } catch (e) {
+            console.error(`Failed to fetch models from endpoint for provider ${summary.name}:`, e);
+          }
+        }
         const models = effectiveProviderModels(summary.name);
         return models.map((model) => ({
           id: model.model,
@@ -4864,6 +5131,8 @@ loadPersistedRouterModels();
 loadPersistedSystemPrompt();
 loadPersistedThinkingConfig();
 loadPersistedProviderModels();
+loadModelSourceConfig();
+loadEndpointModelsCache();
 
 const DEFAULT_ROUTER_ID = 'auto-local-main';
 
@@ -5665,6 +5934,50 @@ function appendRouterEvent(event: Record<string, unknown>) {
   fs.chmodSync(ROUTER_EVENTS_PATH, 0o600);
 }
 
+function injectPromptCaching(body: any, providerName: string): any {
+  const isCachingSupported = ['zenmux', 'opencode', 'opencode-zen', 'xiaomi-mimo', 'wafer-serverless', 'openrouter', 'openrouter-presets'].includes(providerName);
+  if (!isCachingSupported) return body;
+
+  const messages = body.messages || [];
+  const totalMessageLength = messages.reduce((acc: number, m: any) => acc + (typeof m.content === 'string' ? m.content.length : 0), 0);
+  const isLargePrompt = totalMessageLength > 800 || messages.length >= 4;
+  if (!isLargePrompt) return body;
+
+  const newBody = { ...body };
+  if (Array.isArray(newBody.messages) && newBody.messages.length > 0) {
+    const newMessages = [...newBody.messages];
+
+    if (newMessages[0] && newMessages[0].role === 'system') {
+      const msg = { ...newMessages[0] };
+      if (typeof msg.content === 'string') {
+        msg.content = [{ type: 'text', text: msg.content, cache_control: { type: 'ephemeral' } }];
+      } else if (Array.isArray(msg.content) && msg.content[0]) {
+        msg.content = msg.content.map((part: any, idx: number) => 
+          idx === 0 ? { ...part, cache_control: { type: 'ephemeral' } } : part
+        );
+      }
+      newMessages[0] = msg;
+    }
+
+    const targetIdx = newMessages.length - 2;
+    if (targetIdx > 0 && newMessages[targetIdx]) {
+      const msg = { ...newMessages[targetIdx] };
+      if (typeof msg.content === 'string') {
+        msg.content = [{ type: 'text', text: msg.content, cache_control: { type: 'ephemeral' } }];
+      } else if (Array.isArray(msg.content) && msg.content[0]) {
+        msg.content = msg.content.map((part: any, idx: number) => 
+          idx === 0 ? { ...part, cache_control: { type: 'ephemeral' } } : part
+        );
+      }
+      newMessages[targetIdx] = msg;
+    }
+
+    newBody.messages = newMessages;
+  }
+
+  return newBody;
+}
+
 async function proxyModelAttempt(
   body: any,
   requestRoute: string,
@@ -5734,7 +6047,8 @@ async function proxyModelAttempt(
     modelName: target.actualModel,
     thinkingLevel: getEffectiveThinkingLevel(target.providerName)
   });
-  const finalBody = provider.formatBody ? provider.formatBody(safeRequestBody) : safeRequestBody;
+  const cachedRequestBody = injectPromptCaching(safeRequestBody, target.providerName);
+  const finalBody = provider.formatBody ? provider.formatBody(cachedRequestBody) : cachedRequestBody;
 
   pushDiagnostic({
     event: 'proxy_request',
@@ -6382,6 +6696,591 @@ app.post('/v1/chat/completions', async (req: Request, res: Response) => {
   await handleChatCompletion(req, res);
 });
 
+function chatCompletionToAnthropicResponse(chatData: any): any {
+  const choice = chatData?.choices?.[0] || {};
+  const message = choice.message || {};
+  const content: any[] = [];
+
+  if (message.content) {
+    content.push({
+      type: 'text',
+      text: message.content
+    });
+  }
+
+  if (Array.isArray(message.tool_calls) && message.tool_calls.length > 0) {
+    for (const tc of message.tool_calls) {
+      let input = {};
+      try {
+        input = JSON.parse(tc.function?.arguments || '{}');
+      } catch {
+        input = { value: tc.function?.arguments };
+      }
+      content.push({
+        type: 'tool_use',
+        id: tc.id,
+        name: tc.function?.name,
+        input
+      });
+    }
+  }
+
+  let stopReason: string | null = 'end_turn';
+  if (choice.finish_reason === 'length') stopReason = 'max_tokens';
+  else if (choice.finish_reason === 'tool_calls') stopReason = 'tool_use';
+  else if (choice.finish_reason === 'stop') stopReason = 'end_turn';
+
+  const usage = chatData?.usage || {};
+
+  return {
+    id: `msg_${chatData?.id || cryptoRandomId()}`,
+    type: 'message',
+    role: 'assistant',
+    model: chatData?.model || 'claude-3-5-sonnet',
+    content,
+    stop_reason: stopReason,
+    stop_sequence: null,
+    usage: {
+      input_tokens: usage.prompt_tokens || 0,
+      output_tokens: usage.completion_tokens || 0
+    }
+  };
+}
+
+app.post('/v1/messages', async (req: Request, res: Response) => {
+  const body = req.body || {};
+
+  if (!body.model) {
+    return res.status(400).json({
+      error: { type: 'invalid_request_error', message: 'model is required' }
+    });
+  }
+
+  const chatBody: any = {
+    model: body.model,
+    max_tokens: body.max_tokens,
+    temperature: body.temperature,
+    top_p: body.top_p,
+    stream: body.stream || false,
+    stop: body.stop_sequences
+  };
+
+  const messages: any[] = [];
+  if (typeof body.system === 'string' && body.system.trim()) {
+    messages.push({ role: 'system', content: body.system });
+  } else if (Array.isArray(body.system)) {
+    const systemText = body.system
+      .map((part: any) => (typeof part === 'string' ? part : part.text || ''))
+      .join('\n');
+    if (systemText.trim()) {
+      messages.push({ role: 'system', content: systemText });
+    }
+  }
+
+  if (Array.isArray(body.messages)) {
+    for (const msg of body.messages) {
+      const role = msg.role;
+      let content = msg.content;
+      if (Array.isArray(content)) {
+        content = content.map((part: any) => {
+          if (part.type === 'text') {
+            return { type: 'text', text: part.text };
+          } else if (part.type === 'image') {
+            const url = part.source?.data ? `data:${part.source.media_type};base64,${part.source.data}` : '';
+            return {
+              type: 'image_url',
+              image_url: { url }
+            };
+          } else if (part.type === 'tool_use') {
+            return {
+              type: 'tool_calls',
+              id: part.id,
+              function: {
+                name: part.name,
+                arguments: JSON.stringify(part.input)
+              }
+            };
+          } else if (part.type === 'tool_result') {
+            return {
+              type: 'tool_result',
+              tool_use_id: part.tool_use_id,
+              content: part.content
+            };
+          }
+          return part;
+        });
+      }
+      messages.push({ role, content });
+    }
+  }
+  chatBody.messages = messages;
+
+  if (Array.isArray(body.tools)) {
+    chatBody.tools = body.tools.map((t: any) => ({
+      type: 'function',
+      function: {
+        name: t.name,
+        description: t.description || '',
+        parameters: t.input_schema
+      }
+    }));
+  }
+
+  if (body.stream) {
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+
+    let messageStarted = false;
+    let contentBlockStarted = false;
+    let toolBlockStarted = false;
+    let openAiSseBuffer = '';
+    let textIndex = 0;
+    let currentToolId = '';
+    let currentToolName = '';
+
+    const processOpenAIToAnthropicStream = (chunk: any) => {
+      openAiSseBuffer += chunk.toString();
+      const lines = openAiSseBuffer.split('\n');
+      openAiSseBuffer = lines.pop() || '';
+
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (trimmed.startsWith('data: ')) {
+          const dataStr = trimmed.substring(6).trim();
+          if (dataStr === '[DONE]') {
+            res.write(`event: message_delta\ndata: ${JSON.stringify({
+              type: 'message_delta',
+              delta: { stop_reason: 'end_turn', stop_sequence: null },
+              usage: { output_tokens: 0 }
+            })}\n\n`);
+            res.write(`event: message_stop\ndata: ${JSON.stringify({ type: 'message_stop' })}\n\n`);
+            continue;
+          }
+
+          try {
+            const data = JSON.parse(dataStr);
+            const choice = data.choices?.[0] || {};
+            const delta = choice.delta || {};
+            
+            if (!messageStarted) {
+              res.write(`event: message_start\ndata: ${JSON.stringify({
+                type: 'message_start',
+                message: {
+                  id: `msg_${data.id || cryptoRandomId()}`,
+                  type: 'message',
+                  role: 'assistant',
+                  model: data.model || 'claude-3-5-sonnet',
+                  content: [],
+                  stop_reason: null,
+                  stop_sequence: null,
+                  usage: { input_tokens: data.usage?.prompt_tokens || 0, output_tokens: 0 }
+                }
+              })}\n\n`);
+              messageStarted = true;
+            }
+
+            if (delta.content) {
+              if (!contentBlockStarted) {
+                res.write(`event: content_block_start\ndata: ${JSON.stringify({
+                  type: 'content_block_start',
+                  index: textIndex,
+                  content_block: { type: 'text', text: '' }
+                })}\n\n`);
+                contentBlockStarted = true;
+              }
+              res.write(`event: content_block_delta\ndata: ${JSON.stringify({
+                type: 'content_block_delta',
+                index: textIndex,
+                delta: { type: 'text_delta', text: delta.content }
+              })}\n\n`);
+            }
+
+            if (Array.isArray(delta.tool_calls) && delta.tool_calls.length > 0) {
+              if (contentBlockStarted) {
+                res.write(`event: content_block_stop\ndata: ${JSON.stringify({
+                  type: 'content_block_stop',
+                  index: textIndex
+                })}\n\n`);
+                contentBlockStarted = false;
+                textIndex++;
+              }
+
+              for (const tc of delta.tool_calls) {
+                if (tc.id) {
+                  currentToolId = tc.id;
+                  currentToolName = tc.function?.name || '';
+                  res.write(`event: content_block_start\ndata: ${JSON.stringify({
+                    type: 'content_block_start',
+                    index: textIndex,
+                    content_block: {
+                      type: 'tool_use',
+                      id: currentToolId,
+                      name: currentToolName,
+                      input: {}
+                    }
+                  })}\n\n`);
+                  toolBlockStarted = true;
+                }
+                if (tc.function?.arguments) {
+                  res.write(`event: content_block_delta\ndata: ${JSON.stringify({
+                    type: 'content_block_delta',
+                    index: textIndex,
+                    delta: { type: 'input_json_delta', partial_json: tc.function.arguments }
+                  })}\n\n`);
+                }
+              }
+            }
+
+            if (choice.finish_reason) {
+              if (contentBlockStarted) {
+                res.write(`event: content_block_stop\ndata: ${JSON.stringify({
+                  type: 'content_block_stop',
+                  index: textIndex
+                })}\n\n`);
+                contentBlockStarted = false;
+              }
+              if (toolBlockStarted) {
+                res.write(`event: content_block_stop\ndata: ${JSON.stringify({
+                  type: 'content_block_stop',
+                  index: textIndex
+                })}\n\n`);
+                toolBlockStarted = false;
+              }
+              let stopReason = 'end_turn';
+              if (choice.finish_reason === 'length') stopReason = 'max_tokens';
+              else if (choice.finish_reason === 'tool_calls') stopReason = 'tool_use';
+              
+              res.write(`event: message_delta\ndata: ${JSON.stringify({
+                type: 'message_delta',
+                delta: { stop_reason: stopReason, stop_sequence: null },
+                usage: { output_tokens: data.usage?.completion_tokens || 0 }
+              })}\n\n`);
+            }
+          } catch (err) {
+            // ignore
+          }
+        }
+      }
+    };
+
+    const fakeRes = new Writable({
+      write(chunk, encoding, callback) {
+        try {
+          processOpenAIToAnthropicStream(chunk);
+        } catch (e) {
+          // ignore
+        }
+        callback();
+      }
+    }) as any;
+    fakeRes.statusCode = 200;
+    fakeRes.setHeader = () => {};
+    fakeRes.status = (code: number) => {
+      fakeRes.statusCode = code;
+      return fakeRes;
+    };
+    fakeRes.json = (errData: any) => {
+      res.status(fakeRes.statusCode).json(errData);
+    };
+    fakeRes.on('finish', () => {
+      res.end();
+    });
+
+    req.body = chatBody;
+    try {
+      await handleChatCompletion(req, fakeRes);
+    } catch (err: any) {
+      res.status(500).json({ error: { type: 'api_error', message: err?.message || 'Anthropic stream failure' } });
+    }
+  } else {
+    const fakeRes: any = {
+      statusCode: 200,
+      setHeader: () => {},
+      status: (code: number) => {
+        fakeRes.statusCode = code;
+        return fakeRes;
+      },
+      json: (data: any) => {
+        if (fakeRes.statusCode >= 400 || data.error) {
+          res.status(fakeRes.statusCode).json(data);
+        } else {
+          const anthropicMsg = chatCompletionToAnthropicResponse(data);
+          res.json(anthropicMsg);
+        }
+      }
+    };
+
+    req.body = chatBody;
+    try {
+      await handleChatCompletion(req, fakeRes);
+    } catch (err: any) {
+      res.status(500).json({ error: { type: 'api_error', message: err?.message || 'Anthropic response failure' } });
+    }
+  }
+});
+
+// =====================================================================
+// OpenAI Responses API → chat-completions translation shim
+// =====================================================================
+// Codex CLI 0.135+ dropped wire_api="chat" and now requires
+// wire_api="responses", which targets POST /v1/responses. local-router
+// speaks the legacy /v1/chat/completions surface, so this route accepts
+// the Responses request shape, normalizes it to a chat-completions body,
+// calls the existing handleChatCompletion pipeline, and re-wraps the
+// upstream chat-completion response in the Responses response envelope.
+//
+// Supports: input (string | item array), instructions, model, max_output_tokens,
+// temperature, top_p, stream, tools, tool_choice, stop, user, metadata, store.
+// Non-streaming is fully implemented; streaming falls back to non-streaming.
+// =====================================================================
+
+type ResponsesInputItem =
+  | { type?: string; role?: 'system' | 'developer' | 'user' | 'assistant'; content: any }
+  | string;
+
+function responsesInputToMessages(input: any, instructions?: string): any[] {
+  const messages: any[] = [];
+
+  if (typeof instructions === 'string' && instructions.trim()) {
+    messages.push({ role: 'system', content: instructions });
+  }
+
+  if (typeof input === 'string') {
+    messages.push({ role: 'user', content: input });
+    return messages;
+  }
+
+  if (!Array.isArray(input)) {
+    // OpenAI also accepts a bare string; anything else is malformed.
+    return messages;
+  }
+
+  for (const item of input as ResponsesInputItem[]) {
+    if (typeof item === 'string') {
+      messages.push({ role: 'user', content: item });
+      continue;
+    }
+    if (!item || typeof item !== 'object') continue;
+
+    // Map developer/system to system, preserve user/assistant
+    let role = item.role;
+    if (role === 'developer') role = 'system';
+
+    // Content can be a string or an array of typed parts
+    let content: any = item.content;
+    if (Array.isArray(content)) {
+      // Translate Responses content parts → chat-completion parts.
+      // We keep text and image_url; we drop other part types with a best-effort
+      // text extraction so multi-modal prompts don't silently break.
+      const textParts: string[] = [];
+      const imageUrls: string[] = [];
+      for (const part of content) {
+        if (!part || typeof part !== 'object') continue;
+        if (part.type === 'input_text' || part.type === 'text') {
+          textParts.push(String(part.text ?? ''));
+        } else if (part.type === 'input_image' || part.type === 'image_url') {
+          const url = part.image_url?.url || part.url;
+          if (typeof url === 'string') imageUrls.push(url);
+        } else if (typeof part.text === 'string') {
+          textParts.push(part.text);
+        }
+      }
+      if (imageUrls.length > 0) {
+        content = [
+          ...(textParts.length ? [{ type: 'text', text: textParts.join('\n') }] : []),
+          ...imageUrls.map((u) => ({ type: 'image_url', image_url: { url: u } }))
+        ];
+      } else {
+        content = textParts.join('\n');
+      }
+    }
+
+    if (!role) role = 'user';
+    if (role !== 'system' && role !== 'user' && role !== 'assistant' && role !== 'tool') {
+      role = 'user';
+    }
+
+    messages.push({ role, content });
+  }
+
+  return messages;
+}
+
+function chatCompletionToResponsesResponse(chatData: any, presentedModel: string): any {
+  // Upstream chat-completion response → OpenAI Responses envelope.
+  // { id, object:'chat.completion', choices:[{message:{role,content,tool_calls}}], usage }
+  // → { id, object:'response', output:[{type:'message', role, content:[{type:'output_text', text}]}], usage:{input_tokens, output_tokens, total_tokens} }
+  const choice = chatData?.choices?.[0] || {};
+  const message = choice.message || {};
+  const content = message.content;
+  const text =
+    typeof content === 'string'
+      ? content
+      : Array.isArray(content)
+        ? content
+            .filter((p: any) => p?.type === 'text' || typeof p?.text === 'string')
+            .map((p: any) => p.text)
+            .join('\n')
+        : '';
+
+  const output: any[] = [];
+  if (text) {
+    output.push({
+      type: 'message',
+      id: `msg_${chatData?.id || cryptoRandomId()}`,
+      role: message.role || 'assistant',
+      status: 'completed',
+      content: [{ type: 'output_text', text, annotations: [] }]
+    });
+  }
+  if (Array.isArray(message.tool_calls) && message.tool_calls.length > 0) {
+    for (const call of message.tool_calls) {
+      output.push({
+        type: 'function_call',
+        id: call.id || `call_${cryptoRandomId()}`,
+        call_id: call.id,
+        name: call.function?.name,
+        arguments: call.function?.arguments || ''
+      });
+    }
+  }
+
+  const usage = chatData?.usage || {};
+  return {
+    id: chatData?.id || `resp_${cryptoRandomId()}`,
+    object: 'response',
+    created_at: chatData?.created || Math.floor(Date.now() / 1000),
+    model: chatData?.model || presentedModel,
+    status: choice.finish_reason === 'length' ? 'incomplete' : 'completed',
+    incomplete_details: choice.finish_reason === 'length' ? { reason: 'max_output_tokens' } : null,
+    output,
+    usage: {
+      input_tokens: usage.prompt_tokens || 0,
+      output_tokens: usage.completion_tokens || 0,
+      total_tokens: usage.total_tokens || 0
+    }
+  };
+}
+
+function cryptoRandomId(): string {
+  // Cheap random id; not security-sensitive.
+  return Math.random().toString(36).slice(2, 10) + Math.random().toString(36).slice(2, 10);
+}
+
+function translateResponsesRequestToChatBody(body: any): any {
+  const translated: any = {};
+
+  if (typeof body.model === 'string') translated.model = body.model;
+  translated.messages = responsesInputToMessages(body.input, body.instructions);
+
+  if (body.max_output_tokens != null) translated.max_tokens = body.max_output_tokens;
+  if (body.temperature != null) translated.temperature = body.temperature;
+  if (body.top_p != null) translated.top_p = body.top_p;
+  if (body.frequency_penalty != null) translated.frequency_penalty = body.frequency_penalty;
+  if (body.presence_penalty != null) translated.presence_penalty = body.presence_penalty;
+  if (body.user != null) translated.user = body.user;
+  if (Array.isArray(body.stop) || typeof body.stop === 'string') translated.stop = body.stop;
+  if (body.metadata != null) translated.metadata = body.metadata;
+
+  // Tools: Responses API tools[] shape is the same as chat-completions tools[]
+  // (function name + description + parameters), so we can pass them through.
+  if (Array.isArray(body.tools)) translated.tools = body.tools;
+  if (body.tool_choice != null) translated.tool_choice = body.tool_choice;
+
+  return translated;
+}
+
+app.post('/v1/responses', async (req: Request, res: Response) => {
+  const requestStartedAt = Date.now();
+  const body = req.body || {};
+
+  if (!body.model) {
+    return res.status(400).json({
+      error: { message: 'You must provide a `model` parameter.', type: 'invalid_request_error' }
+    });
+  }
+
+  const chatBody = translateResponsesRequestToChatBody(body);
+  if (chatBody.messages.length === 0) {
+    return res.status(400).json({
+      error: {
+        message: '`input` is required and must contain at least one message.',
+        type: 'invalid_request_error'
+      }
+    });
+  }
+
+  // Streaming is requested by setting stream=true; we currently serve
+  // non-streaming Responses and let the caller handle it. Codex's `exec`
+  // subcommand doesn't stream, so this covers the primary use case.
+  if (body.stream) {
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.write(
+      `event: error\ndata: ${JSON.stringify({
+        error: {
+          message: 'Streaming Responses API is not yet implemented by local-router. Set stream=false.',
+          type: 'invalid_request_error'
+        }
+      })}\n\n`
+    );
+    res.end();
+    return;
+  }
+
+  // Drive the existing chat-completions pipeline by faking a Request whose
+  // body is the translated chat-completions shape. We use Express's req.res
+  // and mutate req.body so handleChatCompletion picks it up.
+  req.body = chatBody;
+
+  // Capture the upstream response by intercepting res.json. We swap res.json
+  // once, then restore it after the call. This avoids duplicating the entire
+  // proxy/router/fallback pipeline.
+  const originalJson = res.json.bind(res);
+  let captured: any = null;
+  let capturedStatus = 200;
+  res.json = ((payload: any) => {
+    captured = payload;
+    return res;
+  }) as any;
+  res.status = ((code: number) => {
+    capturedStatus = code;
+    return res;
+  }) as any;
+
+  try {
+    await handleChatCompletion(req, res);
+  } catch (err: any) {
+    res.json = originalJson;
+    return res.status(500).json({
+      error: { message: err?.message || 'Responses shim failure', type: 'server_error' }
+    });
+  }
+
+  res.json = originalJson;
+
+  if (!captured) {
+    // The pipeline wrote to res directly (streaming or empty); pass through.
+    return;
+  }
+
+  if (capturedStatus >= 400 || captured?.error) {
+    // Forward upstream errors in Responses shape so Codex can parse them.
+    return originalJson({
+      error: captured.error || {
+        message: 'Upstream returned an error',
+        type: 'upstream_error'
+      }
+    });
+  }
+
+  const presented = String(body.model);
+  const wrapped = chatCompletionToResponsesResponse(captured, presented);
+  return originalJson(wrapped);
+});
+
 app.get('/v1/models', async (req: Request, res: Response) => {
   // fcc-server style: we can optionally pass ?provider=groq to fetch models from a specific provider
   const requestedProvider = req.query.provider as string;
@@ -6538,7 +7437,7 @@ loadSessions();
 loadFeedback();
 loadPqcSecrets();
 
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   console.log(`Local Router OpenAI-compatible proxy running on http://localhost:${PORT}`);
   console.log(`Point your VS Code extension to: http://localhost:${PORT}/v1`);
   if (isDevMode) {
@@ -6546,5 +7445,267 @@ app.listen(PORT, () => {
     console.log(`[DEV] Config UI: http://localhost:${PORT}/config`);
     console.log(`[DEV] Set PORT=11435 to run alongside production Ollama on 11434.`);
     console.log(`[DEV] Use 'npm run dev' for tsx watch mode or 'npm run build:watch' for tsc --watch.`);
+  }
+});
+
+const wss = new WebSocketServer({ noServer: true });
+
+wss.on('connection', (ws: WebSocket) => {
+  let isGenerating = false;
+
+  ws.on('message', async (messageData: string) => {
+    try {
+      const event = JSON.parse(messageData);
+      if (event.type === 'response.create') {
+        if (isGenerating) {
+          ws.send(JSON.stringify({
+            type: 'response.failed',
+            error: { message: 'Another response is currently in progress.', type: 'invalid_request_error' }
+          }));
+          return;
+        }
+
+        const body = event.response || {};
+        if (!body.model) {
+          ws.send(JSON.stringify({
+            type: 'response.failed',
+            error: { message: 'You must provide a `model` parameter.', type: 'invalid_request_error' }
+          }));
+          return;
+        }
+
+        const chatBody = translateResponsesRequestToChatBody(body);
+        if (chatBody.messages.length === 0) {
+          ws.send(JSON.stringify({
+            type: 'response.failed',
+            error: { message: '`input` is required and must contain at least one message.', type: 'invalid_request_error' }
+          }));
+          return;
+        }
+
+        isGenerating = true;
+        
+        const responseId = `resp_${cryptoRandomId()}`;
+        const modelId = body.model;
+
+        ws.send(JSON.stringify({
+          type: 'response.created',
+          response: {
+            id: responseId,
+            object: 'response',
+            created_at: Math.floor(Date.now() / 1000),
+            model: modelId,
+            status: 'in_progress',
+            output: [],
+            usage: { input_tokens: 0, output_tokens: 0, total_tokens: 0 }
+          }
+        }));
+
+        const fakeReq: any = {
+          body: chatBody,
+          get: (name: string) => {
+            if (name.toLowerCase() === 'x-local-router-client') return 'codex';
+            return undefined;
+          },
+          protocol: 'http',
+          headers: {},
+          path: '/v1/responses'
+        };
+
+        const outputItemMsgId = `msg_${cryptoRandomId()}`;
+        let itemAdded = false;
+        let sseBuffer = '';
+
+        const fakeRes = new Writable({
+          write(chunk, encoding, callback) {
+            try {
+              sseBuffer += chunk.toString();
+              const lines = sseBuffer.split('\n');
+              sseBuffer = lines.pop() || '';
+
+              for (const line of lines) {
+                const trimmed = line.trim();
+                if (trimmed.startsWith('data: ')) {
+                  const dataStr = trimmed.substring(6).trim();
+                  if (dataStr === '[DONE]') continue;
+                  try {
+                    const data = JSON.parse(dataStr);
+                    const choice = data.choices?.[0] || {};
+                    const delta = choice.delta || {};
+                    
+                    if (!itemAdded) {
+                      ws.send(JSON.stringify({
+                        type: 'response.output_item.added',
+                        response_id: responseId,
+                        output_index: 0,
+                        item: {
+                          id: outputItemMsgId,
+                          type: 'message',
+                          status: 'in_progress',
+                          role: delta.role || 'assistant',
+                          content: []
+                        }
+                      }));
+                      itemAdded = true;
+                    }
+
+                    if (delta.content) {
+                      ws.send(JSON.stringify({
+                        type: 'response.output_text.delta',
+                        response_id: responseId,
+                        item_id: outputItemMsgId,
+                        content_index: 0,
+                        delta: delta.content
+                      }));
+                    }
+
+                    if (Array.isArray(delta.tool_calls) && delta.tool_calls.length > 0) {
+                      for (const tc of delta.tool_calls) {
+                        ws.send(JSON.stringify({
+                          type: 'response.output_tool_call.arguments.delta',
+                          response_id: responseId,
+                          item_id: tc.id || `call_${cryptoRandomId()}`,
+                          delta: tc.function?.arguments || ''
+                        }));
+                      }
+                    }
+                  } catch (e) {
+                    // ignore
+                  }
+                }
+              }
+            } catch (e) {
+              // ignore
+            }
+            callback();
+          },
+          final(callback) {
+            try {
+              if (sseBuffer.trim().startsWith('data: ')) {
+                const dataStr = sseBuffer.trim().substring(6).trim();
+                if (dataStr && dataStr !== '[DONE]') {
+                  try {
+                    const data = JSON.parse(dataStr);
+                    const choice = data.choices?.[0] || {};
+                    const delta = choice.delta || {};
+                    if (delta.content) {
+                      ws.send(JSON.stringify({
+                        type: 'response.output_text.delta',
+                        response_id: responseId,
+                        item_id: outputItemMsgId,
+                        content_index: 0,
+                        delta: delta.content
+                      }));
+                    }
+                  } catch (e) {
+                    // ignore
+                  }
+                }
+              }
+              if (itemAdded) {
+                ws.send(JSON.stringify({
+                  type: 'response.output_item.done',
+                  response_id: responseId,
+                  output_index: 0,
+                  item: {
+                    id: outputItemMsgId,
+                    type: 'message',
+                    status: 'completed',
+                    role: 'assistant',
+                    content: [{ type: 'output_text', text: '' }]
+                  }
+                }));
+              }
+              ws.send(JSON.stringify({
+                type: 'response.completed',
+                response: {
+                  id: responseId,
+                  object: 'response',
+                  status: 'completed',
+                  model: modelId,
+                  output: itemAdded ? [{ id: outputItemMsgId, type: 'message', role: 'assistant', status: 'completed' }] : []
+                }
+              }));
+            } catch (err) {
+              // ignore
+            }
+            isGenerating = false;
+            callback();
+          }
+        }) as any;
+
+        fakeRes.statusCode = 200;
+        fakeRes.setHeader = () => {};
+        fakeRes.status = (code: number) => {
+          fakeRes.statusCode = code;
+          return fakeRes;
+        };
+        fakeRes.json = (data: any) => {
+          if (fakeRes.statusCode >= 400 || data.error) {
+            ws.send(JSON.stringify({
+              type: 'response.failed',
+              response_id: responseId,
+              error: data.error || { message: 'Upstream request failed' }
+            }));
+          } else {
+            const responsesEnvelope = chatCompletionToResponsesResponse(data, modelId);
+            if (!itemAdded) {
+              const choice = data.choices?.[0] || {};
+              const message = choice.message || {};
+              ws.send(JSON.stringify({
+                type: 'response.output_item.added',
+                response_id: responseId,
+                output_index: 0,
+                item: {
+                  id: outputItemMsgId,
+                  type: 'message',
+                  status: 'completed',
+                  role: message.role || 'assistant',
+                  content: [{ type: 'output_text', text: message.content || '' }]
+                }
+              }));
+            }
+            ws.send(JSON.stringify({
+              type: 'response.completed',
+              response: responsesEnvelope
+            }));
+          }
+          isGenerating = false;
+        };
+
+        try {
+          fakeReq.body.stream = true;
+          await handleChatCompletion(fakeReq, fakeRes);
+        } catch (err: any) {
+          ws.send(JSON.stringify({
+            type: 'response.failed',
+            response_id: responseId,
+            error: { message: err?.message || 'Responses WS shim failure', type: 'server_error' }
+          }));
+          isGenerating = false;
+        }
+      }
+    } catch (err) {
+      ws.send(JSON.stringify({
+        type: 'response.failed',
+        error: { message: 'Malformed JSON payload.', type: 'invalid_request_error' }
+      }));
+    }
+  });
+
+  ws.on('close', () => {
+    isGenerating = false;
+  });
+});
+
+server.on('upgrade', (request, socket, head) => {
+  const urlObj = new URL(request.url || '', `http://${request.headers.host || 'localhost'}`);
+  const pathname = urlObj.pathname;
+  if (pathname === '/v1/responses') {
+    wss.handleUpgrade(request, socket, head, (ws) => {
+      wss.emit('connection', ws, request);
+    });
+  } else {
+    socket.destroy();
   }
 });

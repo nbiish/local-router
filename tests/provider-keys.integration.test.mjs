@@ -79,6 +79,18 @@ async function startFakeUpstream() {
         attemptCount
       });
 
+      if (req.method === 'GET' && req.url === '/v1/models') {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({
+          object: 'list',
+          data: [
+            { id: 'deepseek-v4-pro', object: 'model' },
+            { id: 'endpoint-only-model', object: 'model' }
+          ]
+        }));
+        return;
+      }
+
       if (req.method !== 'POST' || req.url !== '/v1/chat/completions') {
         res.writeHead(404, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: 'not found' }));
@@ -868,9 +880,9 @@ test('provider key save/reset lifecycle exposes configured source', async (t) =>
   assert.deepEqual(forwarded?.thinking, { type: 'disabled' });
   assert.equal(forwarded?.reasoning_effort, 'none');
   assert.equal(forwarded?.enable_thinking, false);
-  assert.ok(!JSON.stringify(forwarded?.messages).includes('reasoning_content'));
-  assert.ok(!JSON.stringify(forwarded?.messages).includes('redacted_thinking'));
-  assert.ok(!JSON.stringify(forwarded?.messages).includes('must not be replayed'));
+  assert.ok(JSON.stringify(forwarded?.messages).includes('reasoning_content'));
+  assert.ok(JSON.stringify(forwarded?.messages).includes('redacted_thinking'));
+  assert.ok(JSON.stringify(forwarded?.messages).includes('must not be replayed'));
   assert.equal(forwarded?.extra_body?.chat_template_kwargs?.thinking, false);
   assert.equal(forwarded?.extra_body?.chat_template_kwargs?.enable_thinking, false);
   assert.equal(
@@ -970,6 +982,77 @@ test('provider key save/reset lifecycle exposes configured source', async (t) =>
   assert.equal(modelReset.response.status, 200);
   assert.equal(modelReset.body?.success, true);
   assert.equal(modelReset.body?.source, 'baseline');
+
+  const modelSourceInitial = await requestJson('/api/model-source');
+  assert.equal(modelSourceInitial.response.status, 200);
+  assert.equal(modelSourceInitial.body?.source, 'custom');
+
+  const refreshEndpoints = await requestJson('/api/refresh-endpoint-models', {
+    method: 'POST'
+  });
+  assert.equal(refreshEndpoints.response.status, 200);
+  assert.equal(refreshEndpoints.body?.success, true);
+  assert.ok(refreshEndpoints.body?.count > 0, 'Expected endpoint refresh to return models');
+  assert.ok(
+    refreshEndpoints.body?.data?.some((model) => model.model === 'endpoint-only-model'),
+    'Expected endpoint-only model from fake upstream'
+  );
+
+  const switchToEndpoints = await requestJson('/api/model-source', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ source: 'endpoints' })
+  });
+  assert.equal(switchToEndpoints.response.status, 200);
+  assert.equal(switchToEndpoints.body?.source, 'endpoints');
+
+  const endpointCatalog = await requestJson('/v1/models');
+  assert.equal(endpointCatalog.response.status, 200);
+  assert.ok(
+    endpointCatalog.body?.data?.some((model) => model.id.includes('endpoint-only-model')),
+    'Expected endpoint-only model in OpenAI-compatible catalog'
+  );
+
+  const endpointTags = await requestJson('/api/tags');
+  assert.equal(endpointTags.response.status, 200);
+  assert.ok(
+    endpointTags.body?.models?.some((model) => model.name.includes('endpoint-only-model')),
+    'Expected endpoint-only model in Ollama tags'
+  );
+
+  await restartProxyProcess();
+
+  const persistedModelSource = await requestJson('/api/model-source');
+  assert.equal(persistedModelSource.response.status, 200);
+  assert.equal(persistedModelSource.body?.source, 'endpoints');
+
+  const persistedEndpointCatalog = await requestJson('/v1/models');
+  assert.ok(
+    persistedEndpointCatalog.body?.data?.some((model) => model.id.includes('endpoint-only-model')),
+    'Expected endpoint cache to survive proxy restart'
+  );
+
+  const switchToCustom = await requestJson('/api/model-source', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ source: 'custom' })
+  });
+  assert.equal(switchToCustom.response.status, 200);
+  assert.equal(switchToCustom.body?.source, 'custom');
+
+  const customCatalog = await requestJson('/v1/models');
+  assert.equal(
+    customCatalog.body?.data?.some((model) => model.id.includes('endpoint-only-model')),
+    false,
+    'Endpoint-only model should not appear when custom source is active'
+  );
+
+  const invalidModelSource = await requestJson('/api/model-source', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ source: 'invalid' })
+  });
+  assert.equal(invalidModelSource.response.status, 400);
 
   const invalidSave = await requestJson('/api/keys', {
     method: 'POST',

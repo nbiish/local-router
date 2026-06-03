@@ -12,7 +12,9 @@ const provider: ProxyProvider = {
     try {
       const url = process.env.LOCAL_ROUTER_PROVIDER_OLLAMA_BASE_URL || 'http://127.0.0.1:11435/v1';
       // We can use the /v1/models endpoint that real ollama provides
-      const res = await fetch(`${url}/models`);
+      const res = await fetch(`${url}/models`, {
+        signal: AbortSignal.timeout(4000)
+      });
       if (!res.ok) {
         return [];
       }
