@@ -125,24 +125,24 @@ Validate types and paths (CWE-22). Parameterize SQL. `shell=False` for subproces
 
 **Pass the WORKTREE GATE above first.** Git worktrees are the fundamental mechanism for iteration. They ensure a pristine `git reflog` and untangled history, allowing us to safely experiment, bisect, and roll back without polluting stable branches.
 
-### Branching Strategy — Three-Tier Promotion Pipeline
+### Branching Strategy — Main + Optional Develop Testing
 
 | Branch | Purpose | Writes allowed? |
 |--------|---------|----------------|
-| `main` | Release surface | **NO** — only merges from `develop` |
-| `develop` | Integration / pre-release staging | **NO** — only merges from `feature/*` |
+| `main` | Sole release branch; canonical project state | **NO** — only merges from tested feature work |
+| `develop` | Optional personal testing sandbox | **NO** — only merges from `feature/*` when operator testing is needed |
 | `feature/<slug>` | Active development | **YES** — one task, one branch, one worktree |
 
 ### Development & Iteration Loop
 
-1. **Isolate:** Create branch + worktree from `develop`. Read `llms.txt` → write `.agents/tasks/TASK.$(date).md`.
+1. **Isolate:** Create branch + worktree from `develop` (or `main` if skipping develop testing). Read `llms.txt` → write `.agents/tasks/TASK.$(date).md`.
 2. **Iterate & Track:** Commit atomically and frequently within the worktree. Write descriptive commit messages. Excellent git history is required so we can step backward through logical iterations if an approach fails.
 3. **Audit:** Scan code, task file, and `llms.txt` for banned crypto or secrets every cycle.
 4. **Pre-Commit:** Pass native ecosystem gates (e.g., `cargo clippy`, `tsc`, `ruff`), plus security gates (`gitleaks`, `detect-secrets`).
 5. **Verify:** Smoke-test the change before asking the user to merge. See [Verification Procedure](#verification-procedure) below.
-6. **Merge (Two-Hop Promotion):**
-   - `feature/*` → `develop`: gates pass, diff clean, no conflicts. Ask: *"Ready to merge `feature/<slug>` → `develop`? [diff summary]. Confirm?"*
-   - `develop` → `main`: full audit, tests green. Ask: *"Ready to promote `develop` → `main`? [diff summary]. Confirm?"*
+6. **Merge:**
+   - `feature/*` → `develop` (optional): gates pass, diff clean, no conflicts. Use when personal testing is needed.
+   - `feature/*` or `develop` → `main`: full audit, tests green. Ask: *"Ready to merge into `main`? [diff summary]. Confirm?"*
    - Fail closed on ambiguity. Clean up branches and worktrees post-merge. See [Post-Merge Cleanup](#post-merge-cleanup) below.
 
 ### Verification Procedure
@@ -248,7 +248,7 @@ Run before any code that touches cryptography, secrets storage, or network commu
 - Secrets — platform keystore used, AES-256-GCM + ML-KEM-768 wrapping, no plaintext, no `.env`
 - History — frequent, atomic commits made within the worktree to preserve iteration history
 - **Verification** — change smoke-tested via verification procedure; new entries visible; PQC bundle loaded; no unexpected errors in the log
-- Merge readiness — all gates passing, diff summarized, feature → `develop` merged before `develop` → `main` promotion
+- Merge readiness — all gates passing, diff summarized, feature work merged to `main` (via `develop` when personal testing was used)
 - **Post-merge cleanup** — merged worktree removed (`git worktree list` shows only main), feature branch deleted (`git branch` shows no merged-feature rows), working tree clean, on `main` for safety
 - Worktree hygiene — Pass the WORKTREE GATE first. Not stale, not dirty, not on `main` or `develop`.
 
@@ -258,5 +258,5 @@ Run before any code that touches cryptography, secrets storage, or network commu
 ---
 
 <REINFORCEMENT>
-PQC for every API key. Respect the target codebase language (Rust, TS, Python). Isolate every task in its own git worktree to maintain pristine iteration history. Feature → `develop` → `main` promotion pipeline. Never self-approve merges — ask the user at every hop. Chain-of-Draft task files: strictly ≤5 words per reasoning step, transition with ####. Output full production code.
+PQC for every API key. Respect the target codebase language (Rust, TS, Python). Isolate every task in its own git worktree to maintain pristine iteration history. `main` is the sole release branch; `develop` is optional for personal testing. Never self-approve merges — ask the user at every hop. Chain-of-Draft task files: strictly ≤5 words per reasoning step, transition with ####. Output full production code.
 </REINFORCEMENT>

@@ -35,17 +35,16 @@ Routing direction: auto-routing should be open, inspectable, and improvable by t
 
 ## Branch Policy
 
-The repository uses three long-lived branches:
+The repository uses two long-lived branches:
 
-- `main`: user-facing default branch displayed on GitHub.
-- `staging`: operator verification branch, one step below what users see.
-- `develop`: working integration branch for active feature work.
+- `main`: sole release branch and GitHub default. All shipped work lands here. This is the canonical project state.
+- `develop`: optional personal testing sandbox. Use it when a feature needs isolated operator verification before merging to `main`. Not required for every change.
 
-Promotion path: feature branches -> `develop` -> `staging` -> `main`.
+Promotion path: feature branches (worktrees) → `develop` (optional, personal testing) → `main`.
 
-Do not use a separate `production` branch. `main` is the production-facing branch.
+Do not use `staging`, `production`, or other long-lived integration branches. `main` is the production-facing branch.
 
-Per `AGENTS.md`: never work directly on `main` or `develop`. Create a git worktree for every task. One task = one branch = one worktree.
+Per `AGENTS.md`: never do active feature development directly on `main` or `develop`. Create a git worktree for every task. One task = one branch = one worktree.
 
 ## Architecture
 
@@ -842,3 +841,11 @@ Claude Code / VS Code / any tool
 6. ✅ **Build & tests** — `npm run build` and `npm test` pass in `feat/routing/custom-models-toggle` worktree.
 
 **Branch:** `feat/routing/custom-models-toggle` from `develop`
+
+### 2026-06-03 — Branch Consolidation (Main-Only Release)
+
+**Tasks completed:**
+1. ✅ **Branch policy simplified** — `main` is sole release branch; `develop` is optional personal testing sandbox; `staging` retired.
+2. ✅ **Docs updated** — `llms.txt`, `AGENTS.md`, and `README.md` aligned to two-branch model.
+3. ✅ **Stale branches removed** — deleted merged feature/docs branches and orphaned worktrees.
+4. ✅ **`develop` synced to `main`** — both branches point at the same canonical tip after cleanup.

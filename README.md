@@ -165,17 +165,16 @@ VS Code and other tools can then point at `http://127.0.0.1:11435/v1`.
 
 Long-lived branches:
 
-- `main`: user-facing default branch displayed on GitHub.
-- `staging`: operator verification branch, one step below `main`.
-- `develop`: integration branch for active feature work before promotion to `staging`.
+- `main`: sole release branch and GitHub default. Canonical project state.
+- `develop`: optional personal testing sandbox when a feature needs isolated verification before merging to `main`.
 
 Promotion path:
 
 ```text
-feature branches -> develop -> staging -> main
+feature branches (worktrees) -> develop (optional) -> main
 ```
 
-`production` is not used. `main` is the production-facing branch.
+`staging` and `production` are not used. `main` is the production-facing branch.
 
 Primary implementation files:
 
