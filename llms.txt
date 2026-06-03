@@ -496,7 +496,8 @@ Local Router supports first-class router models presented as `local-router/<rout
 ### Hard Invariants
 - Router execution must always and exclusively choose from the user-configured candidate models
 - Never silently use OpenRouter `openrouter/auto`, Not Diamond defaults, a provider-managed hidden pool, or any model outside the explicit candidate list
-- If no candidate survives filtering, fail closed with a clear 400/502 diagnostic
+- If no candidate survives filtering and no system fallback route exists, fail closed with a clear 400/502 diagnostic
+- When `fallback-models` is configured, router zero-eligible and router/direct exhaustion cascade to that chain
 
 ### Router Types
 
@@ -505,16 +506,23 @@ Local Router supports first-class router models presented as `local-router/<rout
 | `priority` | Deterministic ordered candidate list with fallback semantics | Implemented |
 | `pareto-code` | Coding-focused: `min_coding_score`, cost/latency tie-breaks, capability filters, same-tier fallback | Implemented |
 | `auto-local` | Local rules/weights using task features (tool use, image input, context size, cache support, prior success rate, latency) | Implemented |
-| `bandit-local` | dLinUCB with bounded exploration, geometric forgetting (γ=0.98), per-candidate A/b matrices, UCB selection, persisted state | Planned — highest impact from research |
+| `bandit-local` | dLinUCB with bounded exploration, geometric forgetting (γ=0.98), per-candidate A/b matrices, UCB selection, persisted state | Implemented |
 
 ### Default Auto Router Profile
 - Type: `auto-local`
 - `minCodingScore`: `0.66`
 - `costQualityTradeoff`: `7`
 - Default candidates (15 across 8 providers): `openrouter-1-million-chain-of-draft` (coding=0.88), `openrouter-chain-of-draft` (0.86), `openrouter-qwen3.7-max` (0.85), `xiaomi-mimo-mimo-v2.5-pro` (0.80), `xiaomi-mimo-mimo-v2.5` (0.76), `zenmux-minimax-m3` (0.85), `zenmux-step-3.7-flash` (0.84), `zenmux-deepseek-v4-pro` (0.91), `zai-code-pass-glm-5.1` (0.83), `opencode-minimax-m3` (0.85), `modal-glm-5.1-fp8` (0.83), `nvidia-nim-step-3.7-flash` (0.84), `wafer-ai-deepseek-v4-flash` (0.87), `nvidia-nim-kimi-k2.6` (0.86), `opencode-minimax-m3-free` (0.80)
-- Graceful skip: candidates for unconfigured providers are silently skipped with console warning. If ALL candidates are skipped, the error response lists which providers need API keys.
+- Graceful skip: candidates for unconfigured providers are silently skipped with console warning. If ALL candidates are skipped and `fallback-models` exists, cascade to system fallback; otherwise error lists which providers need API keys.
 - Provider presentation prefixes: `wafer-serverless→wafer-ai`, `openrouter-presets→openrouter`; other providers use their name directly
 - The Router Models UI reset action restores this complete default profile
+
+### Default System Fallback Profile
+- Bootstrapped on first run via `ensureDefaultFallback()` when no fallback routes exist
+- Route id: `fallback-models` (system safety net for direct model failure, router exhaustion, and router zero-eligible)
+- Chain order: free tier (`opencode-minimax-m3-free`, `opencode-zen-minimax-m3-free`) → MiniMax M3 across providers (`zenmux-minimax-m3`, `openrouter-minimax-m3`, `opencode-minimax-m3`, `nvidia-nim-minimax-m3`) → same 15 default router candidates (deduped)
+- Fallback stages without configured provider keys are skipped immediately (no retry backoff)
+- `/config` **Reset Fallback Defaults** restores this chain; candidate badges show Ready / No key / Unavailable
 
 ### Router API
 - `GET /api/router-models` — list router definitions
@@ -523,7 +531,8 @@ Local Router supports first-class router models presented as `local-router/<rout
 - `GET /api/router-events.csv` — redacted decision telemetry (prompt_hash, coding_task, tool_calls_valid, reward_signal, candidate_scores, error_type)
 - `GET /api/router-candidates.csv` — candidate metadata export (success_rate, tool_call_accuracy, latency_p50_ms, latency_p95_ms, sample_count, tier, last_observed_at)
 - `POST /api/router-models/:id/recompute` — recompute candidate stats + tiers from telemetry
-- `POST /api/router-models/:id/dry-run` — score candidates without upstream call (planned)
+- `POST /api/router-models/:id/dry-run` — score candidates without upstream call
+- `GET /api/routing/availability?models=a,b,c` — key-aware candidate status for `/config` UI
 - `GET /api/sessions` — list active sessions (2-hour window)
 - `POST /api/sessions/:id/feedback` — rate a session (`{ "rating": "up" | "down" }`)
 

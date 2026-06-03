@@ -294,6 +294,20 @@ test('provider key save/reset lifecycle exposes configured source', async (t) =>
   assert.equal(ps.response.status, 200);
   assert.deepEqual(ps.body, { models: [] });
 
+  const bootstrappedFallbackRoutes = await requestJson('/api/fallback-models');
+  assert.equal(bootstrappedFallbackRoutes.response.status, 200);
+  assert.ok(
+    bootstrappedFallbackRoutes.body?.data?.some((route) => route.routeId === 'fallback-models'),
+    'Expected bootstrapped fallback-models system route on first run'
+  );
+
+  const bootstrappedRouterModels = await requestJson('/api/router-models');
+  assert.equal(bootstrappedRouterModels.response.status, 200);
+  assert.ok(
+    bootstrappedRouterModels.body?.data?.some((route) => route.routeId === 'auto-local-main'),
+    'Expected bootstrapped auto-local-main router on first run'
+  );
+
   const show = await requestJson('/api/show', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -439,6 +453,16 @@ test('provider key save/reset lifecycle exposes configured source', async (t) =>
     'Expected custom provider model to appear in OpenAI-compatible models'
   );
 
+  const availability = await requestJson('/api/routing/availability?models=' + encodeURIComponent(`${presentedModel},zenmux-deepseek-v4-pro`));
+  assert.equal(availability.response.status, 200);
+  const readyAvailability = availability.body?.data?.find((entry) => entry.model === presentedModel);
+  assert.equal(readyAvailability?.status, 'ready');
+  assert.equal(readyAvailability?.keyConfigured, true);
+  const missingKeyAvailability = availability.body?.data?.find((entry) => entry.model === 'zenmux-deepseek-v4-pro');
+  assert.ok(missingKeyAvailability, 'Expected zenmux catalog model in availability response');
+  assert.equal(missingKeyAvailability?.status, 'no_key');
+  assert.equal(missingKeyAvailability?.keyConfigured, false);
+
   const customShow = await requestJson('/api/show', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -507,6 +531,81 @@ test('provider key save/reset lifecycle exposes configured source', async (t) =>
     })
   });
   assert.equal(fallbackPrimaryC.response.status, 200);
+
+  const providerConfigsForZeroEligible = await requestJson('/api/provider-configs');
+  const unconfiguredProviderEntry = providerConfigsForZeroEligible.body?.data?.find((entry) => (
+    !entry.configured && entry.modelCount > 0 && entry.name !== selectedProvider.name
+  ));
+  assert.ok(unconfiguredProviderEntry, 'Expected at least one unconfigured provider in catalog');
+
+  const tagsForZeroEligible = await requestJson('/api/tags');
+  const missingKeyCatalogModel = tagsForZeroEligible.body?.models?.find((model) => (
+    model.details?.family === unconfiguredProviderEntry.name
+    && !String(model.name).startsWith('local-router/')
+  ));
+  assert.ok(missingKeyCatalogModel, 'Expected catalog model from unconfigured provider');
+
+  const zeroEligibleFallbackSave = await requestJson('/api/fallback-models', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      id: 'fallback-models',
+      modelsText: [missingKeyCatalogModel.name, 'fallback-third-success'].join('\n')
+    })
+  });
+  assert.equal(zeroEligibleFallbackSave.response.status, 200);
+
+  const zeroEligibleRouterSave = await requestJson('/api/router-models', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      id: 'zero-eligible-router',
+      type: 'priority',
+      candidatesText: missingKeyCatalogModel.name
+    })
+  });
+  assert.equal(zeroEligibleRouterSave.response.status, 200);
+
+  upstreamRequests = [];
+  upstreamAttemptByModel = new Map();
+  const zeroEligibleChat = await requestJson('/v1/chat/completions', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model: 'local-router/zero-eligible-router',
+      stream: false,
+      messages: [{ role: 'user', content: 'zero eligible cascade test' }]
+    })
+  });
+  assert.equal(zeroEligibleChat.response.status, 200);
+  assert.equal(zeroEligibleChat.body?.choices?.[0]?.message?.content, 'ok:success-third');
+  const zeroEligibleUpstreamModels = upstreamRequests.map((entry) => entry?.body?.model).filter(Boolean);
+  assert.ok(
+    !zeroEligibleUpstreamModels.includes(missingKeyCatalogModel.model),
+    'Unconfigured catalog model should be skipped without upstream calls'
+  );
+  assert.ok(zeroEligibleUpstreamModels.includes('success-third'));
+
+  upstreamRequests = [];
+  upstreamAttemptByModel = new Map();
+  const fastSkipFallbackChat = await requestJson('/v1/chat/completions', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model: 'local-router/fallback-models',
+      stream: false,
+      messages: [{ role: 'user', content: 'fast skip fallback test' }]
+    })
+  });
+  assert.equal(fastSkipFallbackChat.response.status, 200);
+  assert.equal(fastSkipFallbackChat.body?.choices?.[0]?.message?.content, 'ok:success-third');
+  const fastSkipUpstreamModels = upstreamRequests.map((entry) => entry?.body?.model).filter(Boolean);
+  assert.equal(
+    fastSkipUpstreamModels.filter((modelName) => modelName === missingKeyCatalogModel.model).length,
+    0,
+    'Fallback should fast-skip unconfigured provider without retry attempts'
+  );
+  assert.ok(fastSkipUpstreamModels.includes('success-third'));
 
   const fallbackRouteSave = await requestJson('/api/fallback-models', {
     method: 'POST',

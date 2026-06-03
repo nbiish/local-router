@@ -184,6 +184,39 @@ const DEFAULT_ROUTER_CANDIDATES_TEXT = [
   'nvidia-nim-kimi-k2.6, coding=0.86, input=0.6, output=2.5, latency=850, notes=NVIDIA NIM Kimi K2.6 256K ctx coding',
   'opencode-minimax-m3-free, coding=0.80, input=0, output=0, latency=900, notes=OpenCode MiniMax M3 free tier 512K ctx'
 ].join('\n');
+const DEFAULT_FALLBACK_FREE_TIER = [
+  'opencode-minimax-m3-free',
+  'opencode-zen-minimax-m3-free'
+];
+const DEFAULT_FALLBACK_MINIMAX_M3 = [
+  'zenmux-minimax-m3',
+  'openrouter-minimax-m3',
+  'opencode-minimax-m3',
+  'nvidia-nim-minimax-m3'
+];
+
+function defaultFallbackModelIds(): string[] {
+  const routerIds = DEFAULT_ROUTER_CANDIDATES_TEXT
+    .split('\n')
+    .map((line) => line.split(',')[0].trim())
+    .filter(Boolean);
+  const seen = new Set<string>();
+  const ordered: string[] = [];
+  for (const id of [...DEFAULT_FALLBACK_FREE_TIER, ...DEFAULT_FALLBACK_MINIMAX_M3, ...routerIds]) {
+    if (!seen.has(id)) {
+      seen.add(id);
+      ordered.push(id);
+    }
+  }
+  return ordered;
+}
+
+function buildDefaultFallbackModelsText(): string {
+  return defaultFallbackModelIds().join('\n');
+}
+
+const DEFAULT_FALLBACK_MODELS_TEXT = buildDefaultFallbackModelsText();
+
 const parsedFallbackBaseRetrySeconds = Number.parseInt(
   process.env.LOCAL_ROUTER_FALLBACK_BASE_RETRY_SECONDS || process.env.FVS_FALLBACK_BASE_RETRY_SECONDS || '2',
   10
@@ -1932,6 +1965,31 @@ app.get('/config', (req: Request, res: Response) => {
         .status-pill { margin: 8px 0 0; margin-left: 0; }
         .status-pill.configured { background: var(--success-bg); color: var(--success-text); }
         .status-pill.pending { background: var(--warning-bg); color: var(--warning-text); }
+        .candidate-status { display: inline-block; padding: 2px 7px; border-radius: 999px; font-size: 11px; font-weight: 700; margin-left: 6px; }
+        .candidate-status.ready { background: var(--success-bg); color: var(--success-text); }
+        .candidate-status.no-key { background: var(--warning-bg); color: var(--warning-text); }
+        .candidate-status.unavailable { background: var(--secondary-bg); color: var(--muted); }
+        .routing-info-box {
+          margin-top: 14px;
+          padding: 12px 14px;
+          border: 1px solid var(--border);
+          border-radius: 8px;
+          background: var(--surface-soft);
+          font-size: 13px;
+          line-height: 1.55;
+        }
+        .routing-info-box h4 { margin: 0 0 8px; font-size: 14px; }
+        .routing-info-box ul { margin: 8px 0 0 18px; padding: 0; }
+        .routing-info-box li { margin: 4px 0; }
+        #routerTypeHelp {
+          margin-top: 8px;
+          padding: 10px 12px;
+          border-left: 3px solid var(--primary);
+          background: var(--surface-soft);
+          font-size: 13px;
+          line-height: 1.5;
+          color: var(--text);
+        }
         .row-actions { display: flex; gap: 10px; }
         .button-row { display: flex; gap: 10px; flex-wrap: wrap; }
         .button-secondary { background: var(--secondary-bg); color: var(--text); border: 1px solid var(--border-strong); }
@@ -2295,13 +2353,14 @@ app.get('/config', (req: Request, res: Response) => {
           <div>
             <h2>Fallback Model Routes</h2>
             <p class="muted">Create a presented fallback model from existing model IDs. The route appears in /v1/models, /api/tags, /api/show, and VS Code picker refreshes.</p>
+            <p class="muted">The <strong>fallback-models</strong> route is the system safety net: when a direct model or router fails (or has no eligible candidates), Local Router cascades to this chain automatically.</p>
           </div>
           <div class="muted" id="fallbackCount">Loading fallback routes...</div>
         </div>
         <div class="provider-picker">
           <div class="form-group">
             <label for="fallbackRouteId">Presented Fallback Model Name</label>
-            <input id="fallbackRouteId" type="text" placeholder="fvs-fallback-main">
+            <input id="fallbackRouteId" type="text" placeholder="fallback-models">
           </div>
           <div class="form-group">
             <label for="fallbackModelsText">Fallback Model Chain</label>
@@ -2310,6 +2369,7 @@ app.get('/config', (req: Request, res: Response) => {
         </div>
         <div class="button-row">
           <button onclick="saveFallbackRoute()">Add / Update Fallback Route</button>
+          <button class="button-secondary" onclick="applyFallbackDefaults()">Reset Fallback Defaults</button>
           <button class="button-secondary" onclick="clearFallbackRouteForm()">Clear Fallback Form</button>
           <button class="button-secondary" onclick="configureVSCodePicker()">Refresh VS Code Model Picker</button>
         </div>
@@ -2318,6 +2378,15 @@ app.get('/config', (req: Request, res: Response) => {
         </div>
       </div>
       <div class="card">
+        <div class="routing-info-box">
+          <h4>How routing works</h4>
+          <ul>
+            <li><strong>Direct model</strong> — one provider call (e.g. <code>zenmux-deepseek-v4-pro</code>). On failure, cascades to the system fallback chain.</li>
+            <li><strong>Router model</strong> (<code>local-router/&lt;name&gt;</code>) — scores and filters your candidate list, then tries models in router order. On exhaustion or zero eligible candidates, cascades to system fallback.</li>
+            <li><strong>Fallback route</strong> (<code>local-router/&lt;chain&gt;</code>) — ordered retry chain with backoff. Use <code>local-router/fallback-models</code> as the system safety net.</li>
+          </ul>
+          <p class="muted" style="margin:10px 0 0;">Recommended out-of-box model: <code>local-router/auto-local-main</code>. Configure provider keys above — candidates light up when ready.</p>
+        </div>
         <div class="catalog-meta">
           <div>
             <h2>Router Models</h2>
@@ -2333,11 +2402,12 @@ app.get('/config', (req: Request, res: Response) => {
           <div class="form-group">
             <label for="routerType">Router Type</label>
             <select id="routerType" onchange="toggleBanditFields()">
-              <option value="auto-local">auto-local</option>
-              <option value="pareto-code">pareto-code</option>
-              <option value="priority">priority</option>
-              <option value="bandit-local">bandit-local</option>
+              <option value="auto-local">auto-local — smart balance (recommended)</option>
+              <option value="pareto-code">pareto-code — coding-first</option>
+              <option value="priority">priority — manual order</option>
+              <option value="bandit-local">bandit-local — learns from usage</option>
             </select>
+            <div id="routerTypeHelp" class="muted"></div>
           </div>
         </div>
         <div class="provider-picker">
@@ -2517,8 +2587,10 @@ app.get('/config', (req: Request, res: Response) => {
         let activeFallbackRouteId = '';
         let activeRouterRouteId = '';
         const DEFAULT_ROUTER_CANDIDATES_TEXT = ${JSON.stringify(DEFAULT_ROUTER_CANDIDATES_TEXT)};
+        const DEFAULT_FALLBACK_MODELS_TEXT = ${JSON.stringify(DEFAULT_FALLBACK_MODELS_TEXT)};
         let routerCandidateStore = [];
         let allModelsCache = [];
+        let modelAvailabilityCache = {};
         let selectedDropdownIndex = -1;
         let fallbackGroupMode = false;
 
@@ -2778,6 +2850,35 @@ app.get('/config', (req: Request, res: Response) => {
           document.getElementById('fallbackModelsText').value = '';
         }
 
+        function applyFallbackDefaults() {
+          activeFallbackRouteId = '';
+          document.getElementById('fallbackRouteId').value = 'fallback-models';
+          document.getElementById('fallbackRouteId').disabled = false;
+          document.getElementById('fallbackModelsText').value = DEFAULT_FALLBACK_MODELS_TEXT;
+        }
+
+        function availabilityBadgeHtml(modelId) {
+          var entry = modelAvailabilityCache[modelId];
+          if (!entry) return '';
+          var label = entry.status === 'ready' ? 'Ready' : entry.status === 'no_key' ? 'No key' : 'Unavailable';
+          return '<span class="candidate-status ' + escapeHtml(entry.status) + '">' + escapeHtml(label) + '</span>';
+        }
+
+        async function refreshModelAvailability(modelIds) {
+          var ids = Array.from(new Set((modelIds || []).filter(Boolean)));
+          if (!ids.length) return;
+          try {
+            var res = await fetch('/api/routing/availability?models=' + encodeURIComponent(ids.join(',')));
+            var payload = await res.json().catch(function() { return {}; });
+            var rows = Array.isArray(payload?.data) ? payload.data : [];
+            rows.forEach(function(entry) {
+              if (entry && entry.model) modelAvailabilityCache[entry.model] = entry;
+            });
+          } catch {
+            // Best-effort UI enrichment only.
+          }
+        }
+
         function renderFallbackRoutes() {
           const countEl = document.getElementById('fallbackCount');
           const listEl = document.getElementById('fallbackRouteList');
@@ -2791,9 +2892,10 @@ app.get('/config', (req: Request, res: Response) => {
 
           listEl.innerHTML = routes.map((route) => {
             const models = Array.isArray(route.models) ? route.models : [];
+            const chainHtml = models.map((modelId) => escapeHtml(modelId) + availabilityBadgeHtml(modelId)).join(' → ');
             return '<div class="fallback-route-item" data-fallback-route="' + escapeHtml(route.id) + '">' +
               '<h4>' + escapeHtml(route.id) + '</h4>' +
-              '<div class="meta">Chain: ' + escapeHtml(models.join(' -> ')) + '</div>' +
+              '<div class="meta">Chain: ' + chainHtml + '</div>' +
               '<div class="meta">Displayed as: ' + escapeHtml(route.display || ('fallback:' + models.join(' -> '))) + '</div>' +
               '<div class="actions">' +
                 '<button class="button-secondary" data-edit-fallback="' + escapeHtml(route.id) + '">Edit</button>' +
@@ -2825,6 +2927,8 @@ app.get('/config', (req: Request, res: Response) => {
           const res = await fetch('/api/fallback-models');
           const payload = await res.json().catch(() => ({}));
           fallbackRoutes = Array.isArray(payload?.data) ? payload.data : [];
+          const modelIds = fallbackRoutes.flatMap((route) => Array.isArray(route.models) ? route.models : []);
+          await refreshModelAvailability(modelIds);
           renderFallbackRoutes();
         }
 
@@ -3023,10 +3127,11 @@ app.get('/config', (req: Request, res: Response) => {
             var provider = modelParts.length > 1 ? modelParts.slice(0, modelParts.length > 2 ? modelParts.length - 2 : 1).join('-') : '';
             var badge = provider ? '<span class="provider-badge">' + escapeHtml(provider) + '</span>' : '';
             var fallbackTag = c.fallbackOf ? '<span class="provider-badge" style="background:var(--warning-bg);color:var(--warning-text);">fallback</span>' : '';
+            var statusBadge = availabilityBadgeHtml(c.model);
             return '<div class="router-candidate-item" draggable="true" data-candidate-index="' + i + '" ondragstart="candidateDragStart(event)" ondragover="candidateDragOver(event)" ondrop="candidateDrop(event)" ondragend="candidateDragEnd(event)">' +
               '<span class="drag-handle" title="Drag to reorder">☰</span>' +
               '<div class="candidate-info">' +
-                '<span class="candidate-model">' + escapeHtml(c.model) + '</span>' + badge + fallbackTag +
+                '<span class="candidate-model">' + escapeHtml(c.model) + '</span>' + badge + fallbackTag + statusBadge +
                 '<div class="metadata-row">' +
                   '<div><label>coding</label><input type="number" value="' + (c.codingScore !== undefined ? c.codingScore : '') + '" min="0" max="1" step="0.01" placeholder="0-1" onchange="updateCandidateMeta(' + i + ', \\'codingScore\\', this.value)"></div>' +
                   '<div><label>input $</label><input type="number" value="' + (c.inputPrice !== undefined ? c.inputPrice : '') + '" min="0" step="0.01" placeholder="per 1M" onchange="updateCandidateMeta(' + i + ', \\'inputPrice\\', this.value)"></div>' +
@@ -3143,14 +3248,33 @@ app.get('/config', (req: Request, res: Response) => {
           document.getElementById('routerCostQualityTradeoff').value = '7';
           document.getElementById('routerExplorationBudget').value = '0.05';
           document.getElementById('routerCandidatesText').value = DEFAULT_ROUTER_CANDIDATES_TEXT;
-          routerCandidateStore = [];
-          renderCandidateList();
+          syncTextareaToCandidates();
           toggleBanditFields();
+          refreshRouterCandidateAvailability();
         }
 
         function toggleBanditFields() {
           var isBandit = document.getElementById('routerType').value === 'bandit-local';
           document.getElementById('banditExplorationGroup').style.display = isBandit ? '' : 'none';
+          updateRouterTypeHelp();
+        }
+
+        function updateRouterTypeHelp() {
+          var type = document.getElementById('routerType').value;
+          var help = {
+            'auto-local': 'Picks the best model from your candidate list using coding quality, cost, and speed. Use the Cost/Quality slider (0–10) to balance price vs quality. Recommended default.',
+            'pareto-code': 'Coding-first routing: drops models below Min Coding Score, then ranks eligible candidates by quality. Best for agent and tool-heavy workflows.',
+            'priority': 'Uses your candidate list top-to-bottom after basic capability checks. Best when you want predictable, manual ordering.',
+            'bandit-local': 'Learns from past requests which candidates work best for your workload. Needs about 10 samples per model before full ranking. Exploration Budget controls how often it tries new options.'
+          };
+          var helpEl = document.getElementById('routerTypeHelp');
+          if (helpEl) helpEl.innerText = help[type] || '';
+        }
+
+        async function refreshRouterCandidateAvailability() {
+          var ids = routerCandidateStore.map(function(c) { return c.model; }).filter(Boolean);
+          await refreshModelAvailability(ids);
+          renderCandidateList();
         }
 
         function clearRouterRouteForm() {
@@ -3176,10 +3300,11 @@ app.get('/config', (req: Request, res: Response) => {
           listEl.innerHTML = routes.map((route) => {
             const candidates = Array.isArray(route.candidates) ? route.candidates : [];
             const models = candidates.map((candidate) => candidate.model || candidate).filter(Boolean);
+            const modelsHtml = models.map((modelId) => escapeHtml(modelId) + availabilityBadgeHtml(modelId)).join(' | ');
             return '<div class="fallback-route-item" data-router-route="' + escapeHtml(route.id) + '">' +
               '<h4>' + escapeHtml(route.id) + '</h4>' +
               '<div class="meta">Type: ' + escapeHtml(route.type || 'priority') + '</div>' +
-              '<div class="meta">Candidates: ' + escapeHtml(models.join(' | ')) + '</div>' +
+              '<div class="meta">Candidates: ' + modelsHtml + '</div>' +
               '<div class="meta">Displayed as: ' + escapeHtml(route.display || route.id) + '</div>' +
               '<div class="actions">' +
                 '<button class="button-secondary" data-edit-router="' + escapeHtml(route.id) + '">Edit</button>' +
@@ -3227,6 +3352,12 @@ app.get('/config', (req: Request, res: Response) => {
           const res = await fetch('/api/router-models');
           const payload = await res.json().catch(() => ({}));
           routerRoutes = Array.isArray(payload?.data) ? payload.data : [];
+          const modelIds = routerRoutes.flatMap((route) => (
+            Array.isArray(route.candidates)
+              ? route.candidates.map((candidate) => candidate.model || candidate)
+              : []
+          ));
+          await refreshModelAvailability(modelIds);
           renderRouterRoutes();
         }
 
@@ -3679,6 +3810,9 @@ app.get('/config', (req: Request, res: Response) => {
           setMessage('Provider key saved in-memory successfully.', 'success');
           await loadProviderConfigs();
           await loadCatalog();
+          await refreshRouterCandidateAvailability();
+          await loadFallbackRoutes();
+          await loadRouterRoutes();
         }
 
         async function resetProviderKey(providerName) {
@@ -3697,6 +3831,9 @@ app.get('/config', (req: Request, res: Response) => {
           setMessage('Cleared in-memory key for ' + providerName + '.', 'success');
           await loadProviderConfigs();
           await loadCatalog();
+          await refreshRouterCandidateAvailability();
+          await loadFallbackRoutes();
+          await loadRouterRoutes();
         }
 
         function saveProviderKey() {
@@ -3874,6 +4011,7 @@ app.get('/config', (req: Request, res: Response) => {
         loadRouterRoutes();
         buildModelDropdown();
         applyRouterDefaults();
+        updateRouterTypeHelp();
         loadCatalog();
         loadSessionsPanel();
         loadSystemPrompt();
@@ -4211,6 +4349,13 @@ app.get('/api/router-models', (req: Request, res: Response) => {
     }))
     .sort((a, b) => a.id.localeCompare(b.id));
 
+  return res.json({ object: 'list', data });
+});
+
+app.get('/api/routing/availability', (req: Request, res: Response) => {
+  const raw = typeof req.query.models === 'string' ? req.query.models : '';
+  const models = raw.split(',').map((entry) => entry.trim()).filter(Boolean);
+  const data = models.map((modelName) => candidateAvailability(modelName));
   return res.json({ object: 'list', data });
 });
 
@@ -5172,6 +5317,44 @@ function ensureDefaultRouter() {
 
 ensureDefaultRouter();
 
+function ensureDefaultFallback() {
+  if (fallbackModelStore[SYSTEM_FALLBACK_ROUTE_ID]) return;
+
+  const hasAnyFallback = Object.keys(fallbackModelStore).length > 0;
+  if (hasAnyFallback) return;
+
+  const resolvedModels = resolvedDefaultFallbackModels();
+  if (resolvedModels.length < 2) {
+    console.error('Default fallback bootstrap skipped: fewer than 2 resolved models in catalog.');
+    return;
+  }
+
+  const parsed = parseFallbackModel({
+    id: SYSTEM_FALLBACK_ROUTE_ID,
+    models: resolvedModels
+  });
+
+  if (!parsed.ok) {
+    console.error('Failed to bootstrap default fallback route:', parsed.error);
+    return;
+  }
+
+  fallbackModelStore[parsed.model.id] = {
+    id: parsed.model.id,
+    models: [...parsed.model.models]
+  };
+
+  try {
+    persistFallbackModels();
+    console.log(`[router] Bootstrapped default fallback route "${SYSTEM_FALLBACK_ROUTE_ID}" with ${parsed.model.models.length} models.`);
+  } catch (error: any) {
+    console.error('Failed to persist default fallback route:', sanitizeDiagnosticText(String(error?.message || error)));
+    delete fallbackModelStore[parsed.model.id];
+  }
+}
+
+ensureDefaultFallback();
+
 function ollamaImageToOpenAIUrl(image: unknown) {
   if (typeof image !== 'string' || !image.trim()) return null;
   const value = image.trim();
@@ -5442,6 +5625,69 @@ function providerHasConfiguredKey(providerName: string) {
   const summary = getProviderSummary(providerName);
   if (!summary) return false;
   return Boolean(keyStore[summary.name] || process.env[summary.keyEnvVar]);
+}
+
+function candidateAvailability(modelName: string) {
+  const target = resolveModelTarget(modelName);
+  const resolved = Boolean(findProviderModel(modelName));
+  const providerName = target?.providerName || '';
+  const keyConfigured = providerName ? providerHasConfiguredKey(providerName) : false;
+  let status: 'ready' | 'no_key' | 'unavailable';
+  if (!target || !resolved || isLocalRouterProviderName(providerName)) {
+    status = 'unavailable';
+  } else if (!keyConfigured) {
+    status = 'no_key';
+  } else {
+    status = 'ready';
+  }
+  return {
+    model: modelName,
+    provider: providerName || null,
+    resolved,
+    keyConfigured,
+    status
+  };
+}
+
+function resolvedDefaultFallbackModels(): string[] {
+  return defaultFallbackModelIds().filter((id) => Boolean(findProviderModel(id)));
+}
+
+function fallbackStagePreflight(modelName: string): AttemptFailure | null {
+  const target = resolveModelTarget(modelName);
+  if (!target || !target.actualModel || isLocalRouterProviderName(target.providerName)) {
+    return {
+      errorType: 'unknown_model',
+      message: `Unknown fallback model "${modelName}".`
+    };
+  }
+
+  const provider = getProviderSummary(target.providerName);
+  if (!provider) {
+    return {
+      errorType: 'provider_not_found',
+      providerName: target.providerName,
+      actualModel: target.actualModel,
+      message: `No suitable provider found for: ${target.providerName}.`
+    };
+  }
+
+  if (!providerHasConfiguredKey(target.providerName)) {
+    return {
+      errorType: 'provider_config',
+      providerName: target.providerName,
+      actualModel: target.actualModel,
+      message: `Provider "${target.providerName}" is not configured. Add an API key at /config.`
+    };
+  }
+
+  return null;
+}
+
+function isImmediateRouterSkipError(errorType: AttemptFailure['errorType']) {
+  return errorType === 'provider_config'
+    || errorType === 'provider_not_found'
+    || errorType === 'unknown_model';
 }
 
 function inferredCodingScore(model: ProviderModel, candidate: RouterCandidate) {
@@ -6298,6 +6544,37 @@ async function handleChatCompletion(req: Request, res: Response, bodyOverrides?:
         candidate_scores: JSON.stringify(decision.candidateScores),
         error_type: 'no_eligible_candidates'
       });
+
+      const systemFallbackForEligibility = findSystemFallback();
+      if (systemFallbackForEligibility) {
+        pushDiagnostic({
+          event: 'proxy_error',
+          route: requestRoute,
+          presentedModel: model,
+          stream: Boolean(stream),
+          status: 400,
+          durationMs: Date.now() - requestStartedAt,
+          data: {
+            routerNoEligibleCandidates: {
+              route: routerRoute.id,
+              error: decision.error,
+              candidateScores: decision.candidateScores
+            },
+            cascadingToSystemFallback: systemFallbackForEligibility.id
+          }
+        });
+        return executeFallbackRoute(
+          systemFallbackForEligibility,
+          body,
+          model,
+          stream,
+          requestRoute,
+          outputFormat,
+          requestStartedAt,
+          res
+        );
+      }
+
       return res.status(400).json({
         error: decision.error,
         router: {
@@ -6414,6 +6691,10 @@ async function handleChatCompletion(req: Request, res: Response, bodyOverrides?:
           errorMessage: sanitizeDiagnosticText(result.error.message, 220),
           providerErrorPreview: sanitizeDiagnosticText(result.error.responseText || '', 280)
         });
+
+        if (isImmediateRouterSkipError(result.error.errorType)) {
+          break;
+        }
 
         if (attempt <= ROUTER_CANDIDATE_RETRIES) {
           const waitSeconds = fallbackRetryDelaySeconds(attempt);
@@ -6575,6 +6856,25 @@ async function executeFallbackRoute(
 
     for (let stageIndex = 0; stageIndex < plan.length; stageIndex += 1) {
       const stage = plan[stageIndex];
+      const preflightFailure = fallbackStagePreflight(stage.model);
+      if (preflightFailure) {
+        lastFailure = preflightFailure;
+        attemptLog.push({
+          fallbackRoute: fallbackRoute.id,
+          stage: stage.stage,
+          targetModel: stage.model,
+          attempt: 0,
+          stageAttempts: stage.attempts,
+          provider: preflightFailure.providerName || null,
+          actualModel: preflightFailure.actualModel || null,
+          status: preflightFailure.status || null,
+          errorType: preflightFailure.errorType,
+          errorMessage: sanitizeDiagnosticText(preflightFailure.message, 220),
+          skipped: true
+        });
+        continue;
+      }
+
       for (let attempt = 1; attempt <= stage.attempts; attempt += 1) {
         const fallbackData = {
           route: fallbackRoute.id,
