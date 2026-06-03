@@ -1,12 +1,13 @@
 import express, { Request, Response } from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
-import { Readable, Transform } from 'stream';
+import { Readable, Transform, Writable } from 'stream';
 import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
 import { execFileSync } from 'child_process';
+import { WebSocket, WebSocketServer } from 'ws';
 import { ProxyProvider } from './types';
 import { sanitizeProviderRequestBody, stripReasoningMetadata, ThinkingLevel, DEFAULT_THINKING_LEVEL } from './reasoning';
 import { loadSessions, loadFeedback, recordRequest, getSessions, getSessionById, recordFeedback } from './sessions';
@@ -5665,6 +5666,50 @@ function appendRouterEvent(event: Record<string, unknown>) {
   fs.chmodSync(ROUTER_EVENTS_PATH, 0o600);
 }
 
+function injectPromptCaching(body: any, providerName: string): any {
+  const isCachingSupported = ['zenmux', 'opencode', 'opencode-zen', 'xiaomi-mimo', 'wafer-serverless', 'openrouter', 'openrouter-presets'].includes(providerName);
+  if (!isCachingSupported) return body;
+
+  const messages = body.messages || [];
+  const totalMessageLength = messages.reduce((acc: number, m: any) => acc + (typeof m.content === 'string' ? m.content.length : 0), 0);
+  const isLargePrompt = totalMessageLength > 800 || messages.length >= 4;
+  if (!isLargePrompt) return body;
+
+  const newBody = { ...body };
+  if (Array.isArray(newBody.messages) && newBody.messages.length > 0) {
+    const newMessages = [...newBody.messages];
+
+    if (newMessages[0] && newMessages[0].role === 'system') {
+      const msg = { ...newMessages[0] };
+      if (typeof msg.content === 'string') {
+        msg.content = [{ type: 'text', text: msg.content, cache_control: { type: 'ephemeral' } }];
+      } else if (Array.isArray(msg.content) && msg.content[0]) {
+        msg.content = msg.content.map((part: any, idx: number) => 
+          idx === 0 ? { ...part, cache_control: { type: 'ephemeral' } } : part
+        );
+      }
+      newMessages[0] = msg;
+    }
+
+    const targetIdx = newMessages.length - 2;
+    if (targetIdx > 0 && newMessages[targetIdx]) {
+      const msg = { ...newMessages[targetIdx] };
+      if (typeof msg.content === 'string') {
+        msg.content = [{ type: 'text', text: msg.content, cache_control: { type: 'ephemeral' } }];
+      } else if (Array.isArray(msg.content) && msg.content[0]) {
+        msg.content = msg.content.map((part: any, idx: number) => 
+          idx === 0 ? { ...part, cache_control: { type: 'ephemeral' } } : part
+        );
+      }
+      newMessages[targetIdx] = msg;
+    }
+
+    newBody.messages = newMessages;
+  }
+
+  return newBody;
+}
+
 async function proxyModelAttempt(
   body: any,
   requestRoute: string,
@@ -5734,7 +5779,8 @@ async function proxyModelAttempt(
     modelName: target.actualModel,
     thinkingLevel: getEffectiveThinkingLevel(target.providerName)
   });
-  const finalBody = provider.formatBody ? provider.formatBody(safeRequestBody) : safeRequestBody;
+  const cachedRequestBody = injectPromptCaching(safeRequestBody, target.providerName);
+  const finalBody = provider.formatBody ? provider.formatBody(cachedRequestBody) : cachedRequestBody;
 
   pushDiagnostic({
     event: 'proxy_request',
@@ -6382,6 +6428,330 @@ app.post('/v1/chat/completions', async (req: Request, res: Response) => {
   await handleChatCompletion(req, res);
 });
 
+function chatCompletionToAnthropicResponse(chatData: any): any {
+  const choice = chatData?.choices?.[0] || {};
+  const message = choice.message || {};
+  const content: any[] = [];
+
+  if (message.content) {
+    content.push({
+      type: 'text',
+      text: message.content
+    });
+  }
+
+  if (Array.isArray(message.tool_calls) && message.tool_calls.length > 0) {
+    for (const tc of message.tool_calls) {
+      let input = {};
+      try {
+        input = JSON.parse(tc.function?.arguments || '{}');
+      } catch {
+        input = { value: tc.function?.arguments };
+      }
+      content.push({
+        type: 'tool_use',
+        id: tc.id,
+        name: tc.function?.name,
+        input
+      });
+    }
+  }
+
+  let stopReason: string | null = 'end_turn';
+  if (choice.finish_reason === 'length') stopReason = 'max_tokens';
+  else if (choice.finish_reason === 'tool_calls') stopReason = 'tool_use';
+  else if (choice.finish_reason === 'stop') stopReason = 'end_turn';
+
+  const usage = chatData?.usage || {};
+
+  return {
+    id: `msg_${chatData?.id || cryptoRandomId()}`,
+    type: 'message',
+    role: 'assistant',
+    model: chatData?.model || 'claude-3-5-sonnet',
+    content,
+    stop_reason: stopReason,
+    stop_sequence: null,
+    usage: {
+      input_tokens: usage.prompt_tokens || 0,
+      output_tokens: usage.completion_tokens || 0
+    }
+  };
+}
+
+app.post('/v1/messages', async (req: Request, res: Response) => {
+  const body = req.body || {};
+
+  if (!body.model) {
+    return res.status(400).json({
+      error: { type: 'invalid_request_error', message: 'model is required' }
+    });
+  }
+
+  const chatBody: any = {
+    model: body.model,
+    max_tokens: body.max_tokens,
+    temperature: body.temperature,
+    top_p: body.top_p,
+    stream: body.stream || false,
+    stop: body.stop_sequences
+  };
+
+  const messages: any[] = [];
+  if (typeof body.system === 'string' && body.system.trim()) {
+    messages.push({ role: 'system', content: body.system });
+  } else if (Array.isArray(body.system)) {
+    const systemText = body.system
+      .map((part: any) => (typeof part === 'string' ? part : part.text || ''))
+      .join('\n');
+    if (systemText.trim()) {
+      messages.push({ role: 'system', content: systemText });
+    }
+  }
+
+  if (Array.isArray(body.messages)) {
+    for (const msg of body.messages) {
+      const role = msg.role;
+      let content = msg.content;
+      if (Array.isArray(content)) {
+        content = content.map((part: any) => {
+          if (part.type === 'text') {
+            return { type: 'text', text: part.text };
+          } else if (part.type === 'image') {
+            const url = part.source?.data ? `data:${part.source.media_type};base64,${part.source.data}` : '';
+            return {
+              type: 'image_url',
+              image_url: { url }
+            };
+          } else if (part.type === 'tool_use') {
+            return {
+              type: 'tool_calls',
+              id: part.id,
+              function: {
+                name: part.name,
+                arguments: JSON.stringify(part.input)
+              }
+            };
+          } else if (part.type === 'tool_result') {
+            return {
+              type: 'tool_result',
+              tool_use_id: part.tool_use_id,
+              content: part.content
+            };
+          }
+          return part;
+        });
+      }
+      messages.push({ role, content });
+    }
+  }
+  chatBody.messages = messages;
+
+  if (Array.isArray(body.tools)) {
+    chatBody.tools = body.tools.map((t: any) => ({
+      type: 'function',
+      function: {
+        name: t.name,
+        description: t.description || '',
+        parameters: t.input_schema
+      }
+    }));
+  }
+
+  if (body.stream) {
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+
+    let messageStarted = false;
+    let contentBlockStarted = false;
+    let toolBlockStarted = false;
+    let openAiSseBuffer = '';
+    let textIndex = 0;
+    let currentToolId = '';
+    let currentToolName = '';
+
+    const processOpenAIToAnthropicStream = (chunk: any) => {
+      openAiSseBuffer += chunk.toString();
+      const lines = openAiSseBuffer.split('\n');
+      openAiSseBuffer = lines.pop() || '';
+
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (trimmed.startsWith('data: ')) {
+          const dataStr = trimmed.substring(6).trim();
+          if (dataStr === '[DONE]') {
+            res.write(`event: message_delta\ndata: ${JSON.stringify({
+              type: 'message_delta',
+              delta: { stop_reason: 'end_turn', stop_sequence: null },
+              usage: { output_tokens: 0 }
+            })}\n\n`);
+            res.write(`event: message_stop\ndata: ${JSON.stringify({ type: 'message_stop' })}\n\n`);
+            continue;
+          }
+
+          try {
+            const data = JSON.parse(dataStr);
+            const choice = data.choices?.[0] || {};
+            const delta = choice.delta || {};
+            
+            if (!messageStarted) {
+              res.write(`event: message_start\ndata: ${JSON.stringify({
+                type: 'message_start',
+                message: {
+                  id: `msg_${data.id || cryptoRandomId()}`,
+                  type: 'message',
+                  role: 'assistant',
+                  model: data.model || 'claude-3-5-sonnet',
+                  content: [],
+                  stop_reason: null,
+                  stop_sequence: null,
+                  usage: { input_tokens: data.usage?.prompt_tokens || 0, output_tokens: 0 }
+                }
+              })}\n\n`);
+              messageStarted = true;
+            }
+
+            if (delta.content) {
+              if (!contentBlockStarted) {
+                res.write(`event: content_block_start\ndata: ${JSON.stringify({
+                  type: 'content_block_start',
+                  index: textIndex,
+                  content_block: { type: 'text', text: '' }
+                })}\n\n`);
+                contentBlockStarted = true;
+              }
+              res.write(`event: content_block_delta\ndata: ${JSON.stringify({
+                type: 'content_block_delta',
+                index: textIndex,
+                delta: { type: 'text_delta', text: delta.content }
+              })}\n\n`);
+            }
+
+            if (Array.isArray(delta.tool_calls) && delta.tool_calls.length > 0) {
+              if (contentBlockStarted) {
+                res.write(`event: content_block_stop\ndata: ${JSON.stringify({
+                  type: 'content_block_stop',
+                  index: textIndex
+                })}\n\n`);
+                contentBlockStarted = false;
+                textIndex++;
+              }
+
+              for (const tc of delta.tool_calls) {
+                if (tc.id) {
+                  currentToolId = tc.id;
+                  currentToolName = tc.function?.name || '';
+                  res.write(`event: content_block_start\ndata: ${JSON.stringify({
+                    type: 'content_block_start',
+                    index: textIndex,
+                    content_block: {
+                      type: 'tool_use',
+                      id: currentToolId,
+                      name: currentToolName,
+                      input: {}
+                    }
+                  })}\n\n`);
+                  toolBlockStarted = true;
+                }
+                if (tc.function?.arguments) {
+                  res.write(`event: content_block_delta\ndata: ${JSON.stringify({
+                    type: 'content_block_delta',
+                    index: textIndex,
+                    delta: { type: 'input_json_delta', partial_json: tc.function.arguments }
+                  })}\n\n`);
+                }
+              }
+            }
+
+            if (choice.finish_reason) {
+              if (contentBlockStarted) {
+                res.write(`event: content_block_stop\ndata: ${JSON.stringify({
+                  type: 'content_block_stop',
+                  index: textIndex
+                })}\n\n`);
+                contentBlockStarted = false;
+              }
+              if (toolBlockStarted) {
+                res.write(`event: content_block_stop\ndata: ${JSON.stringify({
+                  type: 'content_block_stop',
+                  index: textIndex
+                })}\n\n`);
+                toolBlockStarted = false;
+              }
+              let stopReason = 'end_turn';
+              if (choice.finish_reason === 'length') stopReason = 'max_tokens';
+              else if (choice.finish_reason === 'tool_calls') stopReason = 'tool_use';
+              
+              res.write(`event: message_delta\ndata: ${JSON.stringify({
+                type: 'message_delta',
+                delta: { stop_reason: stopReason, stop_sequence: null },
+                usage: { output_tokens: data.usage?.completion_tokens || 0 }
+              })}\n\n`);
+            }
+          } catch (err) {
+            // ignore
+          }
+        }
+      }
+    };
+
+    const fakeRes = new Writable({
+      write(chunk, encoding, callback) {
+        try {
+          processOpenAIToAnthropicStream(chunk);
+        } catch (e) {
+          // ignore
+        }
+        callback();
+      }
+    }) as any;
+    fakeRes.statusCode = 200;
+    fakeRes.setHeader = () => {};
+    fakeRes.status = (code: number) => {
+      fakeRes.statusCode = code;
+      return fakeRes;
+    };
+    fakeRes.json = (errData: any) => {
+      res.status(fakeRes.statusCode).json(errData);
+    };
+    fakeRes.on('finish', () => {
+      res.end();
+    });
+
+    req.body = chatBody;
+    try {
+      await handleChatCompletion(req, fakeRes);
+    } catch (err: any) {
+      res.status(500).json({ error: { type: 'api_error', message: err?.message || 'Anthropic stream failure' } });
+    }
+  } else {
+    const fakeRes: any = {
+      statusCode: 200,
+      setHeader: () => {},
+      status: (code: number) => {
+        fakeRes.statusCode = code;
+        return fakeRes;
+      },
+      json: (data: any) => {
+        if (fakeRes.statusCode >= 400 || data.error) {
+          res.status(fakeRes.statusCode).json(data);
+        } else {
+          const anthropicMsg = chatCompletionToAnthropicResponse(data);
+          res.json(anthropicMsg);
+        }
+      }
+    };
+
+    req.body = chatBody;
+    try {
+      await handleChatCompletion(req, fakeRes);
+    } catch (err: any) {
+      res.status(500).json({ error: { type: 'api_error', message: err?.message || 'Anthropic response failure' } });
+    }
+  }
+});
+
 // =====================================================================
 // OpenAI Responses API → chat-completions translation shim
 // =====================================================================
@@ -6799,7 +7169,7 @@ loadSessions();
 loadFeedback();
 loadPqcSecrets();
 
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   console.log(`Local Router OpenAI-compatible proxy running on http://localhost:${PORT}`);
   console.log(`Point your VS Code extension to: http://localhost:${PORT}/v1`);
   if (isDevMode) {
@@ -6807,5 +7177,267 @@ app.listen(PORT, () => {
     console.log(`[DEV] Config UI: http://localhost:${PORT}/config`);
     console.log(`[DEV] Set PORT=11435 to run alongside production Ollama on 11434.`);
     console.log(`[DEV] Use 'npm run dev' for tsx watch mode or 'npm run build:watch' for tsc --watch.`);
+  }
+});
+
+const wss = new WebSocketServer({ noServer: true });
+
+wss.on('connection', (ws: WebSocket) => {
+  let isGenerating = false;
+
+  ws.on('message', async (messageData: string) => {
+    try {
+      const event = JSON.parse(messageData);
+      if (event.type === 'response.create') {
+        if (isGenerating) {
+          ws.send(JSON.stringify({
+            type: 'response.failed',
+            error: { message: 'Another response is currently in progress.', type: 'invalid_request_error' }
+          }));
+          return;
+        }
+
+        const body = event.response || {};
+        if (!body.model) {
+          ws.send(JSON.stringify({
+            type: 'response.failed',
+            error: { message: 'You must provide a `model` parameter.', type: 'invalid_request_error' }
+          }));
+          return;
+        }
+
+        const chatBody = translateResponsesRequestToChatBody(body);
+        if (chatBody.messages.length === 0) {
+          ws.send(JSON.stringify({
+            type: 'response.failed',
+            error: { message: '`input` is required and must contain at least one message.', type: 'invalid_request_error' }
+          }));
+          return;
+        }
+
+        isGenerating = true;
+        
+        const responseId = `resp_${cryptoRandomId()}`;
+        const modelId = body.model;
+
+        ws.send(JSON.stringify({
+          type: 'response.created',
+          response: {
+            id: responseId,
+            object: 'response',
+            created_at: Math.floor(Date.now() / 1000),
+            model: modelId,
+            status: 'in_progress',
+            output: [],
+            usage: { input_tokens: 0, output_tokens: 0, total_tokens: 0 }
+          }
+        }));
+
+        const fakeReq: any = {
+          body: chatBody,
+          get: (name: string) => {
+            if (name.toLowerCase() === 'x-local-router-client') return 'codex';
+            return undefined;
+          },
+          protocol: 'http',
+          headers: {},
+          path: '/v1/responses'
+        };
+
+        const outputItemMsgId = `msg_${cryptoRandomId()}`;
+        let itemAdded = false;
+        let sseBuffer = '';
+
+        const fakeRes = new Writable({
+          write(chunk, encoding, callback) {
+            try {
+              sseBuffer += chunk.toString();
+              const lines = sseBuffer.split('\n');
+              sseBuffer = lines.pop() || '';
+
+              for (const line of lines) {
+                const trimmed = line.trim();
+                if (trimmed.startsWith('data: ')) {
+                  const dataStr = trimmed.substring(6).trim();
+                  if (dataStr === '[DONE]') continue;
+                  try {
+                    const data = JSON.parse(dataStr);
+                    const choice = data.choices?.[0] || {};
+                    const delta = choice.delta || {};
+                    
+                    if (!itemAdded) {
+                      ws.send(JSON.stringify({
+                        type: 'response.output_item.added',
+                        response_id: responseId,
+                        output_index: 0,
+                        item: {
+                          id: outputItemMsgId,
+                          type: 'message',
+                          status: 'in_progress',
+                          role: delta.role || 'assistant',
+                          content: []
+                        }
+                      }));
+                      itemAdded = true;
+                    }
+
+                    if (delta.content) {
+                      ws.send(JSON.stringify({
+                        type: 'response.output_text.delta',
+                        response_id: responseId,
+                        item_id: outputItemMsgId,
+                        content_index: 0,
+                        delta: delta.content
+                      }));
+                    }
+
+                    if (Array.isArray(delta.tool_calls) && delta.tool_calls.length > 0) {
+                      for (const tc of delta.tool_calls) {
+                        ws.send(JSON.stringify({
+                          type: 'response.output_tool_call.arguments.delta',
+                          response_id: responseId,
+                          item_id: tc.id || `call_${cryptoRandomId()}`,
+                          delta: tc.function?.arguments || ''
+                        }));
+                      }
+                    }
+                  } catch (e) {
+                    // ignore
+                  }
+                }
+              }
+            } catch (e) {
+              // ignore
+            }
+            callback();
+          },
+          final(callback) {
+            try {
+              if (sseBuffer.trim().startsWith('data: ')) {
+                const dataStr = sseBuffer.trim().substring(6).trim();
+                if (dataStr && dataStr !== '[DONE]') {
+                  try {
+                    const data = JSON.parse(dataStr);
+                    const choice = data.choices?.[0] || {};
+                    const delta = choice.delta || {};
+                    if (delta.content) {
+                      ws.send(JSON.stringify({
+                        type: 'response.output_text.delta',
+                        response_id: responseId,
+                        item_id: outputItemMsgId,
+                        content_index: 0,
+                        delta: delta.content
+                      }));
+                    }
+                  } catch (e) {
+                    // ignore
+                  }
+                }
+              }
+              if (itemAdded) {
+                ws.send(JSON.stringify({
+                  type: 'response.output_item.done',
+                  response_id: responseId,
+                  output_index: 0,
+                  item: {
+                    id: outputItemMsgId,
+                    type: 'message',
+                    status: 'completed',
+                    role: 'assistant',
+                    content: [{ type: 'output_text', text: '' }]
+                  }
+                }));
+              }
+              ws.send(JSON.stringify({
+                type: 'response.completed',
+                response: {
+                  id: responseId,
+                  object: 'response',
+                  status: 'completed',
+                  model: modelId,
+                  output: itemAdded ? [{ id: outputItemMsgId, type: 'message', role: 'assistant', status: 'completed' }] : []
+                }
+              }));
+            } catch (err) {
+              // ignore
+            }
+            isGenerating = false;
+            callback();
+          }
+        }) as any;
+
+        fakeRes.statusCode = 200;
+        fakeRes.setHeader = () => {};
+        fakeRes.status = (code: number) => {
+          fakeRes.statusCode = code;
+          return fakeRes;
+        };
+        fakeRes.json = (data: any) => {
+          if (fakeRes.statusCode >= 400 || data.error) {
+            ws.send(JSON.stringify({
+              type: 'response.failed',
+              response_id: responseId,
+              error: data.error || { message: 'Upstream request failed' }
+            }));
+          } else {
+            const responsesEnvelope = chatCompletionToResponsesResponse(data, modelId);
+            if (!itemAdded) {
+              const choice = data.choices?.[0] || {};
+              const message = choice.message || {};
+              ws.send(JSON.stringify({
+                type: 'response.output_item.added',
+                response_id: responseId,
+                output_index: 0,
+                item: {
+                  id: outputItemMsgId,
+                  type: 'message',
+                  status: 'completed',
+                  role: message.role || 'assistant',
+                  content: [{ type: 'output_text', text: message.content || '' }]
+                }
+              }));
+            }
+            ws.send(JSON.stringify({
+              type: 'response.completed',
+              response: responsesEnvelope
+            }));
+          }
+          isGenerating = false;
+        };
+
+        try {
+          fakeReq.body.stream = true;
+          await handleChatCompletion(fakeReq, fakeRes);
+        } catch (err: any) {
+          ws.send(JSON.stringify({
+            type: 'response.failed',
+            response_id: responseId,
+            error: { message: err?.message || 'Responses WS shim failure', type: 'server_error' }
+          }));
+          isGenerating = false;
+        }
+      }
+    } catch (err) {
+      ws.send(JSON.stringify({
+        type: 'response.failed',
+        error: { message: 'Malformed JSON payload.', type: 'invalid_request_error' }
+      }));
+    }
+  });
+
+  ws.on('close', () => {
+    isGenerating = false;
+  });
+});
+
+server.on('upgrade', (request, socket, head) => {
+  const urlObj = new URL(request.url || '', `http://${request.headers.host || 'localhost'}`);
+  const pathname = urlObj.pathname;
+  if (pathname === '/v1/responses') {
+    wss.handleUpgrade(request, socket, head, (ws) => {
+      wss.emit('connection', ws, request);
+    });
+  } else {
+    socket.destroy();
   }
 });
