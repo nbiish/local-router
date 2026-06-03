@@ -35,16 +35,23 @@ Routing direction: auto-routing should be open, inspectable, and improvable by t
 
 ## Branch Policy
 
-The repository uses two long-lived branches:
+The repository uses two long-lived branches with a mandatory two-hop promotion path:
 
-- `main`: sole release branch and GitHub default. All shipped work lands here. This is the canonical project state.
-- `develop`: optional personal testing sandbox. Use it when a feature needs isolated operator verification before merging to `main`. Not required for every change.
+- **`develop` — integration & verification branch.** All worktree work lands here first. This is where features integrate, build gates run, smoke tests execute, and cross-branch behavior is verified before any release promotion. `develop` is the required pre-release assembly line — not a shortcut around verification.
+- **`main` — release branch.** GitHub default and production-facing canonical state. Receives only verified, fully integrated work promoted from `develop`. Full feature integration updates ship here after `develop` verification passes.
 
-Promotion path: feature branches (worktrees) → `develop` (optional, personal testing) → `main`.
+**Promotion path (mandatory):**
 
-Do not use `staging`, `production`, or other long-lived integration branches. `main` is the production-facing branch.
+```text
+feature worktree → develop (integrate + verify) → main (release)
+```
 
-Per `AGENTS.md`: never do active feature development directly on `main` or `develop`. Create a git worktree for every task. One task = one branch = one worktree.
+**Rules:**
+- Never promote feature work directly to `main`. Every change must pass through `develop` integration and verification first.
+- Never commit active development on `main` or `develop`. Use isolated worktrees (`feature/*`, `docs/*`).
+- Do not use `staging`, `production`, or other long-lived integration branches.
+
+Per `AGENTS.md`: create a git worktree for every task. One task = one branch = one worktree.
 
 ## Architecture
 
@@ -842,10 +849,10 @@ Claude Code / VS Code / any tool
 
 **Branch:** `feat/routing/custom-models-toggle` from `develop`
 
-### 2026-06-03 — Branch Consolidation (Main-Only Release)
+### 2026-06-03 — Branch Consolidation (Main + Develop Gate)
 
 **Tasks completed:**
-1. ✅ **Branch policy simplified** — `main` is sole release branch; `develop` is optional personal testing sandbox; `staging` retired.
-2. ✅ **Docs updated** — `llms.txt`, `AGENTS.md`, and `README.md` aligned to two-branch model.
+1. ✅ **Branch policy defined** — `develop` is the mandatory integration and verification gate; `main` is the sole release branch; `staging` retired.
+2. ✅ **Docs updated** — `llms.txt`, `AGENTS.md`, and `README.md` aligned to two-branch, two-hop promotion model.
 3. ✅ **Stale branches removed** — deleted merged feature/docs branches and orphaned worktrees.
-4. ✅ **`develop` synced to `main`** — both branches point at the same canonical tip after cleanup.
+4. ✅ **`develop` synced to `main`** — both branches at canonical tip after cleanup.

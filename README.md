@@ -163,18 +163,18 @@ VS Code and other tools can then point at `http://127.0.0.1:11435/v1`.
 
 ## Branch Model
 
-Long-lived branches:
+Two long-lived branches with mandatory two-hop promotion:
 
-- `main`: sole release branch and GitHub default. Canonical project state.
-- `develop`: optional personal testing sandbox when a feature needs isolated verification before merging to `main`.
+- **`develop` — integration & verification.** All worktree branches merge here first. Cross-feature integration, build gates, smoke tests, and operator verification run on `develop` before any release promotion.
+- **`main` — release.** Production-facing canonical state. Receives only verified, integrated work from `develop`.
 
 Promotion path:
 
 ```text
-feature branches (worktrees) -> develop (optional) -> main
+feature worktree → develop (integrate + verify) → main (release)
 ```
 
-`staging` and `production` are not used. `main` is the production-facing branch.
+No feature work ships to `main` without passing through `develop`. `staging` and `production` are not used.
 
 Primary implementation files:
 
