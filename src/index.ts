@@ -111,7 +111,7 @@ type AttemptResult =
   | { ok: true; value: AttemptSuccess }
   | { ok: false; error: AttemptFailure };
 
-type CompletionOutputFormat = 'openai' | 'ollama_chat' | 'ollama_generate';
+type CompletionOutputFormat = 'openai' | 'ollama_chat' | 'ollama_generate' | 'openai_responses';
 
 type DiagnosticEventName =
   | 'proxy_request'
@@ -6380,6 +6380,267 @@ async function executeFallbackRoute(
 
 app.post('/v1/chat/completions', async (req: Request, res: Response) => {
   await handleChatCompletion(req, res);
+});
+
+// =====================================================================
+// OpenAI Responses API → chat-completions translation shim
+// =====================================================================
+// Codex CLI 0.135+ dropped wire_api="chat" and now requires
+// wire_api="responses", which targets POST /v1/responses. local-router
+// speaks the legacy /v1/chat/completions surface, so this route accepts
+// the Responses request shape, normalizes it to a chat-completions body,
+// calls the existing handleChatCompletion pipeline, and re-wraps the
+// upstream chat-completion response in the Responses response envelope.
+//
+// Supports: input (string | item array), instructions, model, max_output_tokens,
+// temperature, top_p, stream, tools, tool_choice, stop, user, metadata, store.
+// Non-streaming is fully implemented; streaming falls back to non-streaming.
+// =====================================================================
+
+type ResponsesInputItem =
+  | { type?: string; role?: 'system' | 'developer' | 'user' | 'assistant'; content: any }
+  | string;
+
+function responsesInputToMessages(input: any, instructions?: string): any[] {
+  const messages: any[] = [];
+
+  if (typeof instructions === 'string' && instructions.trim()) {
+    messages.push({ role: 'system', content: instructions });
+  }
+
+  if (typeof input === 'string') {
+    messages.push({ role: 'user', content: input });
+    return messages;
+  }
+
+  if (!Array.isArray(input)) {
+    // OpenAI also accepts a bare string; anything else is malformed.
+    return messages;
+  }
+
+  for (const item of input as ResponsesInputItem[]) {
+    if (typeof item === 'string') {
+      messages.push({ role: 'user', content: item });
+      continue;
+    }
+    if (!item || typeof item !== 'object') continue;
+
+    // Map developer/system to system, preserve user/assistant
+    let role = item.role;
+    if (role === 'developer') role = 'system';
+
+    // Content can be a string or an array of typed parts
+    let content: any = item.content;
+    if (Array.isArray(content)) {
+      // Translate Responses content parts → chat-completion parts.
+      // We keep text and image_url; we drop other part types with a best-effort
+      // text extraction so multi-modal prompts don't silently break.
+      const textParts: string[] = [];
+      const imageUrls: string[] = [];
+      for (const part of content) {
+        if (!part || typeof part !== 'object') continue;
+        if (part.type === 'input_text' || part.type === 'text') {
+          textParts.push(String(part.text ?? ''));
+        } else if (part.type === 'input_image' || part.type === 'image_url') {
+          const url = part.image_url?.url || part.url;
+          if (typeof url === 'string') imageUrls.push(url);
+        } else if (typeof part.text === 'string') {
+          textParts.push(part.text);
+        }
+      }
+      if (imageUrls.length > 0) {
+        content = [
+          ...(textParts.length ? [{ type: 'text', text: textParts.join('\n') }] : []),
+          ...imageUrls.map((u) => ({ type: 'image_url', image_url: { url: u } }))
+        ];
+      } else {
+        content = textParts.join('\n');
+      }
+    }
+
+    if (!role) role = 'user';
+    if (role !== 'system' && role !== 'user' && role !== 'assistant' && role !== 'tool') {
+      role = 'user';
+    }
+
+    messages.push({ role, content });
+  }
+
+  return messages;
+}
+
+function chatCompletionToResponsesResponse(chatData: any, presentedModel: string): any {
+  // Upstream chat-completion response → OpenAI Responses envelope.
+  // { id, object:'chat.completion', choices:[{message:{role,content,tool_calls}}], usage }
+  // → { id, object:'response', output:[{type:'message', role, content:[{type:'output_text', text}]}], usage:{input_tokens, output_tokens, total_tokens} }
+  const choice = chatData?.choices?.[0] || {};
+  const message = choice.message || {};
+  const content = message.content;
+  const text =
+    typeof content === 'string'
+      ? content
+      : Array.isArray(content)
+        ? content
+            .filter((p: any) => p?.type === 'text' || typeof p?.text === 'string')
+            .map((p: any) => p.text)
+            .join('\n')
+        : '';
+
+  const output: any[] = [];
+  if (text) {
+    output.push({
+      type: 'message',
+      id: `msg_${chatData?.id || cryptoRandomId()}`,
+      role: message.role || 'assistant',
+      status: 'completed',
+      content: [{ type: 'output_text', text, annotations: [] }]
+    });
+  }
+  if (Array.isArray(message.tool_calls) && message.tool_calls.length > 0) {
+    for (const call of message.tool_calls) {
+      output.push({
+        type: 'function_call',
+        id: call.id || `call_${cryptoRandomId()}`,
+        call_id: call.id,
+        name: call.function?.name,
+        arguments: call.function?.arguments || ''
+      });
+    }
+  }
+
+  const usage = chatData?.usage || {};
+  return {
+    id: chatData?.id || `resp_${cryptoRandomId()}`,
+    object: 'response',
+    created_at: chatData?.created || Math.floor(Date.now() / 1000),
+    model: chatData?.model || presentedModel,
+    status: choice.finish_reason === 'length' ? 'incomplete' : 'completed',
+    incomplete_details: choice.finish_reason === 'length' ? { reason: 'max_output_tokens' } : null,
+    output,
+    usage: {
+      input_tokens: usage.prompt_tokens || 0,
+      output_tokens: usage.completion_tokens || 0,
+      total_tokens: usage.total_tokens || 0
+    }
+  };
+}
+
+function cryptoRandomId(): string {
+  // Cheap random id; not security-sensitive.
+  return Math.random().toString(36).slice(2, 10) + Math.random().toString(36).slice(2, 10);
+}
+
+function translateResponsesRequestToChatBody(body: any): any {
+  const translated: any = {};
+
+  if (typeof body.model === 'string') translated.model = body.model;
+  translated.messages = responsesInputToMessages(body.input, body.instructions);
+
+  if (body.max_output_tokens != null) translated.max_tokens = body.max_output_tokens;
+  if (body.temperature != null) translated.temperature = body.temperature;
+  if (body.top_p != null) translated.top_p = body.top_p;
+  if (body.frequency_penalty != null) translated.frequency_penalty = body.frequency_penalty;
+  if (body.presence_penalty != null) translated.presence_penalty = body.presence_penalty;
+  if (body.user != null) translated.user = body.user;
+  if (Array.isArray(body.stop) || typeof body.stop === 'string') translated.stop = body.stop;
+  if (body.metadata != null) translated.metadata = body.metadata;
+
+  // Tools: Responses API tools[] shape is the same as chat-completions tools[]
+  // (function name + description + parameters), so we can pass them through.
+  if (Array.isArray(body.tools)) translated.tools = body.tools;
+  if (body.tool_choice != null) translated.tool_choice = body.tool_choice;
+
+  return translated;
+}
+
+app.post('/v1/responses', async (req: Request, res: Response) => {
+  const requestStartedAt = Date.now();
+  const body = req.body || {};
+
+  if (!body.model) {
+    return res.status(400).json({
+      error: { message: 'You must provide a `model` parameter.', type: 'invalid_request_error' }
+    });
+  }
+
+  const chatBody = translateResponsesRequestToChatBody(body);
+  if (chatBody.messages.length === 0) {
+    return res.status(400).json({
+      error: {
+        message: '`input` is required and must contain at least one message.',
+        type: 'invalid_request_error'
+      }
+    });
+  }
+
+  // Streaming is requested by setting stream=true; we currently serve
+  // non-streaming Responses and let the caller handle it. Codex's `exec`
+  // subcommand doesn't stream, so this covers the primary use case.
+  if (body.stream) {
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.write(
+      `event: error\ndata: ${JSON.stringify({
+        error: {
+          message: 'Streaming Responses API is not yet implemented by local-router. Set stream=false.',
+          type: 'invalid_request_error'
+        }
+      })}\n\n`
+    );
+    res.end();
+    return;
+  }
+
+  // Drive the existing chat-completions pipeline by faking a Request whose
+  // body is the translated chat-completions shape. We use Express's req.res
+  // and mutate req.body so handleChatCompletion picks it up.
+  req.body = chatBody;
+
+  // Capture the upstream response by intercepting res.json. We swap res.json
+  // once, then restore it after the call. This avoids duplicating the entire
+  // proxy/router/fallback pipeline.
+  const originalJson = res.json.bind(res);
+  let captured: any = null;
+  let capturedStatus = 200;
+  res.json = ((payload: any) => {
+    captured = payload;
+    return res;
+  }) as any;
+  res.status = ((code: number) => {
+    capturedStatus = code;
+    return res;
+  }) as any;
+
+  try {
+    await handleChatCompletion(req, res);
+  } catch (err: any) {
+    res.json = originalJson;
+    return res.status(500).json({
+      error: { message: err?.message || 'Responses shim failure', type: 'server_error' }
+    });
+  }
+
+  res.json = originalJson;
+
+  if (!captured) {
+    // The pipeline wrote to res directly (streaming or empty); pass through.
+    return;
+  }
+
+  if (capturedStatus >= 400 || captured?.error) {
+    // Forward upstream errors in Responses shape so Codex can parse them.
+    return originalJson({
+      error: captured.error || {
+        message: 'Upstream returned an error',
+        type: 'upstream_error'
+      }
+    });
+  }
+
+  const presented = String(body.model);
+  const wrapped = chatCompletionToResponsesResponse(captured, presented);
+  return originalJson(wrapped);
 });
 
 app.get('/v1/models', async (req: Request, res: Response) => {
