@@ -54,6 +54,7 @@ Per `AGENTS.md`: never work directly on `main` or `develop`. Create a git worktr
 - **Port:** `11434` (mimicking Ollama's default for drop-in compatibility)
 - **Core endpoint:** `POST /v1/chat/completions`
 - **Ollama-compatible endpoints:** `GET /api/tags`, `POST /api/generate`, `POST /api/chat`, `POST /api/show`, `HEAD /api/version`, `HEAD /api/tags`, `GET /api/ps`
+- **OpenAI Responses API shim:** `POST /v1/responses` (Codex compatibility layer)
 - **Discovery:** `GET /` and `HEAD /` return `Ollama is running` so Ollama clients detect the proxy
 - **Version:** `GET /api/version` returns `0.6.4` to satisfy VS Code's Ollama minimum version check
 
@@ -125,6 +126,16 @@ Claude Code / VS Code / Cline / any tool
 - Dynamic model discovery via `/v1/models` endpoint on real Ollama
 - No API key required for local Ollama (uses `OLLAMA_API_KEY` placeholder)
 - Graceful fallback: returns empty model list if real Ollama is not running
+
+### OpenAI Responses API Shim (Codex Support)
+
+Codex 0.135+ dropped the OpenAI chat-completions endpoint for its `exec` subcommand and requires the OpenAI Responses API at `POST /v1/responses`. Local Router provides a transparent shim translating Responses objects to standard chat completions.
+
+**Translation Flow:**
+1. **Inbound Request:** Maps Responses request fields (`model`, `input`, `instructions`, `max_output_tokens`, `tools`, `tool_choice`, etc.) to standard chat-completion request parameters (`model`, `messages`, `max_tokens`, etc.). System prompts (`instructions`) are prepended as system messages.
+2. **Execution:** Drives the existing `handleChatCompletion` pipeline, retaining all routing, fallback, keys, and reasoning compatibility features.
+3. **Outbound Response:** Re-wraps the returned OpenAI chat-completion response envelope into the Responses envelope (`object: "response"`, `output` array of `message` and `function_call` parts, token usage).
+4. **Streaming:** Streaming Responses API is not yet supported; requests with `stream=true` return an error block.
 
 ### File Map
 
@@ -783,3 +794,15 @@ Claude Code / VS Code / any tool
 ```
 
 **Branch:** `feat/ollama-intercept-router` from `develop` | 2 commits: task file + config UI fix
+
+### 2026-06-03 — OpenAI Responses API (v1/responses) Support for Codex
+
+**Tasks completed:**
+1. ✅ **Responses shim** — Implemented translation layer mapping the OpenAI Responses shape (`input`, `instructions`, `model`, etc.) to standard chat completions, returning the Responses envelope format (`object: "response"`, `output` array of message/function parts).
+2. ✅ **Integration validation** — Spawned local test server (port `11438`) and verified valid translation and response formatting for multiple request models and error conditions.
+3. ✅ **Repository realignments** — Cleaned up old/broken global `npm link` references, re-linked to `/Volumes/1tb-sandisk/code-external/fvs-code`. Discarded unintended `SKILL.md` symlink typechange (restored portable regular file).
+4. ✅ **Three-tier promotion** — Merged `feat/codex-responses-shim` into `develop` and promoted to `main`.
+5. ✅ **Clean daemon startup** — Stopped daemon running from deleted worktree (which threw ENOENT errors looking for `providers.txt` in its deleted path). Restarted clean production daemon from `/Volumes/1tb-sandisk/code-external/fvs-code` on port `11434`, successfully loading all 12 providers.
+6. ✅ **llms.txt update** — Documented `/v1/responses` translation flow, added endpoint references, and recorded this session log.
+
+**Branch:** `feat/codex-responses-shim` from `develop` | 2 commits: task file + v1/responses implementation
