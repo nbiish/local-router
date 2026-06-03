@@ -21,7 +21,8 @@ const provider: ProxyProvider = {
       const res = await fetch('https://api.groq.com/openai/v1/models', {
         headers: {
           'Authorization': `Bearer ${key}`
-        }
+        },
+        signal: AbortSignal.timeout(5000)
       });
       const data = await res.json();
       return data.data || [];

@@ -348,6 +348,9 @@ The ML-DSA-65 algorithm and `openssl pkeyutl` invocations are unchanged. Only th
 - `DELETE /api/provider-models/:provider/models/:modelId` — single-model delete
 - `DELETE /api/provider-models/:provider` — reset to baseline from `providers.txt`
 - `DELETE /api/keys/:provider` — clear provider key from memory
+- `GET /api/model-source` — returns `{ source: "custom" | "endpoints" }` for catalog mode
+- `PUT /api/model-source` — set catalog mode (`custom` = providers.txt + runtime edits; `endpoints` = cached upstream query)
+- `POST /api/refresh-endpoint-models` — query configured provider `/models` endpoints (6s timeout), merge with providers.txt metadata, persist cache
 
 ### Provider Metadata Sources
 - https://app.wafer.ai/models
@@ -550,6 +553,7 @@ Full details in `ROUTER.md`. Key findings from SOTA literature (2025-2026):
 - Provider key save flow stores keys in-memory, mapped to env vars from `providers.txt`
 - Provider selector shows per-provider configured state, source (`memory`/`env`/`none`), and reset/unset actions
 - One-model-at-a-time runtime edits per provider with fields: upstream model ID, presented alias, context length, max output tokens, capability toggles
+- **Model catalog source toggle** in `/config`: Custom Models (providers.txt + edits, default) vs Endpoint Models (live upstream `/models` query). Persists to `model-source-config.json`; endpoint results cached in `endpoint-models-cache.json` (`0600`). Refresh button queries all configured providers; drives `/v1/models`, `/api/tags`, routing, and VS Code picker metadata
 
 ### Custom System Prompt
 - Optional custom system prompt injected before every LLM request across all entry points (`/v1/chat/completions`, `/api/chat`, `/api/generate`)
@@ -826,3 +830,15 @@ Claude Code / VS Code / any tool
 7. ✅ **Responses WS Stream, Anthropic Proxy & Prompt Caching** — Implemented WebSocket upgrade handler at `/v1/responses` using a `stream.Writable` adapter to support stream piping. Added `POST /v1/messages` translating Anthropic request payloads and mapping streaming events. Designed and added auto-injection of prompt caching parameters at breakpoints for supported providers. Synced caching specifications to `providers.txt`. All features promoted to `main` branch with passing integration tests.
 
 **Branch:** `feat/routing-responses-caching-anthropic` from `develop` | 2 commits: task file + implementation
+
+### 2026-06-03 — Custom Models / Endpoint Models Toggle
+
+**Tasks completed:**
+1. ✅ **Model source config** — `custom` (providers.txt + runtime edits, default) vs `endpoints` (cached upstream `/models` query). Persisted to `model-source-config.json` and `endpoint-models-cache.json`.
+2. ✅ **API routes** — `GET/PUT /api/model-source`, `POST /api/refresh-endpoint-models` with 6s fetch timeout per provider.
+3. ✅ **Catalog integration** — Toggle drives `/v1/models`, `/api/tags`, routing resolution, fallback/router conflict checks, and VS Code configure metadata via `activeProviderModelList()`.
+4. ✅ **Config UI** — Radio toggle, refresh button (endpoint mode), dynamic catalog description, auto-refresh on empty endpoint cache.
+5. ✅ **Integration tests** — Endpoint refresh, source persistence across restart, catalog switch verification.
+6. ✅ **Build & tests** — `npm run build` and `npm test` pass in `feat/routing/custom-models-toggle` worktree.
+
+**Branch:** `feat/routing/custom-models-toggle` from `develop`
