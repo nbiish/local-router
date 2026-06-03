@@ -8,8 +8,8 @@ Local Router is a localhost proxy server (port `11434`) that presents an Ollama-
 - **Core endpoint:** `POST /v1/chat/completions` (OpenAI-compatible) plus Ollama-native endpoints (`/api/tags`, `/api/chat`, `/api/generate`, `/api/show`)
 - **Model routing:** Clients request `provider/model-name`; the proxy lazy-loads the provider module and proxies upstream, re-mapping the model key
 - **Provider keys:** Stored in-memory via browser UI at `/config`, never in `.env` or plaintext on disk. PQC-encrypted bundle at `~/.config/pqc-secrets/` for persistence across restarts
-- **Auto-router defaults:** 14 curated candidates across 8 providers with coding scores. Graceful skip for unconfigured providers
-- **Model catalog:** `providers.txt` is the source of truth for provider/model metadata (context lengths, capabilities, costs). 12 providers, 78 model rows. Synced to `~/.config/providers.txt`
+- **Auto-router defaults:** 16 curated candidates across 8 providers with coding scores. Graceful skip for unconfigured providers
+- **Model catalog:** `providers.txt` is the source of truth for provider/model metadata (context lengths, capabilities, costs). 12 providers, 80 model rows. Synced to `~/.config/providers.txt`
 - **Router models:** First-class `local-router/<name>` models with explicit candidate lists, scoring, and telemetry. Types: `priority`, `pareto-code`, `auto-local`, `bandit-local` (planned)
 - **Fallback routes:** User-configured model chains with retry logic, persisted as non-secret JSON
 - **VS Code integration:** `POST /api/vscode/configure` writes Ollama vendor entry and model picker preferences
@@ -192,18 +192,18 @@ ML-DSA-65 code signing via OpenSSL. Helper script at `.agents/skills/pqc-signatu
 
 `providers.txt` is the factual source of truth for provider/model metadata. It is synced to `~/.config/providers.txt` and intended to be copied across projects. Runtime model overrides (via `/api/provider-models`) take precedence and immediately update `/v1/models`, `/api/tags`, and `/api/show`.
 
-### Active Providers (12 providers, 78 models as of 2026-06-02)
+### Active Providers (12 providers, 80 models as of 2026-06-02)
 | Provider | Models | Endpoint | Key Env |
 |---|---|---|---|
 | `wafer-serverless` | 5 | `https://pass.wafer.ai/v1` | `WAFER_SERVERLESS_API_KEY` |
 | `zenmux` | 19 | `https://zenmux.ai/api/v1` | `ZENMUX_API_KEY` |
 | `nebius` | 7 | Nebius Token Factory | `NEBIUS_API_KEY` |
 | `moonshot` | 5 | Moonshot/Kimi API | `MOONSHOT_API_KEY` |
-| `nvidia-nim` | 5 | NVIDIA NIM API | `NVIDIA_NIM_API_KEY` |
+| `nvidia-nim` | 6 | NVIDIA NIM API | `NVIDIA_NIM_API_KEY` |
 | `modal` | 1 | Modal GLM endpoint | `MODAL_API_KEY` |
 | `openrouter-presets` | 8 | `https://openrouter.ai/api/v1` | `OPENROUTER_API_KEY` |
 | `xiaomi-mimo` | 2 | `https://token-plan-sgp.xiaomimimo.com/v1` | `XIAOMI_MIMO_API_KEY` |
-| `opencode` | 19 | `https://opencode.ai/zen/go/v1` | `OPENCODE_API_KEY` |
+| `opencode` | 20 | `https://opencode.ai/zen/go/v1` | `OPENCODE_API_KEY` |
 | `opencode-zen` | 8 | `https://opencode.ai/zen/v1` | `OPENCODE_API_KEY` |
 | `zai` | 1 | `https://api.z.ai/api/coding/paas/v4` | `ZAI_API_KEY` |
 | `ollama` | 0+ | `http://127.0.0.1:11435/v1` | `OLLAMA_API_KEY` |
@@ -226,11 +226,13 @@ ML-DSA-65 code signing via OpenSSL. Helper script at `.agents/skills/pqc-signatu
 - Wafer Serverless intake IDs: `GLM-5.1`, `Kimi-K2.6`, `deepseek-v4-flash`, `deepseek-v4-pro`, `qwen3.7-max`
 - ZenMux models (19): includes DeepSeek V4 Pro/Flash, GLM-5.1, Qwen3.7-max, Gemini 3.1-pro/3.5-flash, MiniMax M3/M2.7, Step 3.7-flash, Agnes 2.0-flash, MiMo V2.5 Pro/V2.5, Kimi K2.6, Qwen3-coder-plus, GPT-5-codex
 - Moonshot/Kimi K2.6: 256K context, multimodal input, tool calling. v1 models: 8K/32K/128K contexts
-- NVIDIA NIM: `nemotron-3-nano-omni`, `minimax-m2.5`, `minimax-m2.7`, `step-3.7-flash`, `minimax-m3`
+- NVIDIA NIM: `nemotron-3-nano-omni`, `minimax-m2.5`, `minimax-m2.7`, `step-3.7-flash`, `minimax-m3`, `moonshotai/kimi-k2.6`
 - Modal: `zai-org/GLM-5.1-FP8` — context/output/tool limits sourced from Z.ai GLM-5.1 public facts
 - Xiaomi Mimo: `mimo-v2.5-pro` and `mimo-v2.5` — both 1M context, tool calling; mimo-v2.5 has vision
 - OpenRouter presets: 1M context, 120K max output, tools + vision. Also `stepfun/step-3.7-flash`, `minimax/minimax-m3`, `qwen/qwen3.7-max`. All compositions must be confirmed with preset owner
 - **OpenCode Zen** (full subscription, `https://opencode.ai/zen/v1`): 42 models across Claude Opus/Sonnet/Haiku, Gemini, GPT-5.5/5.4/5.3/5.2/5.1/5, Grok, DeepSeek, GLM, MiniMax, Kimi, Qwen + 5 free-tier models. Curated 8 in providers.txt: `deepseek-v4-flash`, `gemini-3.5-flash`, `gpt-5.4`, `gpt-5.3-codex`, `claude-sonnet-4-6`, `minimax-m3-free`, `deepseek-v4-flash-free`, `glm-5.1`
+- **NVIDIA NIM Kimi K2.6** (added 2026-06-02): 256K context, 32K output, multimodal image input, tool calling, implicit prompt caching. Available as `nvidia-nim/moonshotai-kimi-k2.6` (presented as `nvidia-nim-kimi-k2.6`). Reference: `https://docs.api.nvidia.com/nim/reference/moonshotai-kimi-k2-6`
+- **OpenCode MiniMax M3 free tier** (added 2026-06-02): 512K context, 512K output, multimodal, tool calling, prompt caching, native reasoning stripped for VS Code. Available as `opencode/minimax-m3-free` (presented as `opencode-minimax-m3-free`). Also available via `opencode-zen/minimax-m3-free` (presented as `opencode-zen-minimax-m3-free`)
 - **Z.ai**: `code-pass-glm-5.1` — coding-focused GLM-5.1, 200K context, 128K output
 - MiniMax M2.7: 204.8K context, 131K max output, tools YES, vision NO, reasoning YES (stripped for VS Code)
 
@@ -415,7 +417,7 @@ Local Router supports first-class router models presented as `local-router/<rout
 - Type: `auto-local`
 - `minCodingScore`: `0.66`
 - `costQualityTradeoff`: `7`
-- Default candidates (14 across 8 providers): `openrouter-1-million-chain-of-draft` (coding=0.88), `openrouter-chain-of-draft` (0.86), `openrouter-qwen3.7-max` (0.85), `xiaomi-mimo-mimo-v2.5-pro` (0.80), `xiaomi-mimo-mimo-v2.5` (0.76), `zenmux-minimax-m3` (0.85), `zenmux-step-3.7-flash` (0.84), `zenmux-deepseek-v4-pro` (0.91), `zai-code-pass-glm-5.1` (0.83), `opencode-minimax-m3` (0.85), `modal-glm-5.1-fp8` (0.83), `nvidia-nim-step-3.7-flash` (0.84), `wafer-ai-deepseek-v4-flash` (0.87)
+- Default candidates (16 across 8 providers): `openrouter-1-million-chain-of-draft` (coding=0.88), `openrouter-chain-of-draft` (0.86), `openrouter-qwen3.7-max` (0.85), `xiaomi-mimo-mimo-v2.5-pro` (0.80), `xiaomi-mimo-mimo-v2.5` (0.76), `zenmux-minimax-m3` (0.85), `zenmux-step-3.7-flash` (0.84), `zenmux-deepseek-v4-pro` (0.91), `zai-code-pass-glm-5.1` (0.83), `opencode-minimax-m3` (0.85), `modal-glm-5.1-fp8` (0.83), `nvidia-nim-step-3.7-flash` (0.84), `wafer-ai-deepseek-v4-flash` (0.87), `nvidia-nim-kimi-k2.6` (0.86), `opencode-minimax-m3-free` (0.80)
 - Graceful skip: candidates for unconfigured providers are silently skipped with console warning. If ALL candidates are skipped, the error response lists which providers need API keys.
 - Provider presentation prefixes: `wafer-serverless→wafer-ai`, `openrouter-presets→openrouter`; other providers use their name directly
 - The Router Models UI reset action restores this complete default profile
