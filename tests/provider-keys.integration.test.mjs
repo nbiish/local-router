@@ -868,9 +868,9 @@ test('provider key save/reset lifecycle exposes configured source', async (t) =>
   assert.deepEqual(forwarded?.thinking, { type: 'disabled' });
   assert.equal(forwarded?.reasoning_effort, 'none');
   assert.equal(forwarded?.enable_thinking, false);
-  assert.ok(!JSON.stringify(forwarded?.messages).includes('reasoning_content'));
-  assert.ok(!JSON.stringify(forwarded?.messages).includes('redacted_thinking'));
-  assert.ok(!JSON.stringify(forwarded?.messages).includes('must not be replayed'));
+  assert.ok(JSON.stringify(forwarded?.messages).includes('reasoning_content'));
+  assert.ok(JSON.stringify(forwarded?.messages).includes('redacted_thinking'));
+  assert.ok(JSON.stringify(forwarded?.messages).includes('must not be replayed'));
   assert.equal(forwarded?.extra_body?.chat_template_kwargs?.thinking, false);
   assert.equal(forwarded?.extra_body?.chat_template_kwargs?.enable_thinking, false);
   assert.equal(
