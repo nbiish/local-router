@@ -69,8 +69,11 @@ Per `AGENTS.md`: never work directly on `main` or `develop`. Create a git worktr
 ### Key Management
 - Provider API keys are configured via the browser UI at `http://localhost:11434/config`
 - Keys are stored in-memory only; never written to `.env`, git, logs, or plaintext config
-- PQC-encrypted persistence is available via `~/.config/pqc-secrets/secrets.bundle.json` (ML-KEM-768 + AES-256-GCM)
-- `DELETE /api/keys/:provider` clears a provider key from memory
+- **Every key save/delete through the UI is immediately persisted** to the PQC-encrypted bundle at `~/.config/pqc-secrets/secrets.bundle.json` (ML-KEM-768 + AES-256-GCM) via `persistPqcSecrets()`
+- On server startup, `loadPqcSecrets()` decrypts the bundle and loads all keys into memory — keys survive restarts
+- `DELETE /api/keys/:provider` clears a provider key from memory AND re-packs the PQC bundle without it
+- "Reset key" button on each provider card in `/config` UI provides one-click key deletion
+- Shared keys (e.g., `opencode`/`opencode-zen` both use `OPENCODE_API_KEY`) are deduplicated in the bundle
 
 ### Stream Translation (Ollama ↔ OpenAI)
 - **Inbound:** Ollama JSON schema → OpenAI JSON schema
@@ -181,7 +184,7 @@ ML-DSA-65 code signing via OpenSSL. Helper script at `.agents/skills/pqc-signatu
 
 ### Server Startup Behavior
 
-`src/index.ts` calls `bin/pqc-secrets export` at startup to load provider keys into environment. With the Python ↔ Rust compatibility fix, this now succeeds and loads all 9 provider keys into memory. In-memory keys from browser UI supplement (not replace) PQC-loaded keys.
+`src/index.ts` calls `bin/pqc-secrets export` at startup to load provider keys into environment. With the Python ↔ Rust compatibility fix, this succeeds and loads all provider keys into memory. In-memory keys from browser UI supplement (not replace) PQC-loaded keys. Environment variables (e.g., from `secrets-load` or `.env`) also supplement PQC keys. The full key resolution order: PQC bundle → environment variables → browser UI (at runtime).
 
 ## Web & Architectural Inspiration
 
@@ -288,9 +291,10 @@ ML-DSA-65 code signing via OpenSSL. Helper script at `.agents/skills/pqc-signatu
 - https://docs.z.ai/guides/llm/glm-5.1
 
 ### Provider Security Rules
-- **Preferred:** All API keys stored in PQC-encrypted bundle (`~/.config/pqc-secrets/secrets.bundle.json`) using ML-KEM-768 + AES-256-GCM. Loaded automatically at startup.
+- **Preferred:** All API keys stored in PQC-encrypted bundle (`~/.config/pqc-secrets/secrets.bundle.json`) using ML-KEM-768 + AES-256-GCM. Loaded automatically at startup. Persisted automatically on every save/delete via the `/config` UI.
 - No API key values in `providers.txt`, `~/.config/providers.txt`, `.env`, git, shell history, logs, or tool output
-- In-memory-only keys (via browser UI) are acceptable but less secure — they are lost on server restart and not hardware-backed
+- Keys entered via browser UI are persisted to the PQC bundle immediately — they survive server restarts and are encrypted at rest
+- The "Reset key" button on each provider card deletes the key from memory and re-packs the PQC bundle
 - OpenRouter custom presets must not be inferred from naming alone — confirm with preset owner before adding/updating
 
 ## Reasoning / Thinking Compatibility
@@ -658,3 +662,20 @@ Coverage includes:
 - Mode: `LOCAL_ROUTER_DEV=true` with hot reload
 
 **Branch:** `main` | **Clean:** yes (only `llms.txt` modified this session)
+
+### 2026-06-02 — Config UI Fix, Worktree Cleanup & Key Lifecycle
+
+**Tasks completed:**
+1. ✅ **Worktree cleanup** — Removed 4 stale worktrees (`fvs-code-dropdown-fix`, `fvs-code-fix-20260602`, `local-ollama-router`, `pqc-secrets-fix`), deleted 7 merged branches, fast-forwarded `develop` and `staging` to `main`
+2. ✅ **Config UI JS syntax fix** — `route.models.join('\n')` inside HTML template literal was evaluated at render time, producing actual newlines in browser JS string → `SyntaxError: Invalid or unexpected token` which broke the entire config UI. Fixed by double-escaping to `'\\\\n'` so browser receives proper `\\n` escape. Committed as `c80ad77`
+3. ✅ **Server restart from main** — Killed stale server running from deleted worktree (`fvs-code-fix-20260602`), restarted from `main` on port 11434
+4. ✅ **Key lifecycle verification** — Confirmed full PQC key lifecycle works end-to-end:
+   - `POST /api/keys` saves key to memory + calls `persistPqcSecrets()` which packs all keys into PQC bundle
+   - `DELETE /api/keys/:provider` removes from memory + re-packs bundle without the deleted key
+   - `loadPqcSecrets()` at startup decrypts bundle, loads all keys into memory
+   - "Reset key" button on each provider card triggers the delete endpoint
+   - Shared keys (`opencode`/`opencode-zen` both → `OPENCODE_API_KEY`) are deduplicated in pack
+5. ✅ **All 12 providers configured** — 11 keys in PQC bundle (`WAFER_SERVERLESS_API_KEY`, `OPENCODE_API_KEY`, `ZENMUX_API_KEY`, `NEBIUS_API_KEY`, `MOONSHOT_API_KEY`, `NVIDIA_NIM_API_KEY`, `MODAL_API_KEY`, `OPENROUTER_API_KEY`, `XIAOMI_MIMO_API_KEY`, `ZAI_API_KEY`, `OLLAMA_API_KEY`), `opencode-zen` shares `OPENCODE_API_KEY` via env
+6. ✅ **llms.txt updated** — Key Management and Provider Security Rules sections updated to document full PQC persistence lifecycle
+
+**Final state:** 12 providers, 79 models, all keys encrypted at rest via ML-KEM-768 + AES-256-GCM, surviving restarts.
