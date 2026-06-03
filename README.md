@@ -94,6 +94,19 @@ local-router/<route-name>
 
 Legacy `fvs-code/<route-name>` and `fallback/<route-name>` inputs still resolve as compatibility aliases, but new docs and APIs present `local-router/<route-name>`.
 
+## Choosing a Router Type
+
+Open `http://localhost:11434/config` → **Router Models**. Each type selects from your explicit candidate list only:
+
+| Type | When to use |
+|---|---|
+| `auto-local` | **Recommended default.** Balances coding quality, cost, and latency. Adjust Cost/Quality (0–10). |
+| `pareto-code` | Coding-first workflows. Drops models below Min Coding Score. |
+| `priority` | Predictable top-to-bottom order after capability checks. |
+| `bandit-local` | Learns from your usage over time (dLinUCB). Needs ~10 samples per candidate. |
+
+**Out-of-box recommendation:** use `local-router/auto-local-main` as your model. The system fallback chain `local-router/fallback-models` is bootstrapped automatically and catches failures when providers are missing or upstream calls fail.
+
 ## Configuration Storage
 
 Local Router writes non-secret route and telemetry files under:

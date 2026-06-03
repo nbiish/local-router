@@ -2,11 +2,23 @@
 
 This document is the working guide for AI agents and maintainers improving Local Router logic. Keep it current when changing router scoring, defaults, telemetry, exports, or UI behavior.
 
+## How Routing Works (User Summary)
+
+Local Router exposes three request paths:
+
+1. **Direct model** — e.g. `zenmux-deepseek-v4-pro`. One upstream call. On failure, cascades to the system fallback chain (`fallback-models`) when configured.
+2. **Router model** — `local-router/<name>`. Scores/filters explicit candidates, tries in router order. On exhaustion or zero eligible candidates, cascades to system fallback.
+3. **Fallback route** — `local-router/<chain>`. Ordered retry chain with backoff. `local-router/fallback-models` is the system safety net.
+
+Recommended out-of-box model: `local-router/auto-local-main`.
+
+Candidate availability in `/config` shows **Ready** (key configured), **No key**, or **Unavailable**. Fallback stages without configured keys are skipped immediately (no retry backoff).
+
 ## Router Goals
 
 - Present local router models as `local-router/<router-name>`.
 - Select only from explicit user-configured candidate models.
-- Fail closed when no candidate is eligible.
+- Fail closed when no candidate is eligible **and** no system fallback route exists.
 - Keep request-time routing lightweight and deterministic by default.
 - Store only non-secret configuration and redacted telemetry.
 - Keep implementation in TypeScript/Node unless there is a clear project-wide reason to add another runtime.
@@ -29,12 +41,34 @@ Use these defaults when creating a new router and when resetting the router form
 - Candidate list:
 
 ```text
-openrouter-1-million-chain-of-draft, coding=0.88, input=1, output=2, latency=1200, notes=DeepSeek V4 Pro + DeepSeek V4 Flash + Xiaomi MiMo-V2.5-Pro
-openrouter-chain-of-draft, coding=0.86, input=1, output=2, latency=1300, notes=DeepSeek V4 Pro + MoonshotAI Kimi K2.6 + Xiaomi MiMo-V2.5-Pro
-openrouter-openrouter-personal-router, coding=0.84, input=1, output=2, latency=1100, notes=DeepSeek V4 Pro + MoonshotAI Kimi Latest + Xiaomi MiMo-V2.5-Pro
-openrouter-1-million-main, coding=0.82, input=1, output=2, latency=1000, notes=DeepSeek V4 Pro + DeepSeek V4 Flash + Xiaomi MiMo-V2.5-Pro
-openrouter-free-chain-of-draft, coding=0.72, input=0, output=1, latency=1500, notes=Composition unconfirmed
+openrouter-1-million-chain-of-draft, coding=0.88, input=1, output=2, latency=1200, notes=OpenRouter preset: DS V4 Pro + V4 Flash + MiMo
+openrouter-chain-of-draft, coding=0.86, input=1, output=2, latency=1300, notes=OpenRouter preset: DS V4 Pro + Kimi K2.6 + MiMo
+openrouter-qwen3.7-max, coding=0.85, input=2.5, output=7.5, latency=900, notes=OpenRouter Qwen3.7-Max cheapest 1M ctx
+xiaomi-mimo-mimo-v2.5-pro, coding=0.80, input=0.44, output=0.88, latency=1000, notes=Xiaomi MiMo V2.5 Pro 1M ctx
+xiaomi-mimo-mimo-v2.5, coding=0.76, input=0.15, output=0.29, latency=1100, notes=Xiaomi MiMo V2.5 1M ctx multimodal
+zenmux-minimax-m3, coding=0.85, input=0.3, output=1.2, latency=700, notes=ZenMux MiniMax M3 512K ctx multimodal reasoning
+zenmux-step-3.7-flash, coding=0.84, input=0.2, output=1.15, latency=700, notes=ZenMux Step 3.7 Flash reasoning
+zenmux-deepseek-v4-pro, coding=0.91, input=0.435, output=0.87, latency=900, notes=ZenMux DeepSeek V4 Pro 1M ctx
+zai-code-pass-glm-5.1, coding=0.83, input=0.88, output=3.51, latency=750, notes=Z.ai Code Pass GLM-5.1 200K ctx
+opencode-minimax-m3, coding=0.85, input=0.3, output=1.2, latency=650, notes=OpenCode MiniMax M3 512K ctx
+modal-glm-5.1-fp8, coding=0.83, input=0.5, output=1, latency=800, notes=Modal GLM-5.1 FP8 200K ctx
+nvidia-nim-step-3.7-flash, coding=0.84, input=0.1, output=0.3, latency=700, notes=NVIDIA NIM Step 3.7 Flash reasoning
+wafer-ai-deepseek-v4-flash, coding=0.87, input=0.5, output=1, latency=600, notes=Wafer DeepSeek V4 Flash 1M ctx
+nvidia-nim-kimi-k2.6, coding=0.86, input=0.6, output=2.5, latency=850, notes=NVIDIA NIM Kimi K2.6 256K ctx coding
+opencode-minimax-m3-free, coding=0.80, input=0, output=0, latency=900, notes=OpenCode MiniMax M3 free tier 512K ctx
 ```
+
+## Default System Fallback Profile
+
+Bootstrapped on first run when no fallback routes exist (`ensureDefaultFallback()`). Route id: `fallback-models`.
+
+Ordered chain (deduped):
+
+1. **Free tier:** `opencode-minimax-m3-free`, `opencode-zen-minimax-m3-free`
+2. **MiniMax M3 (all providers):** `zenmux-minimax-m3`, `openrouter-minimax-m3`, `opencode-minimax-m3`, `nvidia-nim-minimax-m3`
+3. **Default router candidates:** same 15 models as the auto-router profile above
+
+The `/config` **Reset Fallback Defaults** button restores this chain. Stages without configured provider keys are skipped immediately at request time.
 
 Rationale:
 
@@ -73,6 +107,13 @@ Use this information for candidate notes and Pareto-style scoring. Do not infer 
 
 - Best for deterministic manual fallback.
 - Preserves user candidate order after eligibility filtering.
+
+`bandit-local`
+
+- Learns from past requests using dLinUCB (discounted LinUCB with geometric forgetting, γ=0.98).
+- Cold-starts with exploration for candidates under ~10 samples; `explorationBudget` (default 0.05) controls UCB exploration.
+- Persists per-candidate A/b matrices in `router-models.json`.
+- Best when you want the router to adapt to your workload over time.
 
 ## Candidate Metadata
 
