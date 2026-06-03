@@ -54,7 +54,8 @@ Per `AGENTS.md`: never work directly on `main` or `develop`. Create a git worktr
 - **Port:** `11434` (mimicking Ollama's default for drop-in compatibility)
 - **Core endpoint:** `POST /v1/chat/completions`
 - **Ollama-compatible endpoints:** `GET /api/tags`, `POST /api/generate`, `POST /api/chat`, `POST /api/show`, `HEAD /api/version`, `HEAD /api/tags`, `GET /api/ps`
-- **OpenAI Responses API shim:** `POST /v1/responses` (Codex compatibility layer)
+- **OpenAI Responses API shim:** `POST /v1/responses` and WebSocket upgrade `ws://localhost:PORT/v1/responses` (Codex compatibility layer)
+- **Anthropic Messages API proxy:** `POST /v1/messages` (Claude Code compatibility layer)
 - **Discovery:** `GET /` and `HEAD /` return `Ollama is running` so Ollama clients detect the proxy
 - **Version:** `GET /api/version` returns `0.6.4` to satisfy VS Code's Ollama minimum version check
 
@@ -135,7 +136,25 @@ Codex 0.135+ dropped the OpenAI chat-completions endpoint for its `exec` subcomm
 1. **Inbound Request:** Maps Responses request fields (`model`, `input`, `instructions`, `max_output_tokens`, `tools`, `tool_choice`, etc.) to standard chat-completion request parameters (`model`, `messages`, `max_tokens`, etc.). System prompts (`instructions`) are prepended as system messages.
 2. **Execution:** Drives the existing `handleChatCompletion` pipeline, retaining all routing, fallback, keys, and reasoning compatibility features.
 3. **Outbound Response:** Re-wraps the returned OpenAI chat-completion response envelope into the Responses envelope (`object: "response"`, `output` array of `message` and `function_call` parts, token usage).
-4. **Streaming:** Streaming Responses API is not yet supported; requests with `stream=true` return an error block.
+4. **Streaming:** Supported via stateful WebSocket upgrades at `ws://localhost:PORT/v1/responses` translating incoming Server-Sent Events to Responses protocol WebSocket packets (e.g., `response.created`, `response.output_item.added`, `response.output_text.delta`, `response.output_item.done`, `response.completed`). Uses a `stream.Writable` adapter (`fakeRes`) to support stream piping and reasoning-strip transformations without pipe errors.
+
+### Anthropic Messages API Proxy
+
+Local Router exposes an Anthropic-compatible Messages endpoint at `POST /v1/messages` to support Claude Code and other Anthropic-native clients.
+
+**Translation Flow:**
+1. **Inbound Request:** Maps Anthropic Message request fields (`model`, `messages`, `system`, `max_tokens`, etc.) to standard chat-completion request parameters. Supports conversion of text blocks, images, and tools.
+2. **Outbound Response (Non-Streaming):** Translates standard OpenAI-format completions back to the Anthropic `message` object envelope.
+3. **Streaming:** When `stream: true`, reads standard Server-Sent Events (SSE) and maps chunks dynamically to Anthropic event stream blocks: `message_start`, `content_block_start`, `content_block_delta`, `message_delta`, and `message_stop`.
+
+### Prompt Caching Auto-Injection
+
+Local Router automatically injects prompt caching parameters (such as `cache_control: {"type": "ephemeral"}`) at key system/message breakpoints for supported providers. This minimizes token costs and latency for repetitive developer workflows (e.g. Claude Code chat history).
+
+**Caching Strategy:**
+- Injects cache blocks at system prompt boundaries and recent message turns.
+- Target providers include DeepSeek, ZenMux, OpenCode, OpenRouter presets, Moonshot/Kimi, and Xiaomi Mimo.
+- Configured dynamically via capability properties in the `providers.txt` master registry.
 
 ### File Map
 
@@ -804,5 +823,6 @@ Claude Code / VS Code / any tool
 4. ✅ **Three-tier promotion** — Merged `feat/codex-responses-shim` into `develop` and promoted to `main`.
 5. ✅ **Clean daemon startup** — Stopped daemon running from deleted worktree (which threw ENOENT errors looking for `providers.txt` in its deleted path). Restarted clean production daemon from `/Volumes/1tb-sandisk/code-external/fvs-code` on port `11434`, successfully loading all 12 providers.
 6. ✅ **llms.txt update** — Documented `/v1/responses` translation flow, added endpoint references, and recorded this session log.
+7. ✅ **Responses WS Stream, Anthropic Proxy & Prompt Caching** — Implemented WebSocket upgrade handler at `/v1/responses` using a `stream.Writable` adapter to support stream piping. Added `POST /v1/messages` translating Anthropic request payloads and mapping streaming events. Designed and added auto-injection of prompt caching parameters at breakpoints for supported providers. Synced caching specifications to `providers.txt`. All features promoted to `main` branch with passing integration tests.
 
-**Branch:** `feat/codex-responses-shim` from `develop` | 2 commits: task file + v1/responses implementation
+**Branch:** `feat/routing-responses-caching-anthropic` from `develop` | 2 commits: task file + implementation
