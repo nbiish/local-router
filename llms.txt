@@ -176,11 +176,22 @@ The Python script (`kyber-py`) now reads Rust-engine (`rust-fips203`) bundles na
 - `~/.config/pqc-secrets/recipient.pub` — Rust-engine public key (JSON with `public_key_b64`)
 - `~/.config/pqc-secrets/secrets.bundle.json` — Rust-engine bundle (base64 fields, keywrap layer, AAD)
 
-### pqc-signatures-security — OK
+### pqc-signatures-security — HARDENED
 
 ML-DSA-65 code signing via OpenSSL. Helper script at `.agents/skills/pqc-signatures-security/scripts/pqc_helper.py` provides keygen, sign, and verify commands. No runtime dependency — uses system OpenSSL with ML-DSA-65 support.
 
 **Status:** Not yet integrated into the Local Router codebase (no `.sig` files, no verify hook). Ready to use when needed.
+
+**Hardened `pqc_helper.py` (2026-06-02):** The helper subprocess wrapper was hardened in `chore/agents-skill-hygiene` and promoted through `develop` → `staging` → `main`. The wrapper now:
+- Enforces a 30-second default `subprocess.run` timeout to prevent hung `openssl` invocations
+- Accepts optional `input_data` for stdin piping
+- Distinguishes verify returncodes: `0` = signature OK, `1` = genuine signature mismatch, anything else = unexpected command error
+- Surfaces `FileNotFoundError` (missing `openssl` on PATH) separately from a real verify failure
+- Surfaces `subprocess.TimeoutExpired` with a dedicated error message
+
+The ML-DSA-65 algorithm and `openssl pkeyutl` invocations are unchanged. Only the wrapper's error semantics and lifecycle got hardened.
+
+**SKILL.md portability:** The skill's `SKILL.md` was previously committed as a symlink (`mode 120000`) pointing outside the repo (`/Users/nbiish/code/ainish-coder/...`), making it non-portable. It is now committed as a regular tracked file (`mode 100644`) so the skill is self-contained and works on any machine without that local checkout. Byte-identical to the canonical ainish-coder version.
 
 ### Server Startup Behavior
 
@@ -679,3 +690,16 @@ Coverage includes:
 6. ✅ **llms.txt updated** — Key Management and Provider Security Rules sections updated to document full PQC persistence lifecycle
 
 **Final state:** 12 providers, 79 models, all keys encrypted at rest via ML-KEM-768 + AES-256-GCM, surviving restarts.
+
+### 2026-06-02 — PQC Skill Hygiene, Provider Persistence & Three-Tier Promotion
+
+**Tasks completed:**
+1. ✅ **Hardened `pqc_helper.py`** — Subprocess wrapper now has 30s default timeout, stdin piping support, distinct returncode handling (0=ok, 1=verify-fail, else=error), and dedicated `FileNotFoundError` / `TimeoutExpired` reporting. ML-DSA-65 algorithm unchanged. 5 atomic commits: `694962f`, `80856d2`, `0741f92`, `69fea88`, `f95745d`
+2. ✅ **Inlined symlinked `SKILL.md`** — Replaced system-path symlink (`/Users/nbiish/code/ainish-coder/...`) with regular tracked file. Skill is now self-contained and machine-portable
+3. ✅ **Integrated `feat/provider-model-persistence`** — Merged PR #6 into `develop`; one conflict in `src/index.ts` init sequence (kept all three `loadPersisted*` calls). Build passes clean
+4. ✅ **Three-tier promotion** — `chore/agents-skill-hygiene` → `develop` (`38c82d9`) → `staging` → `main` (`21022e5`). Merge commit on `main` preserved the 2 prior direct-to-main commits (config UI newline escape, llms.txt PQC lifecycle doc)
+5. ✅ **Build verification** — `npm run build` clean on `develop`, `staging`, and `main`. `node_modules` re-installed per worktree
+6. ✅ **Ainish-coder PQC parity** — Synced hardened `pqc_helper.py` from local-router to ainish-coder (branch `chore/sync-pqc-helper-from-local-router`, merged to ainish-coder `main` at `6de0281`). Both repos now byte-identical for `pqc-signatures-security`; local-router `pqc-secrets` follows ainish-coder via existing symlink
+7. ✅ **llms.txt parity** — Updated local-router llms.txt to document the hardened `pqc_helper.py` and the inlined `SKILL.md`
+
+**Worktree cleanup pending:** non-main worktrees (`agents-skill-hygiene`, `develop`, `staging`, `feat-persistence`, `sync-pqc-helper`, `docs-llms-parity`) scheduled for removal after this promotion cycle.
