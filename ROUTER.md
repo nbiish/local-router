@@ -10,7 +10,9 @@ Local Router exposes three request paths:
 2. **Router model** — `local-router/<name>`. Scores/filters explicit candidates, tries in router order. On exhaustion or zero eligible candidates, cascades to system fallback.
 3. **Fallback route** — `local-router/<chain>`. Ordered retry chain with backoff. `local-router/fallback-models` is the system safety net.
 
-Recommended out-of-box model: `local-router/auto-local-main`.
+Recommended out-of-box model: `local-router/auto-router-main` (legacy alias: `auto-local-main`).
+
+Promotional or time-limited USD/1M token rates are stored in `~/.config/local-router/provider-pricing.json` and editable from `/config` → **Model Pricing Overrides**. Router cost scoring reads these overrides first, then falls back to candidate defaults in `router-models.json`.
 
 Candidate availability in `/config` shows **Ready** (key configured), **No key**, or **Unavailable**. Fallback stages without configured keys are skipped immediately (no retry backoff).
 

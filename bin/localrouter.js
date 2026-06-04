@@ -295,7 +295,7 @@ async function cmdRouterList(options) {
 
 async function cmdRouterShow(routeId, options) {
   if (!routeId) {
-    throw new Error('Route id required. Example: localrouter router show auto-local-main');
+    throw new Error('Route id required. Example: localrouter router show auto-router-main');
   }
 
   const probeResult = await client.probe(options.host, options.port);

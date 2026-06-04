@@ -12,6 +12,14 @@ import { ProxyProvider } from './types';
 import { sanitizeProviderRequestBody, stripReasoningMetadata, ThinkingLevel, DEFAULT_THINKING_LEVEL } from './reasoning';
 import { loadSessions, loadFeedback, recordRequest, getSessions, getSessionById, recordFeedback } from './sessions';
 import { computeTiers } from './tiers';
+import {
+  applyPricingToRouterCandidates,
+  deleteProviderPricingEntry,
+  getProviderPricingSnapshot,
+  loadProviderPricingStore,
+  resolveEffectiveCandidatePricing,
+  upsertProviderPricingEntry
+} from './provider-pricing';
 
 type ProviderModel = {
   id: string;
@@ -167,11 +175,15 @@ const DEFAULT_ROUTER_MIN_CODING_SCORE = 0.66;
 const DEFAULT_ROUTER_COST_QUALITY_TRADEOFF = 7;
 const ROUTER_CANDIDATE_RETRIES = 2;
 const SYSTEM_FALLBACK_ROUTE_ID = 'fallback-models';
-const DEFAULT_ROUTER_ID = 'auto-local-main';
+const DEFAULT_ROUTER_ID = 'auto-router-main';
+const LEGACY_ROUTER_ROUTE_ALIASES: Record<string, string> = {
+  'auto-local-main': 'auto-router-main'
+};
 const DEFAULT_ROUTER_CANDIDATES_TEXT = [
   'openrouter-1-million-chain-of-draft, coding=0.88, input=1, output=2, latency=1200, notes=OpenRouter preset: DS V4 Pro + V4 Flash + MiMo',
   'openrouter-chain-of-draft, coding=0.86, input=1, output=2, latency=1300, notes=OpenRouter preset: DS V4 Pro + Kimi K2.6 + MiMo',
-  'openrouter-qwen3.7-max, coding=0.85, input=2.5, output=7.5, latency=900, notes=OpenRouter Qwen3.7-Max cheapest 1M ctx',
+  'openrouter-qwen3.7-max, coding=0.85, input=2.5, output=7.5, latency=900, notes=OpenRouter Qwen3.7-Max reference pricing',
+  'zenmux-qwen3.7-max, coding=0.85, input=2.5, output=7.5, latency=900, notes=ZenMux Qwen3.7-Max — matched OpenRouter promo',
   'xiaomi-mimo-mimo-v2.5-pro, coding=0.80, input=0.44, output=0.88, latency=1000, notes=Xiaomi MiMo V2.5 Pro 1M ctx',
   'xiaomi-mimo-mimo-v2.5, coding=0.76, input=0.15, output=0.29, latency=1100, notes=Xiaomi MiMo V2.5 1M ctx multimodal',
   'zenmux-minimax-m3, coding=0.90, input=0.3, output=1.2, latency=700, notes=ZenMux MiniMax M3 — SWE-Bench Pro ~59% (Jun 2026 vendor)',
@@ -182,6 +194,7 @@ const DEFAULT_ROUTER_CANDIDATES_TEXT = [
   'modal-glm-5.1-fp8, coding=0.83, input=0.5, output=1, latency=800, notes=Modal GLM-5.1 FP8 200K ctx',
   'nvidia-nim-step-3.7-flash, coding=0.84, input=0.1, output=0.3, latency=700, notes=NVIDIA NIM Step 3.7 Flash reasoning',
   'wafer-ai-deepseek-v4-flash, coding=0.87, input=0.5, output=1, latency=600, notes=Wafer DeepSeek V4 Flash 1M ctx',
+  'wafer-ai-minimax-m3, coding=0.90, input=0.33, output=1.32, latency=650, notes=Wafer MiniMax-M3 serverless promo (~$0.33/$1.32 per 1M)',
   'nvidia-nim-kimi-k2.6, coding=0.86, input=0.6, output=2.5, latency=850, notes=NVIDIA NIM Kimi K2.6 256K ctx coding',
   'opencode-minimax-m3-free, coding=0.80, input=0, output=0, latency=900, notes=OpenCode MiniMax M3 free tier 512K ctx'
 ].join('\n');
@@ -784,6 +797,9 @@ function parseFallbackModel(payload: any): FallbackModelParseResult {
 function normalizeRouterRouteId(value: string) {
   const trimmed = typeof value === 'string' ? value.trim() : '';
   if (!trimmed) return '';
+  if (LEGACY_ROUTER_ROUTE_ALIASES[trimmed]) {
+    return LEGACY_ROUTER_ROUTE_ALIASES[trimmed];
+  }
   if (trimmed.startsWith(`${FALLBACK_PROVIDER_NAME}/`)) {
     return trimmed.slice(FALLBACK_PROVIDER_NAME.length + 1).trim();
   }
@@ -1083,7 +1099,9 @@ function loadPersistedRouterModels() {
       const referenceCheck = validateRouterReferences(parsedRoute.model);
       if (!referenceCheck.ok) continue;
 
-      routerModelStore[parsedRoute.model.id] = cloneRouterModel(parsedRoute.model);
+      const model = cloneRouterModel(parsedRoute.model);
+      model.candidates = applyPricingToRouterCandidates(model.candidates);
+      routerModelStore[parsedRoute.model.id] = model;
     }
   } catch (error: any) {
     console.error('Failed to load persisted router routes:', sanitizeDiagnosticText(String(error?.message || error)));
@@ -1565,10 +1583,29 @@ function buildDefaultAutoLocalRouterModel(): RouterModel | null {
     console.error('Default auto-local router references unresolved candidates:', referenceCheck.error);
     return null;
   }
-  return parsed.model;
+  return {
+    ...parsed.model,
+    candidates: applyPricingToRouterCandidates(parsed.model.candidates)
+  };
 }
 
 function migratePersistedRoutingConfig(): void {
+  const legacyRouter = routerModelStore['auto-local-main'];
+  if (legacyRouter && !routerModelStore[DEFAULT_ROUTER_ID]) {
+    routerModelStore[DEFAULT_ROUTER_ID] = cloneRouterModel({
+      ...legacyRouter,
+      id: DEFAULT_ROUTER_ID,
+      candidates: applyPricingToRouterCandidates(legacyRouter.candidates)
+    });
+    delete routerModelStore['auto-local-main'];
+    try {
+      persistRouterModels();
+      console.log('[router] Renamed auto-local-main → auto-router-main.');
+    } catch (error: any) {
+      console.error('Failed to persist router rename:', sanitizeDiagnosticText(String(error?.message || error)));
+    }
+  }
+
   const defaultRouter = buildDefaultAutoLocalRouterModel();
   const existingRouter = routerModelStore[DEFAULT_ROUTER_ID];
   if (defaultRouter && existingRouter && isLegacyAutoLocalMainRouter(existingRouter)) {
@@ -2505,7 +2542,7 @@ app.get('/config', (req: Request, res: Response) => {
             <li><strong>Router model</strong> (<code>local-router/&lt;name&gt;</code>) — scores and filters your candidate list, then tries models in router order. On exhaustion or zero eligible candidates, cascades to system fallback.</li>
             <li><strong>Fallback route</strong> (<code>local-router/&lt;chain&gt;</code>) — ordered retry chain with backoff. Use <code>local-router/fallback-models</code> as the system safety net.</li>
           </ul>
-          <p class="muted" style="margin:10px 0 0;">Recommended out-of-box model: <code>local-router/auto-local-main</code>. Configure provider keys above — candidates light up when ready.</p>
+          <p class="muted" style="margin:10px 0 0;">Recommended out-of-box model: <code>local-router/auto-router-main</code> (legacy alias: <code>auto-local-main</code>). Configure provider keys above — candidates light up when ready.</p>
         </div>
         <div class="catalog-meta">
           <div>
@@ -2517,7 +2554,7 @@ app.get('/config', (req: Request, res: Response) => {
         <div class="provider-picker">
           <div class="form-group">
             <label for="routerRouteId">Presented Router Model Name</label>
-            <input id="routerRouteId" type="text" placeholder="auto-local-main">
+            <input id="routerRouteId" type="text" placeholder="auto-router-main">
           </div>
           <div class="form-group">
             <label for="routerType">Router Type</label>
@@ -2620,6 +2657,42 @@ app.get('/config', (req: Request, res: Response) => {
           <div class="muted" id="catalogCount">Loading catalog...</div>
         </div>
         <div id="catalog" class="catalog"></div>
+      </div>
+      <div class="card">
+        <div class="catalog-meta">
+          <div>
+            <h2>Model Pricing Overrides</h2>
+            <p class="muted">USD per 1M tokens for router cost scoring. Saved to <code>~/.config/local-router/provider-pricing.json</code>. Use for limited-time promos (ZenMux matched rates, Wafer MiniMax-M3 weekly pricing, etc.).</p>
+          </div>
+          <div class="muted" id="pricingCount">Loading pricing...</div>
+        </div>
+        <div class="form-group" style="display:grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+          <div>
+            <label for="pricingModelId">Presented model ID</label>
+            <input id="pricingModelId" type="text" placeholder="zenmux-qwen3.7-max">
+          </div>
+          <div>
+            <label for="pricingValidUntil">Valid until (YYYY-MM-DD, optional)</label>
+            <input id="pricingValidUntil" type="text" placeholder="2026-06-11">
+          </div>
+          <div>
+            <label for="pricingInput">Input $ / 1M tokens</label>
+            <input id="pricingInput" type="number" min="0" step="0.01" placeholder="2.5">
+          </div>
+          <div>
+            <label for="pricingOutput">Output $ / 1M tokens</label>
+            <input id="pricingOutput" type="number" min="0" step="0.01" placeholder="7.5">
+          </div>
+          <div style="grid-column: 1 / -1;">
+            <label for="pricingLabel">Label / notes</label>
+            <input id="pricingLabel" type="text" placeholder="ZenMux matched OpenRouter promo">
+          </div>
+        </div>
+        <div style="margin-top: 12px; display: flex; gap: 8px; flex-wrap: wrap;">
+          <button onclick="saveProviderPricingEntry()">Save Pricing Override</button>
+          <button class="button-secondary" onclick="clearProviderPricingForm()">Clear Form</button>
+        </div>
+        <div id="pricingList" class="fallback-route-list" style="margin-top: 16px;">Loading pricing overrides...</div>
       </div>
       <div class="card">
         <div class="catalog-meta">
@@ -3414,7 +3487,7 @@ app.get('/config', (req: Request, res: Response) => {
               setMessage(payload.error || 'Failed to reset router defaults.', 'error');
               return;
             }
-            setMessage('Reset auto-local-main to default candidate catalog (' + (payload.candidateCount || 0) + ' models).', 'success');
+            setMessage('Reset auto-router-main to default candidate catalog (' + (payload.candidateCount || 0) + ' models).', 'success');
             await loadRouterRoutes();
             await refreshCatalog();
           } catch (error) {
@@ -4149,9 +4222,87 @@ app.get('/config', (req: Request, res: Response) => {
         applyRouterDefaults();
         updateRouterTypeHelp();
         loadCatalog();
+        loadProviderPricingPanel();
         loadSessionsPanel();
         loadSystemPrompt();
         loadModelSource();
+
+        async function loadProviderPricingPanel() {
+          var countEl = document.getElementById('pricingCount');
+          var listEl = document.getElementById('pricingList');
+          try {
+            var res = await fetch('/api/provider-pricing');
+            var data = await res.json().catch(function() { return {}; });
+            var models = data.models && typeof data.models === 'object' ? data.models : {};
+            var keys = Object.keys(models).sort();
+            countEl.innerText = keys.length + ' pricing override' + (keys.length === 1 ? '' : 's');
+            if (!keys.length) {
+              listEl.innerHTML = '<div class="fallback-route-empty">No pricing overrides configured.</div>';
+              return;
+            }
+            listEl.innerHTML = keys.map(function(modelId) {
+              var entry = models[modelId] || {};
+              var until = entry.validUntil ? ' until ' + escapeHtml(entry.validUntil) : '';
+              return '<div class="fallback-route-item">' +
+                '<h4>' + escapeHtml(modelId) + '</h4>' +
+                '<div class="meta">Input: $' + escapeHtml(String(entry.inputPricePerM)) + '/M | Output: $' + escapeHtml(String(entry.outputPricePerM)) + '/M' + until + '</div>' +
+                '<div class="meta">' + escapeHtml(entry.label || '') + '</div>' +
+                '<div class="actions">' +
+                  '<button class="button-secondary" data-edit-pricing="' + escapeHtml(modelId) + '">Edit</button>' +
+                '</div>' +
+              '</div>';
+            }).join('');
+            listEl.querySelectorAll('button[data-edit-pricing]').forEach(function(button) {
+              button.addEventListener('click', function() {
+                var modelId = button.getAttribute('data-edit-pricing') || '';
+                var entry = models[modelId] || {};
+                document.getElementById('pricingModelId').value = modelId;
+                document.getElementById('pricingInput').value = entry.inputPricePerM ?? '';
+                document.getElementById('pricingOutput').value = entry.outputPricePerM ?? '';
+                document.getElementById('pricingLabel').value = entry.label || '';
+                document.getElementById('pricingValidUntil').value = entry.validUntil || '';
+              });
+            });
+          } catch (e) {
+            countEl.innerText = 'Error';
+            listEl.innerHTML = '<div class="fallback-route-empty">Failed to load pricing: ' + escapeHtml(String(e.message || e)) + '</div>';
+          }
+        }
+
+        function clearProviderPricingForm() {
+          document.getElementById('pricingModelId').value = '';
+          document.getElementById('pricingInput').value = '';
+          document.getElementById('pricingOutput').value = '';
+          document.getElementById('pricingLabel').value = '';
+          document.getElementById('pricingValidUntil').value = '';
+        }
+
+        async function saveProviderPricingEntry() {
+          var modelId = document.getElementById('pricingModelId').value.trim();
+          var inputPricePerM = Number.parseFloat(document.getElementById('pricingInput').value);
+          var outputPricePerM = Number.parseFloat(document.getElementById('pricingOutput').value);
+          if (!modelId || !Number.isFinite(inputPricePerM) || !Number.isFinite(outputPricePerM)) {
+            setMessage('Enter model ID, input $/M, and output $/M.', 'error');
+            return;
+          }
+          var res = await fetch('/api/provider-pricing/' + encodeURIComponent(modelId), {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              inputPricePerM: inputPricePerM,
+              outputPricePerM: outputPricePerM,
+              label: document.getElementById('pricingLabel').value.trim(),
+              validUntil: document.getElementById('pricingValidUntil').value.trim() || undefined
+            })
+          });
+          var payload = await res.json().catch(function() { return {}; });
+          if (!res.ok) {
+            setMessage(payload.error || 'Failed to save pricing.', 'error');
+            return;
+          }
+          setMessage('Saved pricing for ' + modelId + '.', 'success');
+          await loadProviderPricingPanel();
+        }
 
         // ── Sessions & Feedback ──
         async function loadSessionsPanel() {
@@ -4521,7 +4672,9 @@ app.post('/api/router-models', (req: Request, res: Response) => {
   const previousModel = routerModelStore[parsed.model.id]
     ? cloneRouterModel(routerModelStore[parsed.model.id])
     : null;
-  routerModelStore[parsed.model.id] = cloneRouterModel(parsed.model);
+  const modelToStore = cloneRouterModel(parsed.model);
+  modelToStore.candidates = applyPricingToRouterCandidates(modelToStore.candidates);
+  routerModelStore[parsed.model.id] = modelToStore;
 
   try {
     persistRouterModels();
@@ -4547,6 +4700,40 @@ app.post('/api/router-models', (req: Request, res: Response) => {
       display: routerModelPresentation(parsed.model).display
     }
   });
+});
+
+app.get('/api/provider-pricing', (req: Request, res: Response) => {
+  return res.json(getProviderPricingSnapshot());
+});
+
+app.put('/api/provider-pricing/:modelId', (req: Request, res: Response) => {
+  const modelId = String(req.params.modelId || '').trim();
+  if (!modelId) {
+    return res.status(400).json({ error: 'modelId is required.' });
+  }
+  try {
+    const entry = upsertProviderPricingEntry(modelId, {
+      inputPricePerM: req.body?.inputPricePerM,
+      outputPricePerM: req.body?.outputPricePerM,
+      label: req.body?.label,
+      validUntil: req.body?.validUntil,
+      sourceUrl: req.body?.sourceUrl
+    });
+    refreshRouterModelsPricing();
+    return res.json({ success: true, modelId, entry });
+  } catch (error: any) {
+    return res.status(400).json({ error: error?.message || 'Invalid pricing payload.' });
+  }
+});
+
+app.delete('/api/provider-pricing/:modelId', (req: Request, res: Response) => {
+  const modelId = String(req.params.modelId || '').trim();
+  if (!modelId) {
+    return res.status(400).json({ error: 'modelId is required.' });
+  }
+  const removed = deleteProviderPricingEntry(modelId);
+  refreshRouterModelsPricing();
+  return res.json({ success: true, modelId, removed });
 });
 
 app.post('/api/router-models/reset-defaults', (req: Request, res: Response) => {
@@ -5506,6 +5693,7 @@ ensureLocalRouterConfigDir();
 migrateLegacyConfigIfNeeded();
 loadPersistedFallbackModels();
 loadPersistedRouterModels();
+loadProviderPricingStore();
 loadPersistedSystemPrompt();
 loadPersistedThinkingConfig();
 loadPersistedProviderModels();
@@ -5537,12 +5725,38 @@ function ensureDefaultRouter() {
     return;
   }
 
-  routerModelStore[parsed.model.id] = cloneRouterModel(parsed.model);
+  routerModelStore[parsed.model.id] = cloneRouterModel({
+    ...parsed.model,
+    candidates: applyPricingToRouterCandidates(parsed.model.candidates)
+  });
   try {
     persistRouterModels();
   } catch (error: any) {
     console.error('Failed to persist default router:', sanitizeDiagnosticText(String(error?.message || error)));
     delete routerModelStore[parsed.model.id];
+  }
+}
+
+function refreshRouterModelsPricing(): void {
+  let changed = false;
+  for (const [id, router] of Object.entries(routerModelStore)) {
+    const priced = applyPricingToRouterCandidates(router.candidates);
+    const samePricing = priced.every((candidate, index) => (
+      candidate.inputPrice === router.candidates[index]?.inputPrice
+      && candidate.outputPrice === router.candidates[index]?.outputPrice
+    ));
+    if (samePricing) continue;
+    routerModelStore[id] = {
+      ...router,
+      candidates: priced
+    };
+    changed = true;
+  }
+  if (!changed) return;
+  try {
+    persistRouterModels();
+  } catch (error: any) {
+    console.error('Failed to persist router pricing refresh:', sanitizeDiagnosticText(String(error?.message || error)));
   }
 }
 
@@ -5932,8 +6146,12 @@ function inferredCodingScore(model: ProviderModel, candidate: RouterCandidate) {
 }
 
 function candidateCostEstimate(candidate: RouterCandidate, model: ProviderModel) {
-  const inputPrice = typeof candidate.inputPrice === 'number' ? candidate.inputPrice : 0;
-  const outputPrice = typeof candidate.outputPrice === 'number' ? candidate.outputPrice : 0;
+  const resolved = resolveEffectiveCandidatePricing(candidate.model, {
+    inputPrice: candidate.inputPrice,
+    outputPrice: candidate.outputPrice
+  });
+  const inputPrice = typeof resolved.inputPrice === 'number' ? resolved.inputPrice : 0;
+  const outputPrice = typeof resolved.outputPrice === 'number' ? resolved.outputPrice : 0;
   if (inputPrice || outputPrice) return inputPrice + outputPrice;
 
   let base = 2;

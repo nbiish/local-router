@@ -117,7 +117,7 @@ Open `http://localhost:11434/config` → **Router Models**. Each type selects fr
 | `priority` | Predictable top-to-bottom order after capability checks. |
 | `bandit-local` | Learns from your usage over time (dLinUCB). Needs ~10 samples per candidate. |
 
-**Out-of-box recommendation:** use `local-router/auto-local-main` as your model. The system fallback chain `local-router/fallback-models` is bootstrapped automatically and catches failures when providers are missing or upstream calls fail.
+**Out-of-box recommendation:** use `local-router/auto-router-main` as your model (legacy alias: `auto-local-main`). The system fallback chain `local-router/fallback-models` is bootstrapped automatically and catches failures when providers are missing or upstream calls fail. Limited-time provider promos (ZenMux matched Qwen pricing, Wafer MiniMax-M3 weekly rates, etc.) are editable under `/config` → **Model Pricing Overrides** and persist to `~/.config/local-router/provider-pricing.json`.
 
 ## Configuration Storage
 

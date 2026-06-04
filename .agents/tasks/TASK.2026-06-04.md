@@ -1,27 +1,20 @@
-# TASK 2026-06-04
+# TASK 2026-06-04 — auto-router-main + pricing overrides
 
-## CoD
+## Chain-of-Draft
 
-Stop port 11434
-Worktree from develop
-localrouter CLI scaffold
-catalog query API
-keys list set unset
-router check verify
-llms.txt progress log
-LiteLLM admin planned
+- Rename default router id
+- ZenMux qwen matched rates
+- Wafer MiniMax-M3 promo
+- Persist provider-pricing.json
+- /config pricing panel
+- providers.txt factual USD/M
+- Tests green (6/6)
 
 ####
 
 ## Deliverables
 
-- `bin/localrouter.js`, `bin/lib/localrouter-client.js`
-- `GET /api/provider-models?catalog=`
-- Updated `llms.txt`, `README.md`, `package.json`
-
-## Develop integration (2026-06-04)
-
-- Merged on `develop` @ `08195b8`
-- `npm test`: 6/6 pass
-- `localrouter verify`: PASSED on live server
-- Awaiting `develop` → `main` promotion after operator sign-off
+- `local-router/auto-router-main` (alias `auto-local-main`)
+- `src/provider-pricing.ts` + `GET/PUT/DELETE /api/provider-pricing`
+- `/config` → Model Pricing Overrides
+- Baseline: zenmux-qwen3.7-max 2.5/7.5, wafer-ai-minimax-m3 0.33/1.32

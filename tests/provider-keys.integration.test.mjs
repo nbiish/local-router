@@ -305,8 +305,35 @@ test('provider key save/reset lifecycle exposes configured source', async (t) =>
   const bootstrappedRouterModels = await requestJson('/api/router-models');
   assert.equal(bootstrappedRouterModels.response.status, 200);
   assert.ok(
-    bootstrappedRouterModels.body?.data?.some((route) => route.routeId === 'auto-local-main'),
-    'Expected bootstrapped auto-local-main router on first run'
+    bootstrappedRouterModels.body?.data?.some((route) => route.routeId === 'auto-router-main'),
+    'Expected bootstrapped auto-router-main router on first run'
+  );
+
+  const providerPricing = await requestJson('/api/provider-pricing');
+  assert.equal(providerPricing.response.status, 200);
+  assert.ok(
+    providerPricing.body?.models?.['zenmux-qwen3.7-max'],
+    'Expected baseline zenmux-qwen3.7-max pricing in provider-pricing snapshot'
+  );
+  assert.equal(providerPricing.body.models['zenmux-qwen3.7-max'].inputPricePerM, 2.5);
+  assert.equal(providerPricing.body.models['zenmux-qwen3.7-max'].outputPricePerM, 7.5);
+
+  const pricingUpsert = await requestJson('/api/provider-pricing/test-promo-model', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      inputPricePerM: 1.11,
+      outputPricePerM: 2.22,
+      label: 'integration test promo'
+    })
+  });
+  assert.equal(pricingUpsert.response.status, 200);
+  assert.equal(pricingUpsert.body?.entry?.inputPricePerM, 1.11);
+
+  const pricingAfterUpsert = await requestJson('/api/provider-pricing');
+  assert.equal(
+    pricingAfterUpsert.body?.models?.['test-promo-model']?.outputPricePerM,
+    2.22
   );
 
   const show = await requestJson('/api/show', {

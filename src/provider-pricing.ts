@@ -1,0 +1,226 @@
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
+
+export type ProviderPricingEntry = {
+  inputPricePerM: number;
+  outputPricePerM: number;
+  label?: string;
+  validUntil?: string;
+  sourceUrl?: string;
+  updatedAt?: string;
+};
+
+export type ProviderPricingSnapshot = {
+  version: number;
+  models: Record<string, ProviderPricingEntry>;
+};
+
+const LOCAL_ROUTER_CONFIG_DIR = path.join(os.homedir(), '.config', 'local-router');
+export const PROVIDER_PRICING_PATH = path.join(LOCAL_ROUTER_CONFIG_DIR, 'provider-pricing.json');
+
+/** USD per 1M tokens — router scoring + user-editable overrides. */
+export const BASELINE_PROVIDER_PRICING: Record<string, ProviderPricingEntry> = {
+  'openrouter-qwen3.7-max': {
+    inputPricePerM: 2.5,
+    outputPricePerM: 7.5,
+    label: 'OpenRouter Qwen3.7-Max reference',
+    sourceUrl: 'https://openrouter.ai/api/v1/models'
+  },
+  'zenmux-qwen3.7-max': {
+    inputPricePerM: 2.5,
+    outputPricePerM: 7.5,
+    label: 'ZenMux matched OpenRouter promo pricing',
+    sourceUrl: 'https://zenmux.ai/models',
+    validUntil: '2026-06-11'
+  },
+  'wafer-ai-minimax-m3': {
+    inputPricePerM: 0.33,
+    outputPricePerM: 1.32,
+    label: 'Wafer serverless MiniMax-M3 promo (live API 2026-06-04)',
+    sourceUrl: 'https://pass.wafer.ai/v1/models',
+    validUntil: '2026-06-11'
+  },
+  'zenmux-minimax-m3': {
+    inputPricePerM: 0.3,
+    outputPricePerM: 1.2,
+    label: 'ZenMux MiniMax M3 intro 50% off',
+    sourceUrl: 'https://zenmux.ai/models'
+  },
+  'opencode-minimax-m3': {
+    inputPricePerM: 0.3,
+    outputPricePerM: 1.2,
+    label: 'OpenCode MiniMax M3',
+    sourceUrl: 'https://opencode.ai/zen/v1/models'
+  },
+  'opencode-minimax-m3-free': {
+    inputPricePerM: 0,
+    outputPricePerM: 0,
+    label: 'OpenCode MiniMax M3 free tier'
+  }
+};
+
+const providerPricingStore: Record<string, ProviderPricingEntry> = {};
+
+function ensureConfigDir() {
+  fs.mkdirSync(LOCAL_ROUTER_CONFIG_DIR, { recursive: true });
+}
+
+function isPricingEntryExpired(entry: ProviderPricingEntry): boolean {
+  if (!entry.validUntil) return false;
+  const end = new Date(`${entry.validUntil}T23:59:59.999Z`);
+  return Number.isFinite(end.getTime()) && end.getTime() < Date.now();
+}
+
+function cloneEntry(entry: ProviderPricingEntry): ProviderPricingEntry {
+  return { ...entry };
+}
+
+export function getProviderPricingStore(): Record<string, ProviderPricingEntry> {
+  return providerPricingStore;
+}
+
+export function getProviderPricingSnapshot(): ProviderPricingSnapshot {
+  const models = Object.fromEntries(
+    Object.entries(providerPricingStore).map(([modelId, entry]) => [modelId, cloneEntry(entry)])
+  );
+  return { version: 1, models };
+}
+
+export function resolveEffectiveCandidatePricing(
+  modelId: string,
+  fallback?: { inputPrice?: number; outputPrice?: number }
+): { inputPrice?: number; outputPrice?: number; pricingLabel?: string; pricingExpired?: boolean } {
+  const override = providerPricingStore[modelId];
+  if (override && !isPricingEntryExpired(override)) {
+    return {
+      inputPrice: override.inputPricePerM,
+      outputPrice: override.outputPricePerM,
+      pricingLabel: override.label
+    };
+  }
+
+  if (override && isPricingEntryExpired(override)) {
+    return {
+      inputPrice: fallback?.inputPrice,
+      outputPrice: fallback?.outputPrice,
+      pricingLabel: override.label,
+      pricingExpired: true
+    };
+  }
+
+  return {
+    inputPrice: fallback?.inputPrice,
+    outputPrice: fallback?.outputPrice
+  };
+}
+
+export function loadProviderPricingStore(): void {
+  ensureConfigDir();
+  Object.keys(providerPricingStore).forEach((key) => delete providerPricingStore[key]);
+
+  for (const [modelId, entry] of Object.entries(BASELINE_PROVIDER_PRICING)) {
+    providerPricingStore[modelId] = cloneEntry({
+      ...entry,
+      updatedAt: entry.updatedAt || new Date().toISOString()
+    });
+  }
+
+  if (!fs.existsSync(PROVIDER_PRICING_PATH)) {
+    persistProviderPricingStore();
+    return;
+  }
+
+  try {
+    const parsed = JSON.parse(fs.readFileSync(PROVIDER_PRICING_PATH, 'utf8')) as ProviderPricingSnapshot;
+    const models = parsed?.models && typeof parsed.models === 'object' ? parsed.models : {};
+    for (const [modelId, entry] of Object.entries(models)) {
+      if (!entry || typeof entry !== 'object') continue;
+      const inputPricePerM = Number(entry.inputPricePerM);
+      const outputPricePerM = Number(entry.outputPricePerM);
+      if (!Number.isFinite(inputPricePerM) || !Number.isFinite(outputPricePerM)) continue;
+      providerPricingStore[modelId] = {
+        inputPricePerM,
+        outputPricePerM,
+        label: typeof entry.label === 'string' ? entry.label : undefined,
+        validUntil: typeof entry.validUntil === 'string' ? entry.validUntil : undefined,
+        sourceUrl: typeof entry.sourceUrl === 'string' ? entry.sourceUrl : undefined,
+        updatedAt: typeof entry.updatedAt === 'string' ? entry.updatedAt : new Date().toISOString()
+      };
+    }
+  } catch (error) {
+    console.error('Failed to load provider pricing overrides:', error);
+  }
+}
+
+export function persistProviderPricingStore(): void {
+  ensureConfigDir();
+  const temporaryPath = `${PROVIDER_PRICING_PATH}.${process.pid}.tmp`;
+  const payload: ProviderPricingSnapshot = getProviderPricingSnapshot();
+  fs.writeFileSync(temporaryPath, `${JSON.stringify(payload, null, 2)}\n`, {
+    encoding: 'utf8',
+    mode: 0o600
+  });
+  fs.renameSync(temporaryPath, PROVIDER_PRICING_PATH);
+  fs.chmodSync(PROVIDER_PRICING_PATH, 0o600);
+}
+
+export function upsertProviderPricingEntry(
+  modelId: string,
+  entry: Partial<ProviderPricingEntry>
+): ProviderPricingEntry {
+  const trimmed = modelId.trim();
+  if (!trimmed) {
+    throw new Error('modelId is required.');
+  }
+  const inputPricePerM = Number(entry.inputPricePerM);
+  const outputPricePerM = Number(entry.outputPricePerM);
+  if (!Number.isFinite(inputPricePerM) || inputPricePerM < 0) {
+    throw new Error('inputPricePerM must be a non-negative number.');
+  }
+  if (!Number.isFinite(outputPricePerM) || outputPricePerM < 0) {
+    throw new Error('outputPricePerM must be a non-negative number.');
+  }
+
+  const next: ProviderPricingEntry = {
+    inputPricePerM,
+    outputPricePerM,
+    label: typeof entry.label === 'string' ? entry.label.trim() : undefined,
+    validUntil: typeof entry.validUntil === 'string' ? entry.validUntil.trim() : undefined,
+    sourceUrl: typeof entry.sourceUrl === 'string' ? entry.sourceUrl.trim() : undefined,
+    updatedAt: new Date().toISOString()
+  };
+  providerPricingStore[trimmed] = next;
+  persistProviderPricingStore();
+  return cloneEntry(next);
+}
+
+export function deleteProviderPricingEntry(modelId: string): boolean {
+  const trimmed = modelId.trim();
+  if (!trimmed || !providerPricingStore[trimmed]) return false;
+  delete providerPricingStore[trimmed];
+  if (BASELINE_PROVIDER_PRICING[trimmed]) {
+    providerPricingStore[trimmed] = cloneEntry({
+      ...BASELINE_PROVIDER_PRICING[trimmed],
+      updatedAt: new Date().toISOString()
+    });
+  }
+  persistProviderPricingStore();
+  return true;
+}
+
+export function applyPricingToRouterCandidates<
+  T extends { model: string; inputPrice?: number; outputPrice?: number }
+>(candidates: T[]): T[] {
+  return candidates.map((candidate) => {
+    const resolved = resolveEffectiveCandidatePricing(candidate.model, {
+      inputPrice: candidate.inputPrice,
+      outputPrice: candidate.outputPrice
+    });
+    return {
+      ...candidate,
+      inputPrice: resolved.inputPrice,
+      outputPrice: resolved.outputPrice
+    };
+  });
+}

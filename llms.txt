@@ -908,7 +908,8 @@ localrouter config --open            # http://127.0.0.1:11434/config
 |------|--------|
 | `npm run build` | pass |
 | `npm test` (6 integration tests) | 6/6 pass |
-| `localrouter verify` (live :11434) | PASSED (72 custom models, router-check ok, `auto-local-main` 5 candidates) |
+| `localrouter verify` (live :11434) | PASSED (72 custom models, router-check ok, `auto-router-main` full candidate catalog) |
+| Provider pricing overrides | `GET/PUT/DELETE /api/provider-pricing` → `~/.config/local-router/provider-pricing.json`; `/config` UI panel |
 | `localrouter list --custom` / `router list` | pass |
 
 Pending: operator confirmation → promote `develop` → `main`.
