@@ -902,9 +902,9 @@ localrouter verify --json
 localrouter config --open            # http://127.0.0.1:11434/config
 ```
 
-**Promotion:** merge `feat/cli-localrouter-ollama-parity` → `develop` (integrate + verify) → `main` for llms.txt release update on default branch.
+**Promotion:** ✅ merged to `develop` at `45b28ce` (2026-06-04). Integration tests 6/6 pass; `localrouter verify` PASSED on develop. Pending: operator confirmation → `main` release.
 
-**Branch:** `feat/cli-localrouter-ollama-parity` from `develop`
+**Branch:** `develop` (integrated); feature branch `feat/cli-localrouter-ollama-parity`
 
 ### 2026-06-03 — Branch Consolidation (Main + Develop Gate)
 

@@ -407,7 +407,10 @@ async function cmdVerify(options) {
 
   try {
     const version = await client.fetchJson('/api/version', {}, options.host, options.port);
-    add('version', true, version);
+    const versionLabel = typeof version === 'object' && version !== null
+      ? (version.version || JSON.stringify(version))
+      : String(version);
+    add('version', true, versionLabel);
   } catch (error) {
     add('version', false, error.message);
   }
