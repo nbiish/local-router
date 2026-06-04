@@ -1239,3 +1239,5 @@ Pending: operator confirmation → promote `develop` → `main`.
 1. ✅ **Auto-router** — Added `ollama-nemotron-3-ultra-cloud`, `ollama-qwen3.5-cloud` candidates (MiniMax M3 cloud already present).
 2. ✅ **Fallback** — Ollama Cloud quartet early in `fallback-models` (after free-tier, before paid MiniMax M3).
 3. ✅ **Catalog gate** — Custom model source: `/v1/models`, `/api/tags`, `catalog=active|all`, and unfiltered `?live=true` cannot expose endpoint-cache models; full upstream lists only when **Endpoint Models** toggle is on.
+
+**Promotion:** ✅ merged to `develop` and `main`.
