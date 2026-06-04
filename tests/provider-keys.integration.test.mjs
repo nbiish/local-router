@@ -310,6 +310,28 @@ test('provider key save/reset lifecycle exposes configured source', async (t) =>
     'Expected bootstrapped auto-router-main router on first run'
   );
 
+  const autoRouter = bootstrappedRouterModels.body?.data?.find((route) => route.routeId === 'auto-router-main');
+  const autoRouterCandidates = (autoRouter?.candidates || []).map((entry) => entry.model);
+  assert.ok(
+    autoRouterCandidates.includes('ollama-nemotron-3-ultra-cloud'),
+    'auto-router-main should include Ollama Nemotron 3 Ultra cloud candidate'
+  );
+  assert.ok(
+    autoRouterCandidates.includes('ollama-qwen3.5-cloud'),
+    'auto-router-main should include Ollama Qwen 3.5 cloud candidate'
+  );
+
+  const systemFallback = bootstrappedFallbackRoutes.body?.data?.find((route) => route.routeId === 'fallback-models');
+  const fallbackChain = systemFallback?.models || [];
+  const ollamaNemotronIdx = fallbackChain.indexOf('ollama-nemotron-3-ultra-cloud');
+  const zenmuxMiniMaxIdx = fallbackChain.indexOf('zenmux-minimax-m3');
+  assert.ok(ollamaNemotronIdx >= 0, 'fallback-models should include Ollama Nemotron Ultra');
+  assert.ok(zenmuxMiniMaxIdx >= 0, 'fallback-models should include ZenMux MiniMax M3');
+  assert.ok(
+    ollamaNemotronIdx < zenmuxMiniMaxIdx,
+    'Ollama cloud models should appear before paid MiniMax M3 in fallback chain'
+  );
+
   const providerPricing = await requestJson('/api/provider-pricing');
   assert.equal(providerPricing.response.status, 200);
   assert.ok(
@@ -1221,6 +1243,45 @@ test('provider key save/reset lifecycle exposes configured source', async (t) =>
   assert.ok(
     liveProviderModels.body?.data?.some((model) => String(model.id).includes('endpoint-only-model')),
     'Expected live upstream model when ?live=true'
+  );
+
+  const fullCatalogModels = await requestJson('/v1/models');
+  assert.equal(fullCatalogModels.response.status, 200);
+  assert.equal(
+    fullCatalogModels.body?.catalog_mode,
+    'custom',
+    'Unfiltered /v1/models should report custom catalog_mode'
+  );
+  assert.equal(
+    fullCatalogModels.body?.data?.some((model) => String(model.id).includes('endpoint-only-model')),
+    false,
+    'Custom catalog mode must not expose endpoint-cache models on /v1/models'
+  );
+
+  const liveFullCatalog = await requestJson('/v1/models?live=true');
+  assert.equal(liveFullCatalog.response.status, 200);
+  assert.equal(
+    liveFullCatalog.body?.data?.some((model) => String(model.id).includes('endpoint-only-model')),
+    false,
+    'Custom mode must not expand to all provider endpoints on /v1/models?live=true'
+  );
+
+  const catalogAll = await requestJson('/api/provider-models?catalog=all');
+  assert.equal(catalogAll.response.status, 200);
+  const allFlat = (catalogAll.body?.data || []).flatMap((entry) => entry.models || []);
+  assert.equal(
+    allFlat.some((model) => String(model.id).includes('endpoint-only-model')),
+    false,
+    'catalog=all must not union endpoint cache while custom source is active'
+  );
+
+  const catalogActive = await requestJson('/api/provider-models?catalog=active');
+  assert.equal(catalogActive.response.status, 200);
+  const activeFlat = (catalogActive.body?.data || []).flatMap((entry) => entry.models || []);
+  assert.equal(
+    activeFlat.some((model) => String(model.id).includes('endpoint-only-model')),
+    false,
+    'catalog=active must follow custom source, not endpoint cache'
   );
 
   const invalidSave = await requestJson('/api/keys', {
