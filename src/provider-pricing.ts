@@ -28,9 +28,9 @@ export const BASELINE_PROVIDER_PRICING: Record<string, ProviderPricingEntry> = {
     sourceUrl: 'https://openrouter.ai/api/v1/models'
   },
   'zenmux-qwen3.7-max': {
-    inputPricePerM: 2.5,
-    outputPricePerM: 7.5,
-    label: 'ZenMux matched OpenRouter promo pricing',
+    inputPricePerM: 1.25,
+    outputPricePerM: 3.75,
+    label: 'ZenMux Qwen3.7-Max — 50% off OpenRouter match',
     sourceUrl: 'https://zenmux.ai/models',
     validUntil: '2026-06-11'
   },
@@ -150,6 +150,22 @@ export function loadProviderPricingStore(): void {
     }
   } catch (error) {
     console.error('Failed to load provider pricing overrides:', error);
+  }
+
+  const zenmuxQwen = providerPricingStore['zenmux-qwen3.7-max'];
+  if (
+    zenmuxQwen &&
+    zenmuxQwen.inputPricePerM === 2.5 &&
+    zenmuxQwen.outputPricePerM === 7.5
+  ) {
+    providerPricingStore['zenmux-qwen3.7-max'] = {
+      ...zenmuxQwen,
+      inputPricePerM: 1.25,
+      outputPricePerM: 3.75,
+      label: BASELINE_PROVIDER_PRICING['zenmux-qwen3.7-max'].label,
+      updatedAt: new Date().toISOString()
+    };
+    persistProviderPricingStore();
   }
 }
 

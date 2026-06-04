@@ -315,8 +315,8 @@ test('provider key save/reset lifecycle exposes configured source', async (t) =>
     providerPricing.body?.models?.['zenmux-qwen3.7-max'],
     'Expected baseline zenmux-qwen3.7-max pricing in provider-pricing snapshot'
   );
-  assert.equal(providerPricing.body.models['zenmux-qwen3.7-max'].inputPricePerM, 2.5);
-  assert.equal(providerPricing.body.models['zenmux-qwen3.7-max'].outputPricePerM, 7.5);
+  assert.equal(providerPricing.body.models['zenmux-qwen3.7-max'].inputPricePerM, 1.25);
+  assert.equal(providerPricing.body.models['zenmux-qwen3.7-max'].outputPricePerM, 3.75);
 
   const pricingUpsert = await requestJson('/api/provider-pricing/test-promo-model', {
     method: 'PUT',

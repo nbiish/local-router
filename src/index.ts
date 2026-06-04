@@ -183,7 +183,7 @@ const DEFAULT_ROUTER_CANDIDATES_TEXT = [
   'openrouter-1-million-chain-of-draft, coding=0.88, input=1, output=2, latency=1200, notes=OpenRouter preset: DS V4 Pro + V4 Flash + MiMo',
   'openrouter-chain-of-draft, coding=0.86, input=1, output=2, latency=1300, notes=OpenRouter preset: DS V4 Pro + Kimi K2.6 + MiMo',
   'openrouter-qwen3.7-max, coding=0.85, input=2.5, output=7.5, latency=900, notes=OpenRouter Qwen3.7-Max reference pricing',
-  'zenmux-qwen3.7-max, coding=0.85, input=2.5, output=7.5, latency=900, notes=ZenMux Qwen3.7-Max — matched OpenRouter promo',
+  'zenmux-qwen3.7-max, coding=0.85, input=1.25, output=3.75, latency=900, notes=ZenMux Qwen3.7-Max — 50% off OpenRouter match',
   'xiaomi-mimo-mimo-v2.5-pro, coding=0.80, input=0.44, output=0.88, latency=1000, notes=Xiaomi MiMo V2.5 Pro 1M ctx',
   'xiaomi-mimo-mimo-v2.5, coding=0.76, input=0.15, output=0.29, latency=1100, notes=Xiaomi MiMo V2.5 1M ctx multimodal',
   'zenmux-minimax-m3, coding=0.90, input=0.3, output=1.2, latency=700, notes=ZenMux MiniMax M3 — SWE-Bench Pro ~59% (Jun 2026 vendor)',
@@ -2731,15 +2731,15 @@ app.get('/config', (req: Request, res: Response) => {
           </div>
           <div>
             <label for="pricingInput">Input $ / 1M tokens</label>
-            <input id="pricingInput" type="number" min="0" step="0.01" placeholder="2.5">
+            <input id="pricingInput" type="number" min="0" step="0.01" placeholder="1.25">
           </div>
           <div>
             <label for="pricingOutput">Output $ / 1M tokens</label>
-            <input id="pricingOutput" type="number" min="0" step="0.01" placeholder="7.5">
+            <input id="pricingOutput" type="number" min="0" step="0.01" placeholder="3.75">
           </div>
           <div style="grid-column: 1 / -1;">
             <label for="pricingLabel">Label / notes</label>
-            <input id="pricingLabel" type="text" placeholder="ZenMux matched OpenRouter promo">
+            <input id="pricingLabel" type="text" placeholder="ZenMux Qwen3.7-Max — 50% off OpenRouter match">
           </div>
         </div>
         <div style="margin-top: 12px; display: flex; gap: 8px; flex-wrap: wrap;">

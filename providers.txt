@@ -193,8 +193,8 @@
 #                     moonshotai/kimi-k2.6
 # Notes:       qwen/qwen3.7-max and deepseek/deepseek-v4-pro are
 #              1,000,000-token context models.
-#              qwen/qwen3.7-max promo (2026-06): ZenMux matched OpenRouter
-#              at $2.50 in / $7.50 out per 1M tokens (router id
+#              qwen/qwen3.7-max promo (2026-06): ZenMux 50% off OpenRouter
+#              at $1.25 in / $3.75 out per 1M tokens (router id
 #              zenmux-qwen3.7-max; override via provider-pricing.json).
 #              minimax/minimax-m3 (released May 31, 2026) is a major
 #              upgrade: 512K context, 512K output, multimodal
