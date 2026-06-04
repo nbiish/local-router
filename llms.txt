@@ -757,7 +757,7 @@ Local Router supports first-class router models presented as `local-router/<rout
 - Type: `auto-local`
 - `minCodingScore`: `0.66`
 - `costQualityTradeoff`: `7`
-- Default candidates (15 across 8 providers): `openrouter-1-million-chain-of-draft` (coding=0.88), `openrouter-chain-of-draft` (0.86), `openrouter-qwen3.7-max` (0.85), `xiaomi-mimo-mimo-v2.5-pro` (0.80), `xiaomi-mimo-mimo-v2.5` (0.76), `zenmux-minimax-m3` (0.85), `zenmux-step-3.7-flash` (0.84), `zenmux-deepseek-v4-pro` (0.91), `zai-code-pass-glm-5.1` (0.83), `opencode-minimax-m3` (0.85), `modal-glm-5.1-fp8` (0.83), `nvidia-nim-step-3.7-flash` (0.84), `wafer-ai-deepseek-v4-flash` (0.87), `nvidia-nim-kimi-k2.6` (0.86), `opencode-minimax-m3-free` (0.80)
+- Default candidates (~30 curated models) in provider tier order: Ollama Cloud (8) → NVIDIA NIM → Modal → Nebius → OpenCode Zen free → OpenCode Go → Z.ai → Xiaomi Mimo → Wafer → ZenMux → OpenRouter presets
 - Graceful skip: candidates for unconfigured providers are silently skipped with console warning. If ALL candidates are skipped and `fallback-models` exists, cascade to system fallback; otherwise error lists which providers need API keys.
 - Provider presentation prefixes: `wafer-serverless→wafer-ai`, `openrouter-presets→openrouter`; other providers use their name directly
 - The Router Models UI reset action restores this complete default profile
@@ -765,7 +765,7 @@ Local Router supports first-class router models presented as `local-router/<rout
 ### Default System Fallback Profile
 - Bootstrapped on first run via `ensureDefaultFallback()` when no fallback routes exist
 - Route id: `fallback-models` (system safety net for direct model failure, router exhaustion, and router zero-eligible)
-- Chain order: free tier (`opencode-minimax-m3-free`, `opencode-zen-minimax-m3-free`) → Ollama Cloud (`ollama-nemotron-3-ultra-cloud`, `ollama-minimax-m3-cloud`, `ollama-qwen3.5-cloud`, `ollama-deepseek-v4-flash-cloud`) → MiniMax M3 across providers → same default router candidates (deduped, 18 in auto-router-main)
+- Chain order (provider tiers): **Ollama Cloud** → **NVIDIA NIM** → **Modal** → **Nebius** → **OpenCode Zen** (free) → **OpenCode Go** → **Z.ai** → **Xiaomi Mimo** → **Wafer** → **ZenMux** → **OpenRouter** (same order in `auto-router-main` candidates and `fallback-models`)
 - Fallback stages without configured provider keys are skipped immediately (no retry backoff)
 - `/config` **Reset Fallback Defaults** restores this chain; candidate badges show Ready / No key / Unavailable
 

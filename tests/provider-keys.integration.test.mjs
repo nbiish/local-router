@@ -323,13 +323,47 @@ test('provider key save/reset lifecycle exposes configured source', async (t) =>
 
   const systemFallback = bootstrappedFallbackRoutes.body?.data?.find((route) => route.routeId === 'fallback-models');
   const fallbackChain = systemFallback?.models || [];
-  const ollamaNemotronIdx = fallbackChain.indexOf('ollama-nemotron-3-ultra-cloud');
-  const zenmuxMiniMaxIdx = fallbackChain.indexOf('zenmux-minimax-m3');
-  assert.ok(ollamaNemotronIdx >= 0, 'fallback-models should include Ollama Nemotron Ultra');
-  assert.ok(zenmuxMiniMaxIdx >= 0, 'fallback-models should include ZenMux MiniMax M3');
+  const tierIndex = (prefix) => fallbackChain.findIndex((id) => String(id).startsWith(prefix));
+  const ollamaIdx = tierIndex('ollama-');
+  const nvidiaIdx = tierIndex('nvidia-nim-');
+  const modalIdx = tierIndex('modal-');
+  const nebiusIdx = tierIndex('nebius-');
+  const ozenIdx = tierIndex('opencode-zen-');
+  const opencodeIdx = fallbackChain.findIndex((id) => (
+    String(id).startsWith('opencode-') && !String(id).startsWith('opencode-zen-')
+  ));
+  const zaiIdx = tierIndex('zai-');
+  const waferIdx = tierIndex('wafer-ai-');
+  const zenmuxIdx = tierIndex('zenmux-');
+  const openrouterIdx = tierIndex('openrouter-');
+
+  assert.ok(ollamaIdx >= 0, 'fallback-models should include Ollama tier');
+  assert.equal(ollamaIdx, 0, 'fallback chain should exhaust Ollama tier first');
+  assert.ok(nvidiaIdx > ollamaIdx, 'NVIDIA NIM should follow Ollama');
+  assert.ok(modalIdx > nvidiaIdx, 'Modal should follow NVIDIA NIM');
+  if (nebiusIdx >= 0 && modalIdx >= 0) {
+    assert.ok(nebiusIdx > modalIdx, 'Nebius should follow Modal');
+  }
+  if (ozenIdx >= 0 && nebiusIdx >= 0) {
+    assert.ok(ozenIdx > nebiusIdx, 'OpenCode Zen should follow Nebius');
+  }
+  if (opencodeIdx >= 0 && ozenIdx >= 0) {
+    assert.ok(opencodeIdx > ozenIdx, 'OpenCode Go should follow OpenCode Zen');
+  }
+  if (zaiIdx >= 0 && opencodeIdx >= 0) {
+    assert.ok(zaiIdx > opencodeIdx, 'Z.ai should follow OpenCode Go');
+  }
+  if (waferIdx >= 0 && zenmuxIdx >= 0) {
+    assert.ok(waferIdx < zenmuxIdx, 'Wafer should precede ZenMux');
+  }
+  if (openrouterIdx >= 0 && zenmuxIdx >= 0) {
+    assert.ok(openrouterIdx > zenmuxIdx, 'OpenRouter should be last paid tier');
+  }
+
+  const firstRouterCandidate = autoRouterCandidates[0] || '';
   assert.ok(
-    ollamaNemotronIdx < zenmuxMiniMaxIdx,
-    'Ollama cloud models should appear before paid MiniMax M3 in fallback chain'
+    firstRouterCandidate.startsWith('ollama-'),
+    'auto-router-main candidates should list Ollama tier first'
   );
 
   const providerPricing = await requestJson('/api/provider-pricing');
