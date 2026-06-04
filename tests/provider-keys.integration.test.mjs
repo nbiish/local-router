@@ -240,6 +240,7 @@ test.before(async () => {
     ...process.env,
     HOME: testHome,
     PORT: port,
+    LOCAL_ROUTER_SKIP_OLLAMA_ENSURE: 'true',
     LOCAL_ROUTER_FALLBACK_BASE_RETRY_SECONDS: '0',
     [selectedProvider.keyEnvVar]: 'integration-test-provider-key',
     [providerBaseUrlEnvVar(selectedProvider.name)]: upstreamBaseUrl
@@ -1193,6 +1194,35 @@ test('provider key save/reset lifecycle exposes configured source', async (t) =>
   });
   assert.equal(invalidModelSource.response.status, 400);
 
+  const providerCatalog = await requestJson(`/api/provider-models/${encodeURIComponent(selectedProvider.name)}`);
+  assert.equal(providerCatalog.response.status, 200);
+  const customProviderCount = (providerCatalog.body?.models || []).length;
+  assert.ok(customProviderCount > 0, 'Expected custom provider catalog models');
+
+  const filteredProviderModels = await requestJson(
+    `/v1/models?provider=${encodeURIComponent(selectedProvider.name)}`
+  );
+  assert.equal(filteredProviderModels.response.status, 200);
+  assert.equal(
+    (filteredProviderModels.body?.data || []).length,
+    customProviderCount,
+    'Per-provider /v1/models should match custom catalog count in custom mode'
+  );
+  assert.equal(
+    filteredProviderModels.body?.data?.some((model) => String(model.id).includes('endpoint-only-model')),
+    false,
+    'Endpoint-only upstream model must not leak in custom catalog mode'
+  );
+
+  const liveProviderModels = await requestJson(
+    `/v1/models?provider=${encodeURIComponent(selectedProvider.name)}&live=true`
+  );
+  assert.equal(liveProviderModels.response.status, 200);
+  assert.ok(
+    liveProviderModels.body?.data?.some((model) => String(model.id).includes('endpoint-only-model')),
+    'Expected live upstream model when ?live=true'
+  );
+
   const invalidSave = await requestJson('/api/keys', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -1274,6 +1304,42 @@ test('provider-models catalog query supports custom and all modes', async (t) =>
   const active = await requestJson('/api/provider-models?catalog=active');
   assert.equal(active.response.status, 200);
   assert.equal(active.body?.catalog, 'active');
+});
+
+test('ollama provider is always configured with default Local Router API key', async (t) => {
+  if (skipReason) {
+    t.skip(skipReason);
+    return;
+  }
+
+  const configs = await requestJson('/api/provider-configs');
+  assert.equal(configs.response.status, 200);
+  const ollama = (configs.body?.data || []).find((entry) => entry?.name === 'ollama');
+  assert.ok(ollama, 'Expected ollama provider in configs');
+  assert.equal(ollama.configured, true);
+  assert.equal(ollama.configuredSource, 'default');
+
+  const arbitraryKey = await requestJson('/api/keys', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ provider: 'ollama', apiKey: 'any-test-key-value' })
+  });
+  assert.equal(arbitraryKey.response.status, 200);
+  assert.equal(arbitraryKey.body?.configured, true);
+
+  const resetKey = await requestJson('/api/keys/ollama', { method: 'DELETE' });
+  assert.equal(resetKey.response.status, 200);
+  assert.equal(resetKey.body?.configured, true);
+  assert.equal(resetKey.body?.placeholder, true);
+  assert.equal(resetKey.body?.defaultKey, 'local-router-ollama');
+
+  const routerCheck = await requestJson('/api/routing/availability');
+  const ollamaCandidate = (routerCheck.body?.candidates || []).find((entry) => (
+    String(entry?.model || '').startsWith('ollama-')
+  ));
+  if (ollamaCandidate) {
+    assert.equal(ollamaCandidate.status, 'ready', 'Ollama cloud candidates should be router-ready without paid API keys');
+  }
 });
 
 test('localrouter CLI lists models and inspects routers against running server', async (t) => {
