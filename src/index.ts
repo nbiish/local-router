@@ -284,9 +284,11 @@ const DEFAULT_ROUTER_CANDIDATES_TEXT = [
   'openrouter-qwen3.7-max, coding=0.85, input=1.25, output=3.75, latency=900, notes=OpenRouter qwen/qwen3.7-max',
   'openrouter-minimax-m3, coding=0.85, input=0.3, output=1.2, latency=750, notes=OpenRouter MiniMax M3',
   'kilo-stepfun-step-3.7-flash-free, coding=0.84, input=0, output=0, latency=800, notes=Kilo Gateway Step 3.7 Flash free',
-  'kilo-openrouter-free, coding=0.80, input=0, output=0, latency=900, notes=Kilo Gateway openrouter/free',
-  'kilo-nvidia-nemotron-3-nano-omni-30b-a3b-reasoning-free, coding=0.82, input=0, output=0, latency=850, notes=Kilo Gateway Nemotron 3 Nano Omni free',
-  'cline-openrouter-free, coding=0.78, input=0, output=0, latency=950, notes=Cline API openrouter/free'
+  'kilo-nvidia-nemotron-3-super-120b-a12b-free, coding=0.82, input=0, output=0, latency=850, notes=Kilo Gateway Nemotron 3 Super free',
+  'cline-nvidia-nemotron-3-ultra-550b-a55b-free, coding=0.86, input=0, output=0, latency=800, notes=Cline API Nemotron 3 Ultra free',
+  'cline-minimax-m3, coding=0.85, input=0, output=0, latency=750, notes=Cline API MiniMax M3 free tier',
+  'cline-xiaomi-mimo-v2.5, coding=0.80, input=0, output=0, latency=900, notes=Cline API MiMo V2.5 free tier',
+  'cline-deepseek-v4-flash, coding=0.84, input=0, output=0, latency=850, notes=Cline API DeepSeek V4 Flash free tier'
 ].join('\n');
 
 const LEGACY_AUTO_LOCAL_MAIN_MODELS = new Set([

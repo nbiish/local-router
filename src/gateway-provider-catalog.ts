@@ -1,54 +1,57 @@
 /**
  * Billing tiers for OpenAI-compatible gateway providers (Cline, Kilo).
- * Populated from live probes 2026-06-04; see .agents/research/cline-kilo-catalog-2026-06-04.json.
+ * Curated from CLI free lists + API probes (2026-06-04).
  */
 
 export type GatewayBillingTier = 'free' | 'api-paid' | 'subscription-only';
 
-/** Cline upstream model IDs (provider/model) verified via POST /chat/completions. */
+/** Meta-routers — zero price but not direct models; excluded from catalog and auto-router. */
+export const GATEWAY_ROUTER_UPSTREAM_IDS: readonly string[] = [
+  'openrouter/free',
+  'kilo-auto/free'
+] as const;
+
+const GATEWAY_ROUTER_SET = new Set<string>(GATEWAY_ROUTER_UPSTREAM_IDS);
+
+/**
+ * Cline CLI free models (API-verified where noted).
+ * MiniMax M3 / MiMo V2.5 / DeepSeek V4 Flash are free in Cline CLI billing; no :free suffix on API.
+ */
 export const CLINE_MODEL_TIERS: Record<string, GatewayBillingTier> = {
-  'openrouter/free': 'free',
-  'minimax/minimax-m2.5': 'free',
-  'deepseek/deepseek-chat': 'api-paid',
-  'deepseek/deepseek-v4-flash': 'api-paid',
-  'google/gemini-2.5-flash': 'api-paid',
-  'minimax/minimax-m2.7': 'api-paid',
-  'qwen/qwen3-coder': 'api-paid'
+  'nvidia/nemotron-3-ultra-550b-a55b:free': 'free',
+  'minimax/minimax-m3': 'free',
+  'xiaomi/mimo-v2.5': 'free',
+  'deepseek/deepseek-v4-flash': 'free'
 };
 
-/** Kilo upstream model IDs with zero gateway pricing (GET /models, auth). */
+/** Kilo CLI free models (zero gateway pricing); excludes Auto Free and Free Models Router. */
 export const KILO_FREE_MODEL_IDS: readonly string[] = [
-  'kilo-auto/free',
-  'nvidia/nemotron-3-ultra-550b-a55b:free',
-  'poolside/laguna-m.1:free',
   'stepfun/step-3.7-flash:free',
-  'nvidia/nemotron-3.5-content-safety:free',
-  'openrouter/owl-alpha',
-  'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free',
-  'poolside/laguna-xs.2:free',
-  'google/lyria-3-pro-preview',
-  'google/lyria-3-clip-preview',
-  'nvidia/nemotron-3-super-120b-a12b:free',
-  'openrouter/free'
+  'nvidia/nemotron-3-super-120b-a12b:free'
 ] as const;
 
 const KILO_FREE_SET = new Set<string>(KILO_FREE_MODEL_IDS);
 
-/** Default Kilo router/fallback free models (coding-oriented subset). */
+/** Kilo auto-router / fallback free chain. */
 export const DEFAULT_KILO_FREE_ROUTING_IDS = [
   'stepfun/step-3.7-flash:free',
-  'openrouter/free',
-  'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free',
-  'kilo-auto/free'
+  'nvidia/nemotron-3-super-120b-a12b:free'
 ] as const;
 
-/** Default Cline router free models. */
+/** Cline auto-router / fallback free chain. */
 export const DEFAULT_CLINE_FREE_ROUTING_IDS = [
-  'openrouter/free'
+  'nvidia/nemotron-3-ultra-550b-a55b:free',
+  'minimax/minimax-m3',
+  'xiaomi/mimo-v2.5',
+  'deepseek/deepseek-v4-flash'
 ] as const;
 
 export function normalizeGatewayUpstreamId(modelId: string): string {
   return String(modelId || '').trim();
+}
+
+export function isGatewayRouterModel(upstreamId: string): boolean {
+  return GATEWAY_ROUTER_SET.has(normalizeGatewayUpstreamId(upstreamId));
 }
 
 export function clineModelTier(upstreamId: string): GatewayBillingTier | null {
@@ -57,17 +60,21 @@ export function clineModelTier(upstreamId: string): GatewayBillingTier | null {
 
 export function kiloModelTier(upstreamId: string): GatewayBillingTier {
   const normalized = normalizeGatewayUpstreamId(upstreamId);
+  if (isGatewayRouterModel(normalized)) return 'free';
   if (KILO_FREE_SET.has(normalized)) return 'free';
-  if (normalized.startsWith('kilo-auto/')) return 'api-paid';
   return 'api-paid';
 }
 
 export function isKiloFreeModel(upstreamId: string): boolean {
-  return kiloModelTier(upstreamId) === 'free';
+  const normalized = normalizeGatewayUpstreamId(upstreamId);
+  if (isGatewayRouterModel(normalized)) return false;
+  return kiloModelTier(normalized) === 'free';
 }
 
 export function isClineFreeModel(upstreamId: string): boolean {
-  return clineModelTier(upstreamId) === 'free';
+  const normalized = normalizeGatewayUpstreamId(upstreamId);
+  if (isGatewayRouterModel(normalized)) return false;
+  return clineModelTier(normalized) === 'free';
 }
 
 export function gatewayModelAllowedForRouter(
@@ -75,12 +82,12 @@ export function gatewayModelAllowedForRouter(
   upstreamId: string
 ): boolean {
   const normalized = normalizeGatewayUpstreamId(upstreamId);
+  if (isGatewayRouterModel(normalized)) return false;
   if (providerName === 'kilo') {
     return isKiloFreeModel(normalized);
   }
   if (providerName === 'cline') {
-    const tier = clineModelTier(normalized);
-    return tier === 'free';
+    return isClineFreeModel(normalized);
   }
   return true;
 }

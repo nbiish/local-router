@@ -64,16 +64,31 @@ export const BASELINE_PROVIDER_PRICING: Record<string, ProviderPricingEntry> = {
     label: 'Kilo Gateway stepfun/step-3.7-flash:free',
     sourceUrl: 'https://api.kilo.ai/api/gateway/models'
   },
-  'kilo-openrouter-free': {
+  'kilo-nvidia-nemotron-3-super-120b-a12b-free': {
     inputPricePerM: 0,
     outputPricePerM: 0,
-    label: 'Kilo Gateway openrouter/free',
+    label: 'Kilo Gateway nvidia/nemotron-3-super-120b-a12b:free',
     sourceUrl: 'https://api.kilo.ai/api/gateway/models'
   },
-  'cline-openrouter-free': {
+  'cline-nvidia-nemotron-3-ultra-550b-a55b-free': {
     inputPricePerM: 0,
     outputPricePerM: 0,
-    label: 'Cline API openrouter/free'
+    label: 'Cline API nvidia/nemotron-3-ultra-550b-a55b:free'
+  },
+  'cline-minimax-m3': {
+    inputPricePerM: 0,
+    outputPricePerM: 0,
+    label: 'Cline API minimax/minimax-m3 free tier'
+  },
+  'cline-xiaomi-mimo-v2.5': {
+    inputPricePerM: 0,
+    outputPricePerM: 0,
+    label: 'Cline API xiaomi/mimo-v2.5 free tier'
+  },
+  'cline-deepseek-v4-flash': {
+    inputPricePerM: 0,
+    outputPricePerM: 0,
+    label: 'Cline API deepseek/deepseek-v4-flash free tier'
   }
 };
 
