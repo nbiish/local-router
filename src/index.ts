@@ -41,11 +41,24 @@ type ProviderModel = {
   supportsReasoning: boolean;
 };
 
+type ProviderSource = 'catalog' | 'custom';
+
 type ProviderSummary = {
   name: string;
   endpoint: string;
   keyEnvVar: string;
   defaultTool: string;
+  source?: ProviderSource;
+  displayName?: string;
+};
+
+type CustomProviderRecord = {
+  name: string;
+  displayName?: string;
+  endpoint: string;
+  keyEnvVar: string;
+  defaultTool: string;
+  createdAt: string;
 };
 
 type ProviderModelParseResult =
@@ -177,6 +190,15 @@ const MODEL_SOURCE_CONFIG_PATH = path.join(LOCAL_ROUTER_CONFIG_DIR, 'model-sourc
 const LEGACY_MODEL_SOURCE_CONFIG_PATH = path.join(LEGACY_FVS_CONFIG_DIR, 'model-source-config.json');
 const ENDPOINT_MODELS_CACHE_PATH = path.join(LOCAL_ROUTER_CONFIG_DIR, 'endpoint-models-cache.json');
 const LEGACY_ENDPOINT_MODELS_CACHE_PATH = path.join(LEGACY_FVS_CONFIG_DIR, 'endpoint-models-cache.json');
+const CUSTOM_PROVIDERS_PATH = path.join(LOCAL_ROUTER_CONFIG_DIR, 'custom-providers.json');
+const RESERVED_PROVIDER_SLUGS = new Set([
+  FALLBACK_PROVIDER_NAME,
+  ...FALLBACK_PROVIDER_LEGACY_NAMES,
+  'provider'
+]);
+const PROVIDER_SLUG_PATTERN = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/;
+const PROVIDER_KEY_ENV_PATTERN = /^[A-Z0-9_]+_API_KEY$/;
+const MAX_PROVIDER_SLUG_LENGTH = 48;
 const DEFAULT_ROUTER_TYPE: RouterType = 'auto-local';
 const DEFAULT_ROUTER_MIN_CODING_SCORE = 0.66;
 const DEFAULT_ROUTER_COST_QUALITY_TRADEOFF = 7;
@@ -284,6 +306,7 @@ app.use(express.json({ limit: '10mb' }));
 // In-memory Key Store
 const keyStore: Record<string, string> = {};
 const modelStore: Record<string, ProviderModel[]> = {};
+let customProviderStore: CustomProviderRecord[] = [];
 const fallbackModelStore: Record<string, FallbackModel> = {};
 const routerModelStore: Record<string, RouterModel> = {};
 const modelSourceConfig: { source: 'custom' | 'endpoints' } = { source: 'custom' };
@@ -442,7 +465,7 @@ function diagnosticsSnapshot(limit = 120) {
   };
 }
 
-function readProviderSummaries(): ProviderSummary[] {
+function readCatalogProviderSummaries(): ProviderSummary[] {
   const providersPath = path.resolve(process.cwd(), 'providers.txt');
 
   try {
@@ -464,14 +487,15 @@ function readProviderSummaries(): ProviderSummary[] {
       const [name, endpoint, keyEnvVar, defaultTool] = columns;
       if (!name || !endpoint || !keyEnvVar) continue;
       if (name.toLowerCase() === 'provider') continue;
-      if (!/^[A-Z0-9_]+_API_KEY$/.test(keyEnvVar)) continue;
+      if (!PROVIDER_KEY_ENV_PATTERN.test(keyEnvVar)) continue;
       if (!/^https?:\/\//.test(endpoint)) continue;
 
       summaries.push({
         name,
         endpoint,
         keyEnvVar,
-        defaultTool
+        defaultTool,
+        source: 'catalog'
       });
     }
 
@@ -482,8 +506,235 @@ function readProviderSummaries(): ProviderSummary[] {
   }
 }
 
+function readCustomProviderSummaries(): ProviderSummary[] {
+  return customProviderStore.map((record) => ({
+    name: record.name,
+    endpoint: record.endpoint,
+    keyEnvVar: record.keyEnvVar,
+    defaultTool: record.defaultTool || 'OpenAI Compatible',
+    displayName: record.displayName,
+    source: 'custom' as const
+  }));
+}
+
+function allProviderSummaries(): ProviderSummary[] {
+  return [...readCatalogProviderSummaries(), ...readCustomProviderSummaries()];
+}
+
+function isCustomProvider(providerName: string): boolean {
+  return customProviderStore.some((record) => record.name === providerName);
+}
+
+function catalogProviderNames(): Set<string> {
+  return new Set(readCatalogProviderSummaries().map((provider) => provider.name));
+}
+
+function isLoopbackHostname(hostname: string): boolean {
+  const normalized = String(hostname || '').trim().toLowerCase();
+  return normalized === 'localhost' || normalized === '127.0.0.1' || normalized === '::1';
+}
+
+function normalizeCustomProviderEndpoint(rawEndpoint: string): { ok: true; endpoint: string } | { ok: false; error: string } {
+  const trimmed = String(rawEndpoint || '').trim();
+  if (!trimmed) {
+    return { ok: false, error: 'endpoint is required.' };
+  }
+
+  let normalized = trimmed.replace(/\/+$/, '');
+  if (!normalized.endsWith('/v1')) {
+    normalized = `${normalized}/v1`;
+  }
+
+  try {
+    const parsed = new URL(normalized);
+    const loopbackHttp = parsed.protocol === 'http:' && isLoopbackHostname(parsed.hostname);
+    if (parsed.protocol !== 'https:' && !loopbackHttp) {
+      return { ok: false, error: 'endpoint must use https:// (http:// is allowed only for localhost/127.0.0.1).' };
+    }
+  } catch {
+    return { ok: false, error: 'endpoint must be a valid URL.' };
+  }
+
+  return { ok: true, endpoint: normalized };
+}
+
+function suggestKeyEnvVarForSlug(slug: string): string {
+  const normalized = slug.toUpperCase().replace(/[^A-Z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+  const base = normalized || 'CUSTOM';
+  return `${base}_API_KEY`;
+}
+
+function validateCustomProviderSlug(slug: string): { ok: true; slug: string } | { ok: false; error: string } {
+  const trimmed = String(slug || '').trim().toLowerCase();
+  if (!trimmed) {
+    return { ok: false, error: 'provider id (slug) is required.' };
+  }
+  if (trimmed.length > MAX_PROVIDER_SLUG_LENGTH) {
+    return { ok: false, error: `provider id must be at most ${MAX_PROVIDER_SLUG_LENGTH} characters.` };
+  }
+  if (!PROVIDER_SLUG_PATTERN.test(trimmed)) {
+    return { ok: false, error: 'provider id must be lowercase letters, numbers, and hyphens.' };
+  }
+  if (RESERVED_PROVIDER_SLUGS.has(trimmed)) {
+    return { ok: false, error: `provider id "${trimmed}" is reserved.` };
+  }
+  if (catalogProviderNames().has(trimmed)) {
+    return { ok: false, error: `provider id "${trimmed}" already exists in providers.txt.` };
+  }
+  return { ok: true, slug: trimmed };
+}
+
+function validateCustomProviderKeyEnvVar(
+  keyEnvVar: string,
+  excludeProviderName?: string
+): { ok: true; keyEnvVar: string } | { ok: false; error: string } {
+  const trimmed = String(keyEnvVar || '').trim();
+  if (!trimmed) {
+    return { ok: false, error: 'keyEnvVar is required.' };
+  }
+  if (!PROVIDER_KEY_ENV_PATTERN.test(trimmed)) {
+    return { ok: false, error: 'keyEnvVar must match ^[A-Z0-9_]+_API_KEY$.' };
+  }
+
+  const conflict = allProviderSummaries().find((provider) => (
+    provider.keyEnvVar === trimmed && provider.name !== excludeProviderName
+  ));
+  if (conflict) {
+    return { ok: false, error: `keyEnvVar already used by provider "${conflict.name}".` };
+  }
+
+  return { ok: true, keyEnvVar: trimmed };
+}
+
+function parseCustomProviderPayload(
+  body: any,
+  options: { requireName: boolean; existingName?: string }
+): { ok: true; record: CustomProviderRecord } | { ok: false; error: string } {
+  const existingName = options.existingName;
+  const slugResult = options.requireName
+    ? validateCustomProviderSlug(body?.name)
+    : { ok: true as const, slug: existingName || '' };
+
+  if (!slugResult.ok) {
+    return slugResult;
+  }
+  if (!slugResult.slug) {
+    return { ok: false, error: 'provider id is required.' };
+  }
+
+  const keyEnvVarResult = validateCustomProviderKeyEnvVar(
+    body?.keyEnvVar || suggestKeyEnvVarForSlug(slugResult.slug),
+    existingName
+  );
+  if (!keyEnvVarResult.ok) {
+    return keyEnvVarResult;
+  }
+
+  const endpointResult = normalizeCustomProviderEndpoint(body?.endpoint);
+  if (!endpointResult.ok) {
+    return endpointResult;
+  }
+
+  const displayName = String(body?.displayName || body?.display || slugResult.slug).trim() || slugResult.slug;
+  const defaultTool = String(body?.defaultTool || 'OpenAI Compatible').trim() || 'OpenAI Compatible';
+  const existing = customProviderStore.find((entry) => entry.name === slugResult.slug);
+
+  return {
+    ok: true,
+    record: {
+      name: slugResult.slug,
+      displayName,
+      endpoint: endpointResult.endpoint,
+      keyEnvVar: keyEnvVarResult.keyEnvVar,
+      defaultTool,
+      createdAt: existing?.createdAt || new Date().toISOString()
+    }
+  };
+}
+
+function loadCustomProviders(): void {
+  if (!fs.existsSync(CUSTOM_PROVIDERS_PATH)) {
+    customProviderStore = [];
+    return;
+  }
+
+  try {
+    const parsed = JSON.parse(fs.readFileSync(CUSTOM_PROVIDERS_PATH, 'utf8'));
+    const entries = Array.isArray(parsed?.providers) ? parsed.providers : [];
+    customProviderStore = entries
+      .map((raw: any) => {
+        const name = String(raw?.name || '').trim().toLowerCase();
+        const endpointResult = normalizeCustomProviderEndpoint(raw?.endpoint || '');
+        const keyEnvVar = String(raw?.keyEnvVar || '').trim();
+        if (!name || !endpointResult.ok || !PROVIDER_KEY_ENV_PATTERN.test(keyEnvVar)) {
+          return null;
+        }
+        return {
+          name,
+          displayName: String(raw?.displayName || name).trim() || name,
+          endpoint: endpointResult.endpoint,
+          keyEnvVar,
+          defaultTool: String(raw?.defaultTool || 'OpenAI Compatible').trim() || 'OpenAI Compatible',
+          createdAt: String(raw?.createdAt || new Date().toISOString())
+        } satisfies CustomProviderRecord;
+      })
+      .filter((entry: CustomProviderRecord | null): entry is CustomProviderRecord => Boolean(entry));
+  } catch (error: any) {
+    console.error('Failed to load custom providers:', sanitizeDiagnosticText(String(error?.message || error)));
+    customProviderStore = [];
+  }
+}
+
+function persistCustomProviders(): void {
+  ensureLocalRouterConfigDir();
+  const payload = {
+    version: 1,
+    providers: customProviderStore
+      .map((record) => ({ ...record }))
+      .sort((a, b) => a.name.localeCompare(b.name))
+  };
+  const temporaryPath = `${CUSTOM_PROVIDERS_PATH}.${process.pid}.tmp`;
+  fs.writeFileSync(temporaryPath, `${JSON.stringify(payload, null, 2)}\n`, {
+    encoding: 'utf8',
+    mode: 0o600
+  });
+  fs.renameSync(temporaryPath, CUSTOM_PROVIDERS_PATH);
+  fs.chmodSync(CUSTOM_PROVIDERS_PATH, 0o600);
+}
+
+function providerReferencedInRouting(providerName: string): string[] {
+  const references: string[] = [];
+  const prefix = `${providerName}/`;
+
+  for (const route of Object.values(fallbackModelStore)) {
+    for (const modelId of route.models) {
+      if (modelId === providerName || modelId.startsWith(prefix)) {
+        references.push(`fallback:${route.id}`);
+      }
+      const resolved = resolveModelTarget(modelId);
+      if (resolved?.providerName === providerName) {
+        references.push(`fallback:${route.id}`);
+      }
+    }
+  }
+
+  for (const router of Object.values(routerModelStore)) {
+    for (const candidate of router.candidates) {
+      if (candidate.model === providerName || candidate.model.startsWith(prefix)) {
+        references.push(`router:${router.id}`);
+      }
+      const resolved = resolveModelTarget(candidate.model);
+      if (resolved?.providerName === providerName) {
+        references.push(`router:${router.id}`);
+      }
+    }
+  }
+
+  return Array.from(new Set(references));
+}
+
 function getProviderSummary(name: string): ProviderSummary | undefined {
-  return readProviderSummaries().find((provider) => provider.name === name);
+  return allProviderSummaries().find((provider) => provider.name === name);
 }
 
 function cloneProviderModel(model: ProviderModel): ProviderModel {
@@ -493,6 +744,9 @@ function cloneProviderModel(model: ProviderModel): ProviderModel {
 }
 
 function baselineProviderModels(providerName: string): ProviderModel[] {
+  if (isCustomProvider(providerName)) {
+    return [];
+  }
   return readProviderModels()
     .filter((model) => model.provider === providerName)
     .map((model) => cloneProviderModel(model));
@@ -510,19 +764,27 @@ function effectiveProviderModels(providerName: string): ProviderModel[] {
 }
 
 function providerModelSource(providerName: string) {
-  return modelStore[providerName] ? 'memory' : 'baseline';
+  if (modelStore[providerName]) {
+    return 'memory';
+  }
+  if (isCustomProvider(providerName)) {
+    return 'custom';
+  }
+  return 'baseline';
 }
 
 function providerConfigs() {
-  return readProviderSummaries().map((provider) => {
+  return allProviderSummaries().map((provider) => {
     const hasMemoryKey = Boolean(keyStore[provider.name]);
     const hasEnvKey = Boolean(process.env[provider.keyEnvVar]);
     const configured = hasMemoryKey || hasEnvKey;
     const configuredSource = hasMemoryKey ? 'memory' : hasEnvKey ? 'env' : 'none';
     const models = effectiveProviderModels(provider.name);
+    const isCustom = provider.source === 'custom' || isCustomProvider(provider.name);
 
     return {
       ...provider,
+      isCustom,
       configured,
       configuredSource,
       modelSource: providerModelSource(provider.name),
@@ -602,7 +864,8 @@ function providerModelAliases(model: ProviderModel) {
     model.id,
     model.display,
     model.model,
-    `${model.provider}/${model.model}`
+    `${model.provider}/${model.model}`,
+    `${model.provider}/${model.id}`
   ]);
 
   if (model.provider === FALLBACK_PROVIDER_NAME) {
@@ -1202,7 +1465,7 @@ function thinkingLevelApiPayload() {
     enabled: thinkingProxyEnabled,
     global: systemPromptConfig.thinkingLevel,
     default: DEFAULT_THINKING_LEVEL,
-    providers: readProviderSummaries().map((summary) => ({
+    providers: allProviderSummaries().map((summary) => ({
       name: summary.name,
       level: getEffectiveThinkingLevel(summary.name)
     }))
@@ -1346,7 +1609,7 @@ function persistEndpointModelsCache(): void {
 }
 
 async function queryAllProviderEndpoints(): Promise<ProviderModel[]> {
-  const providers = readProviderSummaries();
+  const providers = allProviderSummaries();
   const baselineModels = readProviderModels();
   const results = await Promise.all(
     providers.map(async (providerSummary) => {
@@ -2041,7 +2304,7 @@ function loadPqcSecrets(): void {
       console.log(`[PQC] Env vars not mapped to providers: ${skippedEnvVars.join(', ')}`);
     }
     // Also load any provider keys already set in environment (env, secrets-load, etc.)
-    const allSummaries = readProviderSummaries();
+    const allSummaries = allProviderSummaries();
     const envLoaded: string[] = [];
     for (const summary of allSummaries) {
       if (keyStore[summary.name]) continue; // already loaded from PQC bundle
@@ -2067,7 +2330,7 @@ function loadPqcSecrets(): void {
 }
 
 function findProviderByEnvVar(envVar: string): ProviderSummary | undefined {
-  return readProviderSummaries().find((s) => s.keyEnvVar === envVar);
+  return allProviderSummaries().find((s) => s.keyEnvVar === envVar);
 }
 
 function persistPqcSecrets(): void {
@@ -2203,6 +2466,14 @@ app.get('/config', (req: Request, res: Response) => {
         .provider-card.active { border-color: var(--primary); box-shadow: 0 0 0 2px var(--focus-ring); }
         .provider-card h4 { margin: 0 0 8px; font-size: 15px; }
         .provider-card .row { margin-top: 10px; }
+        .custom-provider-panel { border: 1px dashed var(--border-strong); border-radius: 8px; padding: 14px; margin: 12px 0; background: var(--surface-soft); }
+        .endpoint-help { margin: 12px 0; font-size: 13px; }
+        .endpoint-help summary { cursor: pointer; font-weight: 600; }
+        .endpoint-help table { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 12px; }
+        .endpoint-help th, .endpoint-help td { border: 1px solid var(--border); padding: 6px 8px; text-align: left; }
+        .pill.custom { background: var(--warning-bg); color: var(--warning-text); }
+        .pill.catalog { background: var(--primary-soft); color: var(--primary); }
+        #providerKeySection.hidden { display: none; }
         .pill { display: inline-block; padding: 3px 8px; border-radius: 999px; background: var(--primary-soft); color: var(--primary); font-size: 12px; margin-left: 8px; }
         .status-pill { margin: 8px 0 0; margin-left: 0; }
         .status-pill.configured { background: var(--success-bg); color: var(--success-text); }
@@ -2528,7 +2799,21 @@ app.get('/config', (req: Request, res: Response) => {
           </div>
         </div>
         <h2>Local Router Secure Key Configuration</h2>
-        <p>Keys are stored securely in-memory and will be lost on server restart.</p>
+        <p class="muted">API keys are held in memory while the server runs and persisted to your PQC-encrypted secrets bundle (<code>~/.config/pqc-secrets/</code>) whenever you save from this UI.</p>
+        <details class="endpoint-help">
+          <summary>Proxy vs upstream endpoints</summary>
+          <p class="muted">Clients talk to Local Router at <code>http://127.0.0.1:11434</code>. Custom vendors must expose an OpenAI-compatible HTTPS API.</p>
+          <table>
+            <thead><tr><th>Local Router (clients)</th><th>Role</th></tr></thead>
+            <tbody>
+              <tr><td><code>POST /v1/chat/completions</code></td><td>Primary inference</td></tr>
+              <tr><td><code>GET /v1/models</code>, <code>GET /api/tags</code></td><td>Discovery</td></tr>
+              <tr><td><code>POST /api/chat</code>, <code>POST /api/generate</code></td><td>Ollama-compat (translated)</td></tr>
+              <tr><td><code>POST /v1/responses</code>, <code>POST /v1/messages</code></td><td>Codex / Anthropic shims</td></tr>
+            </tbody>
+          </table>
+          <p class="muted" style="margin-top:8px;">Upstream base URL must be HTTPS and end with <code>/v1</code>. Local Router calls <code>POST {base}/chat/completions</code> and optionally <code>GET {base}/models</code>. Model id: <code>{providerSlug}/{alias}</code>.</p>
+        </details>
         <div class="provider-picker">
           <div class="form-group">
             <label for="providerSelect">Provider</label>
@@ -2539,12 +2824,47 @@ app.get('/config', (req: Request, res: Response) => {
             <input id="providerEnvVar" type="text" disabled>
           </div>
         </div>
-        <div class="form-group">
-          <label>API Key</label>
-          <input type="password" id="providerKey" placeholder="Enter provider API key">
+        <div id="customProviderPanel" class="custom-provider-panel" style="display:none;">
+          <h3 id="customProviderPanelTitle">Add custom provider</h3>
+          <p class="muted">Register an OpenAI-compatible upstream. Keys are not stored in <code>custom-providers.json</code> — only metadata.</p>
+          <input type="hidden" id="customProviderEditMode" value="">
+          <div class="provider-picker">
+            <div class="form-group">
+              <label for="customProviderSlug">Provider ID (slug)</label>
+              <input id="customProviderSlug" type="text" placeholder="my-vendor" pattern="[a-z0-9]([a-z0-9-]*[a-z0-9])?">
+            </div>
+            <div class="form-group">
+              <label for="customProviderDisplayName">Display name</label>
+              <input id="customProviderDisplayName" type="text" placeholder="My Vendor">
+            </div>
+          </div>
+          <div class="provider-picker">
+            <div class="form-group">
+              <label for="customProviderKeyEnv">Key env var</label>
+              <input id="customProviderKeyEnv" type="text" placeholder="MY_VENDOR_API_KEY">
+            </div>
+            <div class="form-group">
+              <label for="customProviderEndpoint">Upstream base URL</label>
+              <input id="customProviderEndpoint" type="url" placeholder="https://api.example.com/v1">
+            </div>
+          </div>
+          <div class="form-group">
+            <label for="customProviderDefaultTool">Default tool label</label>
+            <input id="customProviderDefaultTool" type="text" value="OpenAI Compatible">
+          </div>
+          <div class="button-row">
+            <button type="button" onclick="saveCustomProvider()">Save custom provider</button>
+            <button type="button" class="button-secondary" onclick="cancelCustomProviderPanel()">Cancel</button>
+          </div>
         </div>
-        <div class="button-row">
-          <button onclick="saveProviderKey()">Save Selected Provider Key</button>
+        <div id="providerKeySection">
+          <div class="form-group">
+            <label>API Key</label>
+            <input type="password" id="providerKey" placeholder="Enter provider API key">
+          </div>
+          <div class="button-row">
+            <button onclick="saveProviderKey()">Save Selected Provider Key</button>
+          </div>
         </div>
         <div class="form-group" style="margin-top:18px;">
           <label>Provider Model Manager (one model at a time)</label>
@@ -2887,6 +3207,7 @@ app.get('/config', (req: Request, res: Response) => {
         let modelAvailabilityCache = {};
         let selectedDropdownIndex = -1;
         let fallbackGroupMode = false;
+        const ADD_CUSTOM_PROVIDER_VALUE = '__add_custom__';
 
         function escapeHtml(value) {
           return String(value ?? '')
@@ -2904,6 +3225,130 @@ app.get('/config', (req: Request, res: Response) => {
           messageEl.innerText = text;
         }
 
+        function suggestCustomKeyEnvFromSlug(slug) {
+          const normalized = String(slug || '').trim().toUpperCase().replace(/[^A-Z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+          return (normalized || 'CUSTOM') + '_API_KEY';
+        }
+
+        function toggleCustomProviderPanel(show, mode, provider) {
+          const panel = document.getElementById('customProviderPanel');
+          const keySection = document.getElementById('providerKeySection');
+          const titleEl = document.getElementById('customProviderPanelTitle');
+          const slugEl = document.getElementById('customProviderSlug');
+          const editModeEl = document.getElementById('customProviderEditMode');
+          if (!panel || !keySection) return;
+
+          if (show) {
+            panel.style.display = 'block';
+            keySection.classList.add('hidden');
+            const isEdit = mode === 'edit' && provider;
+            if (titleEl) titleEl.innerText = isEdit ? 'Edit custom provider' : 'Add custom provider';
+            if (editModeEl) editModeEl.value = isEdit ? provider.name : '';
+            if (slugEl) {
+              slugEl.value = isEdit ? provider.name : '';
+              slugEl.disabled = Boolean(isEdit);
+            }
+            const displayEl = document.getElementById('customProviderDisplayName');
+            const keyEnvEl = document.getElementById('customProviderKeyEnv');
+            const endpointEl = document.getElementById('customProviderEndpoint');
+            const toolEl = document.getElementById('customProviderDefaultTool');
+            if (isEdit) {
+              if (displayEl) displayEl.value = provider.displayName || provider.name;
+              if (keyEnvEl) keyEnvEl.value = provider.keyEnvVar || '';
+              if (endpointEl) endpointEl.value = provider.endpoint || '';
+              if (toolEl) toolEl.value = provider.defaultTool || 'OpenAI Compatible';
+            } else {
+              if (displayEl) displayEl.value = '';
+              if (keyEnvEl) keyEnvEl.value = '';
+              if (endpointEl) endpointEl.value = '';
+              if (toolEl) toolEl.value = 'OpenAI Compatible';
+            }
+            return;
+          }
+
+          panel.style.display = 'none';
+          keySection.classList.remove('hidden');
+          if (slugEl) slugEl.disabled = false;
+          if (editModeEl) editModeEl.value = '';
+        }
+
+        function cancelCustomProviderPanel() {
+          const selectEl = document.getElementById('providerSelect');
+          toggleCustomProviderPanel(false);
+          if (selectEl && providerConfigs.length > 0) {
+            selectEl.value = providerConfigs[0].name;
+            selectEl.dispatchEvent(new Event('change'));
+          }
+        }
+
+        async function saveCustomProvider() {
+          const editName = (document.getElementById('customProviderEditMode') || {}).value || '';
+          const slug = (document.getElementById('customProviderSlug') || {}).value.trim().toLowerCase();
+          const displayName = (document.getElementById('customProviderDisplayName') || {}).value.trim();
+          const keyEnvVar = (document.getElementById('customProviderKeyEnv') || {}).value.trim();
+          const endpoint = (document.getElementById('customProviderEndpoint') || {}).value.trim();
+          const defaultTool = (document.getElementById('customProviderDefaultTool') || {}).value.trim() || 'OpenAI Compatible';
+
+          if (!slug || !endpoint) {
+            setMessage('Provider id and upstream base URL are required.', 'error');
+            return;
+          }
+
+          const payload = {
+            name: slug,
+            displayName: displayName || slug,
+            keyEnvVar: keyEnvVar || suggestCustomKeyEnvFromSlug(slug),
+            endpoint,
+            defaultTool
+          };
+
+          const path = editName ? '/api/providers/' + encodeURIComponent(editName) : '/api/providers';
+          const method = editName ? 'PUT' : 'POST';
+          const res = await fetch(path, {
+            method,
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+          });
+          const body = await res.json().catch(() => ({}));
+          if (!res.ok) {
+            setMessage(body?.error || 'Failed to save custom provider.', 'error');
+            return;
+          }
+
+          setMessage(editName ? 'Custom provider updated.' : 'Custom provider created.', 'success');
+          toggleCustomProviderPanel(false);
+          await loadProviderConfigs();
+          selectProvider(slug);
+        }
+
+        async function deleteCustomProvider(providerName) {
+          if (!providerName) return;
+          if (!window.confirm('Delete custom provider "' + providerName + '"? Models and optional key will be removed.')) {
+            return;
+          }
+
+          const res = await fetch('/api/providers/' + encodeURIComponent(providerName) + '?unsetKey=true', {
+            method: 'DELETE'
+          });
+          const body = await res.json().catch(() => ({}));
+          if (!res.ok) {
+            setMessage(body?.error || 'Failed to delete custom provider.', 'error');
+            return;
+          }
+
+          setMessage('Removed custom provider: ' + providerName, 'success');
+          await loadProviderConfigs();
+          await loadCatalog();
+        }
+
+        function openCustomProviderEditor(providerName) {
+          const provider = providerConfigs.find((entry) => entry.name === providerName);
+          if (!provider || !provider.isCustom) return;
+          const selectEl = document.getElementById('providerSelect');
+          if (selectEl) selectEl.value = ADD_CUSTOM_PROVIDER_VALUE;
+          toggleCustomProviderPanel(true, 'edit', provider);
+        }
+
         function renderProviderSelection() {
           const selectEl = document.getElementById('providerSelect');
           const envVarEl = document.getElementById('providerEnvVar');
@@ -2912,20 +3357,39 @@ app.get('/config', (req: Request, res: Response) => {
           const existingSelection = selectEl.value;
 
           if (!Array.isArray(providerConfigs) || providerConfigs.length === 0) {
-            selectEl.innerHTML = '';
+            selectEl.innerHTML = '<option value="' + ADD_CUSTOM_PROVIDER_VALUE + '">Add custom provider…</option>';
             envVarEl.value = '';
             providerCountEl.innerText = '0/0 configured';
             providerGridEl.innerHTML = '';
             renderProviderModelList(null);
+            toggleCustomProviderPanel(true, 'create', null);
             return;
           }
 
-          selectEl.innerHTML = providerConfigs.map((provider) => '<option value="' + escapeHtml(provider.name) + '">' + escapeHtml(provider.name) + '</option>').join('');
-          if (providerConfigs.some((provider) => provider.name === existingSelection)) {
+          const optionHtml = providerConfigs.map((provider) => {
+            const label = provider.isCustom && provider.displayName
+              ? provider.displayName + ' (' + provider.name + ')'
+              : provider.name;
+            return '<option value="' + escapeHtml(provider.name) + '">' + escapeHtml(label) + '</option>';
+          }).join('') + '<option value="' + ADD_CUSTOM_PROVIDER_VALUE + '">Add custom provider…</option>';
+
+          selectEl.innerHTML = optionHtml;
+          if (existingSelection === ADD_CUSTOM_PROVIDER_VALUE) {
+            selectEl.value = ADD_CUSTOM_PROVIDER_VALUE;
+          } else if (providerConfigs.some((provider) => provider.name === existingSelection)) {
             selectEl.value = existingSelection;
           }
 
           const setSelectedProvider = () => {
+            if (selectEl.value === ADD_CUSTOM_PROVIDER_VALUE) {
+              envVarEl.value = '';
+              toggleCustomProviderPanel(true, 'create', null);
+              renderProviderModelList(null);
+              highlightSelectedProvider('');
+              return;
+            }
+
+            toggleCustomProviderPanel(false);
             const selected = providerConfigs.find((provider) => provider.name === selectEl.value) || providerConfigs[0];
             if (!selected) return;
             envVarEl.value = selected.keyEnvVar;
@@ -2945,12 +3409,21 @@ app.get('/config', (req: Request, res: Response) => {
             const statusClass = provider.configured ? 'configured' : 'pending';
             const sourceLabel = provider.configured ? provider.configuredSource : 'none';
             const modelSummary = provider.modelCount + ' models (' + provider.modelSource + ')';
+            const kindPill = provider.isCustom
+              ? '<span class="pill custom">Custom</span>'
+              : '<span class="pill catalog">Catalog</span>';
             const capabilitySummary = (Array.isArray(provider.models) ? provider.models : [])
               .slice(0, 3)
               .map((model) => model.id + ' (' + (model.contextLength || 0) + ' ctx, ' + (model.outputTokens || 0) + ' out)')
               .join(', ');
+            const customActions = provider.isCustom
+              ? '<button class="button-secondary" data-edit-custom="' + escapeHtml(provider.name) + '">Edit metadata</button>' +
+                '<button class="button-secondary" data-delete-custom="' + escapeHtml(provider.name) + '">Delete provider</button>'
+              : '';
             return '<section class="provider-card" data-provider="' + escapeHtml(provider.name) + '">' +
-              '<h4>' + escapeHtml(provider.name) + '<span class="pill">' + escapeHtml(provider.defaultTool) + '</span></h4>' +
+              '<h4>' + escapeHtml(provider.displayName || provider.name) + ' ' + kindPill +
+              '<span class="pill">' + escapeHtml(provider.defaultTool) + '</span></h4>' +
+              '<div class="muted">ID: ' + escapeHtml(provider.name) + '</div>' +
               '<div class="muted">Endpoint: ' + escapeHtml(provider.endpoint) + '</div>' +
               '<div class="muted">Key Env Var: ' + escapeHtml(provider.keyEnvVar) + '</div>' +
               '<div class="muted">Configured Source: ' + escapeHtml(sourceLabel) + '</div>' +
@@ -2960,6 +3433,7 @@ app.get('/config', (req: Request, res: Response) => {
               '<div class="row row-actions">' +
                 '<button data-use-provider="' + escapeHtml(provider.name) + '">Use this provider</button>' +
                 '<button class="button-secondary" data-reset-provider="' + escapeHtml(provider.name) + '">Reset key</button>' +
+                customActions +
               '</div>' +
             '</section>';
           }).join('');
@@ -2974,8 +3448,18 @@ app.get('/config', (req: Request, res: Response) => {
               resetProviderKey(button.getAttribute('data-reset-provider') || '');
             });
           });
+          providerGridEl.querySelectorAll('button[data-edit-custom]').forEach((button) => {
+            button.addEventListener('click', () => {
+              openCustomProviderEditor(button.getAttribute('data-edit-custom') || '');
+            });
+          });
+          providerGridEl.querySelectorAll('button[data-delete-custom]').forEach((button) => {
+            button.addEventListener('click', () => {
+              deleteCustomProvider(button.getAttribute('data-delete-custom') || '');
+            });
+          });
 
-          highlightSelectedProvider(selectEl.value);
+          highlightSelectedProvider(selectEl.value === ADD_CUSTOM_PROVIDER_VALUE ? '' : selectEl.value);
         }
 
         function selectProvider(providerName) {
@@ -4131,6 +4615,11 @@ app.get('/config', (req: Request, res: Response) => {
           const keyInputEl = document.getElementById('providerKey');
           const apiKey = keyInputEl.value;
 
+          if (provider === ADD_CUSTOM_PROVIDER_VALUE) {
+            setMessage('Create the custom provider first, then save its API key.', 'error');
+            return;
+          }
+
           if (!provider || !apiKey) {
             setMessage('Select a provider and enter an API key before saving.', 'error');
             return;
@@ -4195,7 +4684,9 @@ app.get('/config', (req: Request, res: Response) => {
             return;
           }
 
-          setMessage('Provider models reset to providers.txt baseline.', 'success');
+          const selected = selectedProviderConfig();
+          const resetLabel = selected?.isCustom ? 'custom provider model list cleared' : 'providers.txt baseline';
+          setMessage('Provider models reset to ' + resetLabel + '.', 'success');
           clearProviderModelForm();
           await loadProviderConfigs();
           await loadCatalog();
@@ -4747,7 +5238,128 @@ app.delete('/api/provider-models/:provider', (req: Request, res: Response) => {
     success: true,
     provider: providerName,
     source: providerModelSource(providerName),
-    models: effectiveProviderModels(providerName)
+    models: effectiveProviderModels(providerName),
+    resetTo: isCustomProvider(providerName) ? 'custom-empty' : 'baseline'
+  });
+});
+
+const PROXY_ENDPOINTS_DOCUMENTATION = {
+  proxyBaseUrl: 'http://127.0.0.1:11434',
+  clientEndpoints: [
+    { method: 'POST', path: '/v1/chat/completions', role: 'Primary OpenAI-compatible inference' },
+    { method: 'GET', path: '/v1/models', role: 'OpenAI model discovery' },
+    { method: 'GET', path: '/api/tags', role: 'Ollama model discovery' },
+    { method: 'POST', path: '/api/show', role: 'Ollama model metadata' },
+    { method: 'POST', path: '/api/chat', role: 'Ollama chat (translated to chat completions)' },
+    { method: 'POST', path: '/api/generate', role: 'Ollama generate (translated to chat completions)' },
+    { method: 'POST', path: '/v1/responses', role: 'Codex Responses API shim' },
+    { method: 'POST', path: '/v1/messages', role: 'Anthropic Messages API shim' },
+    { method: 'GET', path: '/', role: 'Ollama presence probe' },
+    { method: 'GET', path: '/api/version', role: 'Ollama version probe' }
+  ],
+  modelIdFormat: '{providerSlug}/{presentedAliasOrUpstreamId}',
+  upstreamRequirements: {
+    baseUrl: 'HTTPS URL ending in /v1',
+    chatCompletions: 'POST {baseUrl}/chat/completions with Authorization: Bearer <key>',
+    modelsDiscovery: 'GET {baseUrl}/models (optional)'
+  }
+};
+
+app.get('/api/proxy-endpoints', (_req: Request, res: Response) => {
+  res.json(PROXY_ENDPOINTS_DOCUMENTATION);
+});
+
+app.post('/api/providers', (req: Request, res: Response) => {
+  const parsed = parseCustomProviderPayload(req.body, { requireName: true });
+  if (!parsed.ok) {
+    return res.status(400).json({ error: parsed.error });
+  }
+
+  if (customProviderStore.some((entry) => entry.name === parsed.record.name)) {
+    return res.status(409).json({ error: `Custom provider "${parsed.record.name}" already exists.` });
+  }
+
+  customProviderStore.push(parsed.record);
+  customProviderStore.sort((a, b) => a.name.localeCompare(b.name));
+  persistCustomProviders();
+
+  return res.status(201).json({
+    success: true,
+    provider: {
+      ...parsed.record,
+      source: 'custom',
+      isCustom: true
+    }
+  });
+});
+
+app.put('/api/providers/:id', (req: Request, res: Response) => {
+  const providerId = String(req.params.id || '').trim().toLowerCase();
+  if (!isCustomProvider(providerId)) {
+    return res.status(404).json({ error: `Custom provider not found: ${providerId}` });
+  }
+
+  const parsed = parseCustomProviderPayload(
+    { ...req.body, name: providerId },
+    { requireName: false, existingName: providerId }
+  );
+  if (!parsed.ok) {
+    return res.status(400).json({ error: parsed.error });
+  }
+
+  const index = customProviderStore.findIndex((entry) => entry.name === providerId);
+  if (index < 0) {
+    return res.status(404).json({ error: `Custom provider not found: ${providerId}` });
+  }
+
+  customProviderStore[index] = parsed.record;
+  persistCustomProviders();
+
+  return res.json({
+    success: true,
+    provider: {
+      ...parsed.record,
+      source: 'custom',
+      isCustom: true
+    }
+  });
+});
+
+app.delete('/api/providers/:id', (req: Request, res: Response) => {
+  const providerId = String(req.params.id || '').trim().toLowerCase();
+  if (!isCustomProvider(providerId)) {
+    return res.status(404).json({ error: `Custom provider not found: ${providerId}` });
+  }
+
+  const references = providerReferencedInRouting(providerId);
+  if (references.length > 0) {
+    return res.status(409).json({
+      error: `Cannot delete provider "${providerId}" while referenced by routing.`,
+      references
+    });
+  }
+
+  customProviderStore = customProviderStore.filter((entry) => entry.name !== providerId);
+  persistCustomProviders();
+
+  const unsetKey = String(req.query.unsetKey || '').toLowerCase() === 'true';
+  if (unsetKey) {
+    const summary = getProviderSummary(providerId);
+    if (summary) {
+      delete keyStore[providerId];
+      delete process.env[summary.keyEnvVar];
+      persistPqcSecrets();
+    }
+  }
+
+  delete modelStore[providerId];
+  persistProviderModels();
+
+  return res.json({
+    success: true,
+    provider: providerId,
+    removed: true,
+    keyUnset: unsetKey
   });
 });
 
@@ -5744,7 +6356,7 @@ function readProviderModels(): ProviderModel[] {
 }
 
 function modelPresentationList() {
-  const providers = readProviderSummaries();
+  const providers = allProviderSummaries();
   if (providers.length === 0) {
     return readProviderModels();
   }
@@ -5799,7 +6411,7 @@ function providerModelsGroupedByProvider(models: ProviderModel[]) {
     grouped.set(model.provider, bucket);
   }
 
-  return readProviderSummaries().map((provider) => ({
+  return allProviderSummaries().map((provider) => ({
     provider: provider.name,
     source: providerModelSource(provider.name),
     models: (grouped.get(provider.name) || []).sort((a, b) => a.id.localeCompare(b.id))
@@ -5813,6 +6425,7 @@ loadPersistedRouterModels();
 loadProviderPricingStore();
 loadPersistedSystemPrompt();
 loadPersistedThinkingConfig();
+loadCustomProviders();
 loadPersistedProviderModels();
 mergeBaselineProviderModelOverrides();
 loadModelSourceConfig();

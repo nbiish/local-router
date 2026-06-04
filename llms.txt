@@ -360,17 +360,43 @@ The ML-DSA-65 algorithm and `openssl pkeyutl` invocations are unchanged. Only th
 
 ### Provider Management API
 
-- `GET /api/provider-configs` — provider summary table (configured state, source)
+- `GET /api/provider-configs` — merged catalog + custom providers (configured state, `isCustom`, `source`)
+- `POST /api/providers` — register custom OpenAI-compatible provider (metadata only)
+- `PUT /api/providers/:id` — update custom provider metadata (slug immutable)
+- `DELETE /api/providers/:id` — remove custom provider (`?unsetKey=true` optional); **409** if referenced by router/fallback
+- `GET /api/proxy-endpoints` — static JSON describing Local Router client routes vs upstream requirements
 - `GET /api/provider-models` — full model catalog
 - `GET /api/provider-models/:provider` — single provider's models
 - `PUT /api/provider-models/:provider` — bulk replace provider models
 - `POST /api/provider-models/:provider/models` — single-model upsert (upstream model ID, presented alias, context length, max output tokens, capability toggles: tools/vision/cache/reasoning)
 - `DELETE /api/provider-models/:provider/models/:modelId` — single-model delete
-- `DELETE /api/provider-models/:provider` — reset to baseline from `providers.txt`
+- `DELETE /api/provider-models/:provider` — reset catalog provider to `providers.txt` baseline; clears custom provider models
 - `DELETE /api/keys/:provider` — clear provider key from memory
 - `GET /api/model-source` — returns `{ source: "custom" | "endpoints" }` for catalog mode
 - `PUT /api/model-source` — set catalog mode (`custom` = providers.txt + runtime edits; `endpoints` = cached upstream query)
 - `POST /api/refresh-endpoint-models` — query configured provider `/models` endpoints (6s timeout), merge with providers.txt metadata, persist cache
+
+### Proxy vs Upstream Endpoints
+
+**Clients → Local Router (`http://127.0.0.1:11434`):**
+
+| Endpoint | Role |
+|----------|------|
+| `POST /v1/chat/completions` | Primary OpenAI-compatible inference |
+| `GET /v1/models`, `GET /api/tags`, `POST /api/show` | Discovery (`{provider}/{alias}` ids) |
+| `POST /api/chat`, `POST /api/generate` | Ollama-compat (translated to chat completions) |
+| `POST /v1/responses` (+ WS) | Codex shim → chat completions |
+| `POST /v1/messages` | Anthropic shim → chat completions |
+| `GET /`, `GET /api/version` | Ollama presence / version probes |
+
+**Custom upstream (operator-configured):**
+
+| Requirement | Detail |
+|-------------|--------|
+| Base URL | HTTPS ending in `/v1` (`http://127.0.0.1` / `localhost` allowed for local dev) |
+| Inference | `POST {baseUrl}/chat/completions` with `Authorization: Bearer <key>` |
+| Discovery (optional) | `GET {baseUrl}/models` |
+| Persistence | `~/.config/local-router/custom-providers.json` (`0600`, metadata only — no API keys) |
 
 ### Provider Metadata Sources
 - https://app.wafer.ai/models
@@ -710,31 +736,27 @@ Coverage includes:
 9. ✅ **Thinking decoupled + toggle** — Separate `/config` cards; `thinking-config.json` `enabled` (default off = IDE/CLI passthrough).
 10. ✅ **Responses HTTP SSE** — `POST /v1/responses` `stream: true`; `src/responses-stream.ts` shared with WebSocket shim.
 
-### Custom Provider Registration (planned — next config UI focus)
+### Custom Provider Registration — ✅ implemented (`feat/routing-custom-providers`)
 
-Today `/config` keys and models are limited to providers declared in `providers.txt` (parsed into `readProviderSummaries()`). The provider dropdown (`#providerSelect`) and Provider Model Manager share that fixed list. **Goal:** add a **“New provider…”** (or equivalent) entry in the provider selector so operators can register arbitrary OpenAI-compatible upstreams without editing `providers.txt` by hand.
+Operators can register arbitrary OpenAI-compatible upstreams at `/config` without editing `providers.txt`.
 
-**Provider Key UI (planned):**
-- Extend `#providerSelect` with **“Add custom provider…”** → inline form or modal: `providerId` (slug), display name, **API key env var name** (e.g. `MY_VENDOR_API_KEY`), base URL (`https://…/v1`), optional default tool/header notes.
-- Save flow: validate slug uniqueness, env var name (`^[A-Z0-9_]+_API_KEY$`), HTTPS base URL; persist to non-secret runtime config (proposed: `~/.config/local-router/custom-providers.json`, `0600`) — **never** store key values in this file (keys stay in-memory + PQC bundle via existing `POST/DELETE /api/keys`).
-- `GET /api/provider-configs` merges catalog providers + custom providers; key cards show configured state like today.
-- New API (proposed): `POST /api/providers` (create), `PUT /api/providers/:id` (update metadata), `DELETE /api/providers/:id` (remove custom provider + optional key unset). Reject deletes that would orphan active router/fallback references without confirmation.
+**`/config` UI:**
+- `#providerSelect` includes **Add custom provider…** with inline panel (slug, display name, key env var, HTTPS—or loopback HTTP—base URL ending in `/v1`).
+- Provider cards show **Catalog** vs **Custom** badges; custom cards support **Edit metadata** and **Delete provider**.
+- Collapsible **Proxy vs upstream endpoints** help (also exposed as `GET /api/proxy-endpoints`).
+- Keys persist via existing PQC flow on save; copy updated to reflect bundle persistence.
 
-**Provider Model Manager (planned — tied to custom providers):**
-- When a custom provider is selected in `#providerSelect`, model manager uses the **same provider id** for:
-  - `GET /api/provider-models/:provider`
-  - `POST /api/provider-models/:provider/models` (single-model upsert)
-  - `DELETE /api/provider-models/:provider/models/:modelId`
-- Empty custom provider starts with zero models; operator adds rows the same way as built-in providers (upstream model ID, presented alias, context/output, capability toggles).
-- Lazy provider module: either generic OpenAI-compat dynamic provider (read base URL + key env from custom registry) or generated stub under `src/providers/` — **prefer one generic `custom` loader** keyed by registry entry to avoid N duplicate TS files.
-- Discovery: `/v1/models`, `/api/tags`, routing, and VS Code configure must include `custom-provider-id/presented-alias` after first model is saved.
+**Server:**
+- `allProviderSummaries()` merges `providers.txt` catalog + `~/.config/local-router/custom-providers.json`.
+- Generic `loadProvider()` path proxies custom upstreams (no per-vendor `src/providers/*.ts` files).
+- Model aliases include `{provider}/{presented-alias}` for routing.
+- `DELETE /api/providers/:id` returns **409** when router/fallback routes still reference the provider.
 
-**Acceptance (for a future worktree):**
-- Create custom provider → set key via UI → add one model → `POST /v1/chat/completions` with `custom-id/alias` hits fake/upstream with correct base URL and remapped model id.
-- Integration tests: custom provider CRUD, model upsert on custom provider, key lifecycle unchanged (PQC persist).
-- `localrouter keys set <custom-id> --env …` works when server lists custom provider.
+**CLI:** `localrouter keys list|set|unset` works for custom providers via merged `/api/provider-configs`.
 
-**Out of scope for first slice:** editing `providers.txt` on disk from UI; community CRX merge; non-OpenAI-compat wire formats.
+**Tests:** `tests/custom-providers.integration.test.mjs` (CRUD, chat routing, delete guard).
+
+**Still out of scope:** editing `providers.txt` from UI; community CRX merge; non-OpenAI-compat upstream wire formats.
 
 **Planned (router):**
 1. **Normalize scoring formula** — Fix coding score dominance (×100) and latency negligible (/10000). Normalize to [0,1], derive weights from costQualityTradeoff.
@@ -974,3 +996,16 @@ Pending: operator confirmation → promote `develop` → `main`.
 **Canonical tip after release:** `main` and `develop` aligned at release commit (thinking/streaming + llms roadmap).
 
 **Next session:** Implement custom provider registration per PRD (worktree from `develop`).
+
+### 2026-06-04 — Custom Provider Registration
+
+**Branch:** `feat/routing-custom-providers` | worktree `../custom-providers`
+
+**Tasks completed:**
+1. ✅ **Custom provider registry** — `~/.config/local-router/custom-providers.json` (`0600`, metadata only).
+2. ✅ **API** — `POST/PUT/DELETE /api/providers`, `GET /api/proxy-endpoints`; merged `/api/provider-configs`.
+3. ✅ **`/config` UI** — Add custom provider panel, proxy/upstream help, Catalog/Custom badges.
+4. ✅ **Routing** — `{provider}/{presented-alias}` alias resolution; generic OpenAI-compat upstream loader.
+5. ✅ **Tests** — `tests/custom-providers.integration.test.mjs`; `npm test` 13/13 pass.
+
+**Promotion:** pending operator confirmation → merge `feat/routing-custom-providers` → `develop`.
