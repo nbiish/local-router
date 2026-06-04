@@ -182,8 +182,8 @@ const LEGACY_ROUTER_ROUTE_ALIASES: Record<string, string> = {
 const DEFAULT_ROUTER_CANDIDATES_TEXT = [
   'openrouter-1-million-chain-of-draft, coding=0.88, input=1, output=2, latency=1200, notes=OpenRouter preset: DS V4 Pro + V4 Flash + MiMo',
   'openrouter-chain-of-draft, coding=0.86, input=1, output=2, latency=1300, notes=OpenRouter preset: DS V4 Pro + Kimi K2.6 + MiMo',
-  'openrouter-qwen3.7-max, coding=0.85, input=2.5, output=7.5, latency=900, notes=OpenRouter Qwen3.7-Max reference pricing',
-  'zenmux-qwen3.7-max, coding=0.85, input=1.25, output=3.75, latency=900, notes=ZenMux Qwen3.7-Max — 50% off OpenRouter match',
+  'openrouter-qwen3.7-max, coding=0.85, input=1.25, output=3.75, latency=900, notes=OpenRouter qwen/qwen3.7-max — $1.25/$3.75 per 1M',
+  'zenmux-qwen3.7-max, coding=0.85, input=1.25, output=3.75, latency=900, notes=ZenMux qwen/qwen3.7-max — $1.25/$3.75 per 1M',
   'xiaomi-mimo-mimo-v2.5-pro, coding=0.80, input=0.44, output=0.88, latency=1000, notes=Xiaomi MiMo V2.5 Pro 1M ctx',
   'xiaomi-mimo-mimo-v2.5, coding=0.76, input=0.15, output=0.29, latency=1100, notes=Xiaomi MiMo V2.5 1M ctx multimodal',
   'zenmux-minimax-m3, coding=0.90, input=0.3, output=1.2, latency=700, notes=ZenMux MiniMax M3 — SWE-Bench Pro ~59% (Jun 2026 vendor)',

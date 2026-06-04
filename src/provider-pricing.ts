@@ -22,15 +22,15 @@ export const PROVIDER_PRICING_PATH = path.join(LOCAL_ROUTER_CONFIG_DIR, 'provide
 /** USD per 1M tokens — router scoring + user-editable overrides. */
 export const BASELINE_PROVIDER_PRICING: Record<string, ProviderPricingEntry> = {
   'openrouter-qwen3.7-max': {
-    inputPricePerM: 2.5,
-    outputPricePerM: 7.5,
-    label: 'OpenRouter Qwen3.7-Max reference',
+    inputPricePerM: 1.25,
+    outputPricePerM: 3.75,
+    label: 'OpenRouter qwen/qwen3.7-max — matched ZenMux promo',
     sourceUrl: 'https://openrouter.ai/api/v1/models'
   },
   'zenmux-qwen3.7-max': {
     inputPricePerM: 1.25,
     outputPricePerM: 3.75,
-    label: 'ZenMux Qwen3.7-Max — 50% off OpenRouter match',
+    label: 'ZenMux qwen/qwen3.7-max — matched OpenRouter promo',
     sourceUrl: 'https://zenmux.ai/models',
     validUntil: '2026-06-11'
   },
@@ -152,19 +152,33 @@ export function loadProviderPricingStore(): void {
     console.error('Failed to load provider pricing overrides:', error);
   }
 
-  const zenmuxQwen = providerPricingStore['zenmux-qwen3.7-max'];
-  if (
-    zenmuxQwen &&
-    zenmuxQwen.inputPricePerM === 2.5 &&
-    zenmuxQwen.outputPricePerM === 7.5
-  ) {
-    providerPricingStore['zenmux-qwen3.7-max'] = {
-      ...zenmuxQwen,
-      inputPricePerM: 1.25,
-      outputPricePerM: 3.75,
-      label: BASELINE_PROVIDER_PRICING['zenmux-qwen3.7-max'].label,
+  migrateLegacyQwen37MaxPricing();
+}
+
+const LEGACY_QWEN37_MAX_PRICING = { inputPricePerM: 2.5, outputPricePerM: 7.5 };
+const QWEN37_MAX_PRESENTED_IDS = ['openrouter-qwen3.7-max', 'zenmux-qwen3.7-max'] as const;
+
+function migrateLegacyQwen37MaxPricing(): void {
+  let changed = false;
+  for (const modelId of QWEN37_MAX_PRESENTED_IDS) {
+    const entry = providerPricingStore[modelId];
+    if (
+      !entry
+      || entry.inputPricePerM !== LEGACY_QWEN37_MAX_PRICING.inputPricePerM
+      || entry.outputPricePerM !== LEGACY_QWEN37_MAX_PRICING.outputPricePerM
+    ) {
+      continue;
+    }
+    providerPricingStore[modelId] = {
+      ...entry,
+      inputPricePerM: BASELINE_PROVIDER_PRICING[modelId].inputPricePerM,
+      outputPricePerM: BASELINE_PROVIDER_PRICING[modelId].outputPricePerM,
+      label: BASELINE_PROVIDER_PRICING[modelId].label,
       updatedAt: new Date().toISOString()
     };
+    changed = true;
+  }
+  if (changed) {
     persistProviderPricingStore();
   }
 }

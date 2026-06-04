@@ -3,7 +3,7 @@
 # =============================================================================
 # Path:    ~/.config/providers.txt  (source of truth)
 #          agents-research/providers.txt (project copy)
-# Updated: 2026-06-04
+# Updated: 2026-06-04 (qwen/qwen3.7-max $1.25/$3.75 OpenRouter + ZenMux)
 # Purpose: Master config reference for ALL agentic tools.
 #          kilo, crush, pi, goose, dcode, hermes, cline, qwen-code, Zed, etc.
 #
@@ -193,9 +193,9 @@
 #                     moonshotai/kimi-k2.6
 # Notes:       qwen/qwen3.7-max and deepseek/deepseek-v4-pro are
 #              1,000,000-token context models.
-#              qwen/qwen3.7-max promo (2026-06): ZenMux 50% off OpenRouter
-#              at $1.25 in / $3.75 out per 1M tokens (router id
-#              zenmux-qwen3.7-max; override via provider-pricing.json).
+#              qwen/qwen3.7-max pricing (2026-06-04, USD/1M tokens): $1.25 in /
+#              $3.75 out on ZenMux and OpenRouter (router ids zenmux-qwen3.7-max,
+#              openrouter-qwen3.7-max; override via provider-pricing.json).
 #              minimax/minimax-m3 (released May 31, 2026) is a major
 #              upgrade: 512K context, 512K output, multimodal
 #              (text/image/video/file), native reasoning, tools, prompt
@@ -316,6 +316,8 @@
 #              variants on OpenRouter (1,000,000 context, 65,536 output,
 #              multimodal text/image/video input, tool calling, prompt
 #              caching, native reasoning stripped for VS Code).
+#              qwen/qwen3.7-max pricing (2026-06-04): $1.25 in / $3.75 out
+#              per 1M tokens (same as ZenMux; router id openrouter-qwen3.7-max).
 #              For any new @preset/<custom-user-name> row, follow up with the
 #              preset owner before committing metadata. Confirm: max context
 #              window, max output tokens, multimodal support (image/audio/
