@@ -1306,6 +1306,42 @@ test('provider-models catalog query supports custom and all modes', async (t) =>
   assert.equal(active.body?.catalog, 'active');
 });
 
+test('ollama provider is always configured with default Local Router API key', async (t) => {
+  if (skipReason) {
+    t.skip(skipReason);
+    return;
+  }
+
+  const configs = await requestJson('/api/provider-configs');
+  assert.equal(configs.response.status, 200);
+  const ollama = (configs.body?.data || []).find((entry) => entry?.name === 'ollama');
+  assert.ok(ollama, 'Expected ollama provider in configs');
+  assert.equal(ollama.configured, true);
+  assert.equal(ollama.configuredSource, 'default');
+
+  const arbitraryKey = await requestJson('/api/keys', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ provider: 'ollama', apiKey: 'any-test-key-value' })
+  });
+  assert.equal(arbitraryKey.response.status, 200);
+  assert.equal(arbitraryKey.body?.configured, true);
+
+  const resetKey = await requestJson('/api/keys/ollama', { method: 'DELETE' });
+  assert.equal(resetKey.response.status, 200);
+  assert.equal(resetKey.body?.configured, true);
+  assert.equal(resetKey.body?.placeholder, true);
+  assert.equal(resetKey.body?.defaultKey, 'local-router-ollama');
+
+  const routerCheck = await requestJson('/api/routing/availability');
+  const ollamaCandidate = (routerCheck.body?.candidates || []).find((entry) => (
+    String(entry?.model || '').startsWith('ollama-')
+  ));
+  if (ollamaCandidate) {
+    assert.equal(ollamaCandidate.status, 'ready', 'Ollama cloud candidates should be router-ready without paid API keys');
+  }
+});
+
 test('localrouter CLI lists models and inspects routers against running server', async (t) => {
   if (skipReason) {
     t.skip(skipReason);

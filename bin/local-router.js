@@ -363,7 +363,7 @@ function renderOllamaShim(realOllamaPath, routeMode, target) {
     '  OLLAMA_PID=$!',
     '  trap "kill $OLLAMA_PID" EXIT',
     '  export LOCAL_ROUTER_PROVIDER_OLLAMA_BASE_URL="http://127.0.0.1:11435/v1"',
-    '  export OLLAMA_API_KEY="ollama-local"',
+    '  export OLLAMA_API_KEY="local-router-ollama"',
     `  exec "$LOCAL_ROUTER_BIN" ${serveArgs}`,
     'fi',
     '',

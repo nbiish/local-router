@@ -73,7 +73,7 @@ Use this table to know **which dropdown entry** and **which env var** match a se
 | [OpenCode Zen Go](https://opencode.ai/) subscription | `opencode` | `OPENCODE_API_KEY` | `https://opencode.ai/zen/go/v1` | Large model set; shares key with Zen |
 | [OpenCode Zen](https://opencode.ai/) subscription | `opencode-zen` | `OPENCODE_API_KEY` | `https://opencode.ai/zen/v1` | Curated subset in `providers.txt`; free-tier models (e.g. `minimax-m3-free`) |
 | [Z.AI](https://z.ai/) coding API | `zai` | `ZAI_API_KEY` | `https://api.z.ai/api/coding/paas/v4` | GLM-5.1 coding pass |
-| Local [Ollama](https://ollama.com/) Cloud models | `ollama` | `OLLAMA_API_KEY` | `http://127.0.0.1:11435/v1` | Auto-starts Ollama on 11435; curated `:cloud` tags only in Custom Models mode |
+| Local [Ollama](https://ollama.com/) Cloud models | `ollama` | `OLLAMA_API_KEY` | `http://127.0.0.1:11435/v1` | Always configured with default `local-router-ollama`; cloud free tier via `ollama signin` (no ollama.com API key required) |
 
 **Shared keys:** `opencode` and `opencode-zen` both use `OPENCODE_API_KEY`—set the key once on either provider card.
 
@@ -201,7 +201,7 @@ Resolution order at runtime: **PQC bundle → environment → keys saved in `/co
 | Upstream 401 | Reset key on provider card; confirm subscription active at vendor |
 | Custom provider 502 | Base URL must end with `/v1`; vendor must implement `POST .../chat/completions` |
 | 800+ models in picker | Set **Custom Models** in `/config` (`PUT /api/model-source` → `custom`); avoid `?provider=` clients unless needed; use `?live=true` only for admin upstream refresh |
-| Ollama cloud models missing | Confirm `OLLAMA_API_KEY` in PQC bundle; check server log for `[ollama] Backend ready`; run `localrouter list --custom` for curated `:cloud` tags |
+| Ollama cloud models missing | Run `ollama signin` once (cloud session); check `[ollama] Backend ready` in server log; `localrouter list --custom` for curated `:cloud` tags. Optional: set real `OLLAMA_API_KEY` in `/config` for ollama.com API access |
 
 ### End-to-end request flow
 
@@ -324,7 +324,7 @@ Claude Code / VS Code / Cline / any tool
 **Shim details (`~/.local/bin/ollama`):**
 - Marker line: `# local-router ollama shim` (used by `route unset` to verify ownership)
 - Records real Ollama path (e.g., `/usr/local/bin/ollama`) and routes non-serve commands to it
-- Sets `OLLAMA_API_KEY="ollama-local"` for the provider module
+- Sets `OLLAMA_API_KEY="local-router-ollama"` (Local Router placeholder; not an ollama.com secret)
 - Trap: `kill $OLLAMA_PID` on EXIT to clean up real Ollama when Local Router stops
 - Custom route variant (`route custom localhost:port`) starts Local Router on a non-default port
 
@@ -339,7 +339,7 @@ Claude Code / VS Code / Cline / any tool
 - Base URL: `LOCAL_ROUTER_PROVIDER_OLLAMA_BASE_URL` or `http://127.0.0.1:11435/v1`
 - **Custom Models mode:** discovery lists only curated `:cloud` tags from `providers.txt` + `/config` edits — not every local tag
 - **Endpoint Models mode:** refresh queries local `:11435` and `ollama.com/api/tags`, filtered to `*:cloud` / `*-cloud`
-- Startup and endpoint refresh run `ollama pull` for curated cloud tags (uses `OLLAMA_API_KEY` from PQC for cloud auth)
+- Startup and endpoint refresh run `ollama pull` for curated cloud tags (auth via local `ollama signin` session; optional real `OLLAMA_API_KEY` only for direct ollama.com API calls)
 - Add extra models via Provider Model Manager under the `ollama` provider card
 
 ### OpenAI Responses API Shim (Codex Support)

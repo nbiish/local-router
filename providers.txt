@@ -414,7 +414,7 @@
 ## ollama ___________________________________________________________________
 # Tier:        Ollama Cloud (free tier via ollama.com account)
 # Endpoint:    http://127.0.0.1:11435/v1  (Local Router auto-starts real Ollama here)
-# Key env:     OLLAMA_API_KEY  (ollama.com API key for cloud models)
+# Key env:     OLLAMA_API_KEY  (default: local-router-ollama placeholder; optional real ollama.com key)
 # Zed prefix:  ollama
 # Cross-tool:  All Ollama-native clients via Local Router on :11434
 # Models:      8 curated cloud tags — nemotron-3-ultra, minimax-m3, deepseek-v4-flash,

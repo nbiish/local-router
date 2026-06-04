@@ -28,6 +28,11 @@ import {
   formatResponsesSseEvent
 } from './responses-stream';
 import { ensureOllamaBackend, pullOllamaCloudModels } from './ollama-backend';
+import {
+  DEFAULT_OLLAMA_API_KEY,
+  ensureDefaultOllamaApiKey,
+  isOllamaPlaceholderKey
+} from './ollama-keys';
 
 type ProviderModel = {
   id: string;
@@ -780,8 +785,19 @@ function providerConfigs() {
   return allProviderSummaries().map((provider) => {
     const hasMemoryKey = Boolean(keyStore[provider.name]);
     const hasEnvKey = Boolean(process.env[provider.keyEnvVar]);
-    const configured = hasMemoryKey || hasEnvKey;
-    const configuredSource = hasMemoryKey ? 'memory' : hasEnvKey ? 'env' : 'none';
+    const ollamaPlaceholder = provider.name === 'ollama'
+      && isOllamaPlaceholderKey(keyStore.ollama || process.env.OLLAMA_API_KEY);
+    const configured = provider.name === 'ollama' || hasMemoryKey || hasEnvKey;
+    let configuredSource: string;
+    if (provider.name === 'ollama' && ollamaPlaceholder) {
+      configuredSource = 'default';
+    } else if (hasMemoryKey) {
+      configuredSource = 'memory';
+    } else if (hasEnvKey) {
+      configuredSource = 'env';
+    } else {
+      configuredSource = 'none';
+    }
     const models = effectiveProviderModels(provider.name);
     const isCustom = provider.source === 'custom' || isCustomProvider(provider.name);
 
@@ -790,6 +806,7 @@ function providerConfigs() {
       isCustom,
       configured,
       configuredSource,
+      ollamaPlaceholder: provider.name === 'ollama' ? ollamaPlaceholder : undefined,
       modelSource: providerModelSource(provider.name),
       modelCount: models.length,
       models
@@ -2396,6 +2413,7 @@ function loadPqcSecrets(): void {
   const bin = getPqcBinPath();
   if (!bin) {
     console.log('[PQC] pqc-secrets binary not found — skipping bundle load.');
+    ensureDefaultOllamaApiKey(keyStore);
     return;
   }
   try {
@@ -2443,12 +2461,17 @@ function loadPqcSecrets(): void {
     // Report providers still missing keys
     const missing = allSummaries.filter((s) => !keyStore[s.name]).map((s) => s.name);
     if (missing.length > 0) {
-      console.log(`[PQC] Providers without keys: ${missing.join(', ')}`);
+      const missingWithoutOllama = missing.filter((name) => name !== 'ollama');
+      if (missingWithoutOllama.length > 0) {
+        console.log(`[PQC] Providers without keys: ${missingWithoutOllama.join(', ')}`);
+      }
     }
+    ensureDefaultOllamaApiKey(keyStore);
   } catch (err) {
     if (process.env.LOCAL_ROUTER_DEV === 'true') {
       console.log(`[PQC] No secrets bundle loaded:`, (err as Error).message);
     }
+    ensureDefaultOllamaApiKey(keyStore);
   }
 }
 
@@ -2463,6 +2486,7 @@ function persistPqcSecrets(): void {
     const lines: string[] = [];
     for (const [providerName, keyValue] of Object.entries(keyStore)) {
       if (!keyValue) continue;
+      if (providerName === 'ollama' && isOllamaPlaceholderKey(keyValue)) continue;
       const summary = getProviderSummary(providerName);
       if (summary) {
         lines.push(`${summary.keyEnvVar}=${keyValue}`);
@@ -5184,6 +5208,21 @@ app.delete('/api/keys/:provider', (req: Request, res: Response) => {
     return res.status(404).json({ error: `Unknown provider: ${providerName}` });
   }
 
+  if (providerName === 'ollama') {
+    keyStore.ollama = DEFAULT_OLLAMA_API_KEY;
+    process.env.OLLAMA_API_KEY = DEFAULT_OLLAMA_API_KEY;
+    persistPqcSecrets();
+    return res.json({
+      success: true,
+      provider: providerName,
+      keyEnvVar: summary.keyEnvVar,
+      configured: true,
+      configuredSource: 'memory',
+      placeholder: true,
+      defaultKey: DEFAULT_OLLAMA_API_KEY
+    });
+  }
+
   delete keyStore[providerName];
   delete process.env[summary.keyEnvVar];
   persistPqcSecrets();
@@ -6904,6 +6943,9 @@ function requestFeatureSummary(body: any) {
 }
 
 function providerHasConfiguredKey(providerName: string) {
+  if (providerName === 'ollama') {
+    return true;
+  }
   const summary = getProviderSummary(providerName);
   if (!summary) return false;
   return Boolean(keyStore[summary.name] || process.env[summary.keyEnvVar]);

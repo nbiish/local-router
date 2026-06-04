@@ -1,23 +1,30 @@
 import { ProxyProvider } from '../types';
 import { filterOllamaCloudTags, isOllamaCloudModelName } from '../ollama-cloud';
 import { ollamaBackendBaseUrl, ollamaBackendTagsUrl } from '../ollama-backend';
+import {
+  isRealOllamaComApiKey,
+  resolveOllamaApiKey
+} from '../ollama-keys';
 
 type RawModel = { id: string; object: string; owned_by: string };
 
-function ollamaAuthHeaders(): Record<string, string> {
+function ollamaAuthHeaders(forRemoteOllamaCom = false): Record<string, string> {
   const headers: Record<string, string> = {
     'Content-Type': 'application/json'
   };
-  const apiKey = process.env.OLLAMA_API_KEY;
-  if (apiKey && apiKey !== 'ollama-local') {
+  const apiKey = resolveOllamaApiKey();
+  if (forRemoteOllamaCom && isRealOllamaComApiKey(apiKey)) {
     headers.Authorization = `Bearer ${apiKey}`;
   }
   return headers;
 }
 
-async function fetchOllamaTagsFromUrl(tagsUrl: string): Promise<string[]> {
+async function fetchOllamaTagsFromUrl(
+  tagsUrl: string,
+  options: { remoteOllamaCom?: boolean } = {}
+): Promise<string[]> {
   const response = await fetch(tagsUrl, {
-    headers: ollamaAuthHeaders(),
+    headers: ollamaAuthHeaders(Boolean(options.remoteOllamaCom)),
     signal: AbortSignal.timeout(6000)
   });
   if (!response.ok) {
@@ -41,10 +48,12 @@ export async function fetchLiveOllamaModels(): Promise<RawModel[]> {
     console.error('[ollama] Failed to fetch local backend tags:', error);
   }
 
-  const apiKey = process.env.OLLAMA_API_KEY;
-  if (apiKey && apiKey !== 'ollama-local') {
+  const apiKey = resolveOllamaApiKey();
+  if (isRealOllamaComApiKey(apiKey)) {
     try {
-      const remoteTags = await fetchOllamaTagsFromUrl('https://ollama.com/api/tags');
+      const remoteTags = await fetchOllamaTagsFromUrl('https://ollama.com/api/tags', {
+        remoteOllamaCom: true
+      });
       for (const name of remoteTags) {
         discovered.add(name);
       }
@@ -56,7 +65,7 @@ export async function fetchLiveOllamaModels(): Promise<RawModel[]> {
   try {
     const baseUrl = ollamaBackendBaseUrl();
     const response = await fetch(`${baseUrl}/models`, {
-      headers: ollamaAuthHeaders(),
+      headers: ollamaAuthHeaders(false),
       signal: AbortSignal.timeout(6000)
     });
     if (response.ok) {
@@ -84,7 +93,7 @@ export async function fetchLiveOllamaModels(): Promise<RawModel[]> {
 const provider: ProxyProvider = {
   name: 'ollama',
   baseUrl: ollamaBackendBaseUrl(),
-  getHeaders: () => ollamaAuthHeaders(),
+  getHeaders: () => ollamaAuthHeaders(false),
   getModels: fetchLiveOllamaModels
 };
 
