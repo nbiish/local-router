@@ -1228,3 +1228,5 @@ Pending: operator confirmation → promote `develop` → `main`.
 3. ✅ **Ollama backend** — auto-start `ollama serve` on `:11435`, pull curated `:cloud` tags, filter discovery to catalog in custom mode.
 4. ✅ **`providers.txt`** — 8 Ollama Cloud models; auto-router candidates for free-tier cloud models.
 5. ✅ **Tests** — catalog `?provider=` integration coverage; `LOCAL_ROUTER_SKIP_OLLAMA_ENSURE` for CI.
+
+**Promotion:** ✅ merged to `develop` @ `ffbc688`; ✅ released `develop` → `main` @ `ffbc688`.
