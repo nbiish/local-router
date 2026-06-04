@@ -12,7 +12,7 @@ Local Router is a localhost proxy (port `11434`) with **Ollama-compatible** and 
 - **Keys:** `/config` UI → in-memory while running → **PQC bundle** `~/.config/pqc-secrets/secrets.bundle.json` on every save (ML-KEM-768 + AES-256-GCM). Never committed to git or `providers.txt`
 - **Catalog:** `providers.txt` (12 providers, ~88 models) + runtime edits in `provider-models.json` + **custom providers** in `custom-providers.json`
 - **Custom providers:** `/config` → **Add custom provider…** or `POST /api/providers` (HTTPS `/v1` upstream; loopback HTTP allowed for dev)
-- **Auto-router:** `local-router/auto-router-main` — 15 curated candidates, skips providers without keys, optional cascade to `local-router/fallback-models`
+- **Auto-router:** `local-router/auto-router-main` — 18 curated candidates (incl. Ollama Cloud Nemotron Ultra, MiniMax M3, Qwen 3.5), skips providers without keys, optional cascade to `local-router/fallback-models`
 - **Ollama shim:** `local-router route set` → `ollama serve` starts real Ollama on `11435` and Local Router on `11434`
 - **Operator CLI:** `localrouter list`, `keys`, `router`, `verify`, `config --open`
 - **Thinking:** Proxy toggle default **OFF** (IDE passthrough); optional levels when enabled. Responses strip `reasoning_content` for VS Code safety; requests preserve it for multi-turn tools
@@ -765,7 +765,7 @@ Local Router supports first-class router models presented as `local-router/<rout
 ### Default System Fallback Profile
 - Bootstrapped on first run via `ensureDefaultFallback()` when no fallback routes exist
 - Route id: `fallback-models` (system safety net for direct model failure, router exhaustion, and router zero-eligible)
-- Chain order: free tier (`opencode-minimax-m3-free`, `opencode-zen-minimax-m3-free`) → MiniMax M3 across providers (`zenmux-minimax-m3`, `openrouter-minimax-m3`, `opencode-minimax-m3`, `nvidia-nim-minimax-m3`) → same 15 default router candidates (deduped)
+- Chain order: free tier (`opencode-minimax-m3-free`, `opencode-zen-minimax-m3-free`) → Ollama Cloud (`ollama-nemotron-3-ultra-cloud`, `ollama-minimax-m3-cloud`, `ollama-qwen3.5-cloud`, `ollama-deepseek-v4-flash-cloud`) → MiniMax M3 across providers → same default router candidates (deduped, 18 in auto-router-main)
 - Fallback stages without configured provider keys are skipped immediately (no retry backoff)
 - `/config` **Reset Fallback Defaults** restores this chain; candidate badges show Ready / No key / Unavailable
 
@@ -1230,3 +1230,12 @@ Pending: operator confirmation → promote `develop` → `main`.
 5. ✅ **Tests** — catalog `?provider=` integration coverage; `LOCAL_ROUTER_SKIP_OLLAMA_ENSURE` for CI.
 
 **Promotion:** ✅ merged to `develop` @ `ffbc688`; ✅ released `develop` → `main` @ `ffbc688`.
+
+### 2026-06-04 — Ollama Cloud router priority and catalog gate
+
+**Branch:** `feat/routing-ollama-router-catalog`
+
+**Tasks completed:**
+1. ✅ **Auto-router** — Added `ollama-nemotron-3-ultra-cloud`, `ollama-qwen3.5-cloud` candidates (MiniMax M3 cloud already present).
+2. ✅ **Fallback** — Ollama Cloud quartet early in `fallback-models` (after free-tier, before paid MiniMax M3).
+3. ✅ **Catalog gate** — Custom model source: `/v1/models`, `/api/tags`, `catalog=active|all`, and unfiltered `?live=true` cannot expose endpoint-cache models; full upstream lists only when **Endpoint Models** toggle is on.

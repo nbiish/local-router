@@ -232,7 +232,9 @@ const DEFAULT_ROUTER_CANDIDATES_TEXT = [
   'wafer-ai-minimax-m3, coding=0.90, input=0.33, output=1.32, latency=650, notes=Wafer MiniMax-M3 serverless promo (~$0.33/$1.32 per 1M)',
   'nvidia-nim-kimi-k2.6, coding=0.86, input=0.6, output=2.5, latency=850, notes=NVIDIA NIM Kimi K2.6 256K ctx coding',
   'opencode-minimax-m3-free, coding=0.80, input=0, output=0, latency=900, notes=OpenCode MiniMax M3 free tier 512K ctx',
+  'ollama-nemotron-3-ultra-cloud, coding=0.86, input=0, output=0, latency=850, notes=Ollama Cloud NVIDIA Nemotron 3 Ultra',
   'ollama-minimax-m3-cloud, coding=0.82, input=0, output=0, latency=950, notes=Ollama Cloud MiniMax M3 free tier',
+  'ollama-qwen3.5-cloud, coding=0.83, input=0, output=0, latency=920, notes=Ollama Cloud Qwen 3.5 multimodal',
   'ollama-deepseek-v4-flash-cloud, coding=0.84, input=0, output=0, latency=900, notes=Ollama Cloud DeepSeek V4 Flash free tier'
 ].join('\n');
 
@@ -263,6 +265,13 @@ const DEFAULT_FALLBACK_FREE_TIER = [
   'opencode-minimax-m3-free',
   'opencode-zen-minimax-m3-free'
 ];
+/** Ollama Cloud free-tier models — early in fallback to use ollama.com quota before paid APIs. */
+const DEFAULT_FALLBACK_OLLAMA_CLOUD = [
+  'ollama-nemotron-3-ultra-cloud',
+  'ollama-minimax-m3-cloud',
+  'ollama-qwen3.5-cloud',
+  'ollama-deepseek-v4-flash-cloud'
+];
 const DEFAULT_FALLBACK_MINIMAX_M3 = [
   'zenmux-minimax-m3',
   'openrouter-minimax-m3',
@@ -277,7 +286,12 @@ function defaultFallbackModelIds(): string[] {
     .filter(Boolean);
   const seen = new Set<string>();
   const ordered: string[] = [];
-  for (const id of [...DEFAULT_FALLBACK_FREE_TIER, ...DEFAULT_FALLBACK_MINIMAX_M3, ...routerIds]) {
+  for (const id of [
+    ...DEFAULT_FALLBACK_FREE_TIER,
+    ...DEFAULT_FALLBACK_OLLAMA_CLOUD,
+    ...DEFAULT_FALLBACK_MINIMAX_M3,
+    ...routerIds
+  ]) {
     if (!seen.has(id)) {
       seen.add(id);
       ordered.push(id);
@@ -1746,8 +1760,12 @@ async function resolveCatalogModels(options: CatalogResolveOptions = {}): Promis
   const mode = options.mode ?? modelSourceConfig.source;
   const live = Boolean(options.live);
   const providerFilter = String(options.provider || '').trim();
+  const endpointsActive = mode === 'endpoints' && endpointModelsCache.length > 0;
 
   if (live) {
+    if (mode === 'custom' && !providerFilter) {
+      return modelPresentationList();
+    }
     if (providerFilter) {
       if (isLocalRouterProviderName(providerFilter)) {
         return [...fallbackModelList(), ...routerModelList()];
@@ -1755,10 +1773,13 @@ async function resolveCatalogModels(options: CatalogResolveOptions = {}): Promis
       const rawModels = await fetchLiveProviderModels(providerFilter);
       return mapLiveRawModelsToCatalog(providerFilter, rawModels);
     }
+    if (!endpointsActive) {
+      return modelPresentationList();
+    }
     return queryAllProviderEndpoints();
   }
 
-  if (mode === 'endpoints' && endpointModelsCache.length > 0) {
+  if (endpointsActive) {
     if (providerFilter) {
       if (isLocalRouterProviderName(providerFilter)) {
         return [...fallbackModelList(), ...routerModelList()];
@@ -1776,6 +1797,28 @@ async function resolveCatalogModels(options: CatalogResolveOptions = {}): Promis
   }
 
   return modelPresentationList();
+}
+
+function providerCatalogModels(): ProviderModel[] {
+  if (modelSourceConfig.source === 'endpoints' && endpointModelsCache.length > 0) {
+    return endpointModelsCache;
+  }
+  return modelPresentationList();
+}
+
+async function discoveryModelList(live = false): Promise<ProviderModel[]> {
+  if (live) {
+    const upstream = await resolveCatalogModels({ live: true });
+    const seen = new Set<string>();
+    const merged: ProviderModel[] = [];
+    for (const model of [...upstream, ...fallbackModelList(), ...routerModelList()]) {
+      if (seen.has(model.id)) continue;
+      seen.add(model.id);
+      merged.push(model);
+    }
+    return merged;
+  }
+  return [...providerCatalogModels(), ...fallbackModelList(), ...routerModelList()];
 }
 
 function openAIModelEntry(model: ProviderModel) {
@@ -1797,10 +1840,7 @@ function openAIModelEntry(model: ProviderModel) {
 }
 
 function activeProviderModelList(): ProviderModel[] {
-  if (modelSourceConfig.source === 'endpoints' && endpointModelsCache.length > 0) {
-    return endpointModelsCache;
-  }
-  return modelPresentationList();
+  return providerCatalogModels();
 }
 
 function resolveModelTarget(modelName: string): ModelTarget | null {
@@ -2243,7 +2283,7 @@ function configureVSCodeModelPicker(hostUrl: string) {
   const userDir = vscodeUserDir();
   const chatLanguageModelsPath = path.join(userDir, 'chatLanguageModels.json');
   const statePath = path.join(userDir, 'globalStorage', 'state.vscdb');
-  const models = presentedModelList();
+  const models = [...providerCatalogModels(), ...fallbackModelList(), ...routerModelList()];
   const modelNames = models.map((model) => model.id);
   const candidateToModel = new Map<string, ProviderModel>();
 
@@ -6527,6 +6567,9 @@ function customCatalogModels(): ProviderModel[] {
 }
 
 function allCatalogModels(): ProviderModel[] {
+  if (modelSourceConfig.source === 'custom') {
+    return customCatalogModels();
+  }
   const byKey = new Map<string, ProviderModel>();
   for (const model of customCatalogModels()) {
     byKey.set(`${model.provider}::${model.model}`, model);
@@ -6544,7 +6587,7 @@ function catalogModelsForMode(mode: ProviderCatalogMode): ProviderModel[] {
   if (mode === 'all') {
     return allCatalogModels();
   }
-  return activeProviderModelList();
+  return providerCatalogModels();
 }
 
 function providerModelsGroupedByProvider(models: ProviderModel[]) {
@@ -8983,13 +9026,12 @@ app.get('/v1/models', async (req: Request, res: Response) => {
     });
   }
 
-  const providerModels = live
-    ? await resolveCatalogModels({ live: true })
-    : presentedModelList();
+  const providerModels = await discoveryModelList(live);
 
   res.json({
     object: 'list',
-    data: providerModels.map((model) => openAIModelEntry(model))
+    data: providerModels.map((model) => openAIModelEntry(model)),
+    catalog_mode: modelSourceConfig.source
   });
 });
 
@@ -9002,8 +9044,9 @@ app.head('/api/tags', (req: Request, res: Response) => {
   res.status(200).end();
 });
 
-app.get('/api/tags', (req: Request, res: Response) => {
-  const providerModels = presentedModelList();
+app.get('/api/tags', async (req: Request, res: Response) => {
+  const live = String(req.query.live || '').toLowerCase() === 'true';
+  const providerModels = await discoveryModelList(live);
 
   res.json({
     models: providerModels.map((model) => ollamaTag(model))
