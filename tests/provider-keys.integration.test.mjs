@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { once } from 'node:events';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { createServer } from 'node:http';
@@ -1205,4 +1206,70 @@ test('provider key save/reset lifecycle exposes configured source', async (t) =>
   });
   assert.equal(diagnosticsDisable.response.status, 200);
   assert.equal(diagnosticsDisable.body?.enabled, false);
+});
+
+test('provider-models catalog query supports custom and all modes', async (t) => {
+  if (skipReason) {
+    t.skip(skipReason);
+    return;
+  }
+
+  const custom = await requestJson('/api/provider-models?catalog=custom');
+  assert.equal(custom.response.status, 200);
+  assert.equal(custom.body?.catalog, 'custom');
+  const customCount = (custom.body?.data || []).reduce(
+    (sum, entry) => sum + (entry.models?.length || 0),
+    0
+  );
+  assert.ok(customCount > 0, 'Expected custom catalog models');
+
+  const all = await requestJson('/api/provider-models?catalog=all');
+  assert.equal(all.response.status, 200);
+  assert.equal(all.body?.catalog, 'all');
+  const allCount = (all.body?.data || []).reduce(
+    (sum, entry) => sum + (entry.models?.length || 0),
+    0
+  );
+  assert.ok(allCount >= customCount, 'All catalog should include custom models');
+
+  const active = await requestJson('/api/provider-models?catalog=active');
+  assert.equal(active.response.status, 200);
+  assert.equal(active.body?.catalog, 'active');
+});
+
+test('localrouter CLI lists models and inspects routers against running server', async (t) => {
+  if (skipReason) {
+    t.skip(skipReason);
+    return;
+  }
+
+  const cliPath = fileURLToPath(new URL('../bin/localrouter.js', import.meta.url));
+  const cliEnv = {
+    ...process.env,
+    LOCAL_ROUTER_HOST: '127.0.0.1',
+    LOCAL_ROUTER_PORT: port
+  };
+
+  const list = spawnSync(process.execPath, [cliPath, 'list', '--custom', '--json'], {
+    encoding: 'utf8',
+    env: cliEnv
+  });
+  assert.equal(list.status, 0, list.stderr || list.stdout);
+  const listPayload = JSON.parse(list.stdout);
+  assert.equal(listPayload.catalog, 'custom');
+  assert.ok(Array.isArray(listPayload.models));
+  assert.ok(listPayload.models.length > 0);
+
+  const routers = spawnSync(process.execPath, [cliPath, 'router', 'list', '--json'], {
+    encoding: 'utf8',
+    env: cliEnv
+  });
+  assert.equal(routers.status, 0, routers.stderr || routers.stdout);
+  const routerPayload = JSON.parse(routers.stdout);
+  assert.ok(Array.isArray(routerPayload.routers));
+  assert.ok(routerPayload.routers.length > 0, 'Expected default router bootstrap');
+  assert.ok(
+    routerPayload.routers.some((route) => route.candidates.length > 0),
+    'Expected router candidates in CLI output'
+  );
 });

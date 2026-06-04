@@ -14,7 +14,7 @@ Local Router is a localhost proxy server (port `11434`) that presents an Ollama-
 - **Router models:** First-class `local-router/<name>` models with explicit candidate lists, scoring, and telemetry. Types: `priority`, `pareto-code`, `auto-local`, `bandit-local` (planned)
 - **Fallback routes:** User-configured model chains with retry logic, persisted as non-secret JSON
 - **VS Code integration:** `POST /api/vscode/configure` writes Ollama vendor entry and model picker preferences
-- **CLI:** `local-router start|stop|status|route set|custom|unset|status`
+- **CLI:** `local-router` (daemon lifecycle + Ollama shim) and `localrouter` (Ollama-parity operator CLI: list/show/keys/router/verify)
 - **Reasoning compatibility:** Configurable thinking levels (none/low/medium/high/xhigh) per provider with global default. Preserves `reasoning_content` in request bodies for multi-turn tool use while stripping from responses for VS Code safety
 - **Custom system prompt:** Optional system prompt injection (default OFF, Chain of Draft default) across all entry points, configured via `/config` UI or `GET/PUT /api/system-prompt`
 - **Key files:** `src/index.ts` (server, routing, UI, CRUD), `src/reasoning.ts` (compatibility layer), `src/sessions.ts` (session tracking + feedback), `src/tiers.ts` (statistical tiering), `src/types.ts`, `src/providers/*.ts`, `bin/local-router.js` (CLI), `providers.txt` (model catalog), `ROUTER.md` (router improvement guide), `AGENTS.md` (security/process)
@@ -90,10 +90,21 @@ Per `AGENTS.md`: create a git worktree for every task. One task = one branch = o
 - Ollama image arrays are converted into OpenAI-compatible image content parts before forwarding
 - Ollama-format responses can carry translated tool calls
 
-### CLI Binary
+### CLI Binaries
+
+**`local-router`** — daemon lifecycle and Ollama route shim (existing):
 - `local-router start|stop|status` — proxy lifecycle
 - `local-router route set|custom|unset|status` — configure Ollama serve to proxy through Local Router
 - Compatibility aliases: `fvs-code` delegates to `local-router`; `fvs-code/<route>` and `fallback/<route>` resolve to `local-router/<route>`
+
+**`localrouter`** — Ollama-parity operator CLI (2026-06-04, `feat/cli-localrouter-ollama-parity`):
+- Mirrors familiar Ollama commands where they map to Local Router (`serve`, `list`, `show`, `ps`, `version`)
+- **Headless / scripting:** every query command accepts `--json`; exit `2` when server not running; env `LOCAL_ROUTER_HOST`, `LOCAL_ROUTER_PORT`
+- **Catalog listing:** `localrouter list --custom` (providers.txt + runtime edits), `localrouter list --all` (custom ∪ endpoint cache), default follows active server catalog. Server: `GET /api/provider-models?catalog=custom|all|active`
+- **Provider keys:** `localrouter keys list|set|unset` — set via `--stdin`, `--env VAR`, or piped stdin; persists through server `POST/DELETE /api/keys` → PQC bundle
+- **Router inspection:** `localrouter router list|show|check` — candidate counts, key-aware readiness via `/api/routing/availability`
+- **Verification:** `localrouter verify` — headless smoke (version, custom/all catalogs, router check); `localrouter config [--open]` → `http://127.0.0.1:11434/config`
+- **Planned at `/config`:** LiteLLM-inspired proxy admin (test chat, model matrix, provider health) per [BerriAI/litellm](https://github.com/BerriAI/litellm) — UI/TUI embedded in config surface, not a separate port
 
 ### Ollama Intercept Architecture
 
@@ -178,6 +189,8 @@ Local Router automatically injects prompt caching parameters (such as `cache_con
 ├── package.json
 ├── bin/
 │   ├── local-router.js                # CLI binary (proxy lifecycle + route control)
+│   ├── localrouter.js                 # Ollama-parity operator CLI (list, keys, router, verify)
+│   ├── lib/localrouter-client.js      # HTTP client for headless localrouter commands
 │   └── fvs-code.js                    # Compatibility alias for local-router
 ├── src/
 │   ├── index.ts                       # Express server, routing, CRUD, config UI, router models, auto-router defaults, graceful skip, VS Code integration, session tracking
@@ -711,6 +724,16 @@ Coverage includes:
 - `banditState`: persisted dLinUCB A/b matrices per candidate (planned)
 - `tier`, `toolCallAccuracy`, `successRate`, `sampleCount`, `lastObservedAt`: ✅ implemented in candidates CSV export
 
+### Local Router CLI & LiteLLM Admin (2026-06-04)
+
+**In progress (`feat/cli-localrouter-ollama-parity`):**
+1. ✅ **`localrouter` binary** — Ollama-shaped CLI with headless `--json` mode
+2. ✅ **Catalog API** — `GET /api/provider-models?catalog=custom|all|active`
+3. ✅ **Operator commands** — keys, router check, verify, config URL
+4. 🔲 **LiteLLM admin panel** — embed test-chat + model/provider matrix in `/config` (inspired by litellm proxy UI, localhost-only)
+5. 🔲 **Integration tests** — CLI verify/list/keys against test server
+6. 🔲 **README + npm link** — document `localrouter` alongside `local-router`
+
 ### General Continuation
 - Exercise live router model through `/config`, refresh VS Code picker, verify selection in Copilot Chat
 - Add import endpoints for router CSV/JSON backups after export format settles
@@ -857,6 +880,31 @@ Claude Code / VS Code / any tool
 6. ✅ **Build & tests** — `npm run build` and `npm test` pass in `feat/routing/custom-models-toggle` worktree.
 
 **Branch:** `feat/routing/custom-models-toggle` from `develop`
+
+### 2026-06-04 — `localrouter` CLI & Catalog API
+
+**Tasks completed:**
+1. ✅ **Stopped stray servers** — Cleared port `11434` (PIDs on default proxy port)
+2. ✅ **Worktree** — `feat/cli-localrouter-ollama-parity` from `develop` at `../localrouter-cli`
+3. ✅ **`localrouter` CLI** — `bin/localrouter.js` + `bin/lib/localrouter-client.js`; npm bin `localrouter`
+4. ✅ **Catalog query API** — `GET /api/provider-models?catalog=custom|all|active` without mutating `model-source`
+5. ✅ **Headless verify** — `localrouter verify --json` for CI/scripts; `router check`, `keys set --env`
+6. ✅ **llms.txt PRD** — Documented CLI surface, LiteLLM admin panel as planned `/config` enhancement
+
+**Operator quick reference:**
+```bash
+localrouter serve                    # foreground proxy (delegates local-router)
+localrouter list --custom            # providers.txt catalog
+localrouter list --all               # custom ∪ endpoint cache
+localrouter keys set zenmux --env ZENMUX_API_KEY
+localrouter router check
+localrouter verify --json
+localrouter config --open            # http://127.0.0.1:11434/config
+```
+
+**Promotion:** merge `feat/cli-localrouter-ollama-parity` → `develop` (integrate + verify) → `main` for llms.txt release update on default branch.
+
+**Branch:** `feat/cli-localrouter-ollama-parity` from `develop`
 
 ### 2026-06-03 — Branch Consolidation (Main + Develop Gate)
 

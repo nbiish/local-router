@@ -4191,13 +4191,17 @@ app.get('/api/provider-configs', (req: Request, res: Response) => {
 });
 
 app.get('/api/provider-models', (req: Request, res: Response) => {
-  const providers = readProviderSummaries().map((provider) => ({
-    provider: provider.name,
-    source: providerModelSource(provider.name),
-    models: effectiveProviderModels(provider.name)
-  }));
+  const catalog = parseProviderCatalogMode(req.query.catalog);
+  const models = catalogModelsForMode(catalog);
+  const providers = providerModelsGroupedByProvider(models);
 
-  res.json({ object: 'list', data: providers });
+  res.json({
+    object: 'list',
+    catalog,
+    modelSource: modelSourceConfig.source,
+    endpointCacheCount: endpointModelsCache.length,
+    data: providers
+  });
 });
 
 app.get('/api/provider-models/:provider', (req: Request, res: Response) => {
@@ -5267,6 +5271,60 @@ function modelPresentationList() {
   }
 
   return providers.flatMap((provider) => effectiveProviderModels(provider.name));
+}
+
+type ProviderCatalogMode = 'active' | 'custom' | 'all';
+
+function parseProviderCatalogMode(raw: unknown): ProviderCatalogMode {
+  const value = String(raw || 'active').trim().toLowerCase();
+  if (value === 'custom' || value === 'all' || value === 'active') {
+    return value;
+  }
+  return 'active';
+}
+
+function customCatalogModels(): ProviderModel[] {
+  const previousSource = modelSourceConfig.source;
+  modelSourceConfig.source = 'custom';
+  const models = modelPresentationList();
+  modelSourceConfig.source = previousSource;
+  return models;
+}
+
+function allCatalogModels(): ProviderModel[] {
+  const byKey = new Map<string, ProviderModel>();
+  for (const model of customCatalogModels()) {
+    byKey.set(`${model.provider}::${model.model}`, model);
+  }
+  for (const model of endpointModelsCache) {
+    byKey.set(`${model.provider}::${model.model}`, model);
+  }
+  return Array.from(byKey.values()).sort((a, b) => a.id.localeCompare(b.id));
+}
+
+function catalogModelsForMode(mode: ProviderCatalogMode): ProviderModel[] {
+  if (mode === 'custom') {
+    return customCatalogModels();
+  }
+  if (mode === 'all') {
+    return allCatalogModels();
+  }
+  return activeProviderModelList();
+}
+
+function providerModelsGroupedByProvider(models: ProviderModel[]) {
+  const grouped = new Map<string, ProviderModel[]>();
+  for (const model of models) {
+    const bucket = grouped.get(model.provider) || [];
+    bucket.push(model);
+    grouped.set(model.provider, bucket);
+  }
+
+  return readProviderSummaries().map((provider) => ({
+    provider: provider.name,
+    source: providerModelSource(provider.name),
+    models: (grouped.get(provider.name) || []).sort((a, b) => a.id.localeCompare(b.id))
+  }));
 }
 
 ensureLocalRouterConfigDir();

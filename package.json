@@ -5,11 +5,12 @@
   "main": "index.js",
   "bin": {
     "local-router": "bin/local-router.js",
+    "localrouter": "bin/localrouter.js",
     "fvs-code": "bin/fvs-code.js"
   },
   "scripts": {
     "test": "npm run test:integration",
-    "test:integration": "npm run build && node --test tests/provider-keys.integration.test.mjs",
+    "test:integration": "npm run build && node --test tests/*.integration.test.mjs",
     "start": "node build/index.js",
     "dev": "tsx watch src/index.ts",
     "dev:once": "tsx src/index.ts",

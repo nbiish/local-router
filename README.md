@@ -66,6 +66,18 @@ local-router status
 local-router stop
 ```
 
+Operator CLI (Ollama-parity, headless-friendly):
+
+```bash
+localrouter list --custom
+localrouter list --all
+localrouter keys list
+localrouter keys set zenmux --env ZENMUX_API_KEY
+localrouter router check
+localrouter verify --json
+localrouter config --open
+```
+
 Optional Ollama shim:
 
 ```bash
