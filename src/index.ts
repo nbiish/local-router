@@ -2188,14 +2188,14 @@ function normalizeRoutingTierOrder(): void {
   }
 
   let fallbackChanged = false;
-  const systemFallback = fallbackModelStore[SYSTEM_FALLBACK_ROUTE_ID];
-  if (systemFallback?.models?.length) {
-    const sortedModels = stableSortModelIdsByProviderTier([...systemFallback.models]);
+  for (const route of Object.values(fallbackModelStore)) {
+    if (!route?.models?.length) continue;
+    const sortedModels = stableSortModelIdsByProviderTier([...route.models]);
     const orderChanged = sortedModels.some((modelId, index) => (
-      modelId !== systemFallback.models[index]
+      modelId !== route.models[index]
     ));
     if (orderChanged) {
-      systemFallback.models = sortedModels;
+      route.models = sortedModels;
       fallbackChanged = true;
     }
   }
