@@ -33,6 +33,10 @@ import {
   isOllamaCloudPresentedIdBlocked
 } from './ollama-cloud-catalog';
 import {
+  gatewayModelAllowedForRouter,
+  gatewayPresentedModelSegment
+} from './gateway-provider-catalog';
+import {
   DEFAULT_OLLAMA_API_KEY,
   ensureDefaultOllamaApiKey,
   isOllamaPlaceholderKey,
@@ -232,7 +236,9 @@ const DEFAULT_PROVIDER_TIER_ORDER = [
   'xiaomi-mimo',
   'wafer-serverless',
   'zenmux',
-  'openrouter-presets'
+  'openrouter-presets',
+  'kilo',
+  'cline'
 ] as const;
 
 const PRESENTATION_PREFIX_TO_PROVIDER: Record<string, string> = {
@@ -276,7 +282,11 @@ const DEFAULT_ROUTER_CANDIDATES_TEXT = [
   'openrouter-1-million-chain-of-draft, coding=0.88, input=1, output=2, latency=1200, notes=OpenRouter preset: DS V4 Pro + V4 Flash + MiMo',
   'openrouter-chain-of-draft, coding=0.86, input=1, output=2, latency=1300, notes=OpenRouter preset: DS V4 Pro + Kimi K2.6 + MiMo',
   'openrouter-qwen3.7-max, coding=0.85, input=1.25, output=3.75, latency=900, notes=OpenRouter qwen/qwen3.7-max',
-  'openrouter-minimax-m3, coding=0.85, input=0.3, output=1.2, latency=750, notes=OpenRouter MiniMax M3'
+  'openrouter-minimax-m3, coding=0.85, input=0.3, output=1.2, latency=750, notes=OpenRouter MiniMax M3',
+  'kilo-stepfun-step-3.7-flash-free, coding=0.84, input=0, output=0, latency=800, notes=Kilo Gateway Step 3.7 Flash free',
+  'kilo-openrouter-free, coding=0.80, input=0, output=0, latency=900, notes=Kilo Gateway openrouter/free',
+  'kilo-nvidia-nemotron-3-nano-omni-30b-a3b-reasoning-free, coding=0.82, input=0, output=0, latency=850, notes=Kilo Gateway Nemotron 3 Nano Omni free',
+  'cline-openrouter-free, coding=0.78, input=0, output=0, latency=950, notes=Cline API openrouter/free'
 ].join('\n');
 
 const LEGACY_AUTO_LOCAL_MAIN_MODELS = new Set([
@@ -916,7 +926,9 @@ function modelAliasSegment(modelName: string) {
 }
 
 function defaultPresentedModelName(providerName: string, modelName: string) {
-  const segment = modelAliasSegment(modelName);
+  const segment = providerName === 'kilo' || providerName === 'cline'
+    ? gatewayPresentedModelSegment(modelName)
+    : modelAliasSegment(modelName);
   return `${providerPresentationPrefix(providerName)}-${segment || 'model'}`;
 }
 
@@ -7425,6 +7437,14 @@ function routerCandidateEligibility(router: RouterModel, candidate: RouterCandid
     && isOllamaCloudPresentedIdBlocked(candidate.model, resolved.model, ollamaCloudRoutingAllowsPro())
   ) {
     rejectionReasons.push('ollama_cloud_tier_blocked');
+  }
+  if (
+    target
+    && resolved
+    && (target.providerName === 'kilo' || target.providerName === 'cline')
+    && !gatewayModelAllowedForRouter(target.providerName, resolved.model)
+  ) {
+    rejectionReasons.push('gateway_tier_blocked');
   }
   if (resolved) {
     if (features.requiresTools && !resolved.supportsTools) rejectionReasons.push('tools_required');

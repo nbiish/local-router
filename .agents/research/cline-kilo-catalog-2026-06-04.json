@@ -1,0 +1,51 @@
+{
+  "generatedAt": "2026-06-04",
+  "pqcEnvVars": ["CLINE_API_KEY", "KILO_API_KEY"],
+  "kilo": {
+    "baseUrl": "https://api.kilo.ai/api/gateway",
+    "modelsEndpoint": "GET /models (200 anon + auth)",
+    "totalModelsAuth": 342,
+    "freeModelIds": [
+      "kilo-auto/free",
+      "nvidia/nemotron-3-ultra-550b-a55b:free",
+      "poolside/laguna-m.1:free",
+      "stepfun/step-3.7-flash:free",
+      "nvidia/nemotron-3.5-content-safety:free",
+      "openrouter/owl-alpha",
+      "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+      "poolside/laguna-xs.2:free",
+      "google/lyria-3-pro-preview",
+      "google/lyria-3-clip-preview",
+      "nvidia/nemotron-3-super-120b-a12b:free",
+      "openrouter/free"
+    ],
+    "probeChat": {
+      "stepfun/step-3.7-flash:free": 200,
+      "anthropic/claude-opus-4.8": 200
+    },
+    "billingChannels": {
+      "free": "pricing.prompt and pricing.completion both 0",
+      "api-paid": "non-zero pricing or 402 insufficient balance",
+      "subscription": "Kilo Pass credits (dashboard); same JWT as gateway"
+    }
+  },
+  "cline": {
+    "baseUrl": "https://api.cline.bot/api/v1",
+    "modelsEndpoint": "GET /models returns 404",
+    "catalogModels": {
+      "openrouter/free": { "tier": "free", "probeHttp": 200 },
+      "minimax/minimax-m2.5": { "tier": "free", "probeHttp": 500, "note": "docs free; empty response in probe" },
+      "deepseek/deepseek-chat": { "tier": "api-paid", "probeHttp": 200 },
+      "deepseek/deepseek-v4-flash": { "tier": "api-paid", "probeHttp": 200 },
+      "google/gemini-2.5-flash": { "tier": "api-paid", "probeHttp": 200 },
+      "minimax/minimax-m2.7": { "tier": "api-paid", "probeHttp": 200 },
+      "qwen/qwen3-coder": { "tier": "api-paid", "probeHttp": 200 },
+      "anthropic/claude-sonnet-4-6": { "tier": "unavailable", "probeHttp": 404 }
+    },
+    "billingChannels": {
+      "free": "documented free models (openrouter/free verified)",
+      "api-paid": "402 payment required per docs; probed models consume credits",
+      "subscription": "Cline VS Code extension account auth — not REST API catalog"
+    }
+  }
+}

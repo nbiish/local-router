@@ -10,7 +10,7 @@
   },
   "scripts": {
     "test": "npm run test:integration",
-    "test:integration": "npm run build && node --test --test-concurrency=1 tests/ollama-cloud.test.mjs tests/ollama-cloud-catalog.test.mjs tests/*.integration.test.mjs",
+    "test:integration": "npm run build && node --test --test-concurrency=1 tests/ollama-cloud.test.mjs tests/ollama-cloud-catalog.test.mjs tests/gateway-provider-catalog.test.mjs tests/*.integration.test.mjs",
     "start": "node build/index.js",
     "dev": "tsx watch src/index.ts",
     "dev:once": "tsx src/index.ts",

@@ -1,0 +1,18 @@
+{
+  "status": 200,
+  "count": 342,
+  "freeIds": [
+    "kilo-auto/free",
+    "nvidia/nemotron-3-ultra-550b-a55b:free",
+    "poolside/laguna-m.1:free",
+    "stepfun/step-3.7-flash:free",
+    "nvidia/nemotron-3.5-content-safety:free",
+    "openrouter/owl-alpha",
+    "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+    "poolside/laguna-xs.2:free",
+    "google/lyria-3-pro-preview",
+    "google/lyria-3-clip-preview",
+    "nvidia/nemotron-3-super-120b-a12b:free",
+    "openrouter/free"
+  ]
+}

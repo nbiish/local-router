@@ -10,7 +10,7 @@ Local Router is a localhost proxy (port `11434`) with **Ollama-compatible** and 
 - **Client inference:** `POST /v1/chat/completions`, Ollama `/api/chat` & `/api/generate`, Codex `POST /v1/responses`, Claude Code `POST /v1/messages`
 - **Model IDs:** `{provider-slug}/{presented-alias}` (e.g. `zenmux/qwen3.7-max`, `my-vendor/my-alias`) or `local-router/{router-or-fallback-id}`
 - **Keys:** `/config` UI → in-memory while running → **PQC bundle** `~/.config/pqc-secrets/secrets.bundle.json` on every save (ML-KEM-768 + AES-256-GCM). Never committed to git or `providers.txt`
-- **Catalog:** `providers.txt` (12 providers, ~81 presented models in custom mode) + runtime edits in `provider-models.json` + **custom providers** in `custom-providers.json`
+- **Catalog:** `providers.txt` (14 providers, ~94 presented models in custom mode) + runtime edits in `provider-models.json` + **custom providers** in `custom-providers.json`
 - **Custom providers:** `/config` → **Add custom provider…** or `POST /api/providers` (HTTPS `/v1` upstream; loopback HTTP allowed for dev)
 - **Auto-router:** `local-router/auto-router-main` — **25** curated candidates: **3 Ollama Cloud (free tier only)** → NVIDIA NIM → Modal → … → OpenRouter; skips providers without keys; cascades to system fallback on exhaustion
 - **Ollama Cloud:** Shared quota — router/fallback/pull use **nemotron-3-ultra**, **minimax-m3**, **deepseek-v4-flash** only unless a real `ollama.com` API key is set (Pro tags gated). See [Ollama Cloud routing](#ollama-cloud-routing-free-vs-pro)
@@ -209,6 +209,8 @@ Use this table to know **which dropdown entry** and **which env var** match a se
 | [OpenCode Zen](https://opencode.ai/) subscription | `opencode-zen` | `OPENCODE_API_KEY` | `https://opencode.ai/zen/v1` | Curated subset in `providers.txt`; free-tier models (e.g. `minimax-m3-free`) |
 | [Z.AI](https://z.ai/) coding API | `zai` | `ZAI_API_KEY` | `https://api.z.ai/api/coding/paas/v4` | GLM-5.1 coding pass |
 | Local [Ollama](https://ollama.com/) Cloud models | `ollama` | `OLLAMA_API_KEY` | `http://127.0.0.1:11435/v1` | Always configured with default `local-router-ollama`; cloud free tier via `ollama signin` (no ollama.com API key required) |
+| [Cline](https://docs.cline.bot/api/overview) API credits | `cline` | `CLINE_API_KEY` | `https://api.cline.bot/api/v1` | Prepaid credits; no `GET /models` — catalog from probes. Router: `cline/openrouter/free` only |
+| [Kilo](https://kilo.ai/docs/gateway) Gateway credits / Kilo Pass | `kilo` | `KILO_API_KEY` | `https://api.kilo.ai/api/gateway` | JWT from app.kilo.ai; `GET /models` live. **Do not** use Add custom provider (breaks `/v1` path). Router: kilo `*:free` subset |
 
 **Shared keys:** `opencode` and `opencode-zen` both use `OPENCODE_API_KEY`—set the key once on either provider card.
 

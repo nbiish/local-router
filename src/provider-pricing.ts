@@ -57,6 +57,23 @@ export const BASELINE_PROVIDER_PRICING: Record<string, ProviderPricingEntry> = {
     inputPricePerM: 0,
     outputPricePerM: 0,
     label: 'OpenCode MiniMax M3 free tier'
+  },
+  'kilo-stepfun-step-3.7-flash-free': {
+    inputPricePerM: 0,
+    outputPricePerM: 0,
+    label: 'Kilo Gateway stepfun/step-3.7-flash:free',
+    sourceUrl: 'https://api.kilo.ai/api/gateway/models'
+  },
+  'kilo-openrouter-free': {
+    inputPricePerM: 0,
+    outputPricePerM: 0,
+    label: 'Kilo Gateway openrouter/free',
+    sourceUrl: 'https://api.kilo.ai/api/gateway/models'
+  },
+  'cline-openrouter-free': {
+    inputPricePerM: 0,
+    outputPricePerM: 0,
+    label: 'Cline API openrouter/free'
   }
 };
 

@@ -1,0 +1,12 @@
+{
+  "openrouter/free": {
+    "status": 200
+  },
+  "deepseek/deepseek-v4-flash": {
+    "status": 200
+  },
+  "minimax/minimax-m2.5": {
+    "status": 500,
+    "error": "empty response content"
+  }
+}

@@ -3,7 +3,7 @@
 # =============================================================================
 # Path:    ~/.config/providers.txt  (source of truth)
 #          agents-research/providers.txt (project copy)
-# Updated: 2026-06-04 (qwen/qwen3.7-max $1.25/$3.75 OpenRouter + ZenMux)
+# Updated: 2026-06-04 (cline + kilo gateway providers; tier probes via PQC keys)
 # Purpose: Master config reference for ALL agentic tools.
 #          kilo, crush, pi, goose, dcode, hermes, cline, qwen-code, Zed, etc.
 #
@@ -32,6 +32,8 @@
 # │ opencode-zen       │ https://opencode.ai/zen/v1             │ OPENCODE_API_KEY        │ —       │
 # │ zai                │ https://api.z.ai/api/coding/paas/v4    │ ZAI_API_KEY             │ —       │
 # │ ollama             │ http://127.0.0.1:11435/v1              │ OLLAMA_API_KEY          │ —       │
+# │ cline              │ https://api.cline.bot/api/v1          │ CLINE_API_KEY            │ —       │
+# │ kilo               │ https://api.kilo.ai/api/gateway       │ KILO_API_KEY             │ —       │
 
 # =============================================================================
 # MASTER MODEL SPECIFICATION
@@ -119,6 +121,21 @@
 # │ 88 │ ollama             │ glm-5.1:cloud                       │ ollama:glm-5.1:cloud           │ 200,000  │ 128,000  │ YES   │ NO   │ NO    │ YES* Pro  │
 # │ 89 │ ollama             │ minimax-m2.7:cloud                  │ ollama:minimax-m2.7:cloud      │ 204,800  │ 131,072  │ YES   │ NO   │ NO    │ YES* Pro  │
 # │ 90 │ ollama             │ qwen3.5:cloud                       │ ollama:qwen3.5:cloud           │ 256,000  │ 65,536   │ YES   │ YES  │ NO    │ YES* Pro  │
+# │ 91 │ cline              │ openrouter/free                     │ cline:openrouter/free          │1,000,000 │ 120,000  │ YES   │ YES  │ YES   │ NO        │
+# │ 92 │ cline              │ deepseek/deepseek-v4-flash          │ cline:deepseek-v4-flash        │1,000,000 │ 384,000  │ YES   │ NO   │ YES   │ NO*       │
+# │ 93 │ cline              │ deepseek/deepseek-chat              │ cline:deepseek-chat            │ 128,000  │ 16,000   │ YES   │ NO   │ YES   │ NO        │
+# │ 94 │ cline              │ google/gemini-2.5-flash             │ cline:gemini-2.5-flash         │1,000,000 │ 65,536   │ YES   │ YES  │ YES   │ NO        │
+# │ 95 │ cline              │ minimax/minimax-m2.7                │ cline:minimax-m2.7             │ 204,800  │ 131,072  │ YES   │ NO   │ NO    │ NO*       │
+# │ 96 │ cline              │ qwen/qwen3-coder                    │ cline:qwen3-coder              │ 262,144  │ 32,768   │ YES   │ NO   │ YES   │ NO*       │
+# │ 97 │ cline              │ minimax/minimax-m2.5                │ cline:minimax-m2.5             │ 204,800  │ 32,000   │ YES   │ NO   │ NO    │ NO* free  │
+# │ 98 │ kilo               │ stepfun/step-3.7-flash:free         │ kilo:step-3.7-flash:free       │ 256,000  │ 256,000  │ YES   │ YES  │ YES   │ YES       │
+# │ 99 │ kilo               │ openrouter/free                     │ kilo:openrouter/free           │1,000,000 │ 120,000  │ YES   │ YES  │ YES   │ NO        │
+# │100 │ kilo               │ kilo-auto/free                      │ kilo:kilo-auto/free            │1,000,000 │ 120,000  │ YES   │ YES  │ YES   │ NO        │
+# │101 │ kilo               │ nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free │ kilo:nemotron-3-nano-omni-30b-a3b-reasoning:free │ 256,000 │ 20,480 │ YES │ YES │ NO │ YES* free │
+# │102 │ kilo               │ nvidia/nemotron-3-ultra-550b-a55b:free │ kilo:nemotron-3-ultra-550b-a55b:free │ 256,000 │ 32,768 │ YES │ NO │ NO │ YES* free │
+# │103 │ kilo               │ openrouter/owl-alpha                │ kilo:openrouter/owl-alpha      │ 256,000  │ 32,768   │ YES   │ YES  │ NO    │ NO        │
+# │104 │ kilo               │ anthropic/claude-opus-4.8           │ kilo:claude-opus-4.8           │ 200,000  │ 32,000   │ YES   │ YES  │ YES   │ YES*      │
+# │105 │ kilo               │ kilo-auto/balanced                  │ kilo:kilo-auto/balanced        │1,000,000 │ 120,000  │ YES   │ YES  │ YES   │ NO        │
 # #
 # * Native reasoning DISABLED — VS Code/Copilot Chat and Zed cannot reliably
 #   preserve provider-native reasoning metadata across turns. FVS-CODE strips
@@ -426,6 +443,30 @@
 #              Add extra local/cloud models via Provider Model Manager in /config.
 #              Do not store Ollama API keys in providers.txt, .env, git, or logs.
 
+## cline ____________________________________________________________________
+# Tier:        Cline API (prepaid credits at app.cline.bot; extension subscription separate)
+# Endpoint:    https://api.cline.bot/api/v1
+# Key env:     CLINE_API_KEY
+# Zed prefix:  cline
+# Cross-tool:  Cline extension, CLI, any OpenAI-compatible client via Local Router
+# Models:      7 catalog (1 free API: openrouter/free; 6 api-paid probed 2026-06-04)
+# Discovery:   No GET /models — catalog from docs + chat probes. 402 = insufficient credits.
+# Router:      auto-router includes cline-free only (openrouter/free).
+# Notes:       Model IDs use provider/model format (OpenRouter-style). Do not use /config
+#              custom provider UI for this host (use catalog row). Keys in PQC bundle only.
+
+## kilo ______________________________________________________________________
+# Tier:        Kilo AI Gateway (credits / Kilo Pass; BYOK optional)
+# Endpoint:    https://api.kilo.ai/api/gateway  (NOT …/gateway/v1)
+# Key env:     KILO_API_KEY  (JWT from app.kilo.ai profile)
+# Zed prefix:  kilo
+# Cross-tool:  Kilo Code, Vercel AI SDK, OpenAI SDK, Local Router
+# Models:      9 catalog rows (5 free :free/zero-pricing; 4 api-paid samples)
+# Discovery:   GET /models and GET /providers (auth optional; 342 models live).
+# Router:      auto-router includes 3 kilo free coding models + openrouter/free.
+# Notes:       Never register via Add custom provider (appends /v1 and breaks paths).
+#              Twelve zero-price models exist upstream; catalog lists primary coding subset.
+
 # =============================================================================
 # CROSS-TOOL CONFIGURATION MATRIX
 # =============================================================================
@@ -440,6 +481,8 @@
 # │ openrouter-presets │ YES    │ YES        │ YES custom│ YES  │ YES   │ YES │ YES   │ YES   │ YES   │ YES       │
 # │ xiaomi-mimo        │ YES    │ NO         │ YES custom│ YES  │ YES   │ YES │ YES   │ YES   │ YES   │ YES       │
 # │ opencode           │ YES    │ YES        │ YES custom│ YES  │ YES   │ YES │ YES   │ YES   │ YES   │ YES       │
+# │ cline              │ YES    │ YES        │ YES custom│ YES  │ YES   │ YES │ YES   │ YES   │ YES   │ YES       │
+# │ kilo               │ YES    │ YES        │ YES custom│ YES  │ YES   │ YES │ YES   │ YES   │ YES   │ YES       │
 #
 # All providers use standard OpenAI-compatible API format (POST /v1/chat/completions).
 # Any tool that supports custom OpenAI-compatible endpoints can use these configs.
