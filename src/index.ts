@@ -375,7 +375,8 @@ function defaultFallbackModelIds(): string[] {
       unordered.push(id);
     }
   }
-  return stableSortModelIdsByProviderTier(unordered);
+  // No catalog lookup at module init (findProviderModel needs modelSourceConfig).
+  return stableSortModelIdsByRoutingExhaustion(unordered, () => undefined);
 }
 
 function buildDefaultFallbackModelsText(): string {
