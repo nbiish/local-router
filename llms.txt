@@ -1008,4 +1008,4 @@ Pending: operator confirmation → promote `develop` → `main`.
 4. ✅ **Routing** — `{provider}/{presented-alias}` alias resolution; generic OpenAI-compat upstream loader.
 5. ✅ **Tests** — `tests/custom-providers.integration.test.mjs`; `npm test` 13/13 pass.
 
-**Promotion:** pending operator confirmation → merge `feat/routing-custom-providers` → `develop`.
+**Promotion:** ✅ merged to `develop`; ✅ released `develop` → `main` @ `d9e1a84`.
