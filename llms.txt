@@ -1212,4 +1212,4 @@ Pending: operator confirmation → promote `develop` → `main`.
 2. ✅ **Accuracy pass** — TL;DR, key management, lazy loading, custom providers, test matrix (4 files / 13 cases), router roadmap cleanup, provider-pricing API docs.
 3. ✅ **Cross-links** — Setup and custom-provider sections point to Operator Guide anchors.
 
-**Promotion:** pending merge to `develop` → `main`.
+**Promotion:** ✅ merged to `develop` and `main` @ `8daee1b`; pushed to `local-router`.
