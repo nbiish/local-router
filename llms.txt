@@ -707,8 +707,36 @@ Coverage includes:
 6. ✅ **Dev server hot reload** — `LOCAL_ROUTER_DEV=true npm run dev` runs `tsx watch` with hot reload and helpful startup banner.
 7. ✅ **CIP foundation** — 4 automation scripts (`cip-daily-research.mts`, `cip-apply-findings.mts`, `crx-validate.mts`, `crx-aggregate.mts`) + daily GitHub Actions workflow.
 8. ✅ **Custom system prompt** — Optional system prompt injection before every LLM request. Default: OFF. Chain of Draft prompt default. Toggle + textarea in `/config` UI. Persisted to `system-prompt.json`. API: `GET/PUT /api/system-prompt`.
+9. ✅ **Thinking decoupled + toggle** — Separate `/config` cards; `thinking-config.json` `enabled` (default off = IDE/CLI passthrough).
+10. ✅ **Responses HTTP SSE** — `POST /v1/responses` `stream: true`; `src/responses-stream.ts` shared with WebSocket shim.
 
-**Planned:**
+### Custom Provider Registration (planned — next config UI focus)
+
+Today `/config` keys and models are limited to providers declared in `providers.txt` (parsed into `readProviderSummaries()`). The provider dropdown (`#providerSelect`) and Provider Model Manager share that fixed list. **Goal:** add a **“New provider…”** (or equivalent) entry in the provider selector so operators can register arbitrary OpenAI-compatible upstreams without editing `providers.txt` by hand.
+
+**Provider Key UI (planned):**
+- Extend `#providerSelect` with **“Add custom provider…”** → inline form or modal: `providerId` (slug), display name, **API key env var name** (e.g. `MY_VENDOR_API_KEY`), base URL (`https://…/v1`), optional default tool/header notes.
+- Save flow: validate slug uniqueness, env var name (`^[A-Z0-9_]+_API_KEY$`), HTTPS base URL; persist to non-secret runtime config (proposed: `~/.config/local-router/custom-providers.json`, `0600`) — **never** store key values in this file (keys stay in-memory + PQC bundle via existing `POST/DELETE /api/keys`).
+- `GET /api/provider-configs` merges catalog providers + custom providers; key cards show configured state like today.
+- New API (proposed): `POST /api/providers` (create), `PUT /api/providers/:id` (update metadata), `DELETE /api/providers/:id` (remove custom provider + optional key unset). Reject deletes that would orphan active router/fallback references without confirmation.
+
+**Provider Model Manager (planned — tied to custom providers):**
+- When a custom provider is selected in `#providerSelect`, model manager uses the **same provider id** for:
+  - `GET /api/provider-models/:provider`
+  - `POST /api/provider-models/:provider/models` (single-model upsert)
+  - `DELETE /api/provider-models/:provider/models/:modelId`
+- Empty custom provider starts with zero models; operator adds rows the same way as built-in providers (upstream model ID, presented alias, context/output, capability toggles).
+- Lazy provider module: either generic OpenAI-compat dynamic provider (read base URL + key env from custom registry) or generated stub under `src/providers/` — **prefer one generic `custom` loader** keyed by registry entry to avoid N duplicate TS files.
+- Discovery: `/v1/models`, `/api/tags`, routing, and VS Code configure must include `custom-provider-id/presented-alias` after first model is saved.
+
+**Acceptance (for a future worktree):**
+- Create custom provider → set key via UI → add one model → `POST /v1/chat/completions` with `custom-id/alias` hits fake/upstream with correct base URL and remapped model id.
+- Integration tests: custom provider CRUD, model upsert on custom provider, key lifecycle unchanged (PQC persist).
+- `localrouter keys set <custom-id> --env …` works when server lists custom provider.
+
+**Out of scope for first slice:** editing `providers.txt` on disk from UI; community CRX merge; non-OpenAI-compat wire formats.
+
+**Planned (router):**
 1. **Normalize scoring formula** — Fix coding score dominance (×100) and latency negligible (/10000). Normalize to [0,1], derive weights from costQualityTradeoff.
 2. **Add request complexity features** — `codeDensity`, `languageCount`, `multiTurnDepth`, `instructionLength` to context vector.
 3. **Implement `bandit-local`** — dLinUCB with geometric forgetting (γ=0.98), ~6-dim context, per-candidate A/b matrices, UCB selection. ~200 lines TypeScript. Highest-impact new feature.
@@ -932,3 +960,17 @@ Pending: operator confirmation → promote `develop` → `main`.
 2. ✅ **Docs updated** — `llms.txt`, `AGENTS.md`, and `README.md` aligned to two-branch, two-hop promotion model.
 3. ✅ **Stale branches removed** — deleted merged feature/docs branches and orphaned worktrees.
 4. ✅ **`develop` synced to `main`** — both branches at canonical tip after cleanup.
+
+### 2026-06-04 — Thinking/Streaming Release + PRD for Custom Providers
+
+**Tasks completed:**
+1. ✅ **Thinking UI decoupled** — System prompt and thinking/reasoning are separate `/config` cards.
+2. ✅ **Thinking proxy toggle** — `enabled: false` (default) passes client IDE/CLI reasoning through; `enabled: true` applies configured levels.
+3. ✅ **Responses HTTP SSE** — `POST /v1/responses` `stream: true` for Codex/OpenCode CLI; shared `src/responses-stream.ts`.
+4. ✅ **AGENTS.md** — Mandatory worktree removal after feature → `develop` merge.
+5. ✅ **Integration** — 11/11 tests on `develop`; promoted `develop` → `main`.
+6. ✅ **PRD** — Documented planned custom provider dropdown + model manager wiring (see Custom Provider Registration above).
+
+**Canonical tip after release:** `main` and `develop` aligned at release commit (thinking/streaming + llms roadmap).
+
+**Next session:** Implement custom provider registration per PRD (worktree from `develop`).
