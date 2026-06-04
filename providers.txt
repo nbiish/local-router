@@ -3,7 +3,7 @@
 # =============================================================================
 # Path:    ~/.config/providers.txt  (source of truth)
 #          agents-research/providers.txt (project copy)
-# Updated: 2026-06-04 (cline + kilo gateway providers; tier probes via PQC keys)
+# Updated: 2026-06-04 (openrouter/free x3 paths; DS V4 Flash paid tail; Kilo Nemotron Ultra free)
 # Purpose: Master config reference for ALL agentic tools.
 #          kilo, crush, pi, goose, dcode, hermes, cline, qwen-code, Zed, etc.
 #
@@ -124,9 +124,15 @@
 # │ 91 │ cline              │ nvidia/nemotron-3-ultra-550b-a55b:free │ cline:nvidia-nemotron-3-ultra-550b-a55b:free │ 256,000 │ 32,768 │ YES │ NO │ NO │ YES* free │
 # │ 92 │ cline              │ minimax/minimax-m3                  │ cline:minimax-m3               │ 512,000  │ 512,000  │ YES   │ YES  │ YES   │ YES* free │
 # │ 93 │ cline              │ xiaomi/mimo-v2.5                    │ cline:xiaomi-mimo-v2.5         │1,000,000 │ 128,000  │ YES   │ YES  │ YES   │ NO* free  │
-# │ 94 │ cline              │ deepseek/deepseek-v4-flash          │ cline:deepseek-v4-flash        │1,000,000 │ 384,000  │ YES   │ NO   │ YES   │ NO* free  │
+# │ 94 │ cline              │ deepseek/deepseek-v4-flash          │ cline:deepseek-v4-flash        │1,000,000 │ 384,000  │ YES   │ NO   │ YES   │ NO* paid  │
 # │ 95 │ kilo               │ stepfun/step-3.7-flash:free         │ kilo:stepfun-step-3.7-flash:free │ 256,000 │ 256,000 │ YES │ YES │ YES │ YES* free │
 # │ 96 │ kilo               │ nvidia/nemotron-3-super-120b-a12b:free │ kilo:nvidia-nemotron-3-super-120b-a12b:free │ 256,000 │ 32,768 │ YES │ NO │ NO │ YES* free │
+# │ 97 │ openrouter-presets │ openrouter/free                     │ orps:openrouter-free           │ 256,000  │ 32,768   │ YES   │ NO   │ NO    │ YES* free │
+# │ 98 │ openrouter-presets │ deepseek/deepseek-v4-flash          │ orps:deepseek-v4-flash         │1,000,000 │ 131,072  │ YES   │ NO   │ YES   │ NO*       │
+# │ 99 │ kilo               │ openrouter/free                     │ kilo:openrouter-free           │ 256,000  │ 32,768   │ YES   │ NO   │ NO    │ YES* free │
+# │100 │ kilo               │ nvidia/nemotron-3-ultra-550b-a55b:free │ kilo:nvidia-nemotron-3-ultra-550b-a55b:free │ 256,000 │ 32,768 │ YES │ NO │ NO │ YES* free │
+# │101 │ kilo               │ deepseek/deepseek-v4-flash          │ kilo:deepseek-deepseek-v4-flash │1,000,000 │ 384,000  │ YES   │ NO   │ YES   │ NO* paid  │
+# │102 │ cline              │ openrouter/free                     │ cline:openrouter-free          │ 256,000  │ 32,768   │ YES   │ NO   │ NO    │ YES* free │
 # #
 # * Native reasoning DISABLED — VS Code/Copilot Chat and Zed cannot reliably
 #   preserve provider-native reasoning metadata across turns. FVS-CODE strips
@@ -311,11 +317,15 @@
 # Key env:     OPENROUTER_API_KEY
 # Zed prefix:  orps
 # Cross-tool:  All agents. Hermes: discover=false (prevents 300+ model flood).
-# Models:      9  —  @preset/chain-of-draft, @preset/openrouter-personal-router,
+# Models:      11 —  @preset/chain-of-draft, @preset/openrouter-personal-router,
 #                     @preset/free-chain-of-draft, @preset/1-million-main,
 #                     @preset/1-million-chain-of-draft,
+#                     openrouter/free (https://openrouter.ai/openrouter/free),
+#                     deepseek/deepseek-v4-flash,
 #                     stepfun/step-3.7-flash, minimax/minimax-m3,
 #                     qwen/qwen3.7-max, qwen/qwen3.7-plus
+# Routing:     openrouter/free is free-tier on OR + Kilo + Cline paths.
+#              fallback-models paid tail ends with DS V4 Flash across 5 providers.
 # Notes:       Presets are PRIVATE — not listed in /v1/models.
 #              All current presets are recorded at 1,000,000 context,
 #              120,000 max output tokens, tool calling enabled, and
@@ -440,9 +450,9 @@
 # Key env:     CLINE_API_KEY
 # Zed prefix:  cline
 # Cross-tool:  Cline extension, CLI, any OpenAI-compatible client via Local Router
-# Models:      4 catalog free CLI models (Nemotron 3 Ultra, MiniMax M3, MiMo V2.5, DeepSeek V4 Flash)
-# Discovery:   No GET /models — catalog from CLI + chat probes. Excludes openrouter/free router.
-# Router:      auto-router + fallback-models tier: Ollama → Kilo → Cline (this provider’s 4 free), then paid.
+# Models:      5 free (openrouter/free, Nemotron 3 Ultra, MiniMax M3, MiMo V2.5) + 1 paid (DS V4 Flash)
+# Discovery:   No GET /models — catalog from CLI + chat probes.
+# Router:      free → subscription → paid DS V4 Flash tail (with Kilo/OR/Wafer/ZenMux).
 # Notes:       Model IDs use provider/model format (OpenRouter-style). Do not use /config
 #              custom provider UI for this host (use catalog row). Keys in PQC bundle only.
 
@@ -452,11 +462,12 @@
 # Key env:     KILO_API_KEY  (JWT from app.kilo.ai profile)
 # Zed prefix:  kilo
 # Cross-tool:  Kilo Code, Vercel AI SDK, OpenAI SDK, Local Router
-# Models:      2 catalog free models (Step 3.7 Flash, Nemotron 3 Super — excludes Auto/Router free)
+# Models:      4 free (openrouter/free, Step 3.7 Flash, Nemotron Super, Nemotron Ultra 550B)
+#              + deepseek/deepseek-v4-flash (paid routing tail)
 # Discovery:   GET /models and GET /providers (auth optional; 342 models live).
-# Router:      auto-router + fallback-models tier: Ollama first, then Kilo (2 free), then paid providers.
+# Router:      Ollama → Kilo free (incl. openrouter/free) → subscription → paid API tiers.
 # Notes:       Never register via Add custom provider (appends /v1 and breaks paths).
-#              Auto Free and Free Models Router exist upstream but are excluded from catalog.
+#              kilo-auto/free remains excluded from routing.
 
 # =============================================================================
 # CROSS-TOOL CONFIGURATION MATRIX

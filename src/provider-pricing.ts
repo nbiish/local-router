@@ -86,9 +86,44 @@ export const BASELINE_PROVIDER_PRICING: Record<string, ProviderPricingEntry> = {
     label: 'Cline API xiaomi/mimo-v2.5 free tier'
   },
   'cline-deepseek-deepseek-v4-flash': {
+    inputPricePerM: 0.5,
+    outputPricePerM: 1,
+    label: 'Cline API deepseek/deepseek-v4-flash paid routing tail'
+  },
+  'openrouter-free': {
     inputPricePerM: 0,
     outputPricePerM: 0,
-    label: 'Cline API deepseek/deepseek-v4-flash free tier'
+    label: 'OpenRouter openrouter/free'
+  },
+  'kilo-openrouter-free': {
+    inputPricePerM: 0,
+    outputPricePerM: 0,
+    label: 'Kilo Gateway openrouter/free'
+  },
+  'cline-openrouter-free': {
+    inputPricePerM: 0,
+    outputPricePerM: 0,
+    label: 'Cline API openrouter/free'
+  },
+  'kilo-nvidia-nemotron-3-ultra-550b-a55b-free': {
+    inputPricePerM: 0,
+    outputPricePerM: 0,
+    label: 'Kilo Gateway nvidia/nemotron-3-ultra-550b-a55b:free'
+  },
+  'zenmux-deepseek-v4-flash': {
+    inputPricePerM: 0.5,
+    outputPricePerM: 1,
+    label: 'ZenMux deepseek/deepseek-v4-flash'
+  },
+  'openrouter-deepseek-v4-flash': {
+    inputPricePerM: 0.5,
+    outputPricePerM: 1,
+    label: 'OpenRouter deepseek/deepseek-v4-flash'
+  },
+  'kilo-deepseek-deepseek-v4-flash': {
+    inputPricePerM: 0.5,
+    outputPricePerM: 1,
+    label: 'Kilo Gateway deepseek/deepseek-v4-flash'
   }
 };
 

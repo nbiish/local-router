@@ -5,9 +5,8 @@
 
 export type GatewayBillingTier = 'free' | 'api-paid' | 'subscription-only';
 
-/** Meta-routers — zero price but not direct models; excluded from catalog and auto-router. */
+/** Meta-routers excluded from routing (not openrouter/free — routed on OR + Kilo + Cline). */
 export const GATEWAY_ROUTER_UPSTREAM_IDS: readonly string[] = [
-  'openrouter/free',
   'kilo-auto/free'
 ] as const;
 
@@ -15,35 +14,52 @@ const GATEWAY_ROUTER_SET = new Set<string>(GATEWAY_ROUTER_UPSTREAM_IDS);
 
 /**
  * Cline CLI free models (API-verified where noted).
- * MiniMax M3 / MiMo V2.5 / DeepSeek V4 Flash are free in Cline CLI billing; no :free suffix on API.
+ * DeepSeek V4 Flash is api-paid (fallback/auto paid tail after subscriptions).
  */
 export const CLINE_MODEL_TIERS: Record<string, GatewayBillingTier> = {
+  'openrouter/free': 'free',
   'nvidia/nemotron-3-ultra-550b-a55b:free': 'free',
   'minimax/minimax-m3': 'free',
   'xiaomi/mimo-v2.5': 'free',
-  'deepseek/deepseek-v4-flash': 'free'
+  'deepseek/deepseek-v4-flash': 'api-paid'
 };
 
-/** Kilo CLI free models (zero gateway pricing); excludes Auto Free and Free Models Router. */
+/** Kilo CLI free models; excludes kilo-auto/free router preset. */
 export const KILO_FREE_MODEL_IDS: readonly string[] = [
+  'openrouter/free',
   'stepfun/step-3.7-flash:free',
-  'nvidia/nemotron-3-super-120b-a12b:free'
+  'nvidia/nemotron-3-super-120b-a12b:free',
+  'nvidia/nemotron-3-ultra-550b-a55b:free'
 ] as const;
 
 const KILO_FREE_SET = new Set<string>(KILO_FREE_MODEL_IDS);
 
+/** Paid gateway models allowed in router/fallback after subscription band. */
+export const KILO_PAID_ROUTING_IDS: readonly string[] = [
+  'deepseek/deepseek-v4-flash'
+] as const;
+
+export const CLINE_PAID_ROUTING_IDS: readonly string[] = [
+  'deepseek/deepseek-v4-flash'
+] as const;
+
+const KILO_PAID_SET = new Set<string>(KILO_PAID_ROUTING_IDS);
+const CLINE_PAID_SET = new Set<string>(CLINE_PAID_ROUTING_IDS);
+
 /** Kilo auto-router / fallback free chain. */
 export const DEFAULT_KILO_FREE_ROUTING_IDS = [
+  'openrouter/free',
   'stepfun/step-3.7-flash:free',
-  'nvidia/nemotron-3-super-120b-a12b:free'
+  'nvidia/nemotron-3-super-120b-a12b:free',
+  'nvidia/nemotron-3-ultra-550b-a55b:free'
 ] as const;
 
 /** Cline auto-router / fallback free chain. */
 export const DEFAULT_CLINE_FREE_ROUTING_IDS = [
+  'openrouter/free',
   'nvidia/nemotron-3-ultra-550b-a55b:free',
   'minimax/minimax-m3',
-  'xiaomi/mimo-v2.5',
-  'deepseek/deepseek-v4-flash'
+  'xiaomi/mimo-v2.5'
 ] as const;
 
 export function normalizeGatewayUpstreamId(modelId: string): string {
@@ -62,18 +78,20 @@ export function kiloModelTier(upstreamId: string): GatewayBillingTier {
   const normalized = normalizeGatewayUpstreamId(upstreamId);
   if (isGatewayRouterModel(normalized)) return 'free';
   if (KILO_FREE_SET.has(normalized)) return 'free';
+  if (KILO_PAID_SET.has(normalized)) return 'api-paid';
   return 'api-paid';
 }
 
 export function isKiloFreeModel(upstreamId: string): boolean {
   const normalized = normalizeGatewayUpstreamId(upstreamId);
   if (isGatewayRouterModel(normalized)) return false;
-  return kiloModelTier(normalized) === 'free';
+  return KILO_FREE_SET.has(normalized);
 }
 
 export function isClineFreeModel(upstreamId: string): boolean {
   const normalized = normalizeGatewayUpstreamId(upstreamId);
   if (isGatewayRouterModel(normalized)) return false;
+  if (CLINE_PAID_SET.has(normalized)) return false;
   return clineModelTier(normalized) === 'free';
 }
 
@@ -84,10 +102,10 @@ export function gatewayModelAllowedForRouter(
   const normalized = normalizeGatewayUpstreamId(upstreamId);
   if (isGatewayRouterModel(normalized)) return false;
   if (providerName === 'kilo') {
-    return isKiloFreeModel(normalized);
+    return isKiloFreeModel(normalized) || KILO_PAID_SET.has(normalized);
   }
   if (providerName === 'cline') {
-    return isClineFreeModel(normalized);
+    return isClineFreeModel(normalized) || CLINE_PAID_SET.has(normalized);
   }
   return true;
 }

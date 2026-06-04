@@ -10,9 +10,10 @@ Local Router is a localhost proxy (port `11434`) with **Ollama-compatible** and 
 - **Client inference:** `POST /v1/chat/completions`, Ollama `/api/chat` & `/api/generate`, Codex `POST /v1/responses`, Claude Code `POST /v1/messages`
 - **Model IDs:** `{provider-slug}/{presented-alias}` (e.g. `zenmux/qwen3.7-max`, `my-vendor/my-alias`) or `local-router/{router-or-fallback-id}`
 - **Keys:** `/config` UI → in-memory while running → **PQC bundle** `~/.config/pqc-secrets/secrets.bundle.json` on every save (ML-KEM-768 + AES-256-GCM). Never committed to git or `providers.txt`
-- **Catalog:** `providers.txt` (14 providers, ~88 presented models in custom mode) + runtime edits in `provider-models.json` + **custom providers** in `custom-providers.json`
+- **Catalog:** `providers.txt` (14 providers, ~102 presented models in custom mode) + runtime edits in `provider-models.json` + **custom providers** in `custom-providers.json`
 - **Custom providers:** `/config` → **Add custom provider…** or `POST /api/providers` (HTTPS `/v1` upstream; loopback HTTP allowed for dev)
-- **Auto-router:** `local-router/auto-router-main` — **31** curated candidates: **3 Ollama Cloud (free tier)** → **6 Kilo/Cline free gateway** → NVIDIA NIM → Modal → … → OpenRouter; skips providers without keys; cascades to system fallback on exhaustion
+- **Auto-router:** `local-router/auto-router-main` — **~58** candidates (`src/routing-defaults.ts`): free (Ollama + **openrouter/free** on OR/Kilo/Cline + gateway free) → OpenCode Go/Zen subscription → preferred API-paid; cascades to system fallback on exhaustion
+- **System fallback:** `local-router/fallback-models` — **~45** models: same free + subscription bands; paid tail is **only** the six DeepSeek V4 Flash paths (Wafer, ZenMux, OpenRouter, Cline, Kilo, OpenCode Zen) — not NVIDIA/Modal/Nebius
 - **Ollama Cloud:** Shared quota — router/fallback/pull use **nemotron-3-ultra**, **minimax-m3**, **deepseek-v4-flash** only unless a real `ollama.com` API key is set (Pro tags gated). See [Ollama Cloud routing](#ollama-cloud-routing-free-vs-pro)
 - **Ollama shim:** `local-router route set` → `ollama serve` starts real Ollama on `11435` and Local Router on `11434`
 - **Operator CLI:** `localrouter list`, `keys`, `router`, `verify`, `config --open`
@@ -67,20 +68,19 @@ Used by `stableSortModelIdsByRoutingExhaustion()` (`src/routing-exhaustion-order
 **Free exhaustion bands (in order):**
 
 1. `ollama` — **3 free-tier `:cloud` tags only** in defaults (see below)
-2. `kilo` — **free** gateway models only (Step 3.7 Flash, Nemotron 3 Super)
-3. `cline` — **free** gateway models only (Nemotron 3 Ultra, MiniMax M3, MiMo V2.5, DeepSeek V4 Flash)
-4. **Other free** — OpenCode Zen free (`*-free`), OpenCode Go free, any other zero-price catalog models
+2. `kilo` — **free** gateway: `openrouter/free`, Step 3.7 Flash, Nemotron Super, Nemotron Ultra 550B
+3. `cline` — **free** gateway: `openrouter/free`, Nemotron Ultra, MiniMax M3, MiMo V2.5
+4. **Other free** — `openrouter/free` on **openrouter-presets** (personal key), OpenCode Zen/Go `*-free`, other zero-price catalog models
 
 **Subscription exhaustion band:**
 
-5. `opencode-zen` + `opencode` (non-free), `zai` (Code Pass), `xiaomi-mimo` (MiMo plan)
+5. `opencode` (Go subscription), `zai`, `xiaomi-mimo` — OpenCode Zen **paid** is in band 6, not here; Zen **free** stays in band 4
 
-**Paid exhaustion bands (in order):**
+**Paid exhaustion (provider sub-order within band 6):**
 
-6. `nvidia-nim` → `modal` → `nebius`
-7. `kilo` **paid** (when present in catalog)
-8. `cline` **paid** (when present in catalog)
-9. `wafer-serverless` → `zenmux` → `openrouter-presets`
+6. **Paid API order** — `wafer-serverless` → `zenmux` → `openrouter-presets` → `cline` → `kilo` → `opencode-zen` → `nvidia-nim` → `modal` → `nebius`
+   - **Fallback paid tail (DS V4 Flash only):** `wafer-ai-deepseek-v4-flash` → `zenmux-deepseek-v4-flash` → `openrouter-deepseek-v4-flash` → `cline-deepseek-deepseek-v4-flash` → `kilo-deepseek-deepseek-v4-flash` → `opencode-zen-deepseek-v4-flash`
+   - **Auto-router** adds other paid models (NIM, Modal, Nebius, MiniMax M3, etc.) after the fallback set; OpenCode Zen subscription models (GLM, Claude, …) sort with `opencode-zen` in band 6
 
 Router and fallback **skip** candidates when the provider has no API key (except `ollama`, always “configured” with placeholder). Ollama Cloud **Pro-only** presented IDs are skipped when the key is the placeholder.
 
@@ -111,17 +111,18 @@ Router and fallback **skip** candidates when the provider has no API key (except
 
 | Provider | Upstream | Key | Free presented IDs (router/fallback defaults) |
 |----------|----------|-----|--------------------------------------------------|
-| `cline` | `https://api.cline.bot/api/v1` | `CLINE_API_KEY` | `cline-nvidia-nemotron-3-ultra-550b-a55b-free`, `cline-minimax-minimax-m3`, `cline-xiaomi-mimo-v2.5`, `cline-deepseek-deepseek-v4-flash` |
-| `kilo` | `https://api.kilo.ai/api/gateway` | `KILO_API_KEY` | `kilo-stepfun-step-3.7-flash-free`, `kilo-nvidia-nemotron-3-super-120b-a12b-free` |
+| `cline` | `https://api.cline.bot/api/v1` | `CLINE_API_KEY` | Free: `cline-openrouter-free`, Nemotron Ultra, MiniMax M3, MiMo V2.5. Paid tail: `cline-deepseek-deepseek-v4-flash` |
+| `kilo` | `https://api.kilo.ai/api/gateway` | `KILO_API_KEY` | Free: `kilo-openrouter-free`, Step 3.7 Flash, Nemotron Super, Nemotron Ultra. Paid tail: `kilo-deepseek-deepseek-v4-flash` |
 
-- **Excluded from routing:** Cline `openrouter/free`, Kilo `kilo-auto/free` and `openrouter/free` router presets.
+- **OpenCode Go** (`opencode`) = subscription endpoint; **OpenCode Zen** (`opencode-zen`) = paid API (after Kilo in exhaustion) + Zen free-tier models in band 4.
+- **openrouter/free:** routed on `openrouter-presets`, `kilo`, and `cline` (three paths for extra free quota). **Excluded:** `kilo-auto/free` only.
 - **Configure in `/config`** on the built-in provider cards — not via **Add custom provider…** (Kilo base path is `/api/gateway`, not `/v1`).
 - **Client model IDs** use full presented segments above (not short aliases like `cline-minimax-m3`).
 
 ### Default auto-router (`auto-router-main`)
 
 - **Type:** `auto-local` — `minCodingScore` 0.66, `costQualityTradeoff` 7
-- **31 candidates** in `DEFAULT_ROUTER_CANDIDATES_TEXT` (`src/index.ts`): 3 Ollama free `:cloud` + 6 Kilo/Cline free gateway + 22 paid/subscription catalog models
+- **Source:** [`src/routing-defaults.ts`](src/routing-defaults.ts) (`DEFAULT_AUTO_ROUTER_CANDIDATES_TEXT`) — union of fallback free/subscription set plus `ROUTING_PREFERRED_PAID_CANDIDATES` (NVIDIA NIM, Modal, Nebius, Wafer, ZenMux, OpenRouter presets)
 - **Selection:** `selectRouterCandidate()` picks the **first eligible** model in `stableSortModelIdsByRoutingExhaustion()` order (not highest Pareto score alone); `routerCandidateEligibility()` skips missing keys and gateway/Ollama blocks
 - **Execution:** `buildWraparoundExecutionPlan()` — before advancing to candidate *N+1*, revisits models *0…N* once each; then `proxyModelAttempt()` per step; system fallback on exhaustion
 - **Catalog mode:** Custom source must not leak `endpoint-models-cache` on `/v1/models`, `/api/tags`, or `GET /api/provider-models?catalog=active|all` (live upstream only when **Endpoint Models** toggle is on or `?live=true`)
@@ -129,8 +130,9 @@ Router and fallback **skip** candidates when the provider has no API key (except
 ### Default system fallback
 
 - **Route id:** `fallback-models` (bootstrapped); persisted installs may also use legacy id **`default`** — startup **merges** tier-default model IDs into system/legacy routes, then tier-sorts
-- **Chain:** same tier order as router; Ollama stage = 3 free-tier models only
-- **Stages:** 3 attempts per stage with exponential backoff; skip stages with `fallbackStagePreflight()` (no key, Ollama tier block, unknown model)
+- **Source:** [`src/routing-defaults.ts`](src/routing-defaults.ts) (`DEFAULT_FALLBACK_CANDIDATES_TEXT`) — **decoupled** from auto-router; does **not** include NVIDIA/Modal/Nebius
+- **Paid tail:** six DeepSeek V4 Flash models only (see band 6 above)
+- **Stages:** wraparound plan with 3 primary attempts per stage; skip stages with `fallbackStagePreflight()` (no key, Ollama tier block, unknown model)
 
 ### Configuration on disk (`~/.config/local-router/`)
 

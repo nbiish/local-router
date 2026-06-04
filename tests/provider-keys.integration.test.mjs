@@ -342,19 +342,15 @@ test('provider key save/reset lifecycle exposes configured source', async (t) =>
   const ollamaIdx = tierIndex('ollama-');
   const kiloIdx = tierIndex('kilo-');
   const clineIdx = tierIndex('cline-');
-  const nvidiaIdx = tierIndex('nvidia-nim-');
-  const modalIdx = tierIndex('modal-');
-  const nebiusIdx = tierIndex('nebius-');
   const ozenIdx = tierIndex('opencode-zen-');
-  const opencodeIdx = fallbackChain.findIndex((id) => (
-    String(id).startsWith('opencode-')
-    && !String(id).startsWith('opencode-zen-')
-    && !String(id).includes('-free')
-  ));
   const zaiIdx = tierIndex('zai-');
-  const waferIdx = tierIndex('wafer-ai-');
-  const zenmuxIdx = tierIndex('zenmux-');
-  const openrouterIdx = tierIndex('openrouter-');
+  const waferIdx = tierIndex('wafer-ai-deepseek-v4-flash');
+  const zenmuxDsIdx = tierIndex('zenmux-deepseek-v4-flash');
+  const openrouterDsIdx = tierIndex('openrouter-deepseek-v4-flash');
+  const clineDsIdx = tierIndex('cline-deepseek-deepseek-v4-flash');
+  const kiloDsIdx = tierIndex('kilo-deepseek-deepseek-v4-flash');
+  const ozenDsIdx = fallbackChain.findIndex((id) => id === 'opencode-zen-deepseek-v4-flash');
+  const nvidiaIdx = tierIndex('nvidia-nim-');
 
   assert.ok(ollamaIdx >= 0, 'fallback-models should include Ollama tier');
   assert.equal(ollamaIdx, 0, 'fallback chain should exhaust Ollama tier first');
@@ -389,28 +385,26 @@ test('provider key save/reset lifecycle exposes configured source', async (t) =>
   if (zaiIdx >= 0 && xiaomiIdx >= 0) {
     assert.ok(xiaomiIdx > zaiIdx, 'Xiaomi MiMo subscription should follow Z.ai');
   }
-  if (nvidiaIdx >= 0 && xiaomiIdx >= 0) {
-    assert.ok(nvidiaIdx > xiaomiIdx, 'NVIDIA NIM paid should follow subscription tiers');
-  } else if (nvidiaIdx >= 0 && opencodeFreeIdx >= 0) {
-    assert.ok(nvidiaIdx > opencodeFreeIdx, 'NVIDIA NIM paid should follow all curated free tiers');
-  } else if (nvidiaIdx >= 0 && clineIdx >= 0) {
-    assert.ok(nvidiaIdx > clineIdx, 'NVIDIA NIM should follow Cline free gateway');
-  } else if (nvidiaIdx >= 0) {
-    assert.ok(nvidiaIdx > ollamaIdx, 'NVIDIA NIM should follow Ollama');
-  }
-  assert.ok(modalIdx > nvidiaIdx, 'Modal should follow NVIDIA NIM');
-  if (nebiusIdx >= 0 && modalIdx >= 0) {
-    assert.ok(nebiusIdx > modalIdx, 'Nebius should follow Modal');
-  }
-  if (opencodeIdx >= 0 && zaiIdx >= 0) {
-    assert.ok(opencodeIdx > zaiIdx || opencodeIdx < 0, 'OpenCode paid index ordering');
-  }
-  if (waferIdx >= 0 && zenmuxIdx >= 0) {
-    assert.ok(waferIdx < zenmuxIdx, 'Wafer should precede ZenMux');
-  }
-  if (openrouterIdx >= 0 && zenmuxIdx >= 0) {
-    assert.ok(openrouterIdx > zenmuxIdx, 'OpenRouter should be last paid tier');
-  }
+  assert.equal(nvidiaIdx, -1, 'fallback-models should not include NVIDIA NIM by default');
+  assert.ok(
+    autoRouterCandidates.includes('openrouter-free'),
+    'auto-router should include OpenRouter openrouter/free'
+  );
+  assert.ok(
+    autoRouterCandidates.includes('kilo-openrouter-free'),
+    'auto-router should include Kilo openrouter/free'
+  );
+  assert.ok(
+    autoRouterCandidates.includes('cline-openrouter-free'),
+    'auto-router should include Cline openrouter/free'
+  );
+  assert.ok(waferIdx >= 0, 'fallback should include wafer-ai-deepseek-v4-flash');
+  assert.ok(zenmuxDsIdx > waferIdx, 'ZenMux DS V4 Flash should follow Wafer in fallback tail');
+  assert.ok(openrouterDsIdx > zenmuxDsIdx, 'OpenRouter DS V4 Flash should follow ZenMux');
+  assert.ok(clineDsIdx > openrouterDsIdx, 'Cline DS V4 Flash should follow OpenRouter');
+  assert.ok(kiloDsIdx > clineDsIdx, 'Kilo DS V4 Flash should follow Cline');
+  assert.ok(ozenDsIdx > kiloDsIdx, 'OpenCode Zen DS V4 Flash should follow Kilo');
+  assert.equal(ozenDsIdx, fallbackChain.length - 1, 'fallback chain should end with OpenCode Zen DS V4 Flash');
 
   const firstRouterCandidate = autoRouterCandidates[0] || '';
   assert.ok(
@@ -847,6 +841,7 @@ test('provider key save/reset lifecycle exposes configured source', async (t) =>
     'fail-always-first',
     'fail-always-first',
     'fail-always-first',
+    'fail-always-first',
     'fail-always-second',
     'fail-always-second',
     'fail-always-second',
@@ -894,7 +889,7 @@ test('provider key save/reset lifecycle exposes configured source', async (t) =>
   });
   assert.equal(fallbackExhausted.response.status, 503);
   assert.equal(Array.isArray(fallbackExhausted.body?.fallback?.attempts), true);
-  assert.equal(fallbackExhausted.body?.fallback?.attempts?.length, 11);
+  assert.equal(fallbackExhausted.body?.fallback?.attempts?.length, 12);
   assert.ok(
     fallbackExhausted.body?.fallback?.attempts?.some((attempt) => Object.hasOwn(attempt, 'waitBeforeRetrySeconds')),
     'Expected retry wait info in fallback failure payload'
@@ -967,7 +962,13 @@ test('provider key save/reset lifecycle exposes configured source', async (t) =>
   assert.equal(routerChat.body?.choices?.[0]?.message?.content, 'ok:success-third');
   assert.deepEqual(
     upstreamRequests.map((entry) => entry?.body?.model).filter(Boolean),
-    ['success-third']
+    [
+      'fail-always-first',
+      'fail-always-first',
+      'fail-always-first',
+      'fail-always-first',
+      'success-third'
+    ]
   );
 
   const routerEvents = await fetch(`${baseUrl}/api/router-events.csv`);

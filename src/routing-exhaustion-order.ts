@@ -1,6 +1,6 @@
 /**
  * Fallback / auto-router exhaustion order: free → subscription → paid.
- * Kilo/Cline free after Ollama; subscription (OpenCode, Z.ai, Xiaomi MiMo) before API-paid tiers.
+ * Paid API order (after subscription): Wafer → ZenMux → OpenRouter → Cline → Kilo → OpenCode Zen → NIM → Modal → Nebius.
  */
 
 import {
@@ -17,51 +17,49 @@ export const ROUTING_EXHAUSTION_BAND = {
   CLINE_FREE: 2,
   OTHER_FREE: 3,
   SUBSCRIPTION: 4,
-  PAID_GENERAL: 5,
-  KILO_PAID: 6,
-  CLINE_PAID: 7,
-  PAID_TAIL: 8
+  PAID: 5
 } as const;
+
+/** DeepSeek V4 Flash presented IDs (one per paid provider slot; sorts by paid provider order). */
+export const DEEPSEEK_V4_FLASH_PAID_PRESENTED_IDS: readonly string[] = [
+  'wafer-ai-deepseek-v4-flash',
+  'zenmux-deepseek-v4-flash',
+  'openrouter-deepseek-v4-flash',
+  'cline-deepseek-deepseek-v4-flash',
+  'kilo-deepseek-deepseek-v4-flash',
+  'opencode-zen-deepseek-v4-flash'
+] as const;
 
 export type RoutingExhaustionBand = typeof ROUTING_EXHAUSTION_BAND[keyof typeof ROUTING_EXHAUSTION_BAND];
 
-/** Subscription-backed providers (OpenCode Zen/Go, Z.ai Code Pass, Xiaomi MiMo plan). */
+/** Subscription endpoints (OpenCode Go, Z.ai, Xiaomi). OpenCode Zen paid is in PAID band. */
 export const SUBSCRIPTION_PROVIDERS = [
-  'opencode-zen',
   'opencode',
   'zai',
   'xiaomi-mimo'
 ] as const;
 
-/** API-paid providers before Kilo/Cline paid gateway slots. */
-export const PAID_BEFORE_GATEWAY_PAID_PROVIDERS = [
+/** API-paid provider try order after subscription exhaustion band. */
+export const ROUTING_PAID_PROVIDER_SUB_ORDER = [
+  'wafer-serverless',
+  'zenmux',
+  'openrouter-presets',
+  'cline',
+  'kilo',
+  'opencode-zen',
   'nvidia-nim',
   'modal',
   'nebius'
 ] as const;
 
-/** API-paid providers after Kilo/Cline paid. */
-export const PAID_AFTER_GATEWAY_PAID_PROVIDERS = [
-  'wafer-serverless',
-  'zenmux',
-  'openrouter-presets'
-] as const;
-
-/** Sub-order within a band. */
-export const ROUTING_PROVIDER_SUB_ORDER = [
+/** Sub-order within free bands (Ollama → gateway free → OpenCode free). */
+export const ROUTING_FREE_PROVIDER_SUB_ORDER = [
   'ollama',
   'kilo',
   'cline',
+  'openrouter-presets',
   'opencode-zen',
-  'opencode',
-  'zai',
-  'xiaomi-mimo',
-  'nvidia-nim',
-  'modal',
-  'nebius',
-  'wafer-serverless',
-  'zenmux',
-  'openrouter-presets'
+  'opencode'
 ] as const;
 
 const PRESENTATION_PREFIX_TO_PROVIDER: Record<string, string> = {
@@ -103,9 +101,18 @@ export function inferProviderSlugFromPresentedId(modelId: string): string | null
   return null;
 }
 
-function providerSubOrderIndex(providerSlug: string): number {
-  const index = ROUTING_PROVIDER_SUB_ORDER.indexOf(providerSlug as typeof ROUTING_PROVIDER_SUB_ORDER[number]);
-  return index >= 0 ? index : ROUTING_PROVIDER_SUB_ORDER.length;
+function paidProviderSubOrderIndex(providerSlug: string): number {
+  const index = ROUTING_PAID_PROVIDER_SUB_ORDER.indexOf(
+    providerSlug as typeof ROUTING_PAID_PROVIDER_SUB_ORDER[number]
+  );
+  return index >= 0 ? index : ROUTING_PAID_PROVIDER_SUB_ORDER.length;
+}
+
+function freeProviderSubOrderIndex(providerSlug: string): number {
+  const index = ROUTING_FREE_PROVIDER_SUB_ORDER.indexOf(
+    providerSlug as typeof ROUTING_FREE_PROVIDER_SUB_ORDER[number]
+  );
+  return index >= 0 ? index : ROUTING_FREE_PROVIDER_SUB_ORDER.length;
 }
 
 function isPresentedFreeSlug(modelId: string): boolean {
@@ -135,6 +142,15 @@ function isSubscriptionProvider(provider: string | null): boolean {
   return Boolean(provider && (SUBSCRIPTION_PROVIDERS as readonly string[]).includes(provider));
 }
 
+function isPaidProvider(provider: string | null): boolean {
+  if (!provider) return false;
+  if (isSubscriptionProvider(provider)) return false;
+  if (provider === 'ollama') return false;
+  return (ROUTING_PAID_PROVIDER_SUB_ORDER as readonly string[]).includes(provider)
+    || provider === 'kilo'
+    || provider === 'cline';
+}
+
 export function routingExhaustionBandForModel(
   modelId: string,
   catalog?: CatalogModelRef | null
@@ -149,13 +165,13 @@ export function routingExhaustionBandForModel(
     if (isKiloFreeModel(upstream) || isPresentedFreeSlug(modelId) || isZeroBaselinePricing(modelId)) {
       return ROUTING_EXHAUSTION_BAND.KILO_FREE;
     }
-    return ROUTING_EXHAUSTION_BAND.KILO_PAID;
+    return ROUTING_EXHAUSTION_BAND.PAID;
   }
   if (provider === 'cline') {
-    if (isClineFreeModel(upstream) || isZeroBaselinePricing(modelId)) {
+    if (isClineFreeModel(upstream)) {
       return ROUTING_EXHAUSTION_BAND.CLINE_FREE;
     }
-    return ROUTING_EXHAUSTION_BAND.CLINE_PAID;
+    return ROUTING_EXHAUSTION_BAND.PAID;
   }
   if (isOpencodeFamilyFree(provider, modelId, upstream)) {
     return ROUTING_EXHAUSTION_BAND.OTHER_FREE;
@@ -169,14 +185,11 @@ export function routingExhaustionBandForModel(
   if (isSubscriptionProvider(provider)) {
     return ROUTING_EXHAUSTION_BAND.SUBSCRIPTION;
   }
-  if (provider && (PAID_BEFORE_GATEWAY_PAID_PROVIDERS as readonly string[]).includes(provider)) {
-    return ROUTING_EXHAUSTION_BAND.PAID_GENERAL;
-  }
-  if (provider && (PAID_AFTER_GATEWAY_PAID_PROVIDERS as readonly string[]).includes(provider)) {
-    return ROUTING_EXHAUSTION_BAND.PAID_TAIL;
+  if (isPaidProvider(provider)) {
+    return ROUTING_EXHAUSTION_BAND.PAID;
   }
 
-  return ROUTING_EXHAUSTION_BAND.PAID_GENERAL;
+  return ROUTING_EXHAUSTION_BAND.PAID;
 }
 
 export function routingExhaustionSortKey(
@@ -186,8 +199,19 @@ export function routingExhaustionSortKey(
 ): number {
   const provider = catalog?.provider ?? inferProviderSlugFromPresentedId(modelId) ?? '';
   const band = routingExhaustionBandForModel(modelId, catalog);
-  const sub = providerSubOrderIndex(provider);
-  return band * 100_000 + sub * 100 + originalIndex;
+
+  if (band === ROUTING_EXHAUSTION_BAND.PAID) {
+    return band * 100_000 + paidProviderSubOrderIndex(provider) * 100 + originalIndex;
+  }
+  if (
+    band === ROUTING_EXHAUSTION_BAND.KILO_FREE
+    || band === ROUTING_EXHAUSTION_BAND.CLINE_FREE
+    || band === ROUTING_EXHAUSTION_BAND.OTHER_FREE
+  ) {
+    return band * 100_000 + freeProviderSubOrderIndex(provider) * 100 + originalIndex;
+  }
+
+  return band * 100_000 + originalIndex;
 }
 
 export function stableSortModelIdsByRoutingExhaustion<

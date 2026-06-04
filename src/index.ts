@@ -39,6 +39,11 @@ import {
   gatewayPresentedModelSegment
 } from './gateway-provider-catalog';
 import {
+  DEFAULT_AUTO_ROUTER_CANDIDATES_TEXT,
+  buildDefaultFallbackModelIds,
+  buildDefaultFallbackModelsText
+} from './routing-defaults';
+import {
   DEFAULT_OLLAMA_API_KEY,
   ensureDefaultOllamaApiKey,
   isOllamaPlaceholderKey,
@@ -264,39 +269,7 @@ const PRESENTATION_PREFIX_TO_PROVIDER: Record<string, string> = {
   'openrouter-presets': 'openrouter-presets'
 };
 
-const DEFAULT_ROUTER_CANDIDATES_TEXT = [
-  'ollama-nemotron-3-ultra-cloud, coding=0.86, input=0, output=0, latency=850, notes=Ollama Cloud Nemotron 3 Ultra (free tier)',
-  'ollama-minimax-m3-cloud, coding=0.82, input=0, output=0, latency=950, notes=Ollama Cloud MiniMax M3 (free tier)',
-  'ollama-deepseek-v4-flash-cloud, coding=0.84, input=0, output=0, latency=900, notes=Ollama Cloud DeepSeek V4 Flash (free tier coding fallback)',
-  'kilo-stepfun-step-3.7-flash-free, coding=0.84, input=0, output=0, latency=800, notes=Kilo Gateway Step 3.7 Flash free',
-  'kilo-nvidia-nemotron-3-super-120b-a12b-free, coding=0.82, input=0, output=0, latency=850, notes=Kilo Gateway Nemotron 3 Super free',
-  'cline-nvidia-nemotron-3-ultra-550b-a55b-free, coding=0.86, input=0, output=0, latency=800, notes=Cline API Nemotron 3 Ultra free',
-  'cline-minimax-minimax-m3, coding=0.85, input=0, output=0, latency=750, notes=Cline API MiniMax M3 free tier',
-  'cline-xiaomi-mimo-v2.5, coding=0.80, input=0, output=0, latency=900, notes=Cline API MiMo V2.5 free tier',
-  'cline-deepseek-deepseek-v4-flash, coding=0.84, input=0, output=0, latency=850, notes=Cline API DeepSeek V4 Flash free tier',
-  'opencode-zen-minimax-m3-free, coding=0.80, input=0, output=0, latency=900, notes=OpenCode Zen MiniMax M3 free tier',
-  'opencode-zen-deepseek-v4-flash-free, coding=0.78, input=0, output=0, latency=950, notes=OpenCode Zen DeepSeek V4 Flash free',
-  'opencode-minimax-m3-free, coding=0.80, input=0, output=0, latency=900, notes=OpenCode Go MiniMax M3 free tier',
-  'opencode-minimax-m3, coding=0.85, input=0.3, output=1.2, latency=650, notes=OpenCode Go MiniMax M3 subscription',
-  'zai-code-pass-glm-5.1, coding=0.88, input=0.88, output=3.51, latency=750, notes=Z.ai Code Pass GLM-5.1 subscription',
-  'xiaomi-mimo-mimo-v2.5-pro, coding=0.80, input=0.44, output=0.88, latency=1000, notes=Xiaomi MiMo V2.5 Pro subscription',
-  'xiaomi-mimo-mimo-v2.5, coding=0.76, input=0.15, output=0.29, latency=1100, notes=Xiaomi MiMo V2.5 subscription multimodal',
-  'nvidia-nim-step-3.7-flash, coding=0.84, input=0.1, output=0.3, latency=700, notes=NVIDIA NIM Step 3.7 Flash reasoning',
-  'nvidia-nim-kimi-k2.6, coding=0.86, input=0.6, output=2.5, latency=850, notes=NVIDIA NIM Kimi K2.6 256K ctx coding',
-  'nvidia-nim-minimax-m3, coding=0.85, input=0.1, output=0.3, latency=720, notes=NVIDIA NIM MiniMax M3',
-  'modal-glm-5.1-fp8, coding=0.83, input=0.5, output=1, latency=800, notes=Modal GLM-5.1 FP8 200K ctx',
-  'nebius-deepseek-v4-pro, coding=0.88, input=0.5, output=1, latency=800, notes=Nebius DeepSeek V4 Pro 1M ctx',
-  'wafer-ai-deepseek-v4-flash, coding=0.87, input=0.5, output=1, latency=600, notes=Wafer DeepSeek V4 Flash 1M ctx',
-  'wafer-ai-minimax-m3, coding=0.90, input=0.33, output=1.32, latency=650, notes=Wafer MiniMax-M3 serverless promo',
-  'zenmux-minimax-m3, coding=0.90, input=0.3, output=1.2, latency=700, notes=ZenMux MiniMax M3',
-  'zenmux-step-3.7-flash, coding=0.84, input=0.2, output=1.15, latency=700, notes=ZenMux Step 3.7 Flash reasoning',
-  'zenmux-deepseek-v4-pro, coding=0.91, input=0.435, output=0.87, latency=900, notes=ZenMux DeepSeek V4 Pro 1M ctx',
-  'zenmux-qwen3.7-max, coding=0.85, input=1.25, output=3.75, latency=900, notes=ZenMux qwen/qwen3.7-max',
-  'openrouter-1-million-chain-of-draft, coding=0.88, input=1, output=2, latency=1200, notes=OpenRouter preset: DS V4 Pro + V4 Flash + MiMo',
-  'openrouter-chain-of-draft, coding=0.86, input=1, output=2, latency=1300, notes=OpenRouter preset: DS V4 Pro + Kimi K2.6 + MiMo',
-  'openrouter-qwen3.7-max, coding=0.85, input=1.25, output=3.75, latency=900, notes=OpenRouter qwen/qwen3.7-max',
-  'openrouter-minimax-m3, coding=0.85, input=0.3, output=1.2, latency=750, notes=OpenRouter MiniMax M3'
-].join('\n');
+const DEFAULT_ROUTER_CANDIDATES_TEXT = DEFAULT_AUTO_ROUTER_CANDIDATES_TEXT;
 
 const LEGACY_AUTO_LOCAL_MAIN_MODELS = new Set([
   'openrouter-1-million-chain-of-draft',
@@ -318,7 +291,15 @@ const UPSTREAM_MODEL_ID_ALIASES: Record<string, string> = {
   'openrouter-presets/@preset/chain-of-draft': 'openrouter-chain-of-draft',
   'wafer-serverless/deepseek-v4-flash': 'wafer-ai-deepseek-v4-flash',
   'wafer-serverless/MiniMax-M3': 'wafer-ai-minimax-m3',
-  'wafer-serverless/minimax-m3': 'wafer-ai-minimax-m3'
+  'wafer-serverless/minimax-m3': 'wafer-ai-minimax-m3',
+  'openrouter-presets/openrouter/free': 'openrouter-free',
+  'openrouter-presets/deepseek/deepseek-v4-flash': 'openrouter-deepseek-v4-flash',
+  'zenmux/deepseek/deepseek-v4-flash': 'zenmux-deepseek-v4-flash',
+  'kilo/openrouter/free': 'kilo-openrouter-free',
+  'kilo/nvidia/nemotron-3-ultra-550b-a55b:free': 'kilo-nvidia-nemotron-3-ultra-550b-a55b-free',
+  'kilo/deepseek/deepseek-v4-flash': 'kilo-deepseek-deepseek-v4-flash',
+  'cline/openrouter/free': 'cline-openrouter-free',
+  'cline/deepseek/deepseek-v4-flash': 'cline-deepseek-deepseek-v4-flash'
 };
 
 function providerTierIndex(providerSlug: string): number {
@@ -363,27 +344,11 @@ function orderEligibleRouterEntriesByExhaustion<T extends { candidate: RouterCan
 }
 
 function defaultFallbackModelIds(): string[] {
-  const routerIds = DEFAULT_ROUTER_CANDIDATES_TEXT
-    .split('\n')
-    .map((line) => line.split(',')[0].trim())
-    .filter(Boolean);
-  const seen = new Set<string>();
-  const unordered: string[] = [];
-  for (const id of routerIds) {
-    if (!seen.has(id)) {
-      seen.add(id);
-      unordered.push(id);
-    }
-  }
   // No catalog lookup at module init (findProviderModel needs modelSourceConfig).
-  return stableSortModelIdsByRoutingExhaustion(unordered, () => undefined);
+  return buildDefaultFallbackModelIds(() => undefined);
 }
 
-function buildDefaultFallbackModelsText(): string {
-  return defaultFallbackModelIds().join('\n');
-}
-
-const DEFAULT_FALLBACK_MODELS_TEXT = buildDefaultFallbackModelsText();
+const DEFAULT_FALLBACK_MODELS_TEXT = buildDefaultFallbackModelsText(() => undefined);
 
 const parsedFallbackBaseRetrySeconds = Number.parseInt(
   process.env.LOCAL_ROUTER_FALLBACK_BASE_RETRY_SECONDS || process.env.FVS_FALLBACK_BASE_RETRY_SECONDS || '2',
@@ -7239,7 +7204,8 @@ function candidateAvailability(modelName: string) {
 }
 
 function resolvedDefaultFallbackModels(): string[] {
-  return defaultFallbackModelIds().filter((id) => Boolean(findProviderModel(id)));
+  return buildDefaultFallbackModelIds(catalogRefForPresentedModel)
+    .filter((id) => Boolean(findProviderModel(id)));
 }
 
 function fallbackStagePreflight(modelName: string): AttemptFailure | null {
