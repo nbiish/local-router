@@ -340,12 +340,16 @@ test('provider key save/reset lifecycle exposes configured source', async (t) =>
   const fallbackChain = systemFallback?.models || [];
   const tierIndex = (prefix) => fallbackChain.findIndex((id) => String(id).startsWith(prefix));
   const ollamaIdx = tierIndex('ollama-');
+  const kiloIdx = tierIndex('kilo-');
+  const clineIdx = tierIndex('cline-');
   const nvidiaIdx = tierIndex('nvidia-nim-');
   const modalIdx = tierIndex('modal-');
   const nebiusIdx = tierIndex('nebius-');
   const ozenIdx = tierIndex('opencode-zen-');
   const opencodeIdx = fallbackChain.findIndex((id) => (
-    String(id).startsWith('opencode-') && !String(id).startsWith('opencode-zen-')
+    String(id).startsWith('opencode-')
+    && !String(id).startsWith('opencode-zen-')
+    && !String(id).includes('-free')
   ));
   const zaiIdx = tierIndex('zai-');
   const waferIdx = tierIndex('wafer-ai-');
@@ -354,19 +358,52 @@ test('provider key save/reset lifecycle exposes configured source', async (t) =>
 
   assert.ok(ollamaIdx >= 0, 'fallback-models should include Ollama tier');
   assert.equal(ollamaIdx, 0, 'fallback chain should exhaust Ollama tier first');
-  assert.ok(nvidiaIdx > ollamaIdx, 'NVIDIA NIM should follow Ollama');
+  if (kiloIdx >= 0) {
+    assert.ok(kiloIdx > ollamaIdx, 'Kilo free gateway should follow Ollama');
+  }
+  if (clineIdx >= 0 && kiloIdx >= 0) {
+    assert.ok(clineIdx > kiloIdx, 'Cline free gateway should follow Kilo');
+  }
+  if (clineIdx >= 0 && kiloIdx < 0) {
+    assert.ok(clineIdx > ollamaIdx, 'Cline free gateway should follow Ollama');
+  }
+  const opencodeFreeIdx = fallbackChain.findIndex((id) => (
+    String(id).startsWith('opencode-') && !String(id).startsWith('opencode-zen-') && String(id).includes('-free')
+  ));
+  if (clineIdx >= 0 && ozenIdx >= 0) {
+    assert.ok(ozenIdx > clineIdx, 'OpenCode Zen free should follow Cline free gateway');
+  }
+  if (ozenIdx >= 0 && opencodeFreeIdx >= 0) {
+    assert.ok(opencodeFreeIdx > ozenIdx, 'OpenCode Go free should follow OpenCode Zen free');
+  }
+  const xiaomiIdx = tierIndex('xiaomi-mimo-');
+  const opencodePaidIdx = fallbackChain.findIndex((id) => (
+    String(id) === 'opencode-minimax-m3'
+  ));
+  if (opencodeFreeIdx >= 0 && opencodePaidIdx >= 0) {
+    assert.ok(opencodePaidIdx > opencodeFreeIdx, 'OpenCode Go paid should follow OpenCode Go free');
+  }
+  if (opencodePaidIdx >= 0 && zaiIdx >= 0) {
+    assert.ok(zaiIdx > opencodeFreeIdx, 'Z.ai subscription should follow free tiers');
+  }
+  if (zaiIdx >= 0 && xiaomiIdx >= 0) {
+    assert.ok(xiaomiIdx > zaiIdx, 'Xiaomi MiMo subscription should follow Z.ai');
+  }
+  if (nvidiaIdx >= 0 && xiaomiIdx >= 0) {
+    assert.ok(nvidiaIdx > xiaomiIdx, 'NVIDIA NIM paid should follow subscription tiers');
+  } else if (nvidiaIdx >= 0 && opencodeFreeIdx >= 0) {
+    assert.ok(nvidiaIdx > opencodeFreeIdx, 'NVIDIA NIM paid should follow all curated free tiers');
+  } else if (nvidiaIdx >= 0 && clineIdx >= 0) {
+    assert.ok(nvidiaIdx > clineIdx, 'NVIDIA NIM should follow Cline free gateway');
+  } else if (nvidiaIdx >= 0) {
+    assert.ok(nvidiaIdx > ollamaIdx, 'NVIDIA NIM should follow Ollama');
+  }
   assert.ok(modalIdx > nvidiaIdx, 'Modal should follow NVIDIA NIM');
   if (nebiusIdx >= 0 && modalIdx >= 0) {
     assert.ok(nebiusIdx > modalIdx, 'Nebius should follow Modal');
   }
-  if (ozenIdx >= 0 && nebiusIdx >= 0) {
-    assert.ok(ozenIdx > nebiusIdx, 'OpenCode Zen should follow Nebius');
-  }
-  if (opencodeIdx >= 0 && ozenIdx >= 0) {
-    assert.ok(opencodeIdx > ozenIdx, 'OpenCode Go should follow OpenCode Zen');
-  }
-  if (zaiIdx >= 0 && opencodeIdx >= 0) {
-    assert.ok(zaiIdx > opencodeIdx, 'Z.ai should follow OpenCode Go');
+  if (opencodeIdx >= 0 && zaiIdx >= 0) {
+    assert.ok(opencodeIdx > zaiIdx || opencodeIdx < 0, 'OpenCode paid index ordering');
   }
   if (waferIdx >= 0 && zenmuxIdx >= 0) {
     assert.ok(waferIdx < zenmuxIdx, 'Wafer should precede ZenMux');
@@ -380,6 +417,33 @@ test('provider key save/reset lifecycle exposes configured source', async (t) =>
     firstRouterCandidate.startsWith('ollama-'),
     'auto-router-main candidates should list Ollama tier first'
   );
+  const routerKiloIdx = autoRouterCandidates.findIndex((id) => String(id).startsWith('kilo-'));
+  const routerClineIdx = autoRouterCandidates.findIndex((id) => String(id).startsWith('cline-'));
+  const routerOzenIdx = autoRouterCandidates.findIndex((id) => String(id).startsWith('opencode-zen-'));
+  const routerOpencodeFreeIdx = autoRouterCandidates.findIndex((id) => (
+    String(id).startsWith('opencode-') && !String(id).startsWith('opencode-zen-') && String(id).includes('-free')
+  ));
+  const routerOpencodePaidIdx = autoRouterCandidates.findIndex((id) => (
+    String(id) === 'opencode-minimax-m3'
+  ));
+  const routerZaiIdx = autoRouterCandidates.findIndex((id) => String(id).startsWith('zai-'));
+  const routerXiaomiIdx = autoRouterCandidates.findIndex((id) => String(id).startsWith('xiaomi-mimo-'));
+  const routerNvidiaIdx = autoRouterCandidates.findIndex((id) => String(id).startsWith('nvidia-nim-'));
+  if (routerKiloIdx >= 0 && routerClineIdx >= 0) {
+    assert.ok(routerKiloIdx < routerClineIdx, 'auto-router should list Kilo before Cline');
+  }
+  if (routerClineIdx >= 0 && routerOzenIdx >= 0) {
+    assert.ok(routerClineIdx < routerOzenIdx, 'auto-router should list Cline before OpenCode Zen free');
+  }
+  if (routerOpencodePaidIdx >= 0 && routerOpencodeFreeIdx >= 0) {
+    assert.ok(routerOpencodePaidIdx > routerOpencodeFreeIdx, 'auto-router should list OpenCode Go paid after free');
+  }
+  if (routerZaiIdx >= 0 && routerOpencodePaidIdx >= 0) {
+    assert.ok(routerZaiIdx > routerOpencodeFreeIdx, 'auto-router should list Z.ai after free tiers');
+  }
+  if (routerNvidiaIdx >= 0 && routerXiaomiIdx >= 0) {
+    assert.ok(routerNvidiaIdx > routerXiaomiIdx, 'auto-router should list API-paid NVIDIA after subscription');
+  }
 
   const providerPricing = await requestJson('/api/provider-pricing');
   assert.equal(providerPricing.response.status, 200);

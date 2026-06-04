@@ -442,7 +442,7 @@
 # Cross-tool:  Cline extension, CLI, any OpenAI-compatible client via Local Router
 # Models:      4 catalog free CLI models (Nemotron 3 Ultra, MiniMax M3, MiMo V2.5, DeepSeek V4 Flash)
 # Discovery:   No GET /models — catalog from CLI + chat probes. Excludes openrouter/free router.
-# Router:      auto-router includes all four free models above.
+# Router:      auto-router + fallback-models tier: Ollama → Kilo → Cline (this provider’s 4 free), then paid.
 # Notes:       Model IDs use provider/model format (OpenRouter-style). Do not use /config
 #              custom provider UI for this host (use catalog row). Keys in PQC bundle only.
 
@@ -454,7 +454,7 @@
 # Cross-tool:  Kilo Code, Vercel AI SDK, OpenAI SDK, Local Router
 # Models:      2 catalog free models (Step 3.7 Flash, Nemotron 3 Super — excludes Auto/Router free)
 # Discovery:   GET /models and GET /providers (auth optional; 342 models live).
-# Router:      auto-router includes both free models above.
+# Router:      auto-router + fallback-models tier: Ollama first, then Kilo (2 free), then paid providers.
 # Notes:       Never register via Add custom provider (appends /v1 and breaks paths).
 #              Auto Free and Free Models Router exist upstream but are excluded from catalog.
 

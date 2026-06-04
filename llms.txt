@@ -12,7 +12,7 @@ Local Router is a localhost proxy (port `11434`) with **Ollama-compatible** and 
 - **Keys:** `/config` UI → in-memory while running → **PQC bundle** `~/.config/pqc-secrets/secrets.bundle.json` on every save (ML-KEM-768 + AES-256-GCM). Never committed to git or `providers.txt`
 - **Catalog:** `providers.txt` (14 providers, ~88 presented models in custom mode) + runtime edits in `provider-models.json` + **custom providers** in `custom-providers.json`
 - **Custom providers:** `/config` → **Add custom provider…** or `POST /api/providers` (HTTPS `/v1` upstream; loopback HTTP allowed for dev)
-- **Auto-router:** `local-router/auto-router-main` — **25** curated candidates: **3 Ollama Cloud (free tier only)** → NVIDIA NIM → Modal → … → OpenRouter; skips providers without keys; cascades to system fallback on exhaustion
+- **Auto-router:** `local-router/auto-router-main` — **31** curated candidates: **3 Ollama Cloud (free tier)** → **6 Kilo/Cline free gateway** → NVIDIA NIM → Modal → … → OpenRouter; skips providers without keys; cascades to system fallback on exhaustion
 - **Ollama Cloud:** Shared quota — router/fallback/pull use **nemotron-3-ultra**, **minimax-m3**, **deepseek-v4-flash** only unless a real `ollama.com` API key is set (Pro tags gated). See [Ollama Cloud routing](#ollama-cloud-routing-free-vs-pro)
 - **Ollama shim:** `local-router route set` → `ollama serve` starts real Ollama on `11435` and Local Router on `11434`
 - **Operator CLI:** `localrouter list`, `keys`, `router`, `verify`, `config --open`
@@ -58,19 +58,25 @@ Clients (VS Code, Claude Code, Codex, Cline, scripts)
 
 ### Provider tier order (exhaustion sequence)
 
-Used by `DEFAULT_PROVIDER_TIER_ORDER`, `stableSortModelIdsByProviderTier()`, default auto-router candidates, and system fallback seeding (`src/index.ts`):
+Used by `stableSortModelIdsByRoutingExhaustion()` (`src/routing-exhaustion-order.ts`) on auto-router candidates and **all** fallback routes. Order: **free → subscription → paid**. Wraparound retries via `buildWraparoundExecutionPlan()` (`src/execution-plan.ts`) revisit earlier models before advancing so subscription quotas can recover (e.g. 5h windows).
+
+**Free exhaustion bands (in order):**
 
 1. `ollama` — **3 free-tier `:cloud` tags only** in defaults (see below)
-2. `nvidia-nim`
-3. `modal`
-4. `nebius`
-5. `opencode-zen` (free-tier models in catalog)
-6. `opencode` (Go)
-7. `zai`
-8. `xiaomi-mimo`
-9. `wafer-serverless` (presented as `wafer-ai-*`)
-10. `zenmux`
-11. `openrouter-presets` (presented as `openrouter-*`)
+2. `kilo` — **free** gateway models only (Step 3.7 Flash, Nemotron 3 Super)
+3. `cline` — **free** gateway models only (Nemotron 3 Ultra, MiniMax M3, MiMo V2.5, DeepSeek V4 Flash)
+4. **Other free** — OpenCode Zen free (`*-free`), OpenCode Go free, any other zero-price catalog models
+
+**Subscription exhaustion band:**
+
+5. `opencode-zen` + `opencode` (non-free), `zai` (Code Pass), `xiaomi-mimo` (MiMo plan)
+
+**Paid exhaustion bands (in order):**
+
+6. `nvidia-nim` → `modal` → `nebius`
+7. `kilo` **paid** (when present in catalog)
+8. `cline` **paid** (when present in catalog)
+9. `wafer-serverless` → `zenmux` → `openrouter-presets`
 
 Router and fallback **skip** candidates when the provider has no API key (except `ollama`, always “configured” with placeholder). Ollama Cloud **Pro-only** presented IDs are skipped when the key is the placeholder.
 
@@ -904,7 +910,7 @@ Local Router supports first-class router models presented as `local-router/<rout
 - Type: `auto-local`
 - `minCodingScore`: `0.66`
 - `costQualityTradeoff`: `7`
-- Default candidates (**25** curated models) in provider tier order: **Ollama Cloud (3 free-tier `:cloud`)** → NVIDIA NIM → Modal → Nebius → OpenCode Zen free → OpenCode Go → Z.ai → Xiaomi Mimo → Wafer → ZenMux → OpenRouter presets
+- Default candidates (**31** curated models) in provider tier order: **Ollama Cloud (3 free-tier `:cloud`)** → **Kilo/Cline free gateway (6)** → NVIDIA NIM → Modal → Nebius → OpenCode Zen free → OpenCode Go → Z.ai → Xiaomi Mimo → Wafer → ZenMux → OpenRouter presets
 - Ollama entries: `ollama-nemotron-3-ultra-cloud`, `ollama-minimax-m3-cloud`, `ollama-deepseek-v4-flash-cloud` — see `DEFAULT_ROUTER_CANDIDATES_TEXT` in `src/index.ts`
 - Graceful skip: unconfigured providers skipped (`missing_provider_key`); Ollama Pro-only / non-allowlist cloud IDs skipped (`ollama_cloud_tier_blocked`). If zero eligible and system fallback exists, cascade; else 400 with provider hints.
 - `mergeMissingDefaultRouterCandidates()` adds new defaults to persisted routers; `pruneDisallowedOllamaCloudRouting()` removes disallowed Ollama cloud IDs after tier sort
@@ -914,7 +920,7 @@ Local Router supports first-class router models presented as `local-router/<rout
 ### Default System Fallback Profile
 - Bootstrapped on first run via `ensureDefaultFallback()` when no fallback routes exist
 - Route id: `fallback-models` (system safety net); legacy installs may use id **`default`** — startup merges tier-default IDs into system/legacy routes then `stableSortModelIdsByProviderTier()`
-- Chain order (provider tiers): **Ollama (3 free cloud)** → **NVIDIA NIM** → **Modal** → **Nebius** → **OpenCode Zen** → **OpenCode Go** → **Z.ai** → **Xiaomi Mimo** → **Wafer** → **ZenMux** → **OpenRouter**
+- Chain order: **Ollama free** → **Kilo/Cline free** → **OpenCode free** → **OpenCode/Z.ai/Xiaomi subscription** → **API paid** (NVIDIA…Kilo/Cline paid…Wafer/OpenRouter). **Wraparound:** before model *N+1*, revisits models *1…N* once each.
 - `normalizeRoutingTierOrder()` re-sorts all fallback routes (not only `fallback-models`)
 - Fallback stages without configured provider keys or blocked Ollama tier are skipped immediately (preflight, no retry backoff)
 - `/config` **Reset Fallback Defaults** restores this chain; candidate badges show Ready / No key / Unavailable

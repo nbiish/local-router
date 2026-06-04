@@ -75,7 +75,7 @@ export const BASELINE_PROVIDER_PRICING: Record<string, ProviderPricingEntry> = {
     outputPricePerM: 0,
     label: 'Cline API nvidia/nemotron-3-ultra-550b-a55b:free'
   },
-  'cline-minimax-m3': {
+  'cline-minimax-minimax-m3': {
     inputPricePerM: 0,
     outputPricePerM: 0,
     label: 'Cline API minimax/minimax-m3 free tier'
@@ -85,7 +85,7 @@ export const BASELINE_PROVIDER_PRICING: Record<string, ProviderPricingEntry> = {
     outputPricePerM: 0,
     label: 'Cline API xiaomi/mimo-v2.5 free tier'
   },
-  'cline-deepseek-v4-flash': {
+  'cline-deepseek-deepseek-v4-flash': {
     inputPricePerM: 0,
     outputPricePerM: 0,
     label: 'Cline API deepseek/deepseek-v4-flash free tier'
@@ -110,6 +110,20 @@ function cloneEntry(entry: ProviderPricingEntry): ProviderPricingEntry {
 
 export function getProviderPricingStore(): Record<string, ProviderPricingEntry> {
   return providerPricingStore;
+}
+
+/** Baseline + persisted override (non-expired) for routing tier heuristics. */
+export function getProviderPricingEntry(modelId: string): ProviderPricingEntry | undefined {
+  const trimmed = String(modelId || '').trim();
+  if (!trimmed) return undefined;
+
+  const override = providerPricingStore[trimmed];
+  if (override && !isPricingEntryExpired(override)) {
+    return cloneEntry(override);
+  }
+
+  const baseline = BASELINE_PROVIDER_PRICING[trimmed];
+  return baseline ? cloneEntry(baseline) : undefined;
 }
 
 export function getProviderPricingSnapshot(): ProviderPricingSnapshot {

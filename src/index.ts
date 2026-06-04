@@ -12,6 +12,8 @@ import { ProxyProvider } from './types';
 import { sanitizeProviderRequestBody, stripReasoningMetadata, ThinkingLevel, DEFAULT_THINKING_LEVEL } from './reasoning';
 import { loadSessions, loadFeedback, recordRequest, getSessions, getSessionById, recordFeedback } from './sessions';
 import { computeTiers } from './tiers';
+import { buildWraparoundExecutionPlan } from './execution-plan';
+import { stableSortModelIdsByRoutingExhaustion } from './routing-exhaustion-order';
 import {
   applyPricingToRouterCandidates,
   deleteProviderPricingEntry,
@@ -224,9 +226,14 @@ const DEFAULT_ROUTER_ID = 'auto-router-main';
 const LEGACY_ROUTER_ROUTE_ALIASES: Record<string, string> = {
   'auto-local-main': 'auto-router-main'
 };
-/** Fallback / default-router exhaustion order (lower index = tried earlier). */
+/**
+ * Provider sub-order within a routing exhaustion band.
+ * Free vs paid placement uses `routing-exhaustion-order.ts` (Kilo/Cline free early; Kilo/Cline paid before OpenCode paid).
+ */
 const DEFAULT_PROVIDER_TIER_ORDER = [
   'ollama',
+  'kilo',
+  'cline',
   'nvidia-nim',
   'modal',
   'nebius',
@@ -236,13 +243,13 @@ const DEFAULT_PROVIDER_TIER_ORDER = [
   'xiaomi-mimo',
   'wafer-serverless',
   'zenmux',
-  'openrouter-presets',
-  'kilo',
-  'cline'
+  'openrouter-presets'
 ] as const;
 
 const PRESENTATION_PREFIX_TO_PROVIDER: Record<string, string> = {
   ollama: 'ollama',
+  kilo: 'kilo',
+  cline: 'cline',
   'nvidia-nim': 'nvidia-nim',
   modal: 'modal',
   nebius: 'nebius',
@@ -261,18 +268,24 @@ const DEFAULT_ROUTER_CANDIDATES_TEXT = [
   'ollama-nemotron-3-ultra-cloud, coding=0.86, input=0, output=0, latency=850, notes=Ollama Cloud Nemotron 3 Ultra (free tier)',
   'ollama-minimax-m3-cloud, coding=0.82, input=0, output=0, latency=950, notes=Ollama Cloud MiniMax M3 (free tier)',
   'ollama-deepseek-v4-flash-cloud, coding=0.84, input=0, output=0, latency=900, notes=Ollama Cloud DeepSeek V4 Flash (free tier coding fallback)',
+  'kilo-stepfun-step-3.7-flash-free, coding=0.84, input=0, output=0, latency=800, notes=Kilo Gateway Step 3.7 Flash free',
+  'kilo-nvidia-nemotron-3-super-120b-a12b-free, coding=0.82, input=0, output=0, latency=850, notes=Kilo Gateway Nemotron 3 Super free',
+  'cline-nvidia-nemotron-3-ultra-550b-a55b-free, coding=0.86, input=0, output=0, latency=800, notes=Cline API Nemotron 3 Ultra free',
+  'cline-minimax-minimax-m3, coding=0.85, input=0, output=0, latency=750, notes=Cline API MiniMax M3 free tier',
+  'cline-xiaomi-mimo-v2.5, coding=0.80, input=0, output=0, latency=900, notes=Cline API MiMo V2.5 free tier',
+  'cline-deepseek-deepseek-v4-flash, coding=0.84, input=0, output=0, latency=850, notes=Cline API DeepSeek V4 Flash free tier',
+  'opencode-zen-minimax-m3-free, coding=0.80, input=0, output=0, latency=900, notes=OpenCode Zen MiniMax M3 free tier',
+  'opencode-zen-deepseek-v4-flash-free, coding=0.78, input=0, output=0, latency=950, notes=OpenCode Zen DeepSeek V4 Flash free',
+  'opencode-minimax-m3-free, coding=0.80, input=0, output=0, latency=900, notes=OpenCode Go MiniMax M3 free tier',
+  'opencode-minimax-m3, coding=0.85, input=0.3, output=1.2, latency=650, notes=OpenCode Go MiniMax M3 subscription',
+  'zai-code-pass-glm-5.1, coding=0.88, input=0.88, output=3.51, latency=750, notes=Z.ai Code Pass GLM-5.1 subscription',
+  'xiaomi-mimo-mimo-v2.5-pro, coding=0.80, input=0.44, output=0.88, latency=1000, notes=Xiaomi MiMo V2.5 Pro subscription',
+  'xiaomi-mimo-mimo-v2.5, coding=0.76, input=0.15, output=0.29, latency=1100, notes=Xiaomi MiMo V2.5 subscription multimodal',
   'nvidia-nim-step-3.7-flash, coding=0.84, input=0.1, output=0.3, latency=700, notes=NVIDIA NIM Step 3.7 Flash reasoning',
   'nvidia-nim-kimi-k2.6, coding=0.86, input=0.6, output=2.5, latency=850, notes=NVIDIA NIM Kimi K2.6 256K ctx coding',
   'nvidia-nim-minimax-m3, coding=0.85, input=0.1, output=0.3, latency=720, notes=NVIDIA NIM MiniMax M3',
   'modal-glm-5.1-fp8, coding=0.83, input=0.5, output=1, latency=800, notes=Modal GLM-5.1 FP8 200K ctx',
   'nebius-deepseek-v4-pro, coding=0.88, input=0.5, output=1, latency=800, notes=Nebius DeepSeek V4 Pro 1M ctx',
-  'opencode-zen-minimax-m3-free, coding=0.80, input=0, output=0, latency=900, notes=OpenCode Zen MiniMax M3 free tier',
-  'opencode-zen-deepseek-v4-flash-free, coding=0.78, input=0, output=0, latency=950, notes=OpenCode Zen DeepSeek V4 Flash free',
-  'opencode-minimax-m3, coding=0.85, input=0.3, output=1.2, latency=650, notes=OpenCode Go MiniMax M3 512K ctx',
-  'opencode-minimax-m3-free, coding=0.80, input=0, output=0, latency=900, notes=OpenCode Go MiniMax M3 free tier',
-  'zai-code-pass-glm-5.1, coding=0.88, input=0.88, output=3.51, latency=750, notes=Z.ai Code Pass GLM-5.1',
-  'xiaomi-mimo-mimo-v2.5-pro, coding=0.80, input=0.44, output=0.88, latency=1000, notes=Xiaomi MiMo V2.5 Pro 1M ctx',
-  'xiaomi-mimo-mimo-v2.5, coding=0.76, input=0.15, output=0.29, latency=1100, notes=Xiaomi MiMo V2.5 1M ctx multimodal',
   'wafer-ai-deepseek-v4-flash, coding=0.87, input=0.5, output=1, latency=600, notes=Wafer DeepSeek V4 Flash 1M ctx',
   'wafer-ai-minimax-m3, coding=0.90, input=0.33, output=1.32, latency=650, notes=Wafer MiniMax-M3 serverless promo',
   'zenmux-minimax-m3, coding=0.90, input=0.3, output=1.2, latency=700, notes=ZenMux MiniMax M3',
@@ -282,13 +295,7 @@ const DEFAULT_ROUTER_CANDIDATES_TEXT = [
   'openrouter-1-million-chain-of-draft, coding=0.88, input=1, output=2, latency=1200, notes=OpenRouter preset: DS V4 Pro + V4 Flash + MiMo',
   'openrouter-chain-of-draft, coding=0.86, input=1, output=2, latency=1300, notes=OpenRouter preset: DS V4 Pro + Kimi K2.6 + MiMo',
   'openrouter-qwen3.7-max, coding=0.85, input=1.25, output=3.75, latency=900, notes=OpenRouter qwen/qwen3.7-max',
-  'openrouter-minimax-m3, coding=0.85, input=0.3, output=1.2, latency=750, notes=OpenRouter MiniMax M3',
-  'kilo-stepfun-step-3.7-flash-free, coding=0.84, input=0, output=0, latency=800, notes=Kilo Gateway Step 3.7 Flash free',
-  'kilo-nvidia-nemotron-3-super-120b-a12b-free, coding=0.82, input=0, output=0, latency=850, notes=Kilo Gateway Nemotron 3 Super free',
-  'cline-nvidia-nemotron-3-ultra-550b-a55b-free, coding=0.86, input=0, output=0, latency=800, notes=Cline API Nemotron 3 Ultra free',
-  'cline-minimax-m3, coding=0.85, input=0, output=0, latency=750, notes=Cline API MiniMax M3 free tier',
-  'cline-xiaomi-mimo-v2.5, coding=0.80, input=0, output=0, latency=900, notes=Cline API MiMo V2.5 free tier',
-  'cline-deepseek-v4-flash, coding=0.84, input=0, output=0, latency=850, notes=Cline API DeepSeek V4 Flash free tier'
+  'openrouter-minimax-m3, coding=0.85, input=0.3, output=1.2, latency=750, notes=OpenRouter MiniMax M3'
 ].join('\n');
 
 const LEGACY_AUTO_LOCAL_MAIN_MODELS = new Set([
@@ -335,15 +342,24 @@ function inferProviderSlugFromPresentedId(modelId: string): string | null {
   return null;
 }
 
+function catalogRefForPresentedModel(modelId: string) {
+  const match = findProviderModel(modelId);
+  return match ? { provider: match.provider, model: match.model } : undefined;
+}
+
 function stableSortModelIdsByProviderTier(modelIds: string[]): string[] {
-  return modelIds
-    .map((id, index) => ({
-      id,
-      index,
-      tier: providerTierIndex(inferProviderSlugFromPresentedId(id) || '')
-    }))
-    .sort((left, right) => left.tier - right.tier || left.index - right.index)
-    .map((entry) => entry.id);
+  return stableSortModelIdsByRoutingExhaustion(modelIds, catalogRefForPresentedModel);
+}
+
+function orderEligibleRouterEntriesByExhaustion<T extends { candidate: RouterCandidate }>(entries: T[]): T[] {
+  const tierOrder = stableSortModelIdsByRoutingExhaustion(
+    entries.map((entry) => entry.candidate.model),
+    catalogRefForPresentedModel
+  );
+  const byModel = new Map(entries.map((entry) => [entry.candidate.model, entry]));
+  return tierOrder
+    .map((modelId) => byModel.get(modelId))
+    .filter((entry): entry is T => Boolean(entry));
 }
 
 function defaultFallbackModelIds(): string[] {
@@ -7562,9 +7578,13 @@ function selectBanditCandidate(router: RouterModel, body: any): RouterDecision |
       const state = banditState[entry.candidate.model];
       return state && state.sampleCount >= MIN_EXPLORATION_SAMPLES;
     });
-    ordered = [...unexplored.sort((a, b) => (banditState[a.candidate.model]?.sampleCount || 0) - (banditState[b.candidate.model]?.sampleCount || 0)), ...explored.sort((a, b) => b.banditScore - a.banditScore || a.index - b.index)];
+    const unexploredSorted = unexplored.sort((a, b) => (
+      (banditState[a.candidate.model]?.sampleCount || 0) - (banditState[b.candidate.model]?.sampleCount || 0)
+    ));
+    const exploredSorted = explored.sort((a, b) => b.banditScore - a.banditScore || a.index - b.index);
+    ordered = orderEligibleRouterEntriesByExhaustion([...unexploredSorted, ...exploredSorted]);
   } else {
-    ordered = eligibleEntries.sort((a, b) => b.banditScore - a.banditScore || a.index - b.index);
+    ordered = orderEligibleRouterEntriesByExhaustion(eligibleEntries);
   }
 
   return {
@@ -7673,7 +7693,7 @@ function selectRouterCandidate(router: RouterModel, body: any): RouterDecision |
 
   const ordered = router.type === 'priority'
     ? eligibleEntries.sort((a, b) => a.index - b.index)
-    : eligibleEntries.sort((a, b) => b.score - a.score || a.index - b.index);
+    : orderEligibleRouterEntriesByExhaustion(eligibleEntries);
 
   return {
     router,
@@ -8120,31 +8140,7 @@ async function sendSuccessfulProxyResponse(
 }
 
 function fallbackExecutionPlan(models: string[]) {
-  const stages: Array<{ stage: string; model: string; attempts: number; primary: boolean }> = [];
-  if (models.length === 0) return stages;
-
-  for (let index = 0; index < models.length; index += 1) {
-    const model = models[index];
-    stages.push({
-      stage: `primary-${index + 1}`,
-      model,
-      attempts: FALLBACK_PRIMARY_ATTEMPTS,
-      primary: true
-    });
-
-    if (index < models.length - 1 && index > 0) {
-      for (let bridgeIndex = 0; bridgeIndex <= index; bridgeIndex += 1) {
-        stages.push({
-          stage: `bridge-${index + 1}-to-${index + 2}`,
-          model: models[bridgeIndex],
-          attempts: 1,
-          primary: false
-        });
-      }
-    }
-  }
-
-  return stages;
+  return buildWraparoundExecutionPlan(models, FALLBACK_PRIMARY_ATTEMPTS);
 }
 
 async function handleChatCompletion(req: Request, res: Response, bodyOverrides?: any, options?: { outputFormat?: CompletionOutputFormat }) {
@@ -8230,20 +8226,31 @@ async function handleChatCompletion(req: Request, res: Response, bodyOverrides?:
 
     const attemptLog: Array<Record<string, unknown>> = [];
     let lastFailure: AttemptFailure | null = null;
-    for (let index = 0; index < decision.orderedCandidates.length; index += 1) {
-      const candidate = decision.orderedCandidates[index];
+    const candidateByModel = new Map(decision.orderedCandidates.map((entry) => [entry.model, entry]));
+    const routerExecutionPlan = buildWraparoundExecutionPlan(
+      decision.orderedCandidates.map((entry) => entry.model),
+      1 + ROUTER_CANDIDATE_RETRIES
+    );
+    let stageOrdinal = 0;
+
+    for (const stage of routerExecutionPlan) {
+      const candidate = candidateByModel.get(stage.model);
+      if (!candidate) continue;
+      stageOrdinal += 1;
       const routerData = {
         route: routerRoute.id,
         type: routerRoute.type,
         selectedModel: decision.selected.model,
         targetModel: candidate.model,
-        candidateIndex: index + 1,
-        candidateCount: decision.orderedCandidates.length,
-        candidateScores: decision.candidateScores
+        candidateIndex: stageOrdinal,
+        candidateCount: routerExecutionPlan.length,
+        candidateScores: decision.candidateScores,
+        executionStage: stage.stage,
+        wraparoundRevisit: !stage.primary
       };
 
       let candidateSucceeded = false;
-      for (let attempt = 1; attempt <= 1 + ROUTER_CANDIDATE_RETRIES; attempt += 1) {
+      for (let attempt = 1; attempt <= stage.attempts; attempt += 1) {
         const result = await proxyModelAttempt(
           body,
           requestRoute,
@@ -8252,7 +8259,7 @@ async function handleChatCompletion(req: Request, res: Response, bodyOverrides?:
           candidate.model,
           Boolean(stream),
           requestStartedAt,
-          { ...routerData, candidateAttempt: attempt, candidateMaxAttempts: 1 + ROUTER_CANDIDATE_RETRIES }
+          { ...routerData, candidateAttempt: attempt, candidateMaxAttempts: stage.attempts }
         );
 
         if (result.ok) {
@@ -8301,7 +8308,8 @@ async function handleChatCompletion(req: Request, res: Response, bodyOverrides?:
                 selectedModel: candidate.model,
                 primarySelectedModel: decision.selected.model,
                 candidateAttempt: attempt,
-                candidateMaxAttempts: 1 + ROUTER_CANDIDATE_RETRIES,
+                candidateMaxAttempts: stage.attempts,
+                executionStage: stage.stage,
                 failedAttemptsBeforeSuccess: attemptLog.length
               }
             }
@@ -8310,7 +8318,7 @@ async function handleChatCompletion(req: Request, res: Response, bodyOverrides?:
 
         lastFailure = result.error;
 
-        if (routerRoute.type === 'bandit-local' && routerRoute.banditState && attempt === 1 + ROUTER_CANDIDATE_RETRIES) {
+        if (routerRoute.type === 'bandit-local' && routerRoute.banditState && attempt === stage.attempts) {
           const requestFeats = requestFeatureSummary(body);
           const ctx = banditContextVector(requestFeats, body);
           const state = routerRoute.banditState[candidate.model];
@@ -8323,8 +8331,9 @@ async function handleChatCompletion(req: Request, res: Response, bodyOverrides?:
         attemptLog.push({
           routerRoute: routerRoute.id,
           targetModel: candidate.model,
+          executionStage: stage.stage,
           candidateAttempt: attempt,
-          candidateMaxAttempts: 1 + ROUTER_CANDIDATE_RETRIES,
+          candidateMaxAttempts: stage.attempts,
           provider: result.error.providerName || null,
           actualModel: result.error.actualModel || null,
           status: result.error.status || null,
@@ -8337,7 +8346,7 @@ async function handleChatCompletion(req: Request, res: Response, bodyOverrides?:
           break;
         }
 
-        if (attempt <= ROUTER_CANDIDATE_RETRIES) {
+        if (attempt < stage.attempts) {
           const waitSeconds = fallbackRetryDelaySeconds(attempt);
           pushDiagnostic({
             event: 'proxy_error',
