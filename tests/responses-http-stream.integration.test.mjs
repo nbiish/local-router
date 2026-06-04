@@ -252,7 +252,7 @@ test('thinking level applies when system prompt is disabled', async () => {
   await fetch(`${baseUrl}/api/thinking-level`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ global: 'low' })
+    body: JSON.stringify({ enabled: true, global: 'low' })
   });
 
   upstreamRequests = [];
@@ -273,6 +273,38 @@ test('thinking level applies when system prompt is disabled', async () => {
   await fetch(`${baseUrl}/api/thinking-level`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ global: 'none' })
+    body: JSON.stringify({ enabled: false, global: 'none' })
   });
+});
+
+test('thinking proxy off passes client reasoning params through', async () => {
+  await fetch(`${baseUrl}/api/system-prompt`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ enabled: false })
+  });
+
+  await fetch(`${baseUrl}/api/thinking-level`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ enabled: false })
+  });
+
+  upstreamRequests = [];
+  const response = await fetch(`${baseUrl}/v1/chat/completions`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model: modelId(),
+      stream: false,
+      messages: [{ role: 'user', content: 'passthrough test' }],
+      enable_thinking: true,
+      reasoning_effort: 'high'
+    })
+  });
+  assert.equal(response.status, 200);
+
+  const forwarded = upstreamRequests.at(-1)?.body;
+  assert.equal(forwarded?.enable_thinking, true);
+  assert.equal(forwarded?.reasoning_effort, 'high');
 });

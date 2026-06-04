@@ -27,6 +27,7 @@ description: PQC secrets for all API keys. Worktree per task. ALL feature branch
 - **NEVER** read, edit, or commit files while on `main` or `develop`.
 - **NEVER** run `git commit` from the main repository directory during active development.
 - One task = one branch = one worktree. No exceptions.
+- **Remove the worktree** when the task is done (merged to `develop`, abandoned, or released) — do not leave sibling worktrees behind.
 - If you discover you're on `main` or `develop` after already making changes: stash, create worktree, pop stash in worktree, then continue.
 
 **Why:** `main` is the release surface — production-ready, fully integrated state only. `develop` is the integration and verification surface — all worktree branches land here first for cross-feature assembly, gates, and smoke testing before release promotion. Active development never happens directly on either branch; only `feature/*` and `docs/*` worktrees commit code.
@@ -165,10 +166,10 @@ Validate types and paths (CWE-22). Parameterize SQL. `shell=False` for subproces
 3. **Audit:** Scan code, task file, and `llms.txt` for banned crypto or secrets every cycle.
 4. **Pre-Commit:** Pass native ecosystem gates (e.g., `cargo clippy`, `tsc`, `ruff`), plus security gates (`gitleaks`, `detect-secrets`).
 5. **Verify (worktree):** Smoke-test the change in the worktree before merge. See [Verification Procedure](#verification-procedure) below.
-6. **Integrate → `develop`:** Merge each `feature/*` → `develop` when that worktree’s gates pass. Repeat until **no** feature branches remain outside `develop` (see Develop-Complete Gate). Ask per merge: *"Ready to merge `<branch>` → `develop`? [diff summary]. Confirm?"*
-7. **Verify (`develop`):** After **all** intended feature merges, re-run gates and smoke tests **on `develop`**. Confirm the **integrated** tree — not an isolated worktree — is correct. Run `git branch --no-merged develop` and resolve any rows before step 8.
-8. **Release → `main` (finalized step only):** Promote `develop` → `main` only when the Develop-Complete Gate passes and integrated verification is green. Ask: *"Develop is complete (`git branch --no-merged develop` empty, verify PASS). Ready to promote `develop` → `main`? [diff summary]. Confirm?"*
-9. **Cleanup:** Fail closed on ambiguity. Remove merged worktrees and feature branches. See [Post-Merge Cleanup](#post-merge-cleanup) below.
+6. **Integrate → `develop`:** Merge each `feature/*` → `develop` when that worktree’s gates pass. Ask per merge: *"Ready to merge `<branch>` → `develop`? [diff summary]. Confirm?"* Then **remove that worktree** and delete the feature branch (see [Worktree cleanup](#worktree-cleanup)).
+7. **Verify (`develop`):** Re-run gates and smoke tests on `develop`. Run `git branch --no-merged develop` — must be empty before release.
+8. **Release → `main`:** Only when develop-complete + operator confirms. Ask: *"Ready to promote `develop` → `main`?"*
+9. **Final cleanup:** After `develop` → `main`, confirm `git worktree list` shows only the main repo; `git checkout main`.
 
 **Promotion path (mandatory two-hop; no skips):**
 
@@ -208,17 +209,24 @@ git checkout main
 
 **Why:** Verification catches wiring bugs, missing keys, and naming collisions before they reach the user. It also produces a screenshot-ready receipt for the merge PR.
 
-### Post-Merge Cleanup
+### Worktree cleanup
 
-**Run after the user confirms both merge hops are complete** (`feature/*` → `develop`, then `develop` → `main`).
+**Required after every feature merge into `develop`** (and again after `develop` → `main` if any worktree was used for release verification). A finished task must not leave a sibling worktree directory.
 
 ```bash
-# 1. Remove the merged worktree (path: sibling of main repo)
-git worktree remove <worktree-path>
-
-# 2. Delete the feature branch from the main repo
+git worktree remove <worktree-path>          # e.g. ../thinking-toggle
 cd <main-repo-path>
-git branch -d <type>/<scope>-<slug>
+git branch -d <type>/<scope>-<slug>          # from develop after feature merge; -D from main only if needed
+git worktree list                            # expect: main repo only
+```
+
+### Post-Merge Cleanup
+
+**After `develop` → `main`** (release hop complete): confirm no orphan worktrees or merged feature branches remain.
+
+```bash
+git worktree remove <worktree-path>   # if any remain
+git branch -d <type>/<scope>-<slug> # or -D from main when safe
 ```
 
 **`-d` vs `-D`:** `git branch -d` refuses to delete a branch whose tip is not reachable from the current branch. If `develop` holds the merge but you are on `main`, `-d` will fail with *"the branch 'X' is not fully merged"*. This is correct git behavior — the branch is fully merged into `develop`, just not into your current branch. Use `-D` (capital) to force-delete:

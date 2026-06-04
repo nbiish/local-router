@@ -161,8 +161,19 @@ export function stripReasoningMetadata<T>(value: T): T {
  */
 export function sanitizeProviderRequestBody<T extends JsonObject>(
   body: T,
-  options: { providerName: string; modelName: string; thinkingLevel?: ThinkingLevel }
+  options: {
+    providerName: string;
+    modelName: string;
+    thinkingLevel?: ThinkingLevel;
+    applyProxyThinking?: boolean;
+  }
 ): T {
+  if (options.applyProxyThinking === false) {
+    const passthrough = { ...body } as JsonObject;
+    delete passthrough.think;
+    return passthrough as T;
+  }
+
   const level = options.thinkingLevel ?? DEFAULT_THINKING_LEVEL;
 
   // Respect explicit user request to disable thinking

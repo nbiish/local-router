@@ -1149,12 +1149,19 @@ function persistSystemPrompt(): void {
 // ── Thinking Level Configuration ───────────────────────────────────────────
 
 const thinkingLevelStore: Record<string, ThinkingLevel> = {};
+let thinkingProxyEnabled = false;
 
 function loadPersistedThinkingConfig(): void {
   const persistedPath = existingPath(THINKING_CONFIG_PATH, LEGACY_THINKING_CONFIG_PATH);
   if (!fs.existsSync(persistedPath)) return;
   try {
     const parsed = JSON.parse(fs.readFileSync(persistedPath, 'utf8'));
+    if (typeof parsed?.enabled === 'boolean') {
+      thinkingProxyEnabled = parsed.enabled;
+    } else if (typeof parsed?.global === 'string') {
+      // Existing installs with saved levels: keep proxy overrides active.
+      thinkingProxyEnabled = true;
+    }
     if (typeof parsed?.global === 'string') {
       systemPromptConfig.thinkingLevel = parsed.global as ThinkingLevel;
     }
@@ -1173,6 +1180,7 @@ function loadPersistedThinkingConfig(): void {
 function persistThinkingConfig(): void {
   ensureLocalRouterConfigDir();
   const payload = {
+    enabled: thinkingProxyEnabled,
     global: systemPromptConfig.thinkingLevel,
     providers: { ...thinkingLevelStore }
   };
@@ -1187,6 +1195,18 @@ function persistThinkingConfig(): void {
 
 function getEffectiveThinkingLevel(providerName: string): ThinkingLevel {
   return thinkingLevelStore[providerName] ?? systemPromptConfig.thinkingLevel ?? DEFAULT_THINKING_LEVEL;
+}
+
+function thinkingLevelApiPayload() {
+  return {
+    enabled: thinkingProxyEnabled,
+    global: systemPromptConfig.thinkingLevel,
+    default: DEFAULT_THINKING_LEVEL,
+    providers: readProviderSummaries().map((summary) => ({
+      name: summary.name,
+      level: getEffectiveThinkingLevel(summary.name)
+    }))
+  };
 }
 
 function persistProviderModels() {
@@ -2812,11 +2832,17 @@ app.get('/config', (req: Request, res: Response) => {
         <div class="catalog-meta">
           <div>
             <h2>Thinking / Reasoning</h2>
-            <p class="muted">Provider-native reasoning controls. Independent of the custom system prompt. Default: none (VS Code safe).</p>
+            <p class="muted">Optional proxy overrides. When off, IDE/CLI/script thinking settings pass through unchanged.</p>
           </div>
           <div class="muted" id="thinkingLevelStatus">Loading...</div>
         </div>
-        <div class="form-group" style="margin-top:12px;">
+        <div style="margin-top:12px;">
+          <label style="display:inline-flex;align-items:center;gap:8px;font-weight:bold;cursor:pointer;">
+            <input type="checkbox" id="thinkingProxyToggle" onchange="toggleThinkingProxy()"> Enable Local Router thinking overrides
+          </label>
+        </div>
+        <div id="thinkingConfigFields" style="margin-top:12px; display:none;">
+        <div class="form-group">
           <label for="thinkingLevelSelect">Global Thinking Level</label>
           <select id="thinkingLevelSelect" onchange="saveThinkingLevel()">
             <option value="none">none — disable reasoning (VS Code safe)</option>
@@ -2830,6 +2856,7 @@ app.get('/config', (req: Request, res: Response) => {
           <label>Per-Provider Thinking Levels</label>
           <p class="muted">Override the global level for specific providers. Cleared overrides fall back to global.</p>
           <div id="providerThinkingGrid" style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:8px;"></div>
+        </div>
         </div>
       </div>
       <div class="card">
@@ -3916,18 +3943,48 @@ app.get('/config', (req: Request, res: Response) => {
             const res = await fetch('/api/thinking-level');
             if (!res.ok) throw new Error('HTTP ' + res.status);
             thinkingConfig = await res.json();
+            const toggleEl = document.getElementById('thinkingProxyToggle');
+            const fieldsEl = document.getElementById('thinkingConfigFields');
             const levelSelect = document.getElementById('thinkingLevelSelect');
+            if (toggleEl) toggleEl.checked = Boolean(thinkingConfig.enabled);
+            if (fieldsEl) fieldsEl.style.display = thinkingConfig.enabled ? 'block' : 'none';
             if (levelSelect) levelSelect.value = thinkingConfig.global || 'none';
-            const thinkingStatusEl = document.getElementById('thinkingLevelStatus');
-            if (thinkingStatusEl) {
-              thinkingStatusEl.textContent = 'Global: ' + (thinkingConfig.global || 'none');
-            }
+            updateThinkingStatusText();
             renderProviderThinkingGrid();
           } catch (err) {
             console.error('loadThinkingConfig failed:', err);
             const thinkingStatusEl = document.getElementById('thinkingLevelStatus');
             if (thinkingStatusEl) thinkingStatusEl.textContent = 'Failed to load';
           }
+        }
+        function updateThinkingStatusText() {
+          const thinkingStatusEl = document.getElementById('thinkingLevelStatus');
+          if (!thinkingStatusEl) return;
+          if (!thinkingConfig.enabled) {
+            thinkingStatusEl.textContent = 'Passthrough — client controls thinking';
+            return;
+          }
+          thinkingStatusEl.textContent = 'Proxy active — global: ' + (thinkingConfig.global || 'none');
+        }
+        async function toggleThinkingProxy() {
+          const toggleEl = document.getElementById('thinkingProxyToggle');
+          const fieldsEl = document.getElementById('thinkingConfigFields');
+          const enabled = Boolean(toggleEl?.checked);
+          if (fieldsEl) fieldsEl.style.display = enabled ? 'block' : 'none';
+          const res = await fetch('/api/thinking-level', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ enabled })
+          });
+          const payload = await res.json().catch(() => ({}));
+          if (!res.ok) {
+            setMessage(payload?.error || 'Failed to update thinking proxy.', 'error');
+            if (toggleEl) toggleEl.checked = !enabled;
+            return;
+          }
+          thinkingConfig = payload;
+          updateThinkingStatusText();
+          setMessage('Thinking proxy ' + (payload.enabled ? 'enabled' : 'disabled (client passthrough)') + '.', 'success');
         }
         function renderProviderThinkingGrid() {
           const grid = document.getElementById('providerThinkingGrid');
@@ -3968,8 +4025,7 @@ app.get('/config', (req: Request, res: Response) => {
           }
           thinkingConfig = payload;
           renderProviderThinkingGrid();
-          const thinkingStatusEl = document.getElementById('thinkingLevelStatus');
-          if (thinkingStatusEl) thinkingStatusEl.textContent = 'Global: ' + level;
+          updateThinkingStatusText();
           setMessage('Global thinking level set to: ' + level, 'success');
         }
         async function saveProviderThinkingLevel(selectEl) {
@@ -5482,21 +5538,20 @@ app.put('/api/system-prompt', (req: Request, res: Response) => {
 
 // ── Thinking Level API ─────────────────────────────────────────────────────
 app.get('/api/thinking-level', (req: Request, res: Response) => {
-  const providers = readProviderSummaries().map((summary) => ({
-    name: summary.name,
-    level: getEffectiveThinkingLevel(summary.name)
-  }));
-  res.json({
-    global: systemPromptConfig.thinkingLevel,
-    default: DEFAULT_THINKING_LEVEL,
-    providers
-  });
+  res.json(thinkingLevelApiPayload());
 });
 
 app.put('/api/thinking-level', (req: Request, res: Response) => {
-  const { global: globalLevel, provider, level } = req.body ?? {};
+  const { enabled, global: globalLevel, provider, level } = req.body ?? {};
 
   const validLevels: ThinkingLevel[] = ['none', 'low', 'medium', 'high', 'xhigh'];
+
+  if (enabled !== undefined) {
+    if (typeof enabled !== 'boolean') {
+      return res.status(400).json({ error: 'enabled must be a boolean.' });
+    }
+    thinkingProxyEnabled = enabled;
+  }
 
   if (globalLevel !== undefined) {
     if (!validLevels.includes(globalLevel)) {
@@ -5520,14 +5575,7 @@ app.put('/api/thinking-level', (req: Request, res: Response) => {
   }
 
   persistThinkingConfig();
-  return res.json({
-    global: systemPromptConfig.thinkingLevel,
-    default: DEFAULT_THINKING_LEVEL,
-    providers: readProviderSummaries().map((summary) => ({
-      name: summary.name,
-      level: getEffectiveThinkingLevel(summary.name)
-    }))
-  });
+  return res.json(thinkingLevelApiPayload());
 });
 
 app.delete('/api/thinking-level/:provider', (req: Request, res: Response) => {
@@ -5537,14 +5585,7 @@ app.delete('/api/thinking-level/:provider', (req: Request, res: Response) => {
   }
   delete thinkingLevelStore[providerName];
   persistThinkingConfig();
-  return res.json({
-    global: systemPromptConfig.thinkingLevel,
-    default: DEFAULT_THINKING_LEVEL,
-    providers: readProviderSummaries().map((summary) => ({
-      name: summary.name,
-      level: getEffectiveThinkingLevel(summary.name)
-    }))
-  });
+  return res.json(thinkingLevelApiPayload());
 });
 
 app.head('/api/version', (req: Request, res: Response) => {
@@ -6854,7 +6895,8 @@ async function proxyModelAttempt(
   const safeRequestBody = sanitizeProviderRequestBody(requestBody, {
     providerName: target.providerName,
     modelName: target.actualModel,
-    thinkingLevel: getEffectiveThinkingLevel(target.providerName)
+    thinkingLevel: getEffectiveThinkingLevel(target.providerName),
+    applyProxyThinking: thinkingProxyEnabled
   });
   const cachedRequestBody = injectPromptCaching(safeRequestBody, target.providerName);
   const finalBody = provider.formatBody ? provider.formatBody(cachedRequestBody) : cachedRequestBody;

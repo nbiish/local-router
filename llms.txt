@@ -426,7 +426,8 @@ Local Router supports configurable thinking levels per provider with a global de
 - **none**: `reasoning_effort: "none"`, `thinking: { type: "disabled" }`
 
 **Configuration (independent of custom system prompt):**
-- **Global default:** `/config` **Thinking / Reasoning** card or `PUT /api/thinking-level` with `{ global: "none" | "low" | "medium" | "high" | "xhigh" }`
+- **Proxy toggle (default OFF):** When disabled, client/IDE/CLI thinking parameters pass through unchanged (router does not inject levels or disable hints). Enable via `/config` checkbox or `PUT /api/thinking-level` with `{ enabled: true }`.
+- **Global default (when proxy enabled):** `/config` **Thinking / Reasoning** card or `PUT /api/thinking-level` with `{ global: "none" | "low" | "medium" | "high" | "xhigh" }`
 - **Per-provider override:** `/config` per-provider dropdown or `PUT /api/thinking-level` with `{ provider: "<name>", level: "<level>" }`
 - **Clear override:** `DELETE /api/thinking-level/:provider` falls back to global
 - **Persistence:** `~/.config/local-router/thinking-config.json` (non-secret, `0600`)
@@ -590,9 +591,10 @@ Full details in `ROUTER.md`. Key findings from SOTA literature (2025-2026):
 - `GET /api/system-prompt` / `PUT /api/system-prompt` for programmatic control (thinking via `/api/thinking-level`)
 
 ### Thinking / Reasoning (separate from system prompt)
-- Global and per-provider thinking levels in dedicated `/config` card; always visible
-- Canonical persistence: `~/.config/local-router/thinking-config.json`
-- Applies on every upstream request regardless of whether custom system prompt is enabled
+- Toggle + global/per-provider levels in dedicated `/config` card
+- Canonical persistence: `~/.config/local-router/thinking-config.json` (`enabled`, `global`, `providers`)
+- When `enabled` is false (default for new installs): passthrough client thinking settings
+- When `enabled` is true: apply configured levels on every upstream request (independent of system prompt)
 
 ### Fallback Routes
 - Persisted to `~/.config/local-router/` as non-secret model-chain JSON; reload on proxy startup

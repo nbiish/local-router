@@ -969,6 +969,12 @@ test('provider key save/reset lifecycle exposes configured source', async (t) =>
   assert.equal(fallbackRouteDelete.response.status, 200);
   assert.equal(fallbackRouteDelete.body?.success, true);
 
+  await requestJson('/api/thinking-level', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ enabled: true, global: 'none' })
+  });
+
   upstreamRequests = [];
   const sanitizedChat = await requestJson('/v1/chat/completions', {
     method: 'POST',
