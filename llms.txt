@@ -765,7 +765,7 @@ Local Router supports first-class router models presented as `local-router/<rout
 ### Default System Fallback Profile
 - Bootstrapped on first run via `ensureDefaultFallback()` when no fallback routes exist
 - Route id: `fallback-models` (system safety net for direct model failure, router exhaustion, and router zero-eligible)
-- Chain order: free tier (`opencode-minimax-m3-free`, `opencode-zen-minimax-m3-free`) → MiniMax M3 across providers (`zenmux-minimax-m3`, `openrouter-minimax-m3`, `opencode-minimax-m3`, `nvidia-nim-minimax-m3`) → same 15 default router candidates (deduped)
+- Chain order: free tier (`opencode-minimax-m3-free`, `opencode-zen-minimax-m3-free`) → Ollama Cloud (`ollama-nemotron-3-ultra-cloud`, `ollama-minimax-m3-cloud`, `ollama-qwen3.5-cloud`, `ollama-deepseek-v4-flash-cloud`) → MiniMax M3 across providers → same default router candidates (deduped, 18 in auto-router-main)
 - Fallback stages without configured provider keys are skipped immediately (no retry backoff)
 - `/config` **Reset Fallback Defaults** restores this chain; candidate badges show Ready / No key / Unavailable
 
