@@ -1,23 +1,216 @@
 # Local Router: OpenAI-Compatible Proxy Server for VS Code
 
+**PRD anchor.** This file is the single operator reference: architecture, subscriptions, configuration, APIs, and what is implemented today. For router scoring deep-dives see `ROUTER.md`. For agent/worktree policy see `AGENTS.md`.
+
 ## TL;DR
 
-Local Router is a localhost proxy server (port `11434`) that presents an Ollama-compatible and OpenAI-compatible API surface. VS Code, Copilot Chat, Claude Code, Cline, Roo Code, Continue, scripts, and Ollama-native clients point at `http://127.0.0.1:11434` and use models from 12 upstream providers through a single local endpoint. When the Ollama route shim is active, any system (including Claude Code) that tries to start `ollama serve` transparently starts Local Router instead, with real Ollama running as a backend provider on port 11435.
+Local Router is a localhost proxy (port `11434`) with **Ollama-compatible** and **OpenAI-compatible** surfaces. Point VS Code Copilot Chat, Claude Code, Cline, Roo Code, Continue, Codex, or scripts at `http://127.0.0.1:11434` and route to **12 built-in catalog providers** plus **any custom OpenAI-compatible API** you register—using one model namespace and one configuration UI.
 
-- **Port:** `11434` (Ollama's default — drop-in compatible)
-- **Core endpoint:** `POST /v1/chat/completions` (OpenAI-compatible) plus Ollama-native endpoints (`/api/tags`, `/api/chat`, `/api/generate`, `/api/show`)
-- **Model routing:** Clients request `provider/model-name`; the proxy lazy-loads the provider module and proxies upstream, re-mapping the model key
-- **Provider keys:** Stored in-memory via browser UI at `/config`, never in `.env` or plaintext on disk. PQC-encrypted bundle at `~/.config/pqc-secrets/` for persistence across restarts
-- **Ollama intercept:** `local-router route set` installs a shim at `~/.local/bin/ollama` that intercepts `ollama serve` → starts real Ollama on port 11435, then starts Local Router on 11434. All clients see Local Router transparently
-- **Auto-router defaults:** 15 curated candidates across 8 providers with coding scores. Graceful skip for unconfigured providers
-- **Model catalog:** `providers.txt` is the source of truth for provider/model metadata (context lengths, capabilities, costs). 12 providers, 79 model rows. Synced to `~/.config/providers.txt`
-- **Router models:** First-class `local-router/<name>` models with explicit candidate lists, scoring, and telemetry. Types: `priority`, `pareto-code`, `auto-local`, `bandit-local` (planned)
-- **Fallback routes:** User-configured model chains with retry logic, persisted as non-secret JSON
-- **VS Code integration:** `POST /api/vscode/configure` writes Ollama vendor entry and model picker preferences
-- **CLI:** `local-router` (daemon lifecycle + Ollama shim) and `localrouter` (Ollama-parity operator CLI: list/show/keys/router/verify)
-- **Reasoning compatibility:** Configurable thinking levels (none/low/medium/high/xhigh) per provider with global default. Preserves `reasoning_content` in request bodies for multi-turn tool use while stripping from responses for VS Code safety
-- **Custom system prompt:** Optional system prompt injection (default OFF, Chain of Draft default) across all entry points, configured via `/config` UI or `GET/PUT /api/system-prompt`
-- **Key files:** `src/index.ts` (server, routing, UI, CRUD), `src/reasoning.ts` (compatibility layer), `src/sessions.ts` (session tracking + feedback), `src/tiers.ts` (statistical tiering), `src/types.ts`, `src/providers/*.ts`, `bin/local-router.js` (CLI), `providers.txt` (model catalog), `ROUTER.md` (router improvement guide), `AGENTS.md` (security/process)
+- **Port:** `11434` (Ollama default — drop-in)
+- **Client inference:** `POST /v1/chat/completions`, Ollama `/api/chat` & `/api/generate`, Codex `POST /v1/responses`, Claude Code `POST /v1/messages`
+- **Model IDs:** `{provider-slug}/{presented-alias}` (e.g. `zenmux/qwen3.7-max`, `my-vendor/my-alias`) or `local-router/{router-or-fallback-id}`
+- **Keys:** `/config` UI → in-memory while running → **PQC bundle** `~/.config/pqc-secrets/secrets.bundle.json` on every save (ML-KEM-768 + AES-256-GCM). Never committed to git or `providers.txt`
+- **Catalog:** `providers.txt` (12 providers, ~80 models) + runtime edits in `provider-models.json` + **custom providers** in `custom-providers.json`
+- **Custom providers:** `/config` → **Add custom provider…** or `POST /api/providers` (HTTPS `/v1` upstream; loopback HTTP allowed for dev)
+- **Auto-router:** `local-router/auto-router-main` — 15 curated candidates, skips providers without keys, optional cascade to `local-router/fallback-models`
+- **Ollama shim:** `local-router route set` → `ollama serve` starts real Ollama on `11435` and Local Router on `11434`
+- **Operator CLI:** `localrouter list`, `keys`, `router`, `verify`, `config --open`
+- **Thinking:** Proxy toggle default **OFF** (IDE passthrough); optional levels when enabled. Responses strip `reasoning_content` for VS Code safety; requests preserve it for multi-turn tools
+- **Tests:** `npm test` — 4 integration suites, 13 cases (see [Current Test Coverage](#current-test-coverage))
+
+## Operator Guide (New Users)
+
+Read this section first. It explains how to connect **your paid subscriptions** to one local endpoint.
+
+### What Local Router does
+
+You keep separate accounts (OpenRouter, ZenMux, OpenCode Zen, Wafer, Moonshot, NVIDIA NIM, etc.). Local Router does **not** replace those accounts—it **proxies** to them:
+
+1. Your editor or agent sends a chat request to `127.0.0.1:11434`.
+2. Local Router resolves the model name (`zenmux/...`, `local-router/auto-router-main`, etc.).
+3. It attaches the correct API key and forwards to the vendor’s OpenAI-compatible URL.
+4. It translates streams/responses so Ollama-shaped and OpenAI-shaped clients both work.
+
+Nothing routes to a vendor you did not configure. Router and fallback chains only use **explicit candidate lists** you define (or the documented defaults).
+
+### Five-minute setup
+
+```bash
+git clone https://github.com/nbiish/local-router.git && cd local-router
+npm install && npm run build
+local-router start          # or: LOCAL_ROUTER_DEV=true npm run dev
+localrouter config --open   # http://127.0.0.1:11434/config
+```
+
+**In `/config` (minimum path):**
+
+1. **Provider** dropdown → pick a catalog provider (or **Add custom provider…**).
+2. Paste **API key** → **Save Selected Provider Key** (writes PQC bundle).
+3. Confirm the provider card shows **Configured** (source `memory` or `env`).
+4. In your client, set base URL to `http://127.0.0.1:11434/v1` (OpenAI) or `http://127.0.0.1:11434` (Ollama).
+5. Pick a model from `localrouter list` or `/api/tags` (e.g. `zenmux/qwen3.7-max` or `local-router/auto-router-main`).
+
+**Optional but recommended:**
+
+- `local-router route set` — Claude Code / tools that run `ollama serve` hit Local Router automatically.
+- `localrouter verify` — headless smoke test.
+- **Refresh VS Code Model Picker** button in `/config` (or `POST /api/vscode/configure`) after adding keys/models.
+
+### Subscriptions → provider slugs (catalog)
+
+Use this table to know **which dropdown entry** and **which env var** match a service you already pay for. Only configure providers you have keys for; others are skipped by the auto-router.
+
+| You pay for… | Provider slug in Local Router | API key env var | Upstream base (catalog) | Notes |
+|--------------|------------------------------|-----------------|-------------------------|--------|
+| [Wafer Serverless](https://app.wafer.ai/) | `wafer-serverless` | `WAFER_SERVERLESS_API_KEY` | `https://pass.wafer.ai/v1` | DeepSeek, Qwen, GLM-style models; strong cache pass-through |
+| [ZenMux](https://zenmux.ai/) | `zenmux` | `ZENMUX_API_KEY` | `https://zenmux.ai/api/v1` | Many models; explicit prompt cache breakpoints |
+| [Nebius Token Factory](https://tokenfactory.nebius.com/) | `nebius` | `NEBIUS_API_KEY` | `https://api.tokenfactory.nebius.com/v1` | DeepSeek V4 Pro, etc. |
+| [Moonshot / Kimi](https://platform.moonshot.ai/) | `moonshot` | `MOONSHOT_API_KEY` | `https://api.moonshot.ai/v1` | K2.6 and v1 family |
+| [NVIDIA NIM](https://build.nvidia.com/) | `nvidia-nim` | `NVIDIA_NIM_API_KEY` | `https://integrate.api.nvidia.com/v1` | NIM-hosted models (Kimi, MiniMax, Step, etc.) |
+| [Modal](https://modal.com/) GLM endpoint | `modal` | `MODAL_API_KEY` | Modal GLM-5.1-FP8 endpoint | Single-model provider in catalog |
+| [OpenRouter](https://openrouter.ai/) presets you own | `openrouter-presets` | `OPENROUTER_API_KEY` | `https://openrouter.ai/api/v1` | Uses **preset slugs** (`@preset/...`), not raw OR model ids—confirm preset ownership |
+| [Xiaomi Mimo](https://www.mimo.ai/) plan | `xiaomi-mimo` | `XIAOMI_MIMO_API_KEY` | Mimo token plan URL | 1M-context Mimo models |
+| [OpenCode Zen Go](https://opencode.ai/) subscription | `opencode` | `OPENCODE_API_KEY` | `https://opencode.ai/zen/go/v1` | Large model set; shares key with Zen |
+| [OpenCode Zen](https://opencode.ai/) subscription | `opencode-zen` | `OPENCODE_API_KEY` | `https://opencode.ai/zen/v1` | Curated subset in `providers.txt`; free-tier models (e.g. `minimax-m3-free`) |
+| [Z.AI](https://z.ai/) coding API | `zai` | `ZAI_API_KEY` | `https://api.z.ai/api/coding/paas/v4` | GLM-5.1 coding pass |
+| Local [Ollama](https://ollama.com/) models | `ollama` | `OLLAMA_API_KEY` (placeholder) | `http://127.0.0.1:11435/v1` | Requires real Ollama on 11435 when shim is active; dynamic model list |
+
+**Shared keys:** `opencode` and `opencode-zen` both use `OPENCODE_API_KEY`—set the key once on either provider card.
+
+**Not in catalog?** Use **Add custom provider…** (see [Custom providers](#custom-providers-for-other-vendors)) for any other OpenAI-compatible vendor (Together, Fireworks, private gateway, etc.).
+
+### Model names clients should use
+
+| Pattern | Example | Meaning |
+|---------|---------|---------|
+| `provider/upstream-id` | `nebius/deepseek-ai/DeepSeek-V4-Pro` | Direct upstream model id |
+| `provider/presented-alias` | `zenmux/qwen3.7-max` | Friendly alias from `providers.txt` or your `/config` edits |
+| `local-router/router-id` | `local-router/auto-router-main` | Auto-select from **your** candidate list |
+| `local-router/fallback-id` | `local-router/fallback-models` | Ordered retry chain |
+
+Slashes after the first `/` are part of the upstream model id (OpenRouter presets, HuggingFace-style ids).
+
+### `/config` UI map (everything in one place)
+
+Open `http://127.0.0.1:11434/config`. Sections top → bottom:
+
+| Section | What it controls | Persisted to |
+|---------|------------------|--------------|
+| **Color scheme** | UI theme only | Browser `localStorage` |
+| **Secure Key Configuration** | Provider pick, API keys, **Add custom provider**, model manager | Keys → PQC bundle; models → `provider-models.json`; custom metadata → `custom-providers.json` |
+| **Proxy vs upstream endpoints** | Help text (also `GET /api/proxy-endpoints`) | — |
+| **Model catalog source** | Custom (default) vs live upstream `/models` refresh | `model-source-config.json`, `endpoint-models-cache.json` |
+| **Fallback Model Routes** | Retry chains (`local-router/my-fallback`) | `fallback-models.json` |
+| **Router Models** | Auto-router and custom routers, candidates, tiers | `router-models.json`, CSV telemetry |
+| **Provider pricing overrides** | Promo pricing for router cost scoring | `provider-pricing.json` |
+| **System Prompt** | Optional Chain-of-Draft-style injection (default OFF) | `system-prompt.json` |
+| **Thinking / Reasoning** | Proxy on/off + global/per-provider levels | `thinking-config.json` |
+| **Recent Sessions** | Thumbs up/down on usage windows | `sessions.json`, `session-feedback.json` |
+
+### Custom providers (for other vendors)
+
+For any **OpenAI-compatible** HTTPS API not listed in `providers.txt`:
+
+1. `/config` → **Add custom provider…**
+2. Set **slug** (e.g. `together`), **key env var** (e.g. `TOGETHER_API_KEY`), **base URL** (`https://api.together.xyz/v1`).
+3. **Save custom provider** → save API key → **Provider Model Manager**: add upstream id + presented alias.
+4. Client uses `together/my-alias`.
+
+Metadata lives in `~/.config/local-router/custom-providers.json` (`0600`). Keys still go to the PQC bundle only. Delete is blocked (**409**) while a router/fallback still references that provider.
+
+### Where settings live on disk
+
+| Path | Secret? | Contents |
+|------|---------|----------|
+| `~/.config/pqc-secrets/secrets.bundle.json` | Encrypted | All `*_API_KEY` values |
+| `~/.config/pqc-secrets/recipient.pub` | Public | ML-KEM public key |
+| `~/.config/local-router/custom-providers.json` | No | Custom provider endpoints + env var names |
+| `~/.config/local-router/provider-models.json` | No | Per-provider model overrides |
+| `~/.config/local-router/router-models.json` | No | Router definitions |
+| `~/.config/local-router/fallback-models.json` | No | Fallback chains |
+| `~/.config/local-router/thinking-config.json` | No | Thinking proxy toggle + levels |
+| `~/.config/local-router/system-prompt.json` | No | Optional system prompt |
+| `~/.config/local-router/model-source-config.json` | No | `custom` vs `endpoints` catalog mode |
+| `~/.config/local-router/endpoint-models-cache.json` | No | Cached upstream model lists |
+| `~/.config/local-router/provider-pricing.json` | No | Per-model price overrides for scoring |
+| `~/.config/providers.txt` | No | Copy/sync of repo `providers.txt` catalog |
+| Repo `providers.txt` | No | Source of truth for catalog providers/models |
+
+Legacy reads also check `~/.config/fvs-code/` when `local-router` paths are missing.
+
+### Client setup cheat sheet
+
+**VS Code / Copilot Chat (Ollama vendor):**
+
+- Base URL: `http://127.0.0.1:11434`
+- Use **Refresh VS Code Model Picker** in `/config` after changes
+- Model examples: `local-router/auto-router-main`, `zenmux/qwen3.7-max`
+
+**VS Code / OpenAI-compatible extension:**
+
+- Base URL: `http://127.0.0.1:11434/v1`
+- API key: any non-empty string (real keys are on the server) or a configured provider key if the extension requires it
+
+**Claude Code / Ollama-native tools:**
+
+- Run `local-router route set` so `ollama serve` launches Local Router
+- Ensure `~/.local/bin` is before system Ollama in `PATH`
+
+**Scripts / curl:**
+
+```bash
+curl http://127.0.0.1:11434/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{"model":"zenmux/qwen3.7-max","messages":[{"role":"user","content":"hi"}]}'
+```
+
+**Operator CLI:**
+
+```bash
+localrouter verify --json
+localrouter keys list
+localrouter keys set zenmux --env ZENMUX_API_KEY
+localrouter list --custom
+localrouter router check
+```
+
+Env: `LOCAL_ROUTER_HOST`, `LOCAL_ROUTER_PORT` (default `127.0.0.1:11434`).
+
+### PQC keys (recommended)
+
+If you use the project’s `pqc-secrets` tooling:
+
+```bash
+pqc-secrets keygen    # once: keypair → keystore + recipient.pub
+# paste keys into pack input or use /config UI (auto-packs on save)
+secrets-load          # shell: export keys into environment
+local-router start    # server also loads bundle at startup
+```
+
+Resolution order at runtime: **PQC bundle → environment → keys saved in `/config` this session**.
+
+### Troubleshooting
+
+| Symptom | Check |
+|---------|--------|
+| Model unknown | `localrouter list`; add model in Provider Model Manager or fix typo in `provider/alias` |
+| 400 provider not found | Provider slug must exist in catalog or custom registry |
+| 400 / config error on key save | Use `/config` after provider exists; env var must match `^[A-Z0-9_]+_API_KEY$` |
+| Auto-router skips all candidates | Configure keys for at least one candidate provider; read server log for `[PQC] Providers without keys` |
+| Claude Code still hits real Ollama | `local-router route status`; PATH must prefer `~/.local/bin/ollama` shim |
+| Upstream 401 | Reset key on provider card; confirm subscription active at vendor |
+| Custom provider 502 | Base URL must end with `/v1`; vendor must implement `POST .../chat/completions` |
+
+### End-to-end request flow
+
+```text
+Your client (VS Code, Claude Code, curl)
+    → http://127.0.0.1:11434  (Local Router)
+        → resolve model (catalog alias, router, or fallback)
+        → load API key (PQC / env / memory)
+        → POST https://vendor.../v1/chat/completions
+    ← stream/JSON translated for your client
+```
 
 ## Product North Star
 
@@ -73,11 +266,11 @@ Per `AGENTS.md`: create a git worktree for every task. One task = one branch = o
 
 ### Lazy Loading
 - Provider modules are loaded on first request, keeping memory footprint light
-- The provider catalog is generated from `providers.txt` — no hardcoded provider lists
+- Catalog providers come from `providers.txt`; **custom providers** from `custom-providers.json` (generic OpenAI-compat loader—no per-vendor TypeScript file required)
 
 ### Key Management
-- Provider API keys are configured via the browser UI at `http://localhost:11434/config`
-- Keys are stored in-memory only; never written to `.env`, git, logs, or plaintext config
+- Provider API keys are configured via the browser UI at `http://localhost:11434/config` or `localrouter keys set`
+- Keys are held in memory while the server runs and **persist to the PQC bundle** on save; never written to `.env`, git, `providers.txt`, or plaintext Local Router config
 - **Every key save/delete through the UI is immediately persisted** to the PQC-encrypted bundle at `~/.config/pqc-secrets/secrets.bundle.json` (ML-KEM-768 + AES-256-GCM) via `persistPqcSecrets()`
 - On server startup, `loadPqcSecrets()` decrypts the bundle and loads all keys into memory — keys survive restarts
 - `DELETE /api/keys/:provider` clears a provider key from memory AND re-packs the PQC bundle without it
@@ -204,7 +397,10 @@ Local Router automatically injects prompt caching parameters (such as `cache_con
 │       ├── ollama.ts                  # Ollama provider (local)
 │       └── openrouter.ts             # OpenRouter provider
 ├── tests/
-│   └── provider-keys.integration.test.mjs  # Integration test suite
+│   ├── provider-keys.integration.test.mjs
+│   ├── custom-providers.integration.test.mjs
+│   ├── responses-http-stream.integration.test.mjs
+│   └── responses-websocket-anthropic.integration.test.mjs
 ├── scripts/
 │   ├── cip-daily-research.mts         # CIP GATHER → ANALYZE → PROPOSE → RECORD pipeline
 │   ├── cip-apply-findings.mts         # Apply high-confidence CIP proposals
@@ -219,9 +415,11 @@ Local Router automatically injects prompt caching parameters (such as `cache_con
 
 ## Setup & Testing
 
+See [Operator Guide (New Users)](#operator-guide-new-users) for subscription mapping and first-run steps.
+
 1. **Environment Setup:**
-   - `cp .env.example .env` (fallback only; keys are primarily configured via browser UI)
-   - Provider keys: configure at `http://localhost:11434/config` (stored in-memory)
+   - `cp .env.example .env` (optional fallback only—**do not put real API keys in `.env`** for production use)
+   - Provider keys: configure at `http://localhost:11434/config` (persisted via PQC on save)
 2. **Commands:**
    - `npm install`
    - `npm run dev` (Runs `tsx watch src/index.ts` with hot reload)
@@ -375,6 +573,9 @@ The ML-DSA-65 algorithm and `openssl pkeyutl` invocations are unchanged. Only th
 - `GET /api/model-source` — returns `{ source: "custom" | "endpoints" }` for catalog mode
 - `PUT /api/model-source` — set catalog mode (`custom` = providers.txt + runtime edits; `endpoints` = cached upstream query)
 - `POST /api/refresh-endpoint-models` — query configured provider `/models` endpoints (6s timeout), merge with providers.txt metadata, persist cache
+- `GET /api/provider-pricing` — router cost-scoring price snapshot (baseline + overrides)
+- `PUT /api/provider-pricing/:modelId` — per-presented-model promo pricing override
+- `DELETE /api/provider-pricing/:modelId` — remove override
 
 ### Proxy vs Upstream Endpoints
 
@@ -603,10 +804,10 @@ Full details in `ROUTER.md`. Key findings from SOTA literature (2025-2026):
 ## Current Implementation State
 
 ### Server & Routing
-- Live browser UI at `http://localhost:11434/config` for key management, provider selection, model editing, fallback routes, router models, and color scheme
+- Live browser UI at `http://localhost:11434/config` for keys, **catalog + custom providers**, model manager, catalog source toggle, fallback routes, router models, pricing overrides, system prompt, thinking, sessions, and color scheme
 - Color scheme slider (Light/Balanced/Dark) persists in browser `localStorage` only; no server-side config written
-- Provider key save flow stores keys in-memory, mapped to env vars from `providers.txt`
-- Provider selector shows per-provider configured state, source (`memory`/`env`/`none`), and reset/unset actions
+- Provider key save flow: in-memory + **PQC bundle** repack; mapped to env vars from catalog or custom registry
+- Provider selector: catalog providers, **Add custom provider…**, configured state (`memory`/`env`/`none`), Catalog/Custom badges, edit/delete custom metadata
 - One-model-at-a-time runtime edits per provider with fields: upstream model ID, presented alias, context length, max output tokens, capability toggles
 - **Model catalog source toggle** in `/config`: Custom Models (providers.txt + edits, default) vs Endpoint Models (live upstream `/models` query). Persists to `model-source-config.json`; endpoint results cached in `endpoint-models-cache.json` (`0600`). Refresh button queries all configured providers; drives `/v1/models`, `/api/tags`, routing, and VS Code picker metadata
 
@@ -673,9 +874,9 @@ Full details in `ROUTER.md`. Key findings from SOTA literature (2025-2026):
 - `npm run build` passes (TypeScript compilation to `./build`)
 - `npm run dev` runs `tsx watch src/index.ts` with hot reload; `LOCAL_ROUTER_DEV=true` enables `[DEV]` banner with helpful URLs
 - `npm run dev:once` runs `tsx src/index.ts` without watch
+- `npm run verify:cli` runs `localrouter verify` against a live server on `:11434`
 - `LOCAL_ROUTER_DEV=true npm run dev` launches dev server on port 11434; use `PORT=11435` alongside production Ollama
-- Integration tests in `tests/provider-keys.integration.test.mjs` cover key lifecycle, model CRUD, Ollama discovery, fallback execution, router models, reasoning sanitization, and VS Code metadata
-- Integration tests require `CODEX_SANDBOX_NETWORK_DISABLED=0`
+- `npm test` runs all `tests/*.integration.test.mjs` (13 test cases, 4 files)—requires `CODEX_SANDBOX_NETWORK_DISABLED=0`
 
 ## Community Improvement Proposal (CIP) System
 
@@ -697,7 +898,14 @@ The CIP system automates data-driven router improvements from telemetry. Spec: `
 
 ## Current Test Coverage
 
-`npm run test:integration` builds the project and runs `tests/provider-keys.integration.test.mjs`. The integration test starts a fake upstream OpenAI-compatible provider so request forwarding can be inspected without real provider keys.
+`npm run test:integration` builds the project and runs **all** `tests/*.integration.test.mjs` files sequentially (`--test-concurrency=1`). Tests use isolated `HOME` directories and fake upstream HTTP servers where needed—no real provider keys required.
+
+| File | Focus |
+|------|--------|
+| `tests/provider-keys.integration.test.mjs` | Keys, models, Ollama, fallback, router, VS Code metadata, pricing, thinking |
+| `tests/custom-providers.integration.test.mjs` | Custom provider CRUD, chat proxy, delete guards |
+| `tests/responses-http-stream.integration.test.mjs` | Codex `POST /v1/responses` HTTP SSE |
+| `tests/responses-websocket-anthropic.integration.test.mjs` | Responses WebSocket, Anthropic `/v1/messages` |
 
 Coverage includes:
 - Ollama heartbeat and discovery endpoints
@@ -717,8 +925,10 @@ Coverage includes:
 - Router model presentation as `local-router/<route>` in discovery and routing
 - Router CSV exports for candidates and redacted decision events
 - VS Code/Ollama alias metadata in `/api/show`
-- `POST /v1/responses` non-streaming and HTTP SSE streaming (`tests/responses-http-stream.integration.test.mjs`)
-- Thinking level independent of system prompt toggle (same test file)
+- `POST /v1/responses` non-streaming and HTTP SSE streaming
+- Custom provider registration and upstream forwarding (`tests/custom-providers.integration.test.mjs`)
+- Anthropic Messages API and Responses WebSocket shims
+- Thinking level independent of system prompt toggle
 
 ## Next Steps / Roadmap
 
@@ -736,37 +946,18 @@ Coverage includes:
 9. ✅ **Thinking decoupled + toggle** — Separate `/config` cards; `thinking-config.json` `enabled` (default off = IDE/CLI passthrough).
 10. ✅ **Responses HTTP SSE** — `POST /v1/responses` `stream: true`; `src/responses-stream.ts` shared with WebSocket shim.
 
-### Custom Provider Registration — ✅ implemented (`feat/routing-custom-providers`)
+### Custom Provider Registration — ✅ shipped
 
-Operators can register arbitrary OpenAI-compatible upstreams at `/config` without editing `providers.txt`.
-
-**`/config` UI:**
-- `#providerSelect` includes **Add custom provider…** with inline panel (slug, display name, key env var, HTTPS—or loopback HTTP—base URL ending in `/v1`).
-- Provider cards show **Catalog** vs **Custom** badges; custom cards support **Edit metadata** and **Delete provider**.
-- Collapsible **Proxy vs upstream endpoints** help (also exposed as `GET /api/proxy-endpoints`).
-- Keys persist via existing PQC flow on save; copy updated to reflect bundle persistence.
-
-**Server:**
-- `allProviderSummaries()` merges `providers.txt` catalog + `~/.config/local-router/custom-providers.json`.
-- Generic `loadProvider()` path proxies custom upstreams (no per-vendor `src/providers/*.ts` files).
-- Model aliases include `{provider}/{presented-alias}` for routing.
-- `DELETE /api/providers/:id` returns **409** when router/fallback routes still reference the provider.
-
-**CLI:** `localrouter keys list|set|unset` works for custom providers via merged `/api/provider-configs`.
-
-**Tests:** `tests/custom-providers.integration.test.mjs` (CRUD, chat routing, delete guard).
+Documented in [Operator Guide → Custom providers](#custom-providers-for-other-vendors) and [Provider Management API](#provider-management-api). Released `develop` → `main` @ `d9e1a84` / `b467661`.
 
 **Still out of scope:** editing `providers.txt` from UI; community CRX merge; non-OpenAI-compat upstream wire formats.
 
 **Planned (router):**
 1. **Normalize scoring formula** — Fix coding score dominance (×100) and latency negligible (/10000). Normalize to [0,1], derive weights from costQualityTradeoff.
 2. **Add request complexity features** — `codeDensity`, `languageCount`, `multiTurnDepth`, `instructionLength` to context vector.
-3. **Implement `bandit-local`** — dLinUCB with geometric forgetting (γ=0.98), ~6-dim context, per-candidate A/b matrices, UCB selection. ~200 lines TypeScript. Highest-impact new feature.
-4. **Dry-run API** — `POST /api/router-models/:id/dry-run` to score candidates without upstream call.
-5. **Per-candidate strength profiles** — Success rate breakdowns by request features in UI and CSV exports.
+3. **Per-candidate strength profiles** — Success rate breakdowns by request features in UI and CSV exports.
 
 ### Planned API Endpoints
-- `POST /api/router-models/:id/dry-run` — score candidates without upstream call
 - `GET /api/router-models/:id/bandit-state` — export dLinUCB state for debugging
 - `POST /api/router-models/:id/reset-bandit` — reset bandit learning, keep config
 - `POST /api/router-evals/generate` — export DSPy-style evaluation CSV
@@ -780,18 +971,20 @@ Operators can register arbitrary OpenAI-compatible upstreams at `/config` withou
 - `enableAutoTiers` (boolean, default false): statistical outlier tiering — ✅ implemented
 - `costThreshold` (0-1): RouteLLM-style cost/quality threshold
 - `metricWeights`: per-metric weights for multi-objective scoring
-- `banditState`: persisted dLinUCB A/b matrices per candidate (planned)
+- `banditState`: persisted dLinUCB A/b matrices per candidate — ✅ implemented for `bandit-local` routers
 - `tier`, `toolCallAccuracy`, `successRate`, `sampleCount`, `lastObservedAt`: ✅ implemented in candidates CSV export
 
 ### Local Router CLI & LiteLLM Admin (2026-06-04)
 
-**In progress (`feat/cli-localrouter-ollama-parity`):**
+**Shipped (`localrouter` CLI):**
 1. ✅ **`localrouter` binary** — Ollama-shaped CLI with headless `--json` mode
 2. ✅ **Catalog API** — `GET /api/provider-models?catalog=custom|all|active`
 3. ✅ **Operator commands** — keys, router check, verify, config URL
-4. 🔲 **LiteLLM admin panel** — embed test-chat + model/provider matrix in `/config` (inspired by litellm proxy UI, localhost-only)
-5. 🔲 **Integration tests** — CLI verify/list/keys against test server
-6. 🔲 **README + npm link** — document `localrouter` alongside `local-router`
+4. ✅ **Integration tests** — verify/list/keys covered in `npm test` + `provider-keys` CLI assertions
+
+**Still planned:**
+- 🔲 **LiteLLM admin panel** — test-chat + model matrix in `/config` (localhost-only)
+- 🔲 **README + npm link** — fuller end-user install docs alongside `local-router`
 
 ### General Continuation
 - Exercise live router model through `/config`, refresh VS Code picker, verify selection in Copilot Chat
@@ -1009,3 +1202,14 @@ Pending: operator confirmation → promote `develop` → `main`.
 5. ✅ **Tests** — `tests/custom-providers.integration.test.mjs`; `npm test` 13/13 pass.
 
 **Promotion:** ✅ merged to `develop`; ✅ released `develop` → `main` @ `d9e1a84`.
+
+### 2026-06-04 — llms.txt Operator Guide (comprehensive PRD)
+
+**Branch:** `docs/llms-operator-guide`
+
+**Tasks completed:**
+1. ✅ **Operator Guide** — New-user section: subscriptions→provider table, 5-minute setup, `/config` map, persistence table, client cheat sheet, troubleshooting, request-flow diagram.
+2. ✅ **Accuracy pass** — TL;DR, key management, lazy loading, custom providers, test matrix (4 files / 13 cases), router roadmap cleanup, provider-pricing API docs.
+3. ✅ **Cross-links** — Setup and custom-provider sections point to Operator Guide anchors.
+
+**Promotion:** pending merge to `develop` → `main`.
