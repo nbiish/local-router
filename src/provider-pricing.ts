@@ -47,16 +47,16 @@ export const BASELINE_PROVIDER_PRICING: Record<string, ProviderPricingEntry> = {
     label: 'ZenMux MiniMax M3 intro 50% off',
     sourceUrl: 'https://zenmux.ai/models'
   },
-  'opencode-minimax-m3': {
+  'opencode-code-minimax-m3': {
     inputPricePerM: 0.3,
     outputPricePerM: 1.2,
-    label: 'OpenCode MiniMax M3',
-    sourceUrl: 'https://opencode.ai/zen/v1/models'
+    label: 'OpenCode Code MiniMax M3',
+    sourceUrl: 'https://opencode.ai/zen/go/v1/models'
   },
-  'opencode-minimax-m3-free': {
+  'opencode-code-minimax-m3-free': {
     inputPricePerM: 0,
     outputPricePerM: 0,
-    label: 'OpenCode MiniMax M3 free tier'
+    label: 'OpenCode Code MiniMax M3 free tier'
   },
   'kilo-stepfun-step-3.7-flash-free': {
     inputPricePerM: 0,

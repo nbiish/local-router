@@ -364,7 +364,7 @@ test('provider key save/reset lifecycle exposes configured source', async (t) =>
     assert.ok(clineIdx > ollamaIdx, 'Cline free gateway should follow Ollama');
   }
   const opencodeFreeIdx = fallbackChain.findIndex((id) => (
-    String(id).startsWith('opencode-') && !String(id).startsWith('opencode-zen-') && String(id).includes('-free')
+    String(id).startsWith('opencode-code-') && String(id).includes('-free')
   ));
   if (clineIdx >= 0 && ozenIdx >= 0) {
     assert.ok(ozenIdx > clineIdx, 'OpenCode Zen free should follow Cline free gateway');
@@ -374,7 +374,7 @@ test('provider key save/reset lifecycle exposes configured source', async (t) =>
   }
   const xiaomiIdx = tierIndex('xiaomi-mimo-');
   const opencodePaidIdx = fallbackChain.findIndex((id) => (
-    String(id) === 'opencode-minimax-m3'
+    String(id) === 'opencode-code-minimax-m3'
   ));
   if (opencodeFreeIdx >= 0 && opencodePaidIdx >= 0) {
     assert.ok(opencodePaidIdx > opencodeFreeIdx, 'OpenCode Go paid should follow OpenCode Go free');
@@ -415,10 +415,10 @@ test('provider key save/reset lifecycle exposes configured source', async (t) =>
   const routerClineIdx = autoRouterCandidates.findIndex((id) => String(id).startsWith('cline-'));
   const routerOzenIdx = autoRouterCandidates.findIndex((id) => String(id).startsWith('opencode-zen-'));
   const routerOpencodeFreeIdx = autoRouterCandidates.findIndex((id) => (
-    String(id).startsWith('opencode-') && !String(id).startsWith('opencode-zen-') && String(id).includes('-free')
+    String(id).startsWith('opencode-code-') && String(id).includes('-free')
   ));
   const routerOpencodePaidIdx = autoRouterCandidates.findIndex((id) => (
-    String(id) === 'opencode-minimax-m3'
+    String(id) === 'opencode-code-minimax-m3'
   ));
   const routerZaiIdx = autoRouterCandidates.findIndex((id) => String(id).startsWith('zai-'));
   const routerXiaomiIdx = autoRouterCandidates.findIndex((id) => String(id).startsWith('xiaomi-mimo-'));

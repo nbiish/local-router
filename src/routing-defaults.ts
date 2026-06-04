@@ -36,29 +36,20 @@ const KILO_CLINE_FREE_CANDIDATES = [
 const OPENCODE_FREE_CANDIDATES = [
   'opencode-zen-minimax-m3-free, coding=0.80, input=0, output=0, latency=900, notes=OpenCode Zen MiniMax M3 free tier',
   'opencode-zen-deepseek-v4-flash-free, coding=0.78, input=0, output=0, latency=950, notes=OpenCode Zen DeepSeek V4 Flash free',
-  'opencode-minimax-m3-free, coding=0.80, input=0, output=0, latency=900, notes=OpenCode Go MiniMax M3 free tier'
+  'opencode-code-minimax-m3-free, coding=0.80, input=0, output=0, latency=900, notes=OpenCode Code MiniMax M3 free tier'
 ] as const;
 
-/** OpenCode Go subscription (non-free) models. */
-const OPENCODE_GO_SUBSCRIPTION_CANDIDATES = [
-  'opencode-minimax-m3, coding=0.85, input=0.3, output=1.2, latency=650, notes=OpenCode Go MiniMax M3 subscription',
-  'opencode-minimax-m2.7, coding=0.83, input=0.3, output=1.2, latency=700, notes=OpenCode Go MiniMax M2.7 subscription',
-  'opencode-minimax-m2.5, coding=0.80, input=0.3, output=1.2, latency=720, notes=OpenCode Go MiniMax M2.5 subscription',
-  'opencode-kimi-k2.6, coding=0.86, input=0.6, output=2.5, latency=850, notes=OpenCode Go Kimi K2.6 subscription',
-  'opencode-kimi-k2.5, coding=0.82, input=0.5, output=2, latency=900, notes=OpenCode Go Kimi K2.5 subscription',
-  'opencode-glm-5.1, coding=0.88, input=0.88, output=3.51, latency=750, notes=OpenCode Go GLM-5.1 subscription',
-  'opencode-glm-5, coding=0.85, input=0.5, output=1.5, latency=800, notes=OpenCode Go GLM-5 subscription',
-  'opencode-deepseek-v4-pro, coding=0.91, input=0.5, output=1, latency=800, notes=OpenCode Go DeepSeek V4 Pro subscription',
-  'opencode-deepseek-v4-flash, coding=0.87, input=0.5, output=1, latency=850, notes=OpenCode Go DeepSeek V4 Flash subscription',
-  'opencode-deepseek-v3.2, coding=0.84, input=0.4, output=0.9, latency=900, notes=OpenCode Go DeepSeek V3.2 subscription',
-  'opencode-qwen3.7-max, coding=0.85, input=1.25, output=3.75, latency=900, notes=OpenCode Go Qwen3.7 Max subscription',
-  'opencode-qwen3.6-plus, coding=0.82, input=0.8, output=2, latency=950, notes=OpenCode Go Qwen3.6 Plus subscription',
-  'opencode-qwen3.5-plus, coding=0.80, input=0.6, output=1.5, latency=1000, notes=OpenCode Go Qwen3.5 Plus subscription',
-  'opencode-mimo-v2-pro, coding=0.78, input=0.4, output=0.8, latency=1000, notes=OpenCode Go MiMo V2 Pro subscription',
-  'opencode-mimo-v2-omni, coding=0.76, input=0.4, output=0.8, latency=1050, notes=OpenCode Go MiMo V2 Omni subscription',
-  'opencode-mimo-v2.5-pro, coding=0.80, input=0.44, output=0.88, latency=1000, notes=OpenCode Go MiMo V2.5 Pro subscription',
-  'opencode-mimo-v2.5, coding=0.76, input=0.15, output=0.29, latency=1100, notes=OpenCode Go MiMo V2.5 subscription',
-  'opencode-hy3-preview, coding=0.75, input=0.3, output=0.6, latency=1100, notes=OpenCode Go HY3 preview subscription'
+/** OpenCode Code (Zen/Go) subscription models — curated Hermes set. */
+const OPENCODE_CODE_SUBSCRIPTION_CANDIDATES = [
+  'opencode-code-minimax-m3, coding=0.85, input=0.3, output=1.2, latency=650, notes=OpenCode Code MiniMax M3 subscription',
+  'opencode-code-kimi-k2.6, coding=0.86, input=0.6, output=2.5, latency=850, notes=OpenCode Code Kimi K2.6 subscription',
+  'opencode-code-glm-5.1, coding=0.88, input=0.88, output=3.51, latency=750, notes=OpenCode Code GLM-5.1 subscription',
+  'opencode-code-glm-5, coding=0.85, input=0.5, output=1.5, latency=800, notes=OpenCode Code GLM-5 subscription',
+  'opencode-code-deepseek-v4-pro, coding=0.91, input=0.5, output=1, latency=800, notes=OpenCode Code DeepSeek V4 Pro subscription',
+  'opencode-code-deepseek-v4-flash, coding=0.87, input=0.5, output=1, latency=850, notes=OpenCode Code DeepSeek V4 Flash subscription',
+  'opencode-code-qwen3.7-max, coding=0.85, input=1.25, output=3.75, latency=900, notes=OpenCode Code Qwen3.7 Max subscription',
+  'opencode-code-mimo-v2.5-pro, coding=0.80, input=0.44, output=0.88, latency=1000, notes=OpenCode Code MiMo V2.5 Pro subscription',
+  'opencode-code-mimo-v2.5, coding=0.76, input=0.15, output=0.29, latency=1100, notes=OpenCode Code MiMo V2.5 subscription'
 ] as const;
 
 /** OpenCode Zen paid subscription models (Zen also hosts free-tier rows above). */
@@ -91,20 +82,9 @@ export const ROUTING_PREFERRED_PAID_CANDIDATES = [
   'nebius-deepseek-v4-pro, coding=0.88, input=0.5, output=1, latency=800, notes=Nebius DeepSeek V4 Pro 1M ctx',
   'wafer-ai-minimax-m3, coding=0.90, input=0.33, output=1.32, latency=650, notes=Wafer MiniMax-M3 serverless promo',
   'zenmux-minimax-m3, coding=0.90, input=0.3, output=1.2, latency=700, notes=ZenMux MiniMax M3',
-  'zenmux-step-3.7-flash, coding=0.84, input=0.2, output=1.15, latency=700, notes=ZenMux Step 3.7 Flash reasoning',
-  'zenmux-deepseek-v4-pro, coding=0.91, input=0.435, output=0.87, latency=900, notes=ZenMux DeepSeek V4 Pro 1M ctx',
-  'zenmux-qwen3.7-max, coding=0.85, input=1.25, output=3.75, latency=900, notes=ZenMux qwen/qwen3.7-max',
-  'openrouter-1-million-chain-of-draft, coding=0.88, input=1, output=2, latency=1200, notes=OpenRouter preset: DS V4 Pro + V4 Flash + MiMo',
-  'openrouter-chain-of-draft, coding=0.86, input=1, output=2, latency=1300, notes=OpenRouter preset: DS V4 Pro + Kimi K2.6 + MiMo',
-  'openrouter-qwen3.7-max, coding=0.85, input=1.25, output=3.75, latency=900, notes=OpenRouter qwen/qwen3.7-max',
-  'openrouter-minimax-m3, coding=0.85, input=0.3, output=1.2, latency=750, notes=OpenRouter MiniMax M3'
+  'openrouter-minimax-m3, coding=0.88, input=0.3, output=1.2, latency=750, notes=OpenRouter minimax/minimax-m3',
+  'openrouter-qwen3.7-max, coding=0.85, input=1.25, output=3.75, latency=900, notes=OpenRouter qwen/qwen3.7-max'
 ] as const;
-
-function candidateLinesToModelIds(lines: readonly string[]): string[] {
-  return lines
-    .map((line) => line.split(',')[0].trim())
-    .filter(Boolean);
-}
 
 function dedupeLines(lines: readonly string[]): string[] {
   const seen = new Set<string>();
@@ -123,7 +103,7 @@ const FALLBACK_CANDIDATE_LINES = dedupeLines([
   ...OPENROUTER_FREE_CANDIDATES,
   ...KILO_CLINE_FREE_CANDIDATES,
   ...OPENCODE_FREE_CANDIDATES,
-  ...OPENCODE_GO_SUBSCRIPTION_CANDIDATES,
+  ...OPENCODE_CODE_SUBSCRIPTION_CANDIDATES,
   ...OTHER_SUBSCRIPTION_CANDIDATES,
   ...DEEPSEEK_V4_FLASH_PAID_CANDIDATES
 ]);
@@ -131,7 +111,6 @@ const FALLBACK_CANDIDATE_LINES = dedupeLines([
 const AUTO_ROUTER_CANDIDATE_LINES = dedupeLines([
   ...FALLBACK_CANDIDATE_LINES,
   ...OPENCODE_ZEN_SUBSCRIPTION_CANDIDATES,
-
   ...ROUTING_PREFERRED_PAID_CANDIDATES.filter((line) => {
     const id = line.split(',')[0].trim();
     return !FALLBACK_CANDIDATE_LINES.some((fallbackLine) => (
@@ -149,6 +128,10 @@ export function sortModelIdsByRoutingExhaustion(
   findModel: (id: string) => CatalogModelRef | undefined
 ): string[] {
   return stableSortModelIdsByRoutingExhaustion(modelIds, findModel);
+}
+
+function candidateLinesToModelIds(lines: readonly string[]): string[] {
+  return lines.map((line) => line.split(',')[0].trim()).filter(Boolean);
 }
 
 export function buildDefaultFallbackModelIds(

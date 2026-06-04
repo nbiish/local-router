@@ -34,7 +34,7 @@ export type RoutingExhaustionBand = typeof ROUTING_EXHAUSTION_BAND[keyof typeof 
 
 /** Subscription endpoints (OpenCode Go, Z.ai, Xiaomi). OpenCode Zen paid is in PAID band. */
 export const SUBSCRIPTION_PROVIDERS = [
-  'opencode',
+  'opencode-code',
   'zai',
   'xiaomi-mimo'
 ] as const;
@@ -59,7 +59,7 @@ export const ROUTING_FREE_PROVIDER_SUB_ORDER = [
   'cline',
   'openrouter-presets',
   'opencode-zen',
-  'opencode'
+  'opencode-code'
 ] as const;
 
 const PRESENTATION_PREFIX_TO_PROVIDER: Record<string, string> = {
@@ -70,7 +70,8 @@ const PRESENTATION_PREFIX_TO_PROVIDER: Record<string, string> = {
   modal: 'modal',
   nebius: 'nebius',
   'opencode-zen': 'opencode-zen',
-  opencode: 'opencode',
+  'opencode-code': 'opencode-code',
+  opencode: 'opencode-code',
   zai: 'zai',
   'xiaomi-mimo': 'xiaomi-mimo',
   'wafer-ai': 'wafer-serverless',
@@ -121,7 +122,7 @@ function isPresentedFreeSlug(modelId: string): boolean {
 }
 
 function isOpencodeFamilyFree(provider: string | null, modelId: string, upstream: string): boolean {
-  if (provider !== 'opencode-zen' && provider !== 'opencode') return false;
+  if (provider !== 'opencode-zen' && provider !== 'opencode-code') return false;
   const normalizedUpstream = String(upstream || '').trim().toLowerCase();
   return isPresentedFreeSlug(modelId)
     || normalizedUpstream.endsWith('-free')

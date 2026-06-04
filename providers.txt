@@ -3,7 +3,7 @@
 # =============================================================================
 # Path:    ~/.config/providers.txt  (source of truth)
 #          agents-research/providers.txt (project copy)
-# Updated: 2026-06-04 (openrouter/free x3 paths; DS V4 Flash paid tail; Kilo Nemotron Ultra free)
+# Updated: 2026-06-04 (opencode-code rename; curated Code catalog; openrouter/free x3 paths; DS V4 Flash paid tail; Kilo Nemotron Ultra free)
 # Purpose: Master config reference for ALL agentic tools.
 #          kilo, crush, pi, goose, dcode, hermes, cline, qwen-code, Zed, etc.
 #
@@ -28,7 +28,7 @@
 # │ modal              │ https://api.us-west-2.modal.direct/v1 │ MODAL_API_KEY            │ —       │
 # │ openrouter-presets │ https://openrouter.ai/api/v1          │ OPENROUTER_API_KEY       │ —       │
 # │ xiaomi-mimo        │ https://token-plan-sgp.xiaomimimo.com/v1│ XIAOMI_MIMO_API_KEY     │ —       │
-# │ opencode           │ https://opencode.ai/zen/go/v1          │ OPENCODE_API_KEY        │ Hermes  │
+# │ opencode-code      │ https://opencode.ai/zen/go/v1          │ OPENCODE_API_KEY        │ Hermes  │
 # │ opencode-zen       │ https://opencode.ai/zen/v1             │ OPENCODE_API_KEY        │ —       │
 # │ zai                │ https://api.z.ai/api/coding/paas/v4    │ ZAI_API_KEY             │ —       │
 # │ ollama             │ http://127.0.0.1:11435/v1              │ OLLAMA_API_KEY          │ —       │
@@ -75,33 +75,24 @@
 # │35 │ zenmux             │ xiaomi/mimo-v2.5                     │ zenm:mimo-v2.5                │1,048,576 │ 131,072  │ YES   │ YES  │ YES   │ NO*       │
 # │36 │ xiaomi-mimo        │ mimo-v2.5-pro                       │ mimo:mimo-v2.5-pro           │1,000,000 │ 128,000  │ YES   │ NO   │ YES   │ NO        │
 # │37 │ xiaomi-mimo        │ mimo-v2.5                           │ mimo:mimo-v2.5               │1,000,000 │ 128,000  │ YES   │ YES  │ YES   │ NO        │
-# │38 │ opencode           │ minimax-m2.7                        │ opc:minimax-m2.7              │ 204,800  │ 131,072  │ YES   │ NO   │ NO    │ NO*       │
-# │39 │ opencode           │ minimax-m2.5                        │ opc:minimax-m2.5              │ 204,800  │ 32,000   │ YES   │ NO   │ NO    │ NO        │
-# │40 │ opencode           │ kimi-k2.6                           │ opc:kimi-k2.6                 │ 256,000  │ 32,768   │ YES   │ YES  │ YES   │ NO*       │
-# │41 │ opencode           │ kimi-k2.5                           │ opc:kimi-k2.5                 │ 131,072  │ 16,384   │ YES   │ YES  │ NO    │ NO        │
-# │42 │ opencode           │ glm-5.1                             │ opc:glm-5.1                   │ 200,000  │ 128,000  │ YES   │ NO   │ YES   │ NO*       │
-# │43 │ opencode           │ glm-5                               │ opc:glm-5                     │ 128,000  │ 8,000    │ YES   │ NO   │ NO    │ NO        │
-# │44 │ opencode           │ deepseek-v4-pro                     │ opc:deepseek-v4-pro           │1,000,000 │ 384,000  │ YES   │ NO   │ YES   │ NO*       │
-# │45 │ opencode           │ deepseek-v4-flash                   │ opc:deepseek-v4-flash         │1,000,000 │ 384,000  │ YES   │ NO   │ YES   │ NO*       │
-# │46 │ opencode           │ qwen3.7-max                         │ opc:qwen3.7-max               │1,000,000 │ 64,000   │ YES   │ NO   │ YES   │ NO*       │
-# │47 │ opencode           │ qwen3.6-plus                        │ opc:qwen3.6-plus              │ 131,072  │ 8,192    │ YES   │ NO   │ NO    │ NO        │
-# │48 │ opencode           │ qwen3.5-plus                        │ opc:qwen3.5-plus              │ 131,072  │ 8,192    │ YES   │ NO   │ NO    │ NO        │
-# │49 │ opencode           │ mimo-v2-pro                         │ opc:mimo-v2-pro               │ 256,000  │ 64,000   │ YES   │ NO   │ NO    │ NO        │
-# │50 │ opencode           │ mimo-v2-omni                        │ opc:mimo-v2-omni              │ 256,000  │ 64,000   │ YES   │ YES  │ NO    │ NO        │
-# │51 │ opencode           │ mimo-v2.5-pro                       │ opc:mimo-v2.5-pro             │1,000,000 │ 128,000  │ YES   │ NO   │ YES   │ NO        │
-# │52 │ opencode           │ mimo-v2.5                           │ opc:mimo-v2.5                 │1,000,000 │ 128,000  │ YES   │ YES  │ YES   │ NO        │
-# │53 │ opencode           │ hy3-preview                         │ opc:hy3-preview               │ 128,000  │ 8,000    │ YES   │ NO   │ NO    │ NO        │
+# │40 │ opencode-code      │ kimi-k2.6                           │ opc:kimi-k2.6                 │ 256,000  │ 32,768   │ YES   │ YES  │ YES   │ NO*       │
+# │42 │ opencode-code      │ glm-5.1                             │ opc:glm-5.1                   │ 200,000  │ 128,000  │ YES   │ NO   │ YES   │ NO*       │
+# │43 │ opencode-code      │ glm-5                               │ opc:glm-5                     │ 128,000  │ 8,000    │ YES   │ NO   │ NO    │ NO        │
+# │44 │ opencode-code      │ deepseek-v4-pro                     │ opc:deepseek-v4-pro           │1,000,000 │ 384,000  │ YES   │ NO   │ YES   │ NO*       │
+# │45 │ opencode-code      │ deepseek-v4-flash                   │ opc:deepseek-v4-flash         │1,000,000 │ 384,000  │ YES   │ NO   │ YES   │ NO*       │
+# │46 │ opencode-code      │ qwen3.7-max                         │ opc:qwen3.7-max               │1,000,000 │ 64,000   │ YES   │ NO   │ YES   │ NO*       │
+# │51 │ opencode-code      │ mimo-v2.5-pro                       │ opc:mimo-v2.5-pro             │1,000,000 │ 128,000  │ YES   │ NO   │ YES   │ NO        │
+# │52 │ opencode-code      │ mimo-v2.5                           │ opc:mimo-v2.5                 │1,000,000 │ 128,000  │ YES   │ YES  │ YES   │ NO        │
 # │ 54 │ nebius             │ nvidia/Cosmos3-Super-Reasoner       │ nebs:Cosmos3-Super-Reasoner   │ 262,144  │ 32,768   │ YES   │ NO   │ NO    │ NO        │
 # │ 55 │ nebius             │ Qwen/Qwen3.5-397B-A17B              │ nebs:Qwen3.5-397B-A17B        │ 262,144  │ 32,768   │ YES   │ NO   │ NO    │ NO        │
 # │ 56 │ nebius             │ NousResearch/Hermes-4-405B           │ nebs:Hermes-4-405B            │ 131,072  │ 16,384   │ YES   │ NO   │ NO    │ NO        │
 # │ 57 │ zenmux             │ deepseek/deepseek-v4-flash          │ zenm:deepseek-v4-flash        │1,000,000 │ 131,072  │ YES   │ NO   │ YES   │ NO*       │
 # │ 59 │ zenmux             │ moonshotai/kimi-k2.6                │ zenm:kimi-k2.6                │ 262,144  │ 262,144  │ YES   │ YES  │ YES   │ NO*       │
-# │ 62 │ opencode           │ deepseek-v3.2                       │ opc:deepseek-v3.2             │ 163,840  │ 16,384   │ YES   │ NO   │ YES   │ NO        │
 # │ 64 │ zai                │ code-pass-glm-5.1                   │ zai:code-pass-glm-5.1         │ 200,000  │ 128,000  │ YES   │ NO   │ YES   │ NO*       │
 # │ 65 │ nvidia-nim         │ stepfun-ai/step-3.7-flash           │ nvnm:step-3.7-flash           │ 256,000  │ 256,000  │ YES   │ YES  │ YES   │ YES       │
 # │ 66 │ zenmux             │ minimax/minimax-m3                  │ zenm:minimax-m3               │ 512,000  │ 512,000  │ YES   │ YES  │ YES   │ YES*      │
 # │ 67 │ openrouter-presets │ minimax/minimax-m3                  │ orps:minimax-m3               │1,048,576 │ 512,000  │ YES   │ YES  │ YES   │ YES*      │
-# │ 68 │ opencode           │ minimax-m3                          │ opc:minimax-m3                │ 512,000  │ 512,000  │ YES   │ YES  │ YES   │ YES*      │
+# │ 68 │ opencode-code      │ minimax-m3                          │ opc:minimax-m3                │ 512,000  │ 512,000  │ YES   │ YES  │ YES   │ YES*      │
 # │ 69 │ nvidia-nim         │ minimaxai/minimax-m3                │ nvnm:minimax-m3               │ 512,000  │ 512,000  │ YES   │ YES  │ YES   │ YES*      │
 # │ 70 │ openrouter-presets │ qwen/qwen3.7-max                    │ orps:qwen3.7-max              │1,000,000 │ 65,536   │ YES   │ NO   │ YES   │ NO*       │
 # │ 71 │ opencode-zen       │ deepseek-v4-flash                   │ ozen:deepseek-v4-flash        │1,000,000 │ 384,000  │ YES   │ NO   │ YES   │ NO*       │
@@ -110,7 +101,7 @@
 # │ 77 │ opencode-zen       │ deepseek-v4-flash-free              │ ozen:deepseek-v4-flash-free   │1,000,000 │ 384,000  │ YES   │ NO   │ YES   │ NO*       │
 # │ 78 │ opencode-zen       │ glm-5.1                             │ ozen:glm-5.1                  │ 200,000  │ 128,000  │ YES   │ NO   │ YES   │ NO*       │
 # │ 79 │ nvidia-nim         │ moonshotai/kimi-k2.6                │ nvnm:kimi-k2.6                │ 256,000  │ 32,768   │ YES   │ YES  │ YES   │ NO*       │
-# │ 80 │ opencode           │ minimax-m3-free                     │ opc:minimax-m3-free           │ 512,000  │ 512,000  │ YES   │ YES  │ YES   │ YES*      │
+# │ 80 │ opencode-code      │ minimax-m3-free                     │ opc:minimax-m3-free           │ 512,000  │ 512,000  │ YES   │ YES  │ YES   │ YES*      │
 # │ 81 │ openrouter-presets │ qwen/qwen3.7-plus                   │ orps:qwen3.7-plus             │1,000,000 │ 65,536   │ YES   │ YES  │ YES   │ NO*       │
 # │ 82 │ wafer-serverless   │ MiniMax-M3                          │ wsvr:MiniMax-M3                │ 512,000  │ 512,000  │ YES   │ YES  │ YES   │ YES*      │
 # │ 83 │ ollama             │ nemotron-3-ultra:cloud              │ ollama:nemotron-3-ultra:cloud  │ 256,000  │ 32,768   │ YES   │ NO   │ NO    │ YES* free │
@@ -151,7 +142,7 @@
 # │ modal              │ NONE         │ Upstream GLM supports it; Modal disables it   │
 # │ openrouter-presets │ pass-through │ Passes through upstream provider caching      │
 # │ xiaomi-mimo        │ pass-through │ Tiered cache_read pricing via OpenRouter      │
-# │ opencode           │ pass-through │ Passes through upstream model caching         │
+# │ opencode-code      │ pass-through │ Passes through upstream model caching         │
 # │ opencode-zen       │ pass-through │ Unified subscription pass-through caching     │
 # │ zai                │ NONE         │ No caching docs                               │
 # │ ollama             │ N/A          │ Local inference, no network caching           │
@@ -349,19 +340,16 @@
 #              window, max output tokens, multimodal support (image/audio/
 #              video/file), tool calling, cache support, and reasoning mode.
 
-## opencode ________________________________________________________________
-# Tier:        OpenCode Zen/Go Subscription
+## opencode-code __________________________________________________________
+# Tier:        OpenCode Code (Zen/Go) Subscription
 # Endpoint:    https://opencode.ai/zen/go/v1
 # Key env:     OPENCODE_API_KEY
 # Zed prefix:  opc
 # Cross-tool:  All agents (openai_compatible format)
-# Models:      19 — minimax-m3, minimax-m2.7, minimax-m2.5, kimi-k2.6,
-#                     kimi-k2.5, glm-5.1, glm-5, deepseek-v4-pro,
-#                     deepseek-v4-flash, deepseek-v3.2, qwen3.7-max,
-#                     qwen3.6-plus, qwen3.5-plus,
-#                     mimo-v2-pro, mimo-v2-omni, mimo-v2.5-pro, mimo-v2.5,
-#                     hy3-preview, minimax-m3-free
-# Notes:       OpenCode Zen/Go is a curated subscription service providing
+# Models:      10 — minimax-m3, kimi-k2.6, glm-5.1, glm-5, deepseek-v4-pro,
+#                     deepseek-v4-flash, qwen3.7-max, mimo-v2.5-pro, mimo-v2.5,
+#                     minimax-m3-free
+# Notes:       OpenCode Code (Zen/Go endpoint) is the curated Hermes subscription set providing
 #              access to top-tier models optimized for coding agents.
 #              Non-subscription models are also listed for users who only
 #              have a standard OpenCode API key.
@@ -373,14 +361,14 @@
 #              minimax-m3-free is the free-tier variant of MiniMax M3
 #              (512K context, 512K output, multimodal, tool calling,
 #              prompt caching, native reasoning stripped for VS Code).
-#              Same model also available via opencode-zen (ozen:minimax-m3-free).
+#              Distinct from opencode-zen (full Zen catalog). minimax-m3-free also on Zen (ozen:minimax-m3-free).
 #              Do not store OpenCode API keys in providers.txt, .env, git,
 #              shell history, logs, or tool output.
 
 ## opencode-zen ___________________________________________________________
 # Tier:        OpenCode Zen Subscription (Full Provider Access)
 # Endpoint:    https://opencode.ai/zen/v1
-# Key env:     OPENCODE_API_KEY (shared with opencode Zen/Go)
+# Key env:     OPENCODE_API_KEY (shared with opencode-code / opencode-zen)
 # Zed prefix:  ozen
 # Cross-tool:  All agents (openai_compatible format)
 # Models:      39 — claude-opus-4-8, claude-opus-4-7, claude-opus-4-6,
@@ -482,7 +470,7 @@
 # │ modal              │ YES    │ NO         │ YES custom│ YES  │ YES   │ YES │ YES   │ YES   │ YES   │ YES       │
 # │ openrouter-presets │ YES    │ YES        │ YES custom│ YES  │ YES   │ YES │ YES   │ YES   │ YES   │ YES       │
 # │ xiaomi-mimo        │ YES    │ NO         │ YES custom│ YES  │ YES   │ YES │ YES   │ YES   │ YES   │ YES       │
-# │ opencode           │ YES    │ YES        │ YES custom│ YES  │ YES   │ YES │ YES   │ YES   │ YES   │ YES       │
+# │ opencode-code      │ YES    │ YES        │ YES custom│ YES  │ YES   │ YES │ YES   │ YES   │ YES   │ YES       │
 # │ cline              │ YES    │ YES        │ YES custom│ YES  │ YES   │ YES │ YES   │ YES   │ YES   │ YES       │
 # │ kilo               │ YES    │ YES        │ YES custom│ YES  │ YES   │ YES │ YES   │ YES   │ YES   │ YES       │
 #

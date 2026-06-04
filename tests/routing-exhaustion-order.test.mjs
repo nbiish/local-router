@@ -11,14 +11,14 @@ test('free → subscription → paid ordering', () => {
   const catalog = new Map([
     ['cline-minimax-minimax-m3', { provider: 'cline', model: 'minimax/minimax-m3' }],
     ['kilo-stepfun-step-3.7-flash-free', { provider: 'kilo', model: 'stepfun/step-3.7-flash:free' }],
-    ['opencode-minimax-m3-free', { provider: 'opencode', model: 'minimax-m3-free' }],
-    ['opencode-minimax-m3', { provider: 'opencode', model: 'minimax-m3' }]
+    ['opencode-code-minimax-m3-free', { provider: 'opencode-code', model: 'minimax-m3-free' }],
+    ['opencode-code-minimax-m3', { provider: 'opencode-code', model: 'minimax-m3' }]
   ]);
   const ids = [
     'openrouter-minimax-m3',
-    'opencode-minimax-m3',
+    'opencode-code-minimax-m3',
     'nvidia-nim-step-3.7-flash',
-    'opencode-minimax-m3-free',
+    'opencode-code-minimax-m3-free',
     'cline-minimax-minimax-m3',
     'kilo-stepfun-step-3.7-flash-free',
     'ollama-nemotron-3-ultra-cloud',
@@ -30,8 +30,8 @@ test('free → subscription → paid ordering', () => {
     'ollama-nemotron-3-ultra-cloud',
     'kilo-stepfun-step-3.7-flash-free',
     'cline-minimax-minimax-m3',
-    'opencode-minimax-m3-free',
-    'opencode-minimax-m3',
+    'opencode-code-minimax-m3-free',
+    'opencode-code-minimax-m3',
     'zai-code-pass-glm-5.1',
     'xiaomi-mimo-mimo-v2.5',
     'openrouter-minimax-m3',
@@ -41,7 +41,7 @@ test('free → subscription → paid ordering', () => {
 
 test('subscription band for OpenCode Go, Z.ai, Xiaomi (not OpenCode Zen paid)', () => {
   assert.equal(
-    routingExhaustionBandForModel('opencode-minimax-m3'),
+    routingExhaustionBandForModel('opencode-code-minimax-m3'),
     ROUTING_EXHAUSTION_BAND.SUBSCRIPTION
   );
   assert.equal(
@@ -105,16 +105,16 @@ test('paid provider order: wafer → zenmux → openrouter → cline → kilo �
 test('subscription OpenCode Go before Kilo paid, after OpenCode free', () => {
   const catalog = new Map([
     ['kilo-paid-model', { provider: 'kilo', model: 'anthropic/claude-sonnet-4' }],
-    ['opencode-minimax-m3-free', { provider: 'opencode', model: 'minimax-m3-free' }],
-    ['opencode-minimax-m3', { provider: 'opencode', model: 'minimax-m3' }]
+    ['opencode-code-minimax-m3-free', { provider: 'opencode-code', model: 'minimax-m3-free' }],
+    ['opencode-code-minimax-m3', { provider: 'opencode-code', model: 'minimax-m3' }]
   ]);
   const sorted = stableSortModelIdsByRoutingExhaustion(
-    ['opencode-minimax-m3', 'kilo-paid-model', 'opencode-minimax-m3-free'],
+    ['opencode-code-minimax-m3', 'kilo-paid-model', 'opencode-code-minimax-m3-free'],
     (id) => catalog.get(id)
   );
   assert.deepEqual(sorted, [
-    'opencode-minimax-m3-free',
-    'opencode-minimax-m3',
+    'opencode-code-minimax-m3-free',
+    'opencode-code-minimax-m3',
     'kilo-paid-model'
   ]);
 });
