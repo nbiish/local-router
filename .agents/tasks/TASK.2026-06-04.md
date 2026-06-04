@@ -18,3 +18,10 @@ LiteLLM admin planned
 - `bin/localrouter.js`, `bin/lib/localrouter-client.js`
 - `GET /api/provider-models?catalog=`
 - Updated `llms.txt`, `README.md`, `package.json`
+
+## Develop integration (2026-06-04)
+
+- Merged on `develop` @ `08195b8`
+- `npm test`: 6/6 pass
+- `localrouter verify`: PASSED on live server
+- Awaiting `develop` → `main` promotion after operator sign-off

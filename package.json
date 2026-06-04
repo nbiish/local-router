@@ -16,7 +16,9 @@
     "dev:once": "tsx src/index.ts",
     "build": "tsc",
     "build:watch": "tsc --watch",
-    "cli": "node bin/local-router.js"
+    "cli": "node bin/local-router.js",
+    "cli:operator": "node bin/localrouter.js",
+    "verify:cli": "node bin/localrouter.js verify"
   },
   "keywords": [
     "ollama",

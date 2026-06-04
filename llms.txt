@@ -902,9 +902,18 @@ localrouter verify --json
 localrouter config --open            # http://127.0.0.1:11434/config
 ```
 
-**Promotion:** ✅ merged to `develop` at `45b28ce` (2026-06-04). Integration tests 6/6 pass; `localrouter verify` PASSED on develop. Pending: operator confirmation → `main` release.
+**Promotion:** ✅ merged to `develop` at `45b28ce` + `08195b8` (2026-06-04). Integration gate on `develop`:
 
-**Branch:** `develop` (integrated); feature branch `feat/cli-localrouter-ollama-parity`
+| Gate | Result |
+|------|--------|
+| `npm run build` | pass |
+| `npm test` (6 integration tests) | 6/6 pass |
+| `localrouter verify` (live :11434) | PASSED (72 custom models, router-check ok, `auto-local-main` 5 candidates) |
+| `localrouter list --custom` / `router list` | pass |
+
+Pending: operator confirmation → promote `develop` → `main`.
+
+**Branch:** `develop` @ `08195b8` (2 commits ahead of `main`); feature `feat/cli-localrouter-ollama-parity` merged
 
 ### 2026-06-03 — Branch Consolidation (Main + Develop Gate)
 
