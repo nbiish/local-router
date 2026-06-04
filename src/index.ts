@@ -214,28 +214,68 @@ const DEFAULT_ROUTER_ID = 'auto-router-main';
 const LEGACY_ROUTER_ROUTE_ALIASES: Record<string, string> = {
   'auto-local-main': 'auto-router-main'
 };
+/** Fallback / default-router exhaustion order (lower index = tried earlier). */
+const DEFAULT_PROVIDER_TIER_ORDER = [
+  'ollama',
+  'nvidia-nim',
+  'modal',
+  'nebius',
+  'opencode-zen',
+  'opencode',
+  'zai',
+  'xiaomi-mimo',
+  'wafer-serverless',
+  'zenmux',
+  'openrouter-presets'
+] as const;
+
+const PRESENTATION_PREFIX_TO_PROVIDER: Record<string, string> = {
+  ollama: 'ollama',
+  'nvidia-nim': 'nvidia-nim',
+  modal: 'modal',
+  nebius: 'nebius',
+  'opencode-zen': 'opencode-zen',
+  opencode: 'opencode',
+  zai: 'zai',
+  'xiaomi-mimo': 'xiaomi-mimo',
+  'wafer-ai': 'wafer-serverless',
+  'wafer-serverless': 'wafer-serverless',
+  zenmux: 'zenmux',
+  openrouter: 'openrouter-presets',
+  'openrouter-presets': 'openrouter-presets'
+};
+
 const DEFAULT_ROUTER_CANDIDATES_TEXT = [
-  'openrouter-1-million-chain-of-draft, coding=0.88, input=1, output=2, latency=1200, notes=OpenRouter preset: DS V4 Pro + V4 Flash + MiMo',
-  'openrouter-chain-of-draft, coding=0.86, input=1, output=2, latency=1300, notes=OpenRouter preset: DS V4 Pro + Kimi K2.6 + MiMo',
-  'openrouter-qwen3.7-max, coding=0.85, input=1.25, output=3.75, latency=900, notes=OpenRouter qwen/qwen3.7-max — $1.25/$3.75 per 1M',
-  'zenmux-qwen3.7-max, coding=0.85, input=1.25, output=3.75, latency=900, notes=ZenMux qwen/qwen3.7-max — $1.25/$3.75 per 1M',
-  'xiaomi-mimo-mimo-v2.5-pro, coding=0.80, input=0.44, output=0.88, latency=1000, notes=Xiaomi MiMo V2.5 Pro 1M ctx',
-  'xiaomi-mimo-mimo-v2.5, coding=0.76, input=0.15, output=0.29, latency=1100, notes=Xiaomi MiMo V2.5 1M ctx multimodal',
-  'zenmux-minimax-m3, coding=0.90, input=0.3, output=1.2, latency=700, notes=ZenMux MiniMax M3 — SWE-Bench Pro ~59% (Jun 2026 vendor)',
-  'zenmux-step-3.7-flash, coding=0.84, input=0.2, output=1.15, latency=700, notes=ZenMux Step 3.7 Flash reasoning',
-  'zenmux-deepseek-v4-pro, coding=0.91, input=0.435, output=0.87, latency=900, notes=ZenMux DeepSeek V4 Pro 1M ctx',
-  'zai-code-pass-glm-5.1, coding=0.88, input=0.88, output=3.51, latency=750, notes=Z.ai Code Pass GLM-5.1 — SWE-Bench Pro ~58.4% (Apr 2026 vendor)',
-  'opencode-minimax-m3, coding=0.85, input=0.3, output=1.2, latency=650, notes=OpenCode MiniMax M3 512K ctx',
-  'modal-glm-5.1-fp8, coding=0.83, input=0.5, output=1, latency=800, notes=Modal GLM-5.1 FP8 200K ctx',
-  'nvidia-nim-step-3.7-flash, coding=0.84, input=0.1, output=0.3, latency=700, notes=NVIDIA NIM Step 3.7 Flash reasoning',
-  'wafer-ai-deepseek-v4-flash, coding=0.87, input=0.5, output=1, latency=600, notes=Wafer DeepSeek V4 Flash 1M ctx',
-  'wafer-ai-minimax-m3, coding=0.90, input=0.33, output=1.32, latency=650, notes=Wafer MiniMax-M3 serverless promo (~$0.33/$1.32 per 1M)',
-  'nvidia-nim-kimi-k2.6, coding=0.86, input=0.6, output=2.5, latency=850, notes=NVIDIA NIM Kimi K2.6 256K ctx coding',
-  'opencode-minimax-m3-free, coding=0.80, input=0, output=0, latency=900, notes=OpenCode MiniMax M3 free tier 512K ctx',
   'ollama-nemotron-3-ultra-cloud, coding=0.86, input=0, output=0, latency=850, notes=Ollama Cloud NVIDIA Nemotron 3 Ultra',
   'ollama-minimax-m3-cloud, coding=0.82, input=0, output=0, latency=950, notes=Ollama Cloud MiniMax M3 free tier',
   'ollama-qwen3.5-cloud, coding=0.83, input=0, output=0, latency=920, notes=Ollama Cloud Qwen 3.5 multimodal',
-  'ollama-deepseek-v4-flash-cloud, coding=0.84, input=0, output=0, latency=900, notes=Ollama Cloud DeepSeek V4 Flash free tier'
+  'ollama-deepseek-v4-flash-cloud, coding=0.84, input=0, output=0, latency=900, notes=Ollama Cloud DeepSeek V4 Flash',
+  'ollama-deepseek-v4-pro-cloud, coding=0.85, input=0, output=0, latency=920, notes=Ollama Cloud DeepSeek V4 Pro',
+  'ollama-kimi-k2.6-cloud, coding=0.84, input=0, output=0, latency=900, notes=Ollama Cloud Kimi K2.6',
+  'ollama-glm-5.1-cloud, coding=0.83, input=0, output=0, latency=900, notes=Ollama Cloud GLM 5.1',
+  'ollama-minimax-m2.7-cloud, coding=0.81, input=0, output=0, latency=950, notes=Ollama Cloud MiniMax M2.7',
+  'nvidia-nim-step-3.7-flash, coding=0.84, input=0.1, output=0.3, latency=700, notes=NVIDIA NIM Step 3.7 Flash reasoning',
+  'nvidia-nim-kimi-k2.6, coding=0.86, input=0.6, output=2.5, latency=850, notes=NVIDIA NIM Kimi K2.6 256K ctx coding',
+  'nvidia-nim-minimax-m3, coding=0.85, input=0.1, output=0.3, latency=720, notes=NVIDIA NIM MiniMax M3',
+  'modal-glm-5.1-fp8, coding=0.83, input=0.5, output=1, latency=800, notes=Modal GLM-5.1 FP8 200K ctx',
+  'nebius-deepseek-v4-pro, coding=0.88, input=0.5, output=1, latency=800, notes=Nebius DeepSeek V4 Pro 1M ctx',
+  'opencode-zen-minimax-m3-free, coding=0.80, input=0, output=0, latency=900, notes=OpenCode Zen MiniMax M3 free tier',
+  'opencode-zen-deepseek-v4-flash-free, coding=0.78, input=0, output=0, latency=950, notes=OpenCode Zen DeepSeek V4 Flash free',
+  'opencode-minimax-m3, coding=0.85, input=0.3, output=1.2, latency=650, notes=OpenCode Go MiniMax M3 512K ctx',
+  'opencode-minimax-m3-free, coding=0.80, input=0, output=0, latency=900, notes=OpenCode Go MiniMax M3 free tier',
+  'zai-code-pass-glm-5.1, coding=0.88, input=0.88, output=3.51, latency=750, notes=Z.ai Code Pass GLM-5.1',
+  'xiaomi-mimo-mimo-v2.5-pro, coding=0.80, input=0.44, output=0.88, latency=1000, notes=Xiaomi MiMo V2.5 Pro 1M ctx',
+  'xiaomi-mimo-mimo-v2.5, coding=0.76, input=0.15, output=0.29, latency=1100, notes=Xiaomi MiMo V2.5 1M ctx multimodal',
+  'wafer-ai-deepseek-v4-flash, coding=0.87, input=0.5, output=1, latency=600, notes=Wafer DeepSeek V4 Flash 1M ctx',
+  'wafer-ai-minimax-m3, coding=0.90, input=0.33, output=1.32, latency=650, notes=Wafer MiniMax-M3 serverless promo',
+  'zenmux-minimax-m3, coding=0.90, input=0.3, output=1.2, latency=700, notes=ZenMux MiniMax M3',
+  'zenmux-step-3.7-flash, coding=0.84, input=0.2, output=1.15, latency=700, notes=ZenMux Step 3.7 Flash reasoning',
+  'zenmux-deepseek-v4-pro, coding=0.91, input=0.435, output=0.87, latency=900, notes=ZenMux DeepSeek V4 Pro 1M ctx',
+  'zenmux-qwen3.7-max, coding=0.85, input=1.25, output=3.75, latency=900, notes=ZenMux qwen/qwen3.7-max',
+  'openrouter-1-million-chain-of-draft, coding=0.88, input=1, output=2, latency=1200, notes=OpenRouter preset: DS V4 Pro + V4 Flash + MiMo',
+  'openrouter-chain-of-draft, coding=0.86, input=1, output=2, latency=1300, notes=OpenRouter preset: DS V4 Pro + Kimi K2.6 + MiMo',
+  'openrouter-qwen3.7-max, coding=0.85, input=1.25, output=3.75, latency=900, notes=OpenRouter qwen/qwen3.7-max',
+  'openrouter-minimax-m3, coding=0.85, input=0.3, output=1.2, latency=750, notes=OpenRouter MiniMax M3'
 ].join('\n');
 
 const LEGACY_AUTO_LOCAL_MAIN_MODELS = new Set([
@@ -261,23 +301,37 @@ const UPSTREAM_MODEL_ID_ALIASES: Record<string, string> = {
   'wafer-serverless/minimax-m3': 'wafer-ai-minimax-m3'
 };
 
-const DEFAULT_FALLBACK_FREE_TIER = [
-  'opencode-minimax-m3-free',
-  'opencode-zen-minimax-m3-free'
-];
-/** Ollama Cloud free-tier models — early in fallback to use ollama.com quota before paid APIs. */
-const DEFAULT_FALLBACK_OLLAMA_CLOUD = [
-  'ollama-nemotron-3-ultra-cloud',
-  'ollama-minimax-m3-cloud',
-  'ollama-qwen3.5-cloud',
-  'ollama-deepseek-v4-flash-cloud'
-];
-const DEFAULT_FALLBACK_MINIMAX_M3 = [
-  'zenmux-minimax-m3',
-  'openrouter-minimax-m3',
-  'opencode-minimax-m3',
-  'nvidia-nim-minimax-m3'
-];
+function providerTierIndex(providerSlug: string): number {
+  const index = DEFAULT_PROVIDER_TIER_ORDER.indexOf(providerSlug as typeof DEFAULT_PROVIDER_TIER_ORDER[number]);
+  return index >= 0 ? index : DEFAULT_PROVIDER_TIER_ORDER.length;
+}
+
+function inferProviderSlugFromPresentedId(modelId: string): string | null {
+  const trimmed = String(modelId || '').trim();
+  if (!trimmed) return null;
+
+  const normalized = trimmed.toLowerCase();
+  const prefixes = Object.keys(PRESENTATION_PREFIX_TO_PROVIDER)
+    .sort((left, right) => right.length - left.length);
+  for (const prefix of prefixes) {
+    if (normalized === prefix || normalized.startsWith(`${prefix}-`)) {
+      return PRESENTATION_PREFIX_TO_PROVIDER[prefix];
+    }
+  }
+
+  return null;
+}
+
+function stableSortModelIdsByProviderTier(modelIds: string[]): string[] {
+  return modelIds
+    .map((id, index) => ({
+      id,
+      index,
+      tier: providerTierIndex(inferProviderSlugFromPresentedId(id) || '')
+    }))
+    .sort((left, right) => left.tier - right.tier || left.index - right.index)
+    .map((entry) => entry.id);
+}
 
 function defaultFallbackModelIds(): string[] {
   const routerIds = DEFAULT_ROUTER_CANDIDATES_TEXT
@@ -285,19 +339,14 @@ function defaultFallbackModelIds(): string[] {
     .map((line) => line.split(',')[0].trim())
     .filter(Boolean);
   const seen = new Set<string>();
-  const ordered: string[] = [];
-  for (const id of [
-    ...DEFAULT_FALLBACK_FREE_TIER,
-    ...DEFAULT_FALLBACK_OLLAMA_CLOUD,
-    ...DEFAULT_FALLBACK_MINIMAX_M3,
-    ...routerIds
-  ]) {
+  const unordered: string[] = [];
+  for (const id of routerIds) {
     if (!seen.has(id)) {
       seen.add(id);
-      ordered.push(id);
+      unordered.push(id);
     }
   }
-  return ordered;
+  return stableSortModelIdsByProviderTier(unordered);
 }
 
 function buildDefaultFallbackModelsText(): string {
@@ -2115,6 +2164,61 @@ function mergeMissingDefaultRouterCandidates(): void {
   }
 }
 
+function normalizeRoutingTierOrder(): void {
+  let routerChanged = false;
+  const autoRouter = routerModelStore[DEFAULT_ROUTER_ID];
+  if (autoRouter?.candidates?.length) {
+    const sortedModelIds = stableSortModelIdsByProviderTier(
+      autoRouter.candidates.map((candidate) => candidate.model)
+    );
+    const orderChanged = sortedModelIds.some((modelId, index) => (
+      modelId !== autoRouter.candidates[index]?.model
+    ));
+    if (orderChanged) {
+      const candidatesByModel = new Map(
+        autoRouter.candidates.map((candidate) => [candidate.model, candidate])
+      );
+      autoRouter.candidates = sortedModelIds
+        .map((modelId) => candidatesByModel.get(modelId))
+        .filter((candidate): candidate is RouterCandidate => Boolean(candidate))
+        .map((candidate) => ({ ...candidate }));
+      routerModelStore[DEFAULT_ROUTER_ID] = cloneRouterModel(autoRouter);
+      routerChanged = true;
+    }
+  }
+
+  let fallbackChanged = false;
+  const systemFallback = fallbackModelStore[SYSTEM_FALLBACK_ROUTE_ID];
+  if (systemFallback?.models?.length) {
+    const sortedModels = stableSortModelIdsByProviderTier([...systemFallback.models]);
+    const orderChanged = sortedModels.some((modelId, index) => (
+      modelId !== systemFallback.models[index]
+    ));
+    if (orderChanged) {
+      systemFallback.models = sortedModels;
+      fallbackChanged = true;
+    }
+  }
+
+  if (routerChanged) {
+    try {
+      persistRouterModels();
+      console.log('[router] Reordered auto-router-main candidates by provider tier.');
+    } catch (error: any) {
+      console.error('Failed to persist tier-ordered router candidates:', sanitizeDiagnosticText(String(error?.message || error)));
+    }
+  }
+
+  if (fallbackChanged) {
+    try {
+      persistFallbackModels();
+      console.log('[router] Reordered fallback-models chain by provider tier.');
+    } catch (error: any) {
+      console.error('Failed to persist tier-ordered fallback route:', sanitizeDiagnosticText(String(error?.message || error)));
+    }
+  }
+}
+
 function migratePersistedRoutingConfig(): void {
   const legacyRouter = routerModelStore['auto-local-main'];
   if (legacyRouter && !routerModelStore[DEFAULT_ROUTER_ID]) {
@@ -2163,6 +2267,7 @@ function migratePersistedRoutingConfig(): void {
   }
 
   mergeMissingDefaultRouterCandidates();
+  normalizeRoutingTierOrder();
 
   if (fallbackChanged) {
     try {
