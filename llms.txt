@@ -4,7 +4,7 @@
 
 ## TL;DR
 
-Local Router is a localhost proxy (port `11434`) with **Ollama-compatible** and **OpenAI-compatible** surfaces. Point VS Code Copilot Chat, Claude Code, Cline, Roo Code, Continue, Codex, or scripts at `http://127.0.0.1:11434` and route to **12 built-in catalog providers** plus **any custom OpenAI-compatible API** you register—using one model namespace and one configuration UI.
+Local Router is a localhost proxy (port `11434`) with **Ollama-compatible** and **OpenAI-compatible** surfaces. Point VS Code Copilot Chat, Claude Code, Cline, Roo Code, Continue, Codex, or scripts at `http://127.0.0.1:11434` and route to **14 built-in catalog providers** plus **any custom OpenAI-compatible API** you register—using one model namespace and one configuration UI.
 
 - **Port:** `11434` (Ollama default — drop-in)
 - **Client inference:** `POST /v1/chat/completions`, Ollama `/api/chat` & `/api/generate`, Codex `POST /v1/responses`, Claude Code `POST /v1/messages`
@@ -17,17 +17,21 @@ Local Router is a localhost proxy (port `11434`) with **Ollama-compatible** and 
 - **Ollama shim:** `local-router route set` → `ollama serve` starts real Ollama on `11435` and Local Router on `11434`
 - **Operator CLI:** `localrouter list`, `keys`, `router`, `verify`, `config --open`
 - **Thinking:** Proxy toggle default **OFF** (IDE passthrough); optional levels when enabled. Responses strip `reasoning_content` for VS Code safety; requests preserve it for multi-turn tools
-- **Tests:** `npm test` — 5 test files, **17** cases (see [Current Test Coverage](#current-test-coverage))
-- **Canonical release:** `main` = `develop` @ **`a905726`** (2026-06-04) — see [System Snapshot](#system-snapshot--canonical-state-2026-06-04)
+- **Tests:** `npm test` — **8** test files, **26** cases (21 in `npm test` + 5 routing unit tests; see [Current Test Coverage](#current-test-coverage))
+- **Canonical release:** `main` = `develop` @ **`acbb577`** (2026-06-04) — see [System Snapshot](#system-snapshot--canonical-state-2026-06-04)
 
 ## System Snapshot — Canonical State (2026-06-04)
 
-Use this section to resume work without re-deriving architecture. Remote: `https://github.com/nbiish/local-router.git` (`local-router` remote). **Both `main` and `develop` point at `a905726`.**
+Use this section to resume work without re-deriving architecture. Remote: `https://github.com/nbiish/local-router.git` (`local-router` remote). **Both `main` and `develop` point at `acbb577`** after the gateway + routing exhaustion release.
 
 ### Release lineage (recent)
 
 | Commit | Summary |
 |--------|---------|
+| `acbb577` | **Init fix** — default fallback sort at module load must not call `findProviderModel` before `modelSourceConfig` exists |
+| `2b47b1e` | **Wraparound exhaustion** — free → subscription → paid bands; `buildWraparoundExecutionPlan()` revisits earlier models before advancing |
+| `db915b2` | **Gateway free curation** — Cline/Kilo catalog limited to 6 free CLI models; router/auto presets excluded |
+| `ab3e27f` | **Cline + Kilo providers** — gateway catalog, `CLINE_API_KEY` / `KILO_API_KEY`, tier gating (`src/gateway-provider-catalog.ts`) |
 | `a905726` | **Ollama free-tier routing** — 3 cloud models in router/fallback/pull; Pro-only gating (`src/ollama-cloud-catalog.ts`) |
 | `954bdea` | System/legacy `default` fallback routes **union** tier defaults then re-sort |
 | `e4758ef` | Provider tier order on **all** fallback routes (not only `fallback-models`) |
@@ -101,11 +105,25 @@ Router and fallback **skip** candidates when the provider has no API key (except
 
 **Presented IDs (examples):** `ollama-nemotron-3-ultra-cloud`, `ollama-minimax-m3-cloud`, `ollama-deepseek-v4-flash-cloud`.
 
+### Cline & Kilo gateway providers
+
+**Modules:** `src/gateway-provider-catalog.ts` (free allowlists, router-model exclusions), `src/provider-pricing.ts` (zero-cost free entries).
+
+| Provider | Upstream | Key | Free presented IDs (router/fallback defaults) |
+|----------|----------|-----|--------------------------------------------------|
+| `cline` | `https://api.cline.bot/api/v1` | `CLINE_API_KEY` | `cline-nvidia-nemotron-3-ultra-550b-a55b-free`, `cline-minimax-minimax-m3`, `cline-xiaomi-mimo-v2.5`, `cline-deepseek-deepseek-v4-flash` |
+| `kilo` | `https://api.kilo.ai/api/gateway` | `KILO_API_KEY` | `kilo-stepfun-step-3.7-flash-free`, `kilo-nvidia-nemotron-3-super-120b-a12b-free` |
+
+- **Excluded from routing:** Cline `openrouter/free`, Kilo `kilo-auto/free` and `openrouter/free` router presets.
+- **Configure in `/config`** on the built-in provider cards — not via **Add custom provider…** (Kilo base path is `/api/gateway`, not `/v1`).
+- **Client model IDs** use full presented segments above (not short aliases like `cline-minimax-m3`).
+
 ### Default auto-router (`auto-router-main`)
 
 - **Type:** `auto-local` — `minCodingScore` 0.66, `costQualityTradeoff` 7
-- **25 candidates** in `DEFAULT_ROUTER_CANDIDATES_TEXT` (`src/index.ts`): 3 Ollama + 22 paid-catalog models
-- **Execution:** `selectRouterCandidate()` → `routerCandidateEligibility()` → upstream via `proxyModelAttempt()`; retries per candidate; system fallback on exhaustion
+- **31 candidates** in `DEFAULT_ROUTER_CANDIDATES_TEXT` (`src/index.ts`): 3 Ollama free `:cloud` + 6 Kilo/Cline free gateway + 22 paid/subscription catalog models
+- **Selection:** `selectRouterCandidate()` picks the **first eligible** model in `stableSortModelIdsByRoutingExhaustion()` order (not highest Pareto score alone); `routerCandidateEligibility()` skips missing keys and gateway/Ollama blocks
+- **Execution:** `buildWraparoundExecutionPlan()` — before advancing to candidate *N+1*, revisits models *0…N* once each; then `proxyModelAttempt()` per step; system fallback on exhaustion
 - **Catalog mode:** Custom source must not leak `endpoint-models-cache` on `/v1/models`, `/api/tags`, or `GET /api/provider-models?catalog=active|all` (live upstream only when **Endpoint Models** toggle is on or `?live=true`)
 
 ### Default system fallback
@@ -137,12 +155,13 @@ Keys: **`~/.config/pqc-secrets/secrets.bundle.json`** only (never in repo).
 ### Operator verification (after any change)
 
 ```bash
-cd /path/to/local-router    # on main or develop @ a905726+
-npm run build
+cd /path/to/local-router    # on main or develop @ acbb577+
+npm run build && npm test
 local-router stop && local-router start
 localrouter verify          # expects PASS on :11434
 # Config UI: http://127.0.0.1:11434/config
-# Confirm auto-router shows exactly 3 Ollama cloud candidates
+# Confirm auto-router: 3 Ollama :cloud + 6 Kilo/Cline free when keys present
+# Startup log: [router] Reordered auto-router-main candidates… / fallback-models chain…
 ```
 
 ### Iteration checklist (agents)
@@ -524,7 +543,7 @@ Local Router automatically injects prompt caching parameters (such as `cache_con
 ├── CIP.md                             # Community Improvement Proposal process
 ├── README.md                          # Project README
 ├── llms.txt                           # This file — PRD anchor and project reference
-├── providers.txt                      # Source of truth for provider/model metadata (12 providers, ~81 models incl. 8 Ollama :cloud)
+├── providers.txt                      # Source of truth for provider/model metadata (14 providers, 96 catalog rows incl. 8 Ollama :cloud, 6 gateway free)
 ├── ROUTER-RESEARCH.md                 # Model intelligence framework plan
 ├── .env.example                       # Environment variable template (no real keys)
 ├── tsconfig.json
@@ -545,6 +564,9 @@ Local Router automatically injects prompt caching parameters (such as `cache_con
 │   ├── ollama-cloud-catalog.ts        # Free vs Pro tier map, routing/pull allowlists
 │   ├── ollama-keys.ts                 # Placeholder vs real OLLAMA_API_KEY
 │   ├── ollama-backend.ts              # Auto-start ollama on :11435, filtered cloud pulls
+│   ├── gateway-provider-catalog.ts    # Cline/Kilo free allowlists, router-model exclusions, presented segments
+│   ├── routing-exhaustion-order.ts    # Free → subscription → paid stable sort for router/fallback
+│   ├── execution-plan.ts              # Wraparound retry plan (revisit earlier models before advancing)
 │   └── providers/
 │       ├── groq.ts                    # Groq provider
 │       ├── ollama.ts                  # Ollama provider (local)
@@ -552,6 +574,9 @@ Local Router automatically injects prompt caching parameters (such as `cache_con
 ├── tests/
 │   ├── ollama-cloud.test.mjs
 │   ├── ollama-cloud-catalog.test.mjs
+│   ├── gateway-provider-catalog.test.mjs
+│   ├── routing-exhaustion-order.test.mjs
+│   ├── execution-plan.test.mjs
 │   ├── provider-keys.integration.test.mjs
 │   ├── custom-providers.integration.test.mjs
 │   ├── responses-http-stream.integration.test.mjs
@@ -649,7 +674,7 @@ The ML-DSA-65 algorithm and `openssl pkeyutl` invocations are unchanged. Only th
 
 `providers.txt` is the factual source of truth for provider/model metadata. It is synced to `~/.config/providers.txt` and intended to be copied across projects. Runtime model overrides (via `/api/provider-models`) take precedence and immediately update `/v1/models`, `/api/tags`, and `/api/show`.
 
-### Active Providers (12 providers, ~81 presented models in custom catalog as of 2026-06-04)
+### Active Providers (14 providers, 96 catalog rows in `providers.txt` as of 2026-06-04)
 | Provider | Models | Endpoint | Key Env |
 |---|---|---|---|
 | `wafer-serverless` | 5 | `https://pass.wafer.ai/v1` | `WAFER_SERVERLESS_API_KEY` |
@@ -664,6 +689,8 @@ The ML-DSA-65 algorithm and `openssl pkeyutl` invocations are unchanged. Only th
 | `opencode-zen` | 8 | `https://opencode.ai/zen/v1` | `OPENCODE_API_KEY` |
 | `zai` | 1 | `https://api.z.ai/api/coding/paas/v4` | `ZAI_API_KEY` |
 | `ollama` | 8 (`:cloud`; **3** in default router/fallback) | `http://127.0.0.1:11435/v1` | `OLLAMA_API_KEY` |
+| `cline` | 4 (free CLI catalog) | `https://api.cline.bot/api/v1` | `CLINE_API_KEY` |
+| `kilo` | 2 (free gateway catalog) | `https://api.kilo.ai/api/gateway` | `KILO_API_KEY` |
 
 **Ollama cloud tags in catalog:** 3 free-tier (`nemotron-3-ultra`, `minimax-m3`, `deepseek-v4-flash`) + 5 Pro-only (`deepseek-v4-pro`, `kimi-k2.6`, `glm-5.1`, `minimax-m2.7`, `qwen3.5`). See [Ollama Cloud routing](#ollama-cloud-routing-free-vs-pro).
 
@@ -919,7 +946,7 @@ Local Router supports first-class router models presented as `local-router/<rout
 
 ### Default System Fallback Profile
 - Bootstrapped on first run via `ensureDefaultFallback()` when no fallback routes exist
-- Route id: `fallback-models` (system safety net); legacy installs may use id **`default`** — startup merges tier-default IDs into system/legacy routes then `stableSortModelIdsByProviderTier()`
+- Route id: `fallback-models` (system safety net); legacy installs may use id **`default`** — startup merges tier-default IDs into system/legacy routes then `stableSortModelIdsByRoutingExhaustion()`
 - Chain order: **Ollama free** → **Kilo/Cline free** → **OpenCode free** → **OpenCode/Z.ai/Xiaomi subscription** → **API paid** (NVIDIA…Kilo/Cline paid…Wafer/OpenRouter). **Wraparound:** before model *N+1*, revisits models *1…N* once each.
 - `normalizeRoutingTierOrder()` re-sorts all fallback routes (not only `fallback-models`)
 - Fallback stages without configured provider keys or blocked Ollama tier are skipped immediately (preflight, no retry backoff)
@@ -1065,7 +1092,10 @@ The CIP system automates data-driven router improvements from telemetry. Spec: `
 |------|--------|
 | `tests/ollama-cloud.test.mjs` | `:cloud` tag detection |
 | `tests/ollama-cloud-catalog.test.mjs` | Free vs Pro tier map, pull filter, presented-ID block rules |
-| `tests/provider-keys.integration.test.mjs` | Keys, models, Ollama, fallback tier order, **3 Ollama router candidates**, VS Code metadata, pricing, thinking |
+| `tests/gateway-provider-catalog.test.mjs` | Cline/Kilo free allowlists, router-model exclusions, presented segments |
+| `tests/routing-exhaustion-order.test.mjs` | Free → subscription → paid sort bands |
+| `tests/execution-plan.test.mjs` | Wraparound plan revisits before advancing |
+| `tests/provider-keys.integration.test.mjs` | Keys, models, Ollama, gateway tiers, fallback exhaustion order, **3 Ollama + 6 gateway** router candidates, VS Code metadata, pricing, thinking |
 | `tests/custom-providers.integration.test.mjs` | Custom provider CRUD, chat proxy, delete guards |
 | `tests/responses-http-stream.integration.test.mjs` | Codex `POST /v1/responses` HTTP SSE |
 | `tests/responses-websocket-anthropic.integration.test.mjs` | Responses WebSocket, Anthropic `/v1/messages` |
@@ -1406,7 +1436,7 @@ localrouter config --open            # http://127.0.0.1:11434/config
 
 **Tasks completed:**
 1. ✅ **`src/ollama-cloud-catalog.ts`** — Free vs Pro tier map; routing/pull allowlists; presented-ID block rules.
-2. ✅ **Default router** — **3** Ollama candidates only: nemotron-3-ultra, minimax-m3, deepseek-v4-flash (`DEFAULT_ROUTER_CANDIDATES_TEXT`, 25 total candidates).
+2. ✅ **Default router** — **3** Ollama candidates only: nemotron-3-ultra, minimax-m3, deepseek-v4-flash (`DEFAULT_ROUTER_CANDIDATES_TEXT`, **25** total candidates at `a905726` — later expanded to **31** with Kilo/Cline free gateway @ `ab3e27f`).
 3. ✅ **Prune on load** — `pruneDisallowedOllamaCloudRouting()` after PQC load + migration; removes 8-model burn from persisted JSON.
 4. ✅ **Pull filter** — `filterOllamaCloudPullTags()` in startup + refresh; Pro tags only when real `ollama.com` API key.
 5. ✅ **`providers.txt`** — 8 cloud tags in catalog with `free` / `Pro` annotations; routing notes updated.
@@ -1428,4 +1458,39 @@ localrouter config --open            # http://127.0.0.1:11434/config
 2. ✅ **Accuracy pass** — TL;DR, router profiles, Ollama backend, file map, test matrix (17 cases / 5 files), Current Implementation State.
 3. ✅ **Session log** — Consolidated 2026-06-04 release chain; marked superseded 8-model Ollama router note.
 
-**Canonical tip:** `main` = `develop` = **`a905726`**. **Next iteration:** start from [System Snapshot](#system-snapshot--canonical-state-2026-06-04); use worktree + `AGENTS.md` merge policy.
+### 2026-06-04 — Cline + Kilo gateway providers
+
+**Branch:** `feat/routing-free-gateway-tier-order` | worktree `../free-gateway-tier-order`
+
+**Tasks completed:**
+1. ✅ **`providers.txt`** — `cline` (4 free CLI models) and `kilo` (2 free gateway models); rows 91–96; compatibility matrix updated.
+2. ✅ **`src/gateway-provider-catalog.ts`** — free allowlists, `openrouter/free` and Kilo auto-router exclusions, `gatewayPresentedModelSegment()`.
+3. ✅ **PQC keys** — `CLINE_API_KEY`, `KILO_API_KEY` in bundle (operator); loaded at startup with other providers.
+4. ✅ **Auto-router** — 6 gateway free candidates appended after 3 Ollama free models (**31** total defaults).
+5. ✅ **Tests** — `tests/gateway-provider-catalog.test.mjs`; integration coverage for tier order and presented IDs.
+
+**Promotion:** ✅ merged to `develop` @ `ab3e27f` + `db915b2`.
+
+### 2026-06-04 — Routing exhaustion + wraparound retries
+
+**Branch:** `feat/routing-free-gateway-tier-order` (continued) | follow-up `fix/routing-init-fallback-sort`
+
+**Tasks completed:**
+1. ✅ **`src/routing-exhaustion-order.ts`** — Ollama free → Kilo/Cline free → other free → OpenCode/Z.ai/Xiaomi subscription → paid (Kilo/Cline paid before Wafer/ZenMux/OpenRouter when in chain).
+2. ✅ **`src/execution-plan.ts`** — `buildWraparoundExecutionPlan()` revisits earlier models before advancing (subscription quota recovery).
+3. ✅ **Router selection** — first eligible in exhaustion order; wraparound on router and fallback execution paths.
+4. ✅ **Init fix** — `defaultFallbackModelIds()` sorts without `findProviderModel` at module load (`acbb577`).
+5. ✅ **Tests** — `routing-exhaustion-order.test.mjs`, `execution-plan.test.mjs`; integration asserts wraparound + tier bands.
+
+**Promotion:** ✅ `develop` @ `2b47b1e`, `acbb577` → ✅ `main` @ `acbb577`; pushed `local-router/main` and `local-router/develop`.
+
+### 2026-06-04 — llms.txt release snapshot (`acbb577`)
+
+**Branch:** `docs/llms-acbb577-release`
+
+**Tasks completed:**
+1. ✅ **System Snapshot** — Release lineage through `acbb577`; Cline/Kilo gateway section; 31-candidate auto-router; wraparound execution documented.
+2. ✅ **Accuracy pass** — 14 providers, 96 catalog rows, file map, test matrix (26 cases / 8 files), `npm test` includes routing unit tests.
+3. ✅ **Next iteration** — Start from snapshot; configure `CLINE_API_KEY` / `KILO_API_KEY` in `/config` for gateway free models in router/fallback.
+
+**Canonical tip:** `main` = `develop` = **`acbb577`**. **Next iteration:** start from [System Snapshot](#system-snapshot--canonical-state-2026-06-04); use worktree + `AGENTS.md` merge policy.
