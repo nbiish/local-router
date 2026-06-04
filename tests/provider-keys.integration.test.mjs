@@ -240,6 +240,7 @@ test.before(async () => {
     ...process.env,
     HOME: testHome,
     PORT: port,
+    LOCAL_ROUTER_SKIP_OLLAMA_ENSURE: 'true',
     LOCAL_ROUTER_FALLBACK_BASE_RETRY_SECONDS: '0',
     [selectedProvider.keyEnvVar]: 'integration-test-provider-key',
     [providerBaseUrlEnvVar(selectedProvider.name)]: upstreamBaseUrl
@@ -1192,6 +1193,35 @@ test('provider key save/reset lifecycle exposes configured source', async (t) =>
     body: JSON.stringify({ source: 'invalid' })
   });
   assert.equal(invalidModelSource.response.status, 400);
+
+  const providerCatalog = await requestJson(`/api/provider-models/${encodeURIComponent(selectedProvider.name)}`);
+  assert.equal(providerCatalog.response.status, 200);
+  const customProviderCount = (providerCatalog.body?.models || []).length;
+  assert.ok(customProviderCount > 0, 'Expected custom provider catalog models');
+
+  const filteredProviderModels = await requestJson(
+    `/v1/models?provider=${encodeURIComponent(selectedProvider.name)}`
+  );
+  assert.equal(filteredProviderModels.response.status, 200);
+  assert.equal(
+    (filteredProviderModels.body?.data || []).length,
+    customProviderCount,
+    'Per-provider /v1/models should match custom catalog count in custom mode'
+  );
+  assert.equal(
+    filteredProviderModels.body?.data?.some((model) => String(model.id).includes('endpoint-only-model')),
+    false,
+    'Endpoint-only upstream model must not leak in custom catalog mode'
+  );
+
+  const liveProviderModels = await requestJson(
+    `/v1/models?provider=${encodeURIComponent(selectedProvider.name)}&live=true`
+  );
+  assert.equal(liveProviderModels.response.status, 200);
+  assert.ok(
+    liveProviderModels.body?.data?.some((model) => String(model.id).includes('endpoint-only-model')),
+    'Expected live upstream model when ?live=true'
+  );
 
   const invalidSave = await requestJson('/api/keys', {
     method: 'POST',

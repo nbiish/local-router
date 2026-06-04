@@ -110,11 +110,32 @@ async function startFakeUpstream() {
   upstreamBaseUrl = `http://127.0.0.1:${upstreamPort}/v1`;
 }
 
+async function waitForServerReady() {
+  for (let attempt = 0; attempt < 80; attempt += 1) {
+    if (serverProcess?.exitCode !== null) {
+      throw new Error(`Server exited before becoming ready.\nLogs:\n${serverLogs}`);
+    }
+
+    try {
+      const response = await fetch(`${baseUrl}/api/version`);
+      if (response.ok) {
+        return;
+      }
+    } catch {
+      // Keep polling until server is ready.
+    }
+    await delay(100);
+  }
+
+  throw new Error(`Server failed to start on ${baseUrl}\nLogs:\n${serverLogs}`);
+}
+
 async function startProxyProcess() {
   const pEnv = {
     ...process.env,
     HOME: testHome,
     PORT: port,
+    LOCAL_ROUTER_SKIP_OLLAMA_ENSURE: 'true',
     [selectedProvider.keyEnvVar]: 'integration-test-provider-key',
     [providerBaseUrlEnvVar(selectedProvider.name)]: upstreamBaseUrl
   };
@@ -127,7 +148,7 @@ async function startProxyProcess() {
     serverLogs += data.toString();
   });
 
-  await delay(1200);
+  await waitForServerReady();
 }
 
 async function stopProxyProcess() {

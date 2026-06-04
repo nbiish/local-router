@@ -27,6 +27,7 @@ import {
   cryptoRandomId,
   formatResponsesSseEvent
 } from './responses-stream';
+import { ensureOllamaBackend, pullOllamaCloudModels } from './ollama-backend';
 
 type ProviderModel = {
   id: string;
@@ -225,7 +226,9 @@ const DEFAULT_ROUTER_CANDIDATES_TEXT = [
   'wafer-ai-deepseek-v4-flash, coding=0.87, input=0.5, output=1, latency=600, notes=Wafer DeepSeek V4 Flash 1M ctx',
   'wafer-ai-minimax-m3, coding=0.90, input=0.33, output=1.32, latency=650, notes=Wafer MiniMax-M3 serverless promo (~$0.33/$1.32 per 1M)',
   'nvidia-nim-kimi-k2.6, coding=0.86, input=0.6, output=2.5, latency=850, notes=NVIDIA NIM Kimi K2.6 256K ctx coding',
-  'opencode-minimax-m3-free, coding=0.80, input=0, output=0, latency=900, notes=OpenCode MiniMax M3 free tier 512K ctx'
+  'opencode-minimax-m3-free, coding=0.80, input=0, output=0, latency=900, notes=OpenCode MiniMax M3 free tier 512K ctx',
+  'ollama-minimax-m3-cloud, coding=0.82, input=0, output=0, latency=950, notes=Ollama Cloud MiniMax M3 free tier',
+  'ollama-deepseek-v4-flash-cloud, coding=0.84, input=0, output=0, latency=900, notes=Ollama Cloud DeepSeek V4 Flash free tier'
 ].join('\n');
 
 const LEGACY_AUTO_LOCAL_MAIN_MODELS = new Set([
@@ -1608,52 +1611,172 @@ function persistEndpointModelsCache(): void {
   fs.chmodSync(ENDPOINT_MODELS_CACHE_PATH, 0o600);
 }
 
+function mapLiveRawModelsToCatalog(
+  providerName: string,
+  rawModels: Array<{ id: string }>
+): ProviderModel[] {
+  const baselineModels = readProviderModels();
+  const providerModels: ProviderModel[] = [];
+
+  for (const raw of rawModels) {
+    const modelId = raw.id;
+    const presentedId = defaultPresentedModelName(providerName, modelId);
+    const matchingBaseline = baselineModels.find(
+      (baseline) => baseline.provider === providerName && baseline.model === modelId
+    );
+
+    if (matchingBaseline) {
+      providerModels.push({
+        ...matchingBaseline,
+        id: presentedId
+      });
+      continue;
+    }
+
+    providerModels.push({
+      id: presentedId,
+      provider: providerName,
+      model: modelId,
+      display: providerModelDisplay(providerName, modelId),
+      contextLength: DEFAULT_CONTEXT_LENGTH,
+      outputTokens: DEFAULT_OUTPUT_TOKENS,
+      supportsTools: true,
+      supportsImages: false,
+      supportsCache: false,
+      supportsReasoning: false
+    });
+  }
+
+  return providerModels;
+}
+
+async function fetchLiveProviderModels(providerName: string): Promise<Array<{ id: string; object: string; owned_by: string }>> {
+  if (providerName === 'ollama') {
+    const mod = await import('./providers/ollama');
+    return mod.fetchLiveOllamaModels();
+  }
+
+  try {
+    const mod = await import(`./providers/${providerName}`);
+    const provider = mod.default || mod;
+    if (provider?.getModels) {
+      return provider.getModels();
+    }
+  } catch {
+    // Fall through to generic upstream loader.
+  }
+
+  const summary = getProviderSummary(providerName);
+  if (!summary) {
+    return [];
+  }
+
+  const key = keyStore[summary.name] || process.env[summary.keyEnvVar];
+  if (key) {
+    try {
+      const url = providerBaseUrl(summary);
+      const response = await fetch(`${url}/models`, {
+        headers: {
+          Authorization: `Bearer ${key}`
+        },
+        signal: AbortSignal.timeout(6000)
+      });
+      if (response.ok) {
+        const data = await response.json();
+        if (Array.isArray(data.data)) {
+          return data.data.map((model: any) => ({
+            id: model.id,
+            object: 'model',
+            owned_by: summary.name
+          }));
+        }
+      }
+    } catch (error) {
+      console.error(`Failed to fetch models from endpoint for provider ${providerName}:`, error);
+    }
+  }
+
+  return effectiveProviderModels(summary.name).map((model) => ({
+    id: model.model,
+    object: 'model',
+    owned_by: summary.name
+  }));
+}
+
 async function queryAllProviderEndpoints(): Promise<ProviderModel[]> {
   const providers = allProviderSummaries();
-  const baselineModels = readProviderModels();
   const results = await Promise.all(
     providers.map(async (providerSummary) => {
-      const providerModels: ProviderModel[] = [];
       try {
-        const provider = await loadProvider(providerSummary.name);
-        if (provider && provider.getModels) {
-          const rawModels = await provider.getModels();
-          for (const raw of rawModels) {
-            const modelId = raw.id;
-            const presentedId = defaultPresentedModelName(providerSummary.name, modelId);
-            
-            const matchingBaseline = baselineModels.find(
-              (bm) => bm.provider === providerSummary.name && bm.model === modelId
-            );
-            
-            if (matchingBaseline) {
-              providerModels.push({
-                ...matchingBaseline,
-                id: presentedId
-              });
-            } else {
-              providerModels.push({
-                id: presentedId,
-                provider: providerSummary.name,
-                model: modelId,
-                display: providerModelDisplay(providerSummary.name, modelId),
-                contextLength: DEFAULT_CONTEXT_LENGTH,
-                outputTokens: DEFAULT_OUTPUT_TOKENS,
-                supportsTools: true,
-                supportsImages: false,
-                supportsCache: false,
-                supportsReasoning: false
-              });
-            }
-          }
-        }
+        const rawModels = await fetchLiveProviderModels(providerSummary.name);
+        return mapLiveRawModelsToCatalog(providerSummary.name, rawModels);
       } catch (err) {
         console.error(`Error querying models for provider ${providerSummary.name}:`, err);
+        return [];
       }
-      return providerModels;
     })
   );
   return results.flat();
+}
+
+type CatalogResolveOptions = {
+  provider?: string;
+  mode?: 'custom' | 'endpoints';
+  live?: boolean;
+};
+
+async function resolveCatalogModels(options: CatalogResolveOptions = {}): Promise<ProviderModel[]> {
+  const mode = options.mode ?? modelSourceConfig.source;
+  const live = Boolean(options.live);
+  const providerFilter = String(options.provider || '').trim();
+
+  if (live) {
+    if (providerFilter) {
+      if (isLocalRouterProviderName(providerFilter)) {
+        return [...fallbackModelList(), ...routerModelList()];
+      }
+      const rawModels = await fetchLiveProviderModels(providerFilter);
+      return mapLiveRawModelsToCatalog(providerFilter, rawModels);
+    }
+    return queryAllProviderEndpoints();
+  }
+
+  if (mode === 'endpoints' && endpointModelsCache.length > 0) {
+    if (providerFilter) {
+      if (isLocalRouterProviderName(providerFilter)) {
+        return [...fallbackModelList(), ...routerModelList()];
+      }
+      return endpointModelsCache.filter((model) => model.provider === providerFilter);
+    }
+    return endpointModelsCache;
+  }
+
+  if (providerFilter) {
+    if (isLocalRouterProviderName(providerFilter)) {
+      return [...fallbackModelList(), ...routerModelList()];
+    }
+    return effectiveProviderModels(providerFilter);
+  }
+
+  return modelPresentationList();
+}
+
+function openAIModelEntry(model: ProviderModel) {
+  return {
+    id: model.id,
+    object: 'model',
+    owned_by: model.provider,
+    display_name: model.display,
+    context_length: model.contextLength,
+    max_input_tokens: modelMaxInputTokens(model),
+    max_output_tokens: modelMaxOutputTokens(model),
+    capabilities: {
+      toolCalling: model.supportsTools,
+      imageInput: model.supportsImages,
+      caching: model.supportsCache,
+      reasoning: model.supportsReasoning
+    }
+  };
 }
 
 function activeProviderModelList(): ProviderModel[] {
@@ -5089,9 +5212,12 @@ app.put('/api/model-source', (req: Request, res: Response) => {
 
 app.post('/api/refresh-endpoint-models', async (req: Request, res: Response) => {
   try {
+    await ensureOllamaBackend();
     const fetchedModels = await queryAllProviderEndpoints();
     endpointModelsCache = fetchedModels;
     persistEndpointModelsCache();
+    const ollamaTags = effectiveProviderModels('ollama').map((model) => model.model);
+    void pullOllamaCloudModels(ollamaTags);
     res.json({ success: true, count: endpointModelsCache.length, data: endpointModelsCache });
   } catch (error: any) {
     res.status(500).json({ error: error?.message || 'Failed to refresh endpoint models' });
@@ -5116,17 +5242,20 @@ app.get('/api/provider-models', (req: Request, res: Response) => {
   });
 });
 
-app.get('/api/provider-models/:provider', (req: Request, res: Response) => {
+app.get('/api/provider-models/:provider', async (req: Request, res: Response) => {
   const providerName = String(req.params.provider || '').trim();
   const summary = getProviderSummary(providerName);
   if (!summary) {
     return res.status(404).json({ error: `Unknown provider: ${providerName}` });
   }
 
+  const models = await resolveCatalogModels({ provider: providerName });
+
   return res.json({
     provider: providerName,
     source: providerModelSource(providerName),
-    models: effectiveProviderModels(providerName)
+    catalogMode: modelSourceConfig.source,
+    models
   });
 });
 
@@ -6235,30 +6364,6 @@ async function loadProvider(name: string): Promise<ProxyProvider | null> {
         };
       },
       getModels: async () => {
-        const key = keyStore[summary.name] || process.env[summary.keyEnvVar];
-        if (key) {
-          try {
-            const url = providerBaseUrl(summary);
-            const res = await fetch(`${url}/models`, {
-              headers: {
-                'Authorization': `Bearer ${key}`
-              },
-              signal: AbortSignal.timeout(6000)
-            });
-            if (res.ok) {
-              const data = await res.json();
-              if (Array.isArray(data.data)) {
-                return data.data.map((m: any) => ({
-                  id: m.id,
-                  object: 'model',
-                  owned_by: summary.name
-                }));
-              }
-            }
-          } catch (e) {
-            console.error(`Failed to fetch models from endpoint for provider ${summary.name}:`, e);
-          }
-        }
         const models = effectiveProviderModels(summary.name);
         return models.map((model) => ({
           id: model.model,
@@ -8815,53 +8920,34 @@ app.post('/v1/responses', async (req: Request, res: Response) => {
 });
 
 app.get('/v1/models', async (req: Request, res: Response) => {
-  // fcc-server style: we can optionally pass ?provider=groq to fetch models from a specific provider
-  const requestedProvider = req.query.provider as string;
-  const providerModels = presentedModelList();
+  const requestedProvider = typeof req.query.provider === 'string'
+    ? req.query.provider.trim()
+    : '';
+  const live = String(req.query.live || '').toLowerCase() === 'true';
 
   if (requestedProvider) {
-    if (isLocalRouterProviderName(requestedProvider)) {
-      return res.json({
-        object: 'list',
-        data: [...fallbackModelList(), ...routerModelList()].map((model) => ({
-          id: model.id,
-          object: 'model',
-          owned_by: model.provider
-        }))
-      });
+    if (live && modelSourceConfig.source === 'custom') {
+      console.log(`[catalog] live upstream model list requested for ${requestedProvider}`);
     }
 
-    const provider = await loadProvider(requestedProvider);
-    if (provider && provider.getModels) {
-      const models = await provider.getModels();
-      // Prefix the models with provider name so they show correctly in UI
-      const prefixedModels = models.map((m: any) => ({
-         ...m,
-         id: `${requestedProvider}/${m.id}`
-      }));
-      return res.json({ object: 'list', data: prefixedModels });
-    }
+    const models = await resolveCatalogModels({
+      provider: requestedProvider,
+      live
+    });
+
+    return res.json({
+      object: 'list',
+      data: models.map((model) => openAIModelEntry(model))
+    });
   }
 
-  // Model presentation is driven by providers.txt so Ollama/OpenAI clients
-  // and fcc-style tooling see the same canonical list.
+  const providerModels = live
+    ? await resolveCatalogModels({ live: true })
+    : presentedModelList();
+
   res.json({
     object: 'list',
-    data: providerModels.map((model) => ({
-      id: model.id,
-      object: 'model',
-      owned_by: model.provider,
-      display_name: model.display,
-      context_length: model.contextLength,
-      max_input_tokens: modelMaxInputTokens(model),
-      max_output_tokens: modelMaxOutputTokens(model),
-      capabilities: {
-        toolCalling: model.supportsTools,
-        imageInput: model.supportsImages,
-        caching: model.supportsCache,
-        reasoning: model.supportsReasoning
-      }
-    }))
+    data: providerModels.map((model) => openAIModelEntry(model))
   });
 });
 
@@ -8979,6 +9065,12 @@ const server = app.listen(PORT, () => {
     console.log(`[DEV] Set PORT=11435 to run alongside production Ollama on 11434.`);
     console.log(`[DEV] Use 'npm run dev' for tsx watch mode or 'npm run build:watch' for tsc --watch.`);
   }
+
+  void (async () => {
+    await ensureOllamaBackend();
+    const ollamaTags = effectiveProviderModels('ollama').map((model) => model.model);
+    await pullOllamaCloudModels(ollamaTags);
+  })();
 });
 
 const wss = new WebSocketServer({ noServer: true });

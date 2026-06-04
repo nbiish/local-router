@@ -10,7 +10,7 @@ Local Router is a localhost proxy (port `11434`) with **Ollama-compatible** and 
 - **Client inference:** `POST /v1/chat/completions`, Ollama `/api/chat` & `/api/generate`, Codex `POST /v1/responses`, Claude Code `POST /v1/messages`
 - **Model IDs:** `{provider-slug}/{presented-alias}` (e.g. `zenmux/qwen3.7-max`, `my-vendor/my-alias`) or `local-router/{router-or-fallback-id}`
 - **Keys:** `/config` UI → in-memory while running → **PQC bundle** `~/.config/pqc-secrets/secrets.bundle.json` on every save (ML-KEM-768 + AES-256-GCM). Never committed to git or `providers.txt`
-- **Catalog:** `providers.txt` (12 providers, ~80 models) + runtime edits in `provider-models.json` + **custom providers** in `custom-providers.json`
+- **Catalog:** `providers.txt` (12 providers, ~88 models) + runtime edits in `provider-models.json` + **custom providers** in `custom-providers.json`
 - **Custom providers:** `/config` → **Add custom provider…** or `POST /api/providers` (HTTPS `/v1` upstream; loopback HTTP allowed for dev)
 - **Auto-router:** `local-router/auto-router-main` — 15 curated candidates, skips providers without keys, optional cascade to `local-router/fallback-models`
 - **Ollama shim:** `local-router route set` → `ollama serve` starts real Ollama on `11435` and Local Router on `11434`
@@ -73,7 +73,7 @@ Use this table to know **which dropdown entry** and **which env var** match a se
 | [OpenCode Zen Go](https://opencode.ai/) subscription | `opencode` | `OPENCODE_API_KEY` | `https://opencode.ai/zen/go/v1` | Large model set; shares key with Zen |
 | [OpenCode Zen](https://opencode.ai/) subscription | `opencode-zen` | `OPENCODE_API_KEY` | `https://opencode.ai/zen/v1` | Curated subset in `providers.txt`; free-tier models (e.g. `minimax-m3-free`) |
 | [Z.AI](https://z.ai/) coding API | `zai` | `ZAI_API_KEY` | `https://api.z.ai/api/coding/paas/v4` | GLM-5.1 coding pass |
-| Local [Ollama](https://ollama.com/) models | `ollama` | `OLLAMA_API_KEY` (placeholder) | `http://127.0.0.1:11435/v1` | Requires real Ollama on 11435 when shim is active; dynamic model list |
+| Local [Ollama](https://ollama.com/) Cloud models | `ollama` | `OLLAMA_API_KEY` | `http://127.0.0.1:11435/v1` | Auto-starts Ollama on 11435; curated `:cloud` tags only in Custom Models mode |
 
 **Shared keys:** `opencode` and `opencode-zen` both use `OPENCODE_API_KEY`—set the key once on either provider card.
 
@@ -200,6 +200,8 @@ Resolution order at runtime: **PQC bundle → environment → keys saved in `/co
 | Claude Code still hits real Ollama | `local-router route status`; PATH must prefer `~/.local/bin/ollama` shim |
 | Upstream 401 | Reset key on provider card; confirm subscription active at vendor |
 | Custom provider 502 | Base URL must end with `/v1`; vendor must implement `POST .../chat/completions` |
+| 800+ models in picker | Set **Custom Models** in `/config` (`PUT /api/model-source` → `custom`); avoid `?provider=` clients unless needed; use `?live=true` only for admin upstream refresh |
+| Ollama cloud models missing | Confirm `OLLAMA_API_KEY` in PQC bundle; check server log for `[ollama] Backend ready`; run `localrouter list --custom` for curated `:cloud` tags |
 
 ### End-to-end request flow
 
@@ -332,11 +334,13 @@ Claude Code / VS Code / Cline / any tool
 
 **PATH requirement:** `~/.local/bin` must appear before the real Ollama path (e.g., `/usr/local/bin`) in `$PATH` for the shim to take effect. The CLI warns if the shim exists but is not first in PATH.
 
-**Ollama provider module (`src/providers/ollama.ts`):**
-- Base URL: `LOCAL_ROUTER_PROVIDER_OLLAMA_BASE_URL` env var or `http://127.0.0.1:11435/v1` (default)
-- Dynamic model discovery via `/v1/models` endpoint on real Ollama
-- No API key required for local Ollama (uses `OLLAMA_API_KEY` placeholder)
-- Graceful fallback: returns empty model list if real Ollama is not running
+**Ollama backend (`src/ollama-backend.ts` + `src/providers/ollama.ts`):**
+- Local Router **auto-starts** real `ollama serve` on `127.0.0.1:11435` when the proxy starts (skip with `LOCAL_ROUTER_SKIP_OLLAMA_ENSURE=true` for tests)
+- Base URL: `LOCAL_ROUTER_PROVIDER_OLLAMA_BASE_URL` or `http://127.0.0.1:11435/v1`
+- **Custom Models mode:** discovery lists only curated `:cloud` tags from `providers.txt` + `/config` edits — not every local tag
+- **Endpoint Models mode:** refresh queries local `:11435` and `ollama.com/api/tags`, filtered to `*:cloud` / `*-cloud`
+- Startup and endpoint refresh run `ollama pull` for curated cloud tags (uses `OLLAMA_API_KEY` from PQC for cloud auth)
+- Add extra models via Provider Model Manager under the `ollama` provider card
 
 ### OpenAI Responses API Shim (Codex Support)
 
@@ -494,7 +498,7 @@ The ML-DSA-65 algorithm and `openssl pkeyutl` invocations are unchanged. Only th
 
 `providers.txt` is the factual source of truth for provider/model metadata. It is synced to `~/.config/providers.txt` and intended to be copied across projects. Runtime model overrides (via `/api/provider-models`) take precedence and immediately update `/v1/models`, `/api/tags`, and `/api/show`.
 
-### Active Providers (12 providers, 80 models as of 2026-06-02)
+### Active Providers (12 providers, 88 models as of 2026-06-04)
 | Provider | Models | Endpoint | Key Env |
 |---|---|---|---|
 | `wafer-serverless` | 5 | `https://pass.wafer.ai/v1` | `WAFER_SERVERLESS_API_KEY` |
@@ -508,7 +512,7 @@ The ML-DSA-65 algorithm and `openssl pkeyutl` invocations are unchanged. Only th
 | `opencode` | 20 | `https://opencode.ai/zen/go/v1` | `OPENCODE_API_KEY` |
 | `opencode-zen` | 8 | `https://opencode.ai/zen/v1` | `OPENCODE_API_KEY` |
 | `zai` | 1 | `https://api.z.ai/api/coding/paas/v4` | `ZAI_API_KEY` |
-| `ollama` | 0+ | `http://127.0.0.1:11435/v1` | `OLLAMA_API_KEY` |
+| `ollama` | 8 | `http://127.0.0.1:11435/v1` | `OLLAMA_API_KEY` |
 
 ### Key Model Metadata
 
@@ -584,7 +588,7 @@ The ML-DSA-65 algorithm and `openssl pkeyutl` invocations are unchanged. Only th
 | Endpoint | Role |
 |----------|------|
 | `POST /v1/chat/completions` | Primary OpenAI-compatible inference |
-| `GET /v1/models`, `GET /api/tags`, `POST /api/show` | Discovery (`{provider}/{alias}` ids) |
+| `GET /v1/models`, `GET /api/tags`, `POST /api/show` | Discovery (`{provider}/{alias}` ids). `GET /v1/models?provider={slug}` respects catalog mode (custom vs endpoints). Add `?live=true` to force upstream fetch in custom mode |
 | `POST /api/chat`, `POST /api/generate` | Ollama-compat (translated to chat completions) |
 | `POST /v1/responses` (+ WS) | Codex shim → chat completions |
 | `POST /v1/messages` | Anthropic shim → chat completions |
@@ -1213,3 +1217,14 @@ Pending: operator confirmation → promote `develop` → `main`.
 3. ✅ **Cross-links** — Setup and custom-provider sections point to Operator Guide anchors.
 
 **Promotion:** ✅ merged to `develop` and `main` @ `8daee1b`; pushed to `local-router`.
+
+### 2026-06-04 — Catalog Filtering and Ollama Cloud
+
+**Branch:** `feat/routing-catalog-ollama-cloud` | worktree `../catalog-ollama-cloud`
+
+**Tasks completed:**
+1. ✅ **`resolveCatalogModels()`** — unified custom/endpoints/live catalog resolution for all discovery surfaces.
+2. ✅ **`GET /v1/models?provider=`** — respects catalog mode; `?live=true` escape hatch for upstream fetch.
+3. ✅ **Ollama backend** — auto-start `ollama serve` on `:11435`, pull curated `:cloud` tags, filter discovery to catalog in custom mode.
+4. ✅ **`providers.txt`** — 8 Ollama Cloud models; auto-router candidates for free-tier cloud models.
+5. ✅ **Tests** — catalog `?provider=` integration coverage; `LOCAL_ROUTER_SKIP_OLLAMA_ENSURE` for CI.
