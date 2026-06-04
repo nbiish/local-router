@@ -217,7 +217,9 @@ const UPSTREAM_MODEL_ID_ALIASES: Record<string, string> = {
   'xiaomi-mimo/mimo-v2.5': 'xiaomi-mimo-mimo-v2.5',
   'zenmux/xiaomi/mimo-v2.5': 'zenmux-mimo-v2.5',
   'openrouter-presets/@preset/chain-of-draft': 'openrouter-chain-of-draft',
-  'wafer-serverless/deepseek-v4-flash': 'wafer-ai-deepseek-v4-flash'
+  'wafer-serverless/deepseek-v4-flash': 'wafer-ai-deepseek-v4-flash',
+  'wafer-serverless/MiniMax-M3': 'wafer-ai-minimax-m3',
+  'wafer-serverless/minimax-m3': 'wafer-ai-minimax-m3'
 };
 
 const DEFAULT_FALLBACK_FREE_TIER = [
@@ -1206,6 +1208,30 @@ function persistProviderModels() {
   fs.chmodSync(PROVIDER_MODELS_PATH, 0o600);
 }
 
+function mergeBaselineProviderModelOverrides(): void {
+  let changed = false;
+  for (const providerName of Object.keys(modelStore)) {
+    const memoryModels = modelStore[providerName];
+    if (!Array.isArray(memoryModels) || memoryModels.length === 0) continue;
+
+    const knownIds = new Set(memoryModels.map((model) => model.id));
+    for (const baselineModel of baselineProviderModels(providerName)) {
+      if (knownIds.has(baselineModel.id)) continue;
+      memoryModels.push(cloneProviderModel(baselineModel));
+      knownIds.add(baselineModel.id);
+      changed = true;
+    }
+  }
+
+  if (!changed) return;
+  try {
+    persistProviderModels();
+    console.log('[catalog] Merged new providers.txt models into persisted provider overrides.');
+  } catch (error: any) {
+    console.error('Failed to persist merged provider model overrides:', sanitizeDiagnosticText(String(error?.message || error)));
+  }
+}
+
 function loadPersistedProviderModels() {
   const persistedPath = existingPath(PROVIDER_MODELS_PATH, LEGACY_PROVIDER_MODELS_PATH);
   if (!fs.existsSync(persistedPath)) return;
@@ -1589,6 +1615,32 @@ function buildDefaultAutoLocalRouterModel(): RouterModel | null {
   };
 }
 
+function mergeMissingDefaultRouterCandidates(): void {
+  const defaultRouter = buildDefaultAutoLocalRouterModel();
+  const existingRouter = routerModelStore[DEFAULT_ROUTER_ID];
+  if (!defaultRouter || !existingRouter || existingRouter.type !== DEFAULT_ROUTER_TYPE) return;
+
+  const knownModels = new Set(existingRouter.candidates.map((candidate) => candidate.model));
+  let changed = false;
+  for (const candidate of defaultRouter.candidates) {
+    if (knownModels.has(candidate.model)) continue;
+    existingRouter.candidates.push({ ...candidate });
+    knownModels.add(candidate.model);
+    changed = true;
+  }
+
+  if (!changed) return;
+
+  existingRouter.candidates = applyPricingToRouterCandidates(existingRouter.candidates);
+  routerModelStore[DEFAULT_ROUTER_ID] = cloneRouterModel(existingRouter);
+  try {
+    persistRouterModels();
+    console.log('[router] Merged missing default candidates into auto-router-main.');
+  } catch (error: any) {
+    console.error('Failed to persist merged auto-router-main candidates:', sanitizeDiagnosticText(String(error?.message || error)));
+  }
+}
+
 function migratePersistedRoutingConfig(): void {
   const legacyRouter = routerModelStore['auto-local-main'];
   if (legacyRouter && !routerModelStore[DEFAULT_ROUTER_ID]) {
@@ -1635,6 +1687,8 @@ function migratePersistedRoutingConfig(): void {
       fallbackChanged = true;
     }
   }
+
+  mergeMissingDefaultRouterCandidates();
 
   if (fallbackChanged) {
     try {
@@ -5697,6 +5751,7 @@ loadProviderPricingStore();
 loadPersistedSystemPrompt();
 loadPersistedThinkingConfig();
 loadPersistedProviderModels();
+mergeBaselineProviderModelOverrides();
 loadModelSourceConfig();
 loadEndpointModelsCache();
 
