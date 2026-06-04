@@ -19,16 +19,18 @@ Local Router is a localhost proxy (port `11434`) with **Ollama-compatible** and 
 - **Operator CLI:** `localrouter list`, `keys`, `router`, `verify`, `config --open`
 - **Thinking:** Proxy toggle default **OFF** (IDE passthrough); optional levels when enabled. Responses strip `reasoning_content` for VS Code safety; requests preserve it for multi-turn tools
 - **Tests:** `npm test` — **8** test files, **26** cases (21 in `npm test` + 5 routing unit tests; see [Current Test Coverage](#current-test-coverage))
-- **Canonical release:** `main` = `develop` @ **`acbb577`** (2026-06-04) — see [System Snapshot](#system-snapshot--canonical-state-2026-06-04)
+- **Canonical release:** `main` = `develop` @ **`38d9e73`** (2026-06-04) — see [System Snapshot](#system-snapshot--canonical-state-2026-06-04)
 
 ## System Snapshot — Canonical State (2026-06-04)
 
-Use this section to resume work without re-deriving architecture. Remote: `https://github.com/nbiish/local-router.git` (`local-router` remote). **Both `main` and `develop` point at `acbb577`** after the gateway + routing exhaustion release.
+Use this section to resume work without re-deriving architecture. Remote: `https://github.com/nbiish/local-router.git` (`local-router` remote). **`main` and `develop` @ `38d9e73`** — routing tier split + curated `opencode-code` catalog (10 models).
 
 ### Release lineage (recent)
 
 | Commit | Summary |
 |--------|---------|
+| `38d9e73` | **`opencode-code`** — rename `opencode` provider; trim 9 legacy Go models from catalog/router/fallback; legacy `opencode-*` → `opencode-code-*` aliases |
+| `fa18504` | **Routing tier split** — separate fallback vs auto-router defaults; paid order wafer→zenmux→OR→cline→kilo→ozen; `openrouter/free` x3 |
 | `acbb577` | **Init fix** — default fallback sort at module load must not call `findProviderModel` before `modelSourceConfig` exists |
 | `2b47b1e` | **Wraparound exhaustion** — free → subscription → paid bands; `buildWraparoundExecutionPlan()` revisits earlier models before advancing |
 | `db915b2` | **Gateway free curation** — Cline/Kilo catalog limited to 6 free CLI models; router/auto presets excluded |
