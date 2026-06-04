@@ -29,9 +29,15 @@ import {
 } from './responses-stream';
 import { ensureOllamaBackend, pullOllamaCloudModels } from './ollama-backend';
 import {
+  filterOllamaCloudPullTags,
+  isOllamaCloudPresentedIdBlocked
+} from './ollama-cloud-catalog';
+import {
   DEFAULT_OLLAMA_API_KEY,
   ensureDefaultOllamaApiKey,
-  isOllamaPlaceholderKey
+  isOllamaPlaceholderKey,
+  isRealOllamaComApiKey,
+  resolveOllamaApiKey
 } from './ollama-keys';
 
 type ProviderModel = {
@@ -246,14 +252,9 @@ const PRESENTATION_PREFIX_TO_PROVIDER: Record<string, string> = {
 };
 
 const DEFAULT_ROUTER_CANDIDATES_TEXT = [
-  'ollama-nemotron-3-ultra-cloud, coding=0.86, input=0, output=0, latency=850, notes=Ollama Cloud NVIDIA Nemotron 3 Ultra',
-  'ollama-minimax-m3-cloud, coding=0.82, input=0, output=0, latency=950, notes=Ollama Cloud MiniMax M3 free tier',
-  'ollama-qwen3.5-cloud, coding=0.83, input=0, output=0, latency=920, notes=Ollama Cloud Qwen 3.5 multimodal',
-  'ollama-deepseek-v4-flash-cloud, coding=0.84, input=0, output=0, latency=900, notes=Ollama Cloud DeepSeek V4 Flash',
-  'ollama-deepseek-v4-pro-cloud, coding=0.85, input=0, output=0, latency=920, notes=Ollama Cloud DeepSeek V4 Pro',
-  'ollama-kimi-k2.6-cloud, coding=0.84, input=0, output=0, latency=900, notes=Ollama Cloud Kimi K2.6',
-  'ollama-glm-5.1-cloud, coding=0.83, input=0, output=0, latency=900, notes=Ollama Cloud GLM 5.1',
-  'ollama-minimax-m2.7-cloud, coding=0.81, input=0, output=0, latency=950, notes=Ollama Cloud MiniMax M2.7',
+  'ollama-nemotron-3-ultra-cloud, coding=0.86, input=0, output=0, latency=850, notes=Ollama Cloud Nemotron 3 Ultra (free tier)',
+  'ollama-minimax-m3-cloud, coding=0.82, input=0, output=0, latency=950, notes=Ollama Cloud MiniMax M3 (free tier)',
+  'ollama-deepseek-v4-flash-cloud, coding=0.84, input=0, output=0, latency=900, notes=Ollama Cloud DeepSeek V4 Flash (free tier coding fallback)',
   'nvidia-nim-step-3.7-flash, coding=0.84, input=0.1, output=0.3, latency=700, notes=NVIDIA NIM Step 3.7 Flash reasoning',
   'nvidia-nim-kimi-k2.6, coding=0.86, input=0.6, output=2.5, latency=850, notes=NVIDIA NIM Kimi K2.6 256K ctx coding',
   'nvidia-nim-minimax-m3, coding=0.85, input=0.1, output=0.3, latency=720, notes=NVIDIA NIM MiniMax M3',
@@ -2164,6 +2165,61 @@ function mergeMissingDefaultRouterCandidates(): void {
   }
 }
 
+function pruneDisallowedOllamaCloudRouting(): void {
+  const allowsPro = ollamaCloudRoutingAllowsPro();
+  let routerChanged = false;
+  const autoRouter = routerModelStore[DEFAULT_ROUTER_ID];
+  if (autoRouter?.candidates?.length) {
+    const before = autoRouter.candidates.length;
+    autoRouter.candidates = autoRouter.candidates.filter((candidate) => {
+      const resolved = findProviderModel(candidate.model);
+      const target = resolveModelTarget(candidate.model);
+      if (target?.providerName !== 'ollama' || !resolved) return true;
+      return !isOllamaCloudPresentedIdBlocked(
+        candidate.model,
+        resolved.model,
+        allowsPro
+      );
+    });
+    if (autoRouter.candidates.length !== before) {
+      routerModelStore[DEFAULT_ROUTER_ID] = cloneRouterModel(autoRouter);
+      routerChanged = true;
+    }
+  }
+
+  let fallbackChanged = false;
+  for (const route of Object.values(fallbackModelStore)) {
+    const before = route.models.length;
+    route.models = route.models.filter((modelId) => {
+      const resolved = findProviderModel(modelId);
+      const target = resolveModelTarget(modelId);
+      if (target?.providerName !== 'ollama' || !resolved) return true;
+      return !isOllamaCloudPresentedIdBlocked(modelId, resolved.model, allowsPro);
+    });
+    if (route.models.length !== before) {
+      fallbackChanged = true;
+    }
+  }
+
+  if (routerChanged) {
+    try {
+      persistRouterModels();
+      console.log('[router] Pruned Ollama Cloud models outside free-tier routing allowlist.');
+    } catch (error: any) {
+      console.error('Failed to persist pruned router candidates:', sanitizeDiagnosticText(String(error?.message || error)));
+    }
+  }
+
+  if (fallbackChanged) {
+    try {
+      persistFallbackModels();
+      console.log('[router] Pruned Ollama Cloud models from fallback chain (free-tier allowlist).');
+    } catch (error: any) {
+      console.error('Failed to persist pruned fallback routes:', sanitizeDiagnosticText(String(error?.message || error)));
+    }
+  }
+}
+
 function normalizeRoutingTierOrder(): void {
   let routerChanged = false;
   const autoRouter = routerModelStore[DEFAULT_ROUTER_ID];
@@ -2287,6 +2343,7 @@ function migratePersistedRoutingConfig(): void {
 
   mergeMissingDefaultRouterCandidates();
   normalizeRoutingTierOrder();
+  pruneDisallowedOllamaCloudRouting();
 
   if (fallbackChanged) {
     try {
@@ -2578,6 +2635,7 @@ function loadPqcSecrets(): void {
   if (!bin) {
     console.log('[PQC] pqc-secrets binary not found — skipping bundle load.');
     ensureDefaultOllamaApiKey(keyStore);
+    pruneDisallowedOllamaCloudRouting();
     return;
   }
   try {
@@ -2631,11 +2689,13 @@ function loadPqcSecrets(): void {
       }
     }
     ensureDefaultOllamaApiKey(keyStore);
+    pruneDisallowedOllamaCloudRouting();
   } catch (err) {
     if (process.env.LOCAL_ROUTER_DEV === 'true') {
       console.log(`[PQC] No secrets bundle loaded:`, (err as Error).message);
     }
     ensureDefaultOllamaApiKey(keyStore);
+    pruneDisallowedOllamaCloudRouting();
   }
 }
 
@@ -5419,7 +5479,10 @@ app.post('/api/refresh-endpoint-models', async (req: Request, res: Response) => 
     const fetchedModels = await queryAllProviderEndpoints();
     endpointModelsCache = fetchedModels;
     persistEndpointModelsCache();
-    const ollamaTags = effectiveProviderModels('ollama').map((model) => model.model);
+    const ollamaTags = filterOllamaCloudPullTags(
+      effectiveProviderModels('ollama').map((model) => model.model),
+      ollamaCloudRoutingAllowsPro()
+    );
     void pullOllamaCloudModels(ollamaTags);
     res.json({ success: true, count: endpointModelsCache.length, data: endpointModelsCache });
   } catch (error: any) {
@@ -7109,6 +7172,10 @@ function requestFeatureSummary(body: any) {
   };
 }
 
+function ollamaCloudRoutingAllowsPro(): boolean {
+  return isRealOllamaComApiKey(String(keyStore.ollama || resolveOllamaApiKey() || ''));
+}
+
 function providerHasConfiguredKey(providerName: string) {
   if (providerName === 'ollama') {
     return true;
@@ -7169,6 +7236,19 @@ function fallbackStagePreflight(modelName: string): AttemptFailure | null {
       providerName: target.providerName,
       actualModel: target.actualModel,
       message: `Provider "${target.providerName}" is not configured. Add an API key at /config.`
+    };
+  }
+
+  const catalogModel = findProviderModel(modelName);
+  if (
+    target.providerName === 'ollama'
+    && isOllamaCloudPresentedIdBlocked(modelName, catalogModel?.model || target.actualModel, ollamaCloudRoutingAllowsPro())
+  ) {
+    return {
+      errorType: 'provider_config',
+      providerName: target.providerName,
+      actualModel: target.actualModel,
+      message: `Ollama Cloud model "${modelName}" is not on the free-tier routing allowlist (Pro-only or not curated).`
     };
   }
 
@@ -7338,6 +7418,13 @@ function routerCandidateEligibility(router: RouterModel, candidate: RouterCandid
   }
   if (target && rejectionReasons.includes('missing_provider_key')) {
     console.warn(`[router] Skipping candidate "${candidate.model}" — provider "${target.providerName}" has no configured API key`);
+  }
+  if (
+    target?.providerName === 'ollama'
+    && resolved
+    && isOllamaCloudPresentedIdBlocked(candidate.model, resolved.model, ollamaCloudRoutingAllowsPro())
+  ) {
+    rejectionReasons.push('ollama_cloud_tier_blocked');
   }
   if (resolved) {
     if (features.requiresTools && !resolved.supportsTools) rejectionReasons.push('tools_required');
@@ -9277,7 +9364,10 @@ const server = app.listen(PORT, () => {
 
   void (async () => {
     await ensureOllamaBackend();
-    const ollamaTags = effectiveProviderModels('ollama').map((model) => model.model);
+    const ollamaTags = filterOllamaCloudPullTags(
+      effectiveProviderModels('ollama').map((model) => model.model),
+      ollamaCloudRoutingAllowsPro()
+    );
     await pullOllamaCloudModels(ollamaTags);
   })();
 });

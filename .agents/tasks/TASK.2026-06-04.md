@@ -1,18 +1,15 @@
-# TASK 2026-06-04 — Thinking decouple + Responses HTTP SSE
+# TASK 2026-06-04 — Ollama free-tier routing
 
-Branch: feat/routing-thinking-streaming
-Base: develop @ 19f95b0
-
-- read plan
-- worktree created
-- decouple UI cards
-- persist prompt only
-- responses-stream module
-- HTTP SSE stream=true
-- WS uses shared sink
-- integration tests
-- llms.txt sync
+- User: narrow Ollama quota
+- Keep: nemotron + minimax-m3
+- Free fallback: deepseek-v4-flash
+- Pro-only: gate placeholder key
+- Prune: router + fallback chains
+- Pull: free tags only
 
 ####
 
-Decouple thinking from system prompt in `/config` and APIs. Implement `POST /v1/responses` HTTP SSE streaming via shared translator with WebSocket path.
+- `src/ollama-cloud-catalog.ts` — tier map + allowlists
+- `DEFAULT_ROUTER_CANDIDATES_TEXT` — 3 Ollama lines
+- `pruneDisallowedOllamaCloudRouting()` on migrate + PQC load
+- `providers.txt` — free vs Pro annotations

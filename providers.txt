@@ -111,14 +111,14 @@
 # │ 80 │ opencode           │ minimax-m3-free                     │ opc:minimax-m3-free           │ 512,000  │ 512,000  │ YES   │ YES  │ YES   │ YES*      │
 # │ 81 │ openrouter-presets │ qwen/qwen3.7-plus                   │ orps:qwen3.7-plus             │1,000,000 │ 65,536   │ YES   │ YES  │ YES   │ NO*       │
 # │ 82 │ wafer-serverless   │ MiniMax-M3                          │ wsvr:MiniMax-M3                │ 512,000  │ 512,000  │ YES   │ YES  │ YES   │ YES*      │
-# │ 83 │ ollama             │ nemotron-3-ultra:cloud              │ ollama:nemotron-3-ultra:cloud  │ 256,000  │ 32,768   │ YES   │ NO   │ NO    │ YES*      │
-# │ 84 │ ollama             │ minimax-m3:cloud                    │ ollama:minimax-m3:cloud        │ 512,000  │ 512,000  │ YES   │ YES  │ NO    │ YES*      │
-# │ 85 │ ollama             │ deepseek-v4-flash:cloud             │ ollama:deepseek-v4-flash:cloud │1,000,000 │ 384,000  │ YES   │ NO   │ NO    │ YES*      │
-# │ 86 │ ollama             │ deepseek-v4-pro:cloud               │ ollama:deepseek-v4-pro:cloud   │1,000,000 │ 384,000  │ YES   │ NO   │ NO    │ YES*      │
-# │ 87 │ ollama             │ kimi-k2.6:cloud                     │ ollama:kimi-k2.6:cloud         │ 256,000  │ 32,768   │ YES   │ YES  │ NO    │ YES*      │
-# │ 88 │ ollama             │ glm-5.1:cloud                       │ ollama:glm-5.1:cloud           │ 200,000  │ 128,000  │ YES   │ NO   │ NO    │ YES*      │
-# │ 89 │ ollama             │ minimax-m2.7:cloud                  │ ollama:minimax-m2.7:cloud      │ 204,800  │ 131,072  │ YES   │ NO   │ NO    │ YES*      │
-# │ 90 │ ollama             │ qwen3.5:cloud                       │ ollama:qwen3.5:cloud           │ 256,000  │ 65,536   │ YES   │ YES  │ NO    │ YES*      │
+# │ 83 │ ollama             │ nemotron-3-ultra:cloud              │ ollama:nemotron-3-ultra:cloud  │ 256,000  │ 32,768   │ YES   │ NO   │ NO    │ YES* free │
+# │ 84 │ ollama             │ minimax-m3:cloud                    │ ollama:minimax-m3:cloud        │ 512,000  │ 512,000  │ YES   │ YES  │ NO    │ YES* free │
+# │ 85 │ ollama             │ deepseek-v4-flash:cloud             │ ollama:deepseek-v4-flash:cloud │1,000,000 │ 384,000  │ YES   │ NO   │ NO    │ YES* free │
+# │ 86 │ ollama             │ deepseek-v4-pro:cloud               │ ollama:deepseek-v4-pro:cloud   │1,000,000 │ 384,000  │ YES   │ NO   │ NO    │ YES* Pro  │
+# │ 87 │ ollama             │ kimi-k2.6:cloud                     │ ollama:kimi-k2.6:cloud         │ 256,000  │ 32,768   │ YES   │ YES  │ NO    │ YES* Pro  │
+# │ 88 │ ollama             │ glm-5.1:cloud                       │ ollama:glm-5.1:cloud           │ 200,000  │ 128,000  │ YES   │ NO   │ NO    │ YES* Pro  │
+# │ 89 │ ollama             │ minimax-m2.7:cloud                  │ ollama:minimax-m2.7:cloud      │ 204,800  │ 131,072  │ YES   │ NO   │ NO    │ YES* Pro  │
+# │ 90 │ ollama             │ qwen3.5:cloud                       │ ollama:qwen3.5:cloud           │ 256,000  │ 65,536   │ YES   │ YES  │ NO    │ YES* Pro  │
 # #
 # * Native reasoning DISABLED — VS Code/Copilot Chat and Zed cannot reliably
 #   preserve provider-native reasoning metadata across turns. FVS-CODE strips
@@ -417,12 +417,13 @@
 # Key env:     OLLAMA_API_KEY  (default: local-router-ollama placeholder; optional real ollama.com key)
 # Zed prefix:  ollama
 # Cross-tool:  All Ollama-native clients via Local Router on :11434
-# Models:      8 curated cloud tags — nemotron-3-ultra, minimax-m3, deepseek-v4-flash,
-#              deepseek-v4-pro, kimi-k2.6, glm-5.1, minimax-m2.7, qwen3.5 (all :cloud)
-# Notes:       Local Router starts `ollama serve` on 11435 and pulls curated cloud tags.
+# Models:      8 catalog cloud tags (free: nemotron-3-ultra, minimax-m3, deepseek-v4-flash;
+#              Pro-only: deepseek-v4-pro, kimi-k2.6, glm-5.1, minimax-m2.7, qwen3.5)
+# Routing:     Auto-router/fallback use only the 3 free tags (shared quota — no 8-model burn).
+#              Pro tags route when OLLAMA_API_KEY is a real ollama.com key (not placeholder).
+# Notes:       Local Router starts `ollama serve` on 11435 and pulls free-tier routing tags.
 #              Custom mode lists only providers.txt + /config edits (not every local tag).
 #              Add extra local/cloud models via Provider Model Manager in /config.
-#              Cloud models use Ollama free tier; pair with auto-router/fallback for burn.
 #              Do not store Ollama API keys in providers.txt, .env, git, or logs.
 
 # =============================================================================

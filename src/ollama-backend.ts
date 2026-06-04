@@ -2,6 +2,8 @@ import { spawn, spawnSync } from 'child_process';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
+import { filterOllamaCloudPullTags } from './ollama-cloud-catalog';
+import { isRealOllamaComApiKey, resolveOllamaApiKey } from './ollama-keys';
 
 const OLLAMA_BACKEND_HOST = process.env.OLLAMA_BACKEND_HOST || '127.0.0.1:11435';
 const OLLAMA_BACKEND_BASE_URL = process.env.LOCAL_ROUTER_PROVIDER_OLLAMA_BASE_URL
@@ -143,8 +145,12 @@ export async function pullOllamaCloudModels(modelTags: string[]): Promise<void> 
   const binary = resolveRealOllamaBinary();
   if (!binary) return;
 
+  const allowsPro = isRealOllamaComApiKey(resolveOllamaApiKey());
   const uniqueTags = Array.from(new Set(
-    modelTags.map((tag) => String(tag || '').trim()).filter(Boolean)
+    filterOllamaCloudPullTags(
+      modelTags.map((tag) => String(tag || '').trim()).filter(Boolean),
+      allowsPro
+    )
   ));
 
   if (uniqueTags.length === 0) return;

@@ -317,8 +317,23 @@ test('provider key save/reset lifecycle exposes configured source', async (t) =>
     'auto-router-main should include Ollama Nemotron 3 Ultra cloud candidate'
   );
   assert.ok(
+    autoRouterCandidates.includes('ollama-minimax-m3-cloud'),
+    'auto-router-main should include Ollama MiniMax M3 cloud candidate'
+  );
+  assert.ok(
+    autoRouterCandidates.includes('ollama-deepseek-v4-flash-cloud'),
+    'auto-router-main should include Ollama DeepSeek V4 Flash cloud candidate'
+  );
+  const ollamaCloudCandidates = autoRouterCandidates.filter((id) => String(id).startsWith('ollama-'));
+  assert.equal(
+    ollamaCloudCandidates.length,
+    3,
+    `Expected exactly 3 Ollama cloud router candidates (shared quota), got: ${ollamaCloudCandidates.join(', ')}`
+  );
+  assert.equal(
     autoRouterCandidates.includes('ollama-qwen3.5-cloud'),
-    'auto-router-main should include Ollama Qwen 3.5 cloud candidate'
+    false,
+    'Pro-only Ollama Qwen 3.5 cloud should not be in default auto-router'
   );
 
   const systemFallback = bootstrappedFallbackRoutes.body?.data?.find((route) => route.routeId === 'fallback-models');
