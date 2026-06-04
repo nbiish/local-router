@@ -1,0 +1,38 @@
+{
+  "updated": "2026-06-04",
+  "purpose": "Vendor-reported coding benchmarks for Local Router candidate scoring and CIP calibration.",
+  "models": [
+    {
+      "presentedId": "zai-code-pass-glm-5.1",
+      "sweBenchPro": 0.584,
+      "sources": [
+        "https://huggingface.co/zai-org/GLM-5.1/raw/main/README.md",
+        "https://www.marktechpost.com/2026/04/08/z-ai-introduces-glm-5-1-an-open-weight-754b-agentic-model-that-achieves-sota-on-swe-bench-pro-and-sustains-8-hour-autonomous-execution/"
+      ],
+      "routerCodingScore": 0.88,
+      "notes": "Z.ai Code Pass GLM-5.1 — prefer over Nebius zai-org/GLM-5.1 upstream path for coding pass routing."
+    },
+    {
+      "presentedId": "zenmux-minimax-m3",
+      "sweBenchPro": 0.59,
+      "sources": [
+        "https://www.minimax.io/blog/minimax-m3",
+        "https://www.marktechpost.com/2026/06/01/minimax-releases-minimax-m3-with-msa-architecture-supporting-1m-token-context-native-multimodality-and-agentic-coding/"
+      ],
+      "routerCodingScore": 0.9,
+      "notes": "MiniMax M3 released 2026-06-01; vendor-reported SWE-Bench Pro leader among cited open-weight models."
+    },
+    {
+      "presentedId": "opencode-minimax-m3",
+      "sweBenchPro": 0.59,
+      "routerCodingScore": 0.9,
+      "notes": "Same upstream family as MiniMax M3 via OpenCode Zen/Go catalog."
+    },
+    {
+      "presentedId": "zenmux-deepseek-v4-pro",
+      "routerCodingScore": 0.91,
+      "notes": "Retained high tier for 1M-context DeepSeek V4 Pro on ZenMux."
+    }
+  ],
+  "cipGuidance": "Recompute router candidates from router-events.csv after 50+ samples per model. Treat vendor benchmarks as priors; live telemetry overrides via POST /api/router-models/:id/recompute."
+}

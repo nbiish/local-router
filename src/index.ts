@@ -167,16 +167,17 @@ const DEFAULT_ROUTER_MIN_CODING_SCORE = 0.66;
 const DEFAULT_ROUTER_COST_QUALITY_TRADEOFF = 7;
 const ROUTER_CANDIDATE_RETRIES = 2;
 const SYSTEM_FALLBACK_ROUTE_ID = 'fallback-models';
+const DEFAULT_ROUTER_ID = 'auto-local-main';
 const DEFAULT_ROUTER_CANDIDATES_TEXT = [
   'openrouter-1-million-chain-of-draft, coding=0.88, input=1, output=2, latency=1200, notes=OpenRouter preset: DS V4 Pro + V4 Flash + MiMo',
   'openrouter-chain-of-draft, coding=0.86, input=1, output=2, latency=1300, notes=OpenRouter preset: DS V4 Pro + Kimi K2.6 + MiMo',
   'openrouter-qwen3.7-max, coding=0.85, input=2.5, output=7.5, latency=900, notes=OpenRouter Qwen3.7-Max cheapest 1M ctx',
   'xiaomi-mimo-mimo-v2.5-pro, coding=0.80, input=0.44, output=0.88, latency=1000, notes=Xiaomi MiMo V2.5 Pro 1M ctx',
   'xiaomi-mimo-mimo-v2.5, coding=0.76, input=0.15, output=0.29, latency=1100, notes=Xiaomi MiMo V2.5 1M ctx multimodal',
-  'zenmux-minimax-m3, coding=0.85, input=0.3, output=1.2, latency=700, notes=ZenMux MiniMax M3 512K ctx multimodal reasoning',
+  'zenmux-minimax-m3, coding=0.90, input=0.3, output=1.2, latency=700, notes=ZenMux MiniMax M3 — SWE-Bench Pro ~59% (Jun 2026 vendor)',
   'zenmux-step-3.7-flash, coding=0.84, input=0.2, output=1.15, latency=700, notes=ZenMux Step 3.7 Flash reasoning',
   'zenmux-deepseek-v4-pro, coding=0.91, input=0.435, output=0.87, latency=900, notes=ZenMux DeepSeek V4 Pro 1M ctx',
-  'zai-code-pass-glm-5.1, coding=0.83, input=0.88, output=3.51, latency=750, notes=Z.ai Code Pass GLM-5.1 200K ctx',
+  'zai-code-pass-glm-5.1, coding=0.88, input=0.88, output=3.51, latency=750, notes=Z.ai Code Pass GLM-5.1 — SWE-Bench Pro ~58.4% (Apr 2026 vendor)',
   'opencode-minimax-m3, coding=0.85, input=0.3, output=1.2, latency=650, notes=OpenCode MiniMax M3 512K ctx',
   'modal-glm-5.1-fp8, coding=0.83, input=0.5, output=1, latency=800, notes=Modal GLM-5.1 FP8 200K ctx',
   'nvidia-nim-step-3.7-flash, coding=0.84, input=0.1, output=0.3, latency=700, notes=NVIDIA NIM Step 3.7 Flash reasoning',
@@ -184,6 +185,28 @@ const DEFAULT_ROUTER_CANDIDATES_TEXT = [
   'nvidia-nim-kimi-k2.6, coding=0.86, input=0.6, output=2.5, latency=850, notes=NVIDIA NIM Kimi K2.6 256K ctx coding',
   'opencode-minimax-m3-free, coding=0.80, input=0, output=0, latency=900, notes=OpenCode MiniMax M3 free tier 512K ctx'
 ].join('\n');
+
+const LEGACY_AUTO_LOCAL_MAIN_MODELS = new Set([
+  'openrouter-1-million-chain-of-draft',
+  'openrouter-chain-of-draft',
+  'openrouter-openrouter-personal-router',
+  'openrouter-1-million-main',
+  'openrouter-free-chain-of-draft'
+]);
+
+/** Maps persisted upstream-style paths to presented catalog aliases. */
+const UPSTREAM_MODEL_ID_ALIASES: Record<string, string> = {
+  'nebius/zai-org/GLM-5.1': 'zai-code-pass-glm-5.1',
+  'modal/zai-org/GLM-5.1-FP8': 'modal-glm-5.1-fp8',
+  'nvidia-nim/stepfun-ai/step-3.7-flash': 'nvidia-nim-step-3.7-flash',
+  'nebius/deepseek-ai/DeepSeek-V4-Pro': 'nebius-deepseek-v4-pro',
+  'opencode/deepseek-v4-pro': 'opencode-deepseek-v4-pro',
+  'xiaomi-mimo/mimo-v2.5': 'xiaomi-mimo-mimo-v2.5',
+  'zenmux/xiaomi/mimo-v2.5': 'zenmux-mimo-v2.5',
+  'openrouter-presets/@preset/chain-of-draft': 'openrouter-chain-of-draft',
+  'wafer-serverless/deepseek-v4-flash': 'wafer-ai-deepseek-v4-flash'
+};
+
 const DEFAULT_FALLBACK_FREE_TIER = [
   'opencode-minimax-m3-free',
   'opencode-zen-minimax-m3-free'
@@ -1489,6 +1512,103 @@ function findProviderModel(modelName: string): ProviderModel | undefined {
   return activeProviderModelList().find((model) => providerModelAliases(model).has(lookup));
 }
 
+function normalizeCatalogModelId(raw: string): string {
+  const trimmed = stripOllamaLatestSuffix(String(raw || '').trim());
+  if (!trimmed) return trimmed;
+
+  const aliasTarget = UPSTREAM_MODEL_ID_ALIASES[trimmed];
+  if (aliasTarget) {
+    const aliasMatch = findProviderModel(aliasTarget);
+    if (aliasMatch) return aliasMatch.id;
+  }
+
+  const direct = findProviderModel(trimmed);
+  if (direct) return direct.id;
+
+  if (trimmed.includes('/')) {
+    const slashIndex = trimmed.indexOf('/');
+    const providerName = trimmed.slice(0, slashIndex);
+    const upstreamModel = trimmed.slice(slashIndex + 1);
+    const catalogMatch = activeProviderModelList().find((model) => (
+      model.provider === providerName && model.model === upstreamModel
+    ));
+    if (catalogMatch) return catalogMatch.id;
+
+    const presented = defaultPresentedModelName(providerName, upstreamModel);
+    const presentedMatch = findProviderModel(presented);
+    if (presentedMatch) return presentedMatch.id;
+  }
+
+  return trimmed;
+}
+
+function isLegacyAutoLocalMainRouter(router: RouterModel): boolean {
+  const models = router.candidates.map((candidate) => candidate.model);
+  return models.length === LEGACY_AUTO_LOCAL_MAIN_MODELS.size
+    && models.every((modelId) => LEGACY_AUTO_LOCAL_MAIN_MODELS.has(modelId));
+}
+
+function buildDefaultAutoLocalRouterModel(): RouterModel | null {
+  const parsed = parseRouterModel({
+    id: DEFAULT_ROUTER_ID,
+    type: DEFAULT_ROUTER_TYPE,
+    minCodingScore: DEFAULT_ROUTER_MIN_CODING_SCORE,
+    costQualityTradeoff: DEFAULT_ROUTER_COST_QUALITY_TRADEOFF,
+    candidatesText: DEFAULT_ROUTER_CANDIDATES_TEXT
+  });
+  if (!parsed.ok) {
+    console.error('Failed to build default auto-local router:', parsed.error);
+    return null;
+  }
+  const referenceCheck = validateRouterReferences(parsed.model);
+  if (!referenceCheck.ok) {
+    console.error('Default auto-local router references unresolved candidates:', referenceCheck.error);
+    return null;
+  }
+  return parsed.model;
+}
+
+function migratePersistedRoutingConfig(): void {
+  const defaultRouter = buildDefaultAutoLocalRouterModel();
+  const existingRouter = routerModelStore[DEFAULT_ROUTER_ID];
+  if (defaultRouter && existingRouter && isLegacyAutoLocalMainRouter(existingRouter)) {
+    routerModelStore[DEFAULT_ROUTER_ID] = cloneRouterModel(defaultRouter);
+    try {
+      persistRouterModels();
+      console.log('[router] Migrated auto-local-main from legacy OpenRouter-only presets to default candidate catalog.');
+    } catch (error: any) {
+      console.error('Failed to persist migrated auto-local-main router:', sanitizeDiagnosticText(String(error?.message || error)));
+    }
+  }
+
+  let fallbackChanged = false;
+  for (const route of Object.values(fallbackModelStore)) {
+    const normalized = route.models
+      .map((modelId) => normalizeCatalogModelId(modelId))
+      .filter(Boolean);
+    const deduped: string[] = [];
+    const seen = new Set<string>();
+    for (const modelId of normalized) {
+      if (seen.has(modelId)) continue;
+      seen.add(modelId);
+      deduped.push(modelId);
+    }
+    if (deduped.length !== route.models.length || deduped.some((id, index) => id !== route.models[index])) {
+      route.models = deduped;
+      fallbackChanged = true;
+    }
+  }
+
+  if (fallbackChanged) {
+    try {
+      persistFallbackModels();
+      console.log('[router] Normalized fallback route model IDs to presented catalog aliases.');
+    } catch (error: any) {
+      console.error('Failed to persist normalized fallback routes:', sanitizeDiagnosticText(String(error?.message || error)));
+    }
+  }
+}
+
 function findPresentedModel(modelName: string): ProviderModel | undefined {
   const lookup = stripOllamaLatestSuffix(modelName.trim());
   return presentedModelList().find((model) => providerModelAliases(model).has(lookup));
@@ -2586,6 +2706,7 @@ app.get('/config', (req: Request, res: Response) => {
         let activeModelEditId = '';
         let activeFallbackRouteId = '';
         let activeRouterRouteId = '';
+        const DEFAULT_ROUTER_ID = ${JSON.stringify(DEFAULT_ROUTER_ID)};
         const DEFAULT_ROUTER_CANDIDATES_TEXT = ${JSON.stringify(DEFAULT_ROUTER_CANDIDATES_TEXT)};
         const DEFAULT_FALLBACK_MODELS_TEXT = ${JSON.stringify(DEFAULT_FALLBACK_MODELS_TEXT)};
         let routerCandidateStore = [];
@@ -3277,13 +3398,28 @@ app.get('/config', (req: Request, res: Response) => {
           renderCandidateList();
         }
 
-        function clearRouterRouteForm() {
+        async function clearRouterRouteForm() {
           activeRouterRouteId = '';
-          document.getElementById('routerRouteId').value = '';
+          document.getElementById('routerRouteId').value = DEFAULT_ROUTER_ID;
           document.getElementById('routerRouteId').disabled = false;
-          routerCandidateStore = [];
-          renderCandidateList();
           applyRouterDefaults();
+          try {
+            const res = await fetch('/api/router-models/reset-defaults', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ id: DEFAULT_ROUTER_ID })
+            });
+            const payload = await res.json().catch(() => ({}));
+            if (!res.ok) {
+              setMessage(payload.error || 'Failed to reset router defaults.', 'error');
+              return;
+            }
+            setMessage('Reset auto-local-main to default candidate catalog (' + (payload.candidateCount || 0) + ' models).', 'success');
+            await loadRouterRoutes();
+            await refreshCatalog();
+          } catch (error) {
+            setMessage('Failed to reset router defaults.', 'error');
+          }
         }
 
         function renderRouterRoutes() {
@@ -4413,6 +4549,45 @@ app.post('/api/router-models', (req: Request, res: Response) => {
   });
 });
 
+app.post('/api/router-models/reset-defaults', (req: Request, res: Response) => {
+  const targetId = normalizeRouterRouteId(
+    typeof req.body?.id === 'string' && req.body.id.trim() ? req.body.id : DEFAULT_ROUTER_ID
+  );
+  if (targetId !== DEFAULT_ROUTER_ID) {
+    return res.status(400).json({
+      error: `Only ${DEFAULT_ROUTER_ID} can be reset via this endpoint. Use POST /api/router-models for other routers.`
+    });
+  }
+
+  const defaultRouter = buildDefaultAutoLocalRouterModel();
+  if (!defaultRouter) {
+    return res.status(500).json({ error: 'Failed to build default auto-local router profile.' });
+  }
+
+  routerModelStore[DEFAULT_ROUTER_ID] = cloneRouterModel(defaultRouter);
+  try {
+    persistRouterModels();
+  } catch (error: any) {
+    delete routerModelStore[DEFAULT_ROUTER_ID];
+    return res.status(500).json({
+      error: 'Failed to persist default router reset.',
+      details: sanitizeDiagnosticText(String(error?.message || error))
+    });
+  }
+
+  return res.json({
+    success: true,
+    routeId: DEFAULT_ROUTER_ID,
+    candidateCount: defaultRouter.candidates.length,
+    model: {
+      ...cloneRouterModel(routerModelStore[DEFAULT_ROUTER_ID]),
+      id: routerPresentedModelId(defaultRouter),
+      routeId: DEFAULT_ROUTER_ID,
+      display: routerModelPresentation(defaultRouter).display
+    }
+  });
+});
+
 app.delete('/api/router-models', (req: Request, res: Response) => {
   const id = normalizeRouterRouteId(typeof req.body?.id === 'string' ? req.body.id : '');
   if (!id) {
@@ -5337,8 +5512,6 @@ loadPersistedProviderModels();
 loadModelSourceConfig();
 loadEndpointModelsCache();
 
-const DEFAULT_ROUTER_ID = 'auto-local-main';
-
 function ensureDefaultRouter() {
   if (routerModelStore[DEFAULT_ROUTER_ID]) return;
 
@@ -5373,6 +5546,7 @@ function ensureDefaultRouter() {
   }
 }
 
+migratePersistedRoutingConfig();
 ensureDefaultRouter();
 
 function ensureDefaultFallback() {
@@ -6202,6 +6376,42 @@ function routerEventFeatures(features: ReturnType<typeof requestFeatureSummary>,
   };
 }
 
+function recordProxyTelemetry(event: {
+  routeKind: 'router' | 'direct' | 'fallback';
+  routerId?: string;
+  routerType?: string;
+  presentedModel: string;
+  selectedModel: string;
+  status: number;
+  durationMs: number;
+  stream: boolean;
+  body: any;
+  errorType?: string;
+  rewardSignal?: number;
+  toolCallsValid?: boolean;
+  candidateScores?: unknown;
+}) {
+  const features = requestFeatureSummary(event.body);
+  const eventFeatures = routerEventFeatures(features, event.body);
+  appendRouterEvent({
+    timestamp: new Date().toISOString(),
+    router_id: event.routeKind === 'router' ? (event.routerId || '') : event.routeKind,
+    presented_model: event.presentedModel,
+    router_type: event.routeKind === 'router' ? (event.routerType || '') : event.routeKind,
+    selected_model: event.selectedModel,
+    status: event.status,
+    duration_ms: event.durationMs,
+    candidate_latency_ms: event.durationMs,
+    stream: event.stream,
+    ...eventFeatures,
+    tool_calls_valid: event.toolCallsValid ?? 0,
+    reward_signal: event.rewardSignal ?? 0,
+    prompt_hash: eventFeatures.prompt_hash,
+    candidate_scores: event.candidateScores ? JSON.stringify(event.candidateScores) : '',
+    error_type: event.errorType || ''
+  });
+}
+
 function appendRouterEvent(event: Record<string, unknown>) {
   ensureLocalRouterConfigDir();
   const headers = [
@@ -6844,6 +7054,19 @@ async function handleChatCompletion(req: Request, res: Response, bodyOverrides?:
   );
 
   if (directModelResult.ok) {
+    const features = requestFeatureSummary(body);
+    const eventFeatures = routerEventFeatures(features, body);
+    recordProxyTelemetry({
+      routeKind: 'direct',
+      presentedModel: String(model),
+      selectedModel: directModelResult.value.actualModel || String(model),
+      status: directModelResult.value.response.status,
+      durationMs: Date.now() - requestStartedAt,
+      stream: Boolean(stream),
+      body,
+      rewardSignal: 1,
+      toolCallsValid: eventFeatures.tool_calls_requested > 0
+    });
     return sendSuccessfulProxyResponse(
       res,
       model,
@@ -6854,6 +7077,18 @@ async function handleChatCompletion(req: Request, res: Response, bodyOverrides?:
       directModelResult.value
     );
   }
+
+  recordProxyTelemetry({
+    routeKind: 'direct',
+    presentedModel: String(model),
+    selectedModel: directModelResult.error.actualModel || String(model),
+    status: directModelResult.error.status || 500,
+    durationMs: Date.now() - requestStartedAt,
+    stream: Boolean(stream),
+    body,
+    errorType: directModelResult.error.errorType,
+    rewardSignal: 0
+  });
 
   const sysFallback = findSystemFallback();
   if (sysFallback) {
@@ -6957,6 +7192,18 @@ async function executeFallbackRoute(
         );
 
         if (result.ok) {
+          recordProxyTelemetry({
+            routeKind: 'fallback',
+            routerId: fallbackRoute.id,
+            presentedModel,
+            selectedModel: stage.model,
+            status: result.value.response.status,
+            durationMs: Date.now() - requestStartedAt,
+            stream: Boolean(stream),
+            body,
+            rewardSignal: 1,
+            toolCallsValid: Array.isArray(body?.tools) && body.tools.length > 0
+          });
           return sendSuccessfulProxyResponse(
             res,
             presentedModel,
