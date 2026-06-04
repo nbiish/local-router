@@ -2188,12 +2188,31 @@ function normalizeRoutingTierOrder(): void {
   }
 
   let fallbackChanged = false;
+  const defaultFallbackIds = resolvedDefaultFallbackModels();
   for (const route of Object.values(fallbackModelStore)) {
-    if (!route?.models?.length) continue;
-    const sortedModels = stableSortModelIdsByProviderTier([...route.models]);
-    const orderChanged = sortedModels.some((modelId, index) => (
-      modelId !== route.models[index]
-    ));
+    const isSystemFallback = (
+      route.id === SYSTEM_FALLBACK_ROUTE_ID
+      || normalizeFallbackRouteId(route.id) === SYSTEM_FALLBACK_ROUTE_ID
+      || normalizeFallbackRouteId(route.id) === 'default'
+    );
+    const seedModels = isSystemFallback
+      ? [...defaultFallbackIds, ...route.models]
+      : [...route.models];
+    const deduped: string[] = [];
+    const seenModels = new Set<string>();
+    for (const modelId of seedModels) {
+      const trimmed = String(modelId || '').trim();
+      if (!trimmed || seenModels.has(trimmed) || !findProviderModel(trimmed)) continue;
+      seenModels.add(trimmed);
+      deduped.push(trimmed);
+    }
+    if (deduped.length === 0) continue;
+
+    const sortedModels = stableSortModelIdsByProviderTier(deduped);
+    const orderChanged = (
+      sortedModels.length !== route.models.length
+      || sortedModels.some((modelId, index) => modelId !== route.models[index])
+    );
     if (orderChanged) {
       route.models = sortedModels;
       fallbackChanged = true;
