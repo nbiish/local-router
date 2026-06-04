@@ -1,15 +1,12 @@
-# TASK 2026-06-04 — Ollama free-tier routing
+# TASK 2026-06-04 — llms.txt snapshot
 
-- User: narrow Ollama quota
-- Keep: nemotron + minimax-m3
-- Free fallback: deepseek-v4-flash
-- Pro-only: gate placeholder key
-- Prune: router + fallback chains
-- Pull: free tags only
+- User: comprehensive PRD
+- Read: codebase @ a905726
+- Add: System Snapshot section
+- Fix: stale router/test counts
+- Log: session consolidation
 
 ####
 
-- `src/ollama-cloud-catalog.ts` — tier map + allowlists
-- `DEFAULT_ROUTER_CANDIDATES_TEXT` — 3 Ollama lines
-- `pruneDisallowedOllamaCloudRouting()` on migrate + PQC load
-- `providers.txt` — free vs Pro annotations
+- Updated `llms.txt` for canonical state
+- Branch `docs/llms-system-state-2026-06`

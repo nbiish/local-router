@@ -10,13 +10,148 @@ Local Router is a localhost proxy (port `11434`) with **Ollama-compatible** and 
 - **Client inference:** `POST /v1/chat/completions`, Ollama `/api/chat` & `/api/generate`, Codex `POST /v1/responses`, Claude Code `POST /v1/messages`
 - **Model IDs:** `{provider-slug}/{presented-alias}` (e.g. `zenmux/qwen3.7-max`, `my-vendor/my-alias`) or `local-router/{router-or-fallback-id}`
 - **Keys:** `/config` UI → in-memory while running → **PQC bundle** `~/.config/pqc-secrets/secrets.bundle.json` on every save (ML-KEM-768 + AES-256-GCM). Never committed to git or `providers.txt`
-- **Catalog:** `providers.txt` (12 providers, ~88 models) + runtime edits in `provider-models.json` + **custom providers** in `custom-providers.json`
+- **Catalog:** `providers.txt` (12 providers, ~81 presented models in custom mode) + runtime edits in `provider-models.json` + **custom providers** in `custom-providers.json`
 - **Custom providers:** `/config` → **Add custom provider…** or `POST /api/providers` (HTTPS `/v1` upstream; loopback HTTP allowed for dev)
-- **Auto-router:** `local-router/auto-router-main` — 18 curated candidates (incl. Ollama Cloud Nemotron Ultra, MiniMax M3, Qwen 3.5), skips providers without keys, optional cascade to `local-router/fallback-models`
+- **Auto-router:** `local-router/auto-router-main` — **25** curated candidates: **3 Ollama Cloud (free tier only)** → NVIDIA NIM → Modal → … → OpenRouter; skips providers without keys; cascades to system fallback on exhaustion
+- **Ollama Cloud:** Shared quota — router/fallback/pull use **nemotron-3-ultra**, **minimax-m3**, **deepseek-v4-flash** only unless a real `ollama.com` API key is set (Pro tags gated). See [Ollama Cloud routing](#ollama-cloud-routing-free-vs-pro)
 - **Ollama shim:** `local-router route set` → `ollama serve` starts real Ollama on `11435` and Local Router on `11434`
 - **Operator CLI:** `localrouter list`, `keys`, `router`, `verify`, `config --open`
 - **Thinking:** Proxy toggle default **OFF** (IDE passthrough); optional levels when enabled. Responses strip `reasoning_content` for VS Code safety; requests preserve it for multi-turn tools
-- **Tests:** `npm test` — 4 integration suites, 13 cases (see [Current Test Coverage](#current-test-coverage))
+- **Tests:** `npm test` — 5 test files, **17** cases (see [Current Test Coverage](#current-test-coverage))
+- **Canonical release:** `main` = `develop` @ **`a905726`** (2026-06-04) — see [System Snapshot](#system-snapshot--canonical-state-2026-06-04)
+
+## System Snapshot — Canonical State (2026-06-04)
+
+Use this section to resume work without re-deriving architecture. Remote: `https://github.com/nbiish/local-router.git` (`local-router` remote). **Both `main` and `develop` point at `a905726`.**
+
+### Release lineage (recent)
+
+| Commit | Summary |
+|--------|---------|
+| `a905726` | **Ollama free-tier routing** — 3 cloud models in router/fallback/pull; Pro-only gating (`src/ollama-cloud-catalog.ts`) |
+| `954bdea` | System/legacy `default` fallback routes **union** tier defaults then re-sort |
+| `e4758ef` | Provider tier order on **all** fallback routes (not only `fallback-models`) |
+| `4206824` | Default provider tier order: Ollama first; catalog gate for custom mode |
+| `ffbc688` | Catalog filtering + Ollama backend on `:11435` |
+| `d9e1a84` | Custom provider registration |
+
+### Runtime topology
+
+```text
+Clients (VS Code, Claude Code, Codex, Cline, scripts)
+        │
+        ▼
+ 127.0.0.1:11434  Local Router (Express, src/index.ts)
+        │  model resolve → router / fallback / direct
+        │  keys from PQC bundle + in-memory keyStore
+        ▼
+ Per-provider upstream OpenAI-compat APIs
+        │
+        └── ollama provider → 127.0.0.1:11435/v1 (real ollama serve, auto-started)
+                 └── :cloud tags via local `ollama signin` session
+```
+
+| Port | Process | Role |
+|------|---------|------|
+| `11434` | Local Router | Public proxy — Ollama + OpenAI surfaces |
+| `11435` | Real `ollama serve` | Backend for `ollama/*` upstream only |
+
+### Provider tier order (exhaustion sequence)
+
+Used by `DEFAULT_PROVIDER_TIER_ORDER`, `stableSortModelIdsByProviderTier()`, default auto-router candidates, and system fallback seeding (`src/index.ts`):
+
+1. `ollama` — **3 free-tier `:cloud` tags only** in defaults (see below)
+2. `nvidia-nim`
+3. `modal`
+4. `nebius`
+5. `opencode-zen` (free-tier models in catalog)
+6. `opencode` (Go)
+7. `zai`
+8. `xiaomi-mimo`
+9. `wafer-serverless` (presented as `wafer-ai-*`)
+10. `zenmux`
+11. `openrouter-presets` (presented as `openrouter-*`)
+
+Router and fallback **skip** candidates when the provider has no API key (except `ollama`, always “configured” with placeholder). Ollama Cloud **Pro-only** presented IDs are skipped when the key is the placeholder.
+
+### Ollama Cloud routing (free vs Pro)
+
+**Module:** `src/ollama-cloud-catalog.ts` (tiers), `src/ollama-keys.ts` (placeholder vs real key), `src/ollama-backend.ts` (pull), `src/ollama-cloud.ts` (tag detection).
+
+| Upstream tag | Billing | In default router/fallback? | In startup `ollama pull`? |
+|--------------|---------|----------------------------|---------------------------|
+| `nemotron-3-ultra:cloud` | free | yes | yes |
+| `minimax-m3:cloud` | free | yes | yes |
+| `deepseek-v4-flash:cloud` | free | yes (coding fallback) | yes |
+| `deepseek-v4-pro:cloud` | Pro-only | only with real `ollama.com` key | only with real key |
+| `kimi-k2.6:cloud` | Pro-only | only with real key | only with real key |
+| `glm-5.1:cloud` | Pro-only | only with real key | only with real key |
+| `qwen3.5:cloud` | Pro-only | no (catalog only) | no |
+| `minimax-m2.7:cloud` | Pro-only | no (catalog only) | no |
+
+- **Placeholder key:** `local-router-ollama` (default) — free tier via **`ollama signin`**; not sent to ollama.com.
+- **Real key:** non-placeholder `OLLAMA_API_KEY` — enables Pro-tier routing/pull per catalog.
+- **Persistence migration:** `pruneDisallowedOllamaCloudRouting()` on startup (after PQC load) removes stale 8-model Ollama rows from saved router/fallback JSON.
+
+**Presented IDs (examples):** `ollama-nemotron-3-ultra-cloud`, `ollama-minimax-m3-cloud`, `ollama-deepseek-v4-flash-cloud`.
+
+### Default auto-router (`auto-router-main`)
+
+- **Type:** `auto-local` — `minCodingScore` 0.66, `costQualityTradeoff` 7
+- **25 candidates** in `DEFAULT_ROUTER_CANDIDATES_TEXT` (`src/index.ts`): 3 Ollama + 22 paid-catalog models
+- **Execution:** `selectRouterCandidate()` → `routerCandidateEligibility()` → upstream via `proxyModelAttempt()`; retries per candidate; system fallback on exhaustion
+- **Catalog mode:** Custom source must not leak `endpoint-models-cache` on `/v1/models`, `/api/tags`, or `GET /api/provider-models?catalog=active|all` (live upstream only when **Endpoint Models** toggle is on or `?live=true`)
+
+### Default system fallback
+
+- **Route id:** `fallback-models` (bootstrapped); persisted installs may also use legacy id **`default`** — startup **merges** tier-default model IDs into system/legacy routes, then tier-sorts
+- **Chain:** same tier order as router; Ollama stage = 3 free-tier models only
+- **Stages:** 3 attempts per stage with exponential backoff; skip stages with `fallbackStagePreflight()` (no key, Ollama tier block, unknown model)
+
+### Configuration on disk (`~/.config/local-router/`)
+
+| File | Purpose |
+|------|---------|
+| `router-models.json` | Routers + candidates |
+| `fallback-models.json` | Fallback chains |
+| `provider-models.json` | Per-provider model overrides |
+| `custom-providers.json` | Custom provider metadata (no keys) |
+| `model-source-config.json` | `custom` vs `endpoints` catalog source |
+| `endpoint-models-cache.json` | Cached upstream `/models` (endpoints mode) |
+| `system-prompt.json` | Optional CoD-style system prompt |
+| `thinking-config.json` | Thinking proxy on/off + levels |
+| `provider-pricing.json` | Router cost overrides |
+| `router-events.csv` / `router-candidates.csv` | Telemetry |
+| `sessions.json` / `session-feedback.json` | Usage + thumbs |
+| `proxy-state.json` | CLI start/stop PID |
+| `tool-routing.json` | Ollama shim route state |
+
+Keys: **`~/.config/pqc-secrets/secrets.bundle.json`** only (never in repo).
+
+### Operator verification (after any change)
+
+```bash
+cd /path/to/local-router    # on main or develop @ a905726+
+npm run build
+local-router stop && local-router start
+localrouter verify          # expects PASS on :11434
+# Config UI: http://127.0.0.1:11434/config
+# Confirm auto-router shows exactly 3 Ollama cloud candidates
+```
+
+### Iteration checklist (agents)
+
+1. **WORKTREE GATE** — `feature/*` or `docs/*` branch; never commit feature code on `main`/`develop` directly.
+2. Read this snapshot + `AGENTS.md` + `ROUTER.md` if touching routing.
+3. `npm test` with `LOCAL_ROUTER_SKIP_OLLAMA_ENSURE=true` in CI-like runs.
+4. Merge → `develop` → verify integrated → operator confirms → `main`.
+5. Remove worktree after merge.
+
+### Known sharp edges
+
+- **macOS Ollama.app** can bind `:11434` — stop it or use `local-router stop` before starting Local Router.
+- **Shared Ollama Cloud quota** — do not re-expand default router to 8 cloud models without operator intent.
+- **OpenRouter presets** — catalog uses `@preset/...` slugs; must own presets on OpenRouter account.
 
 ## Operator Guide (New Users)
 
@@ -334,12 +469,14 @@ Claude Code / VS Code / Cline / any tool
 
 **PATH requirement:** `~/.local/bin` must appear before the real Ollama path (e.g., `/usr/local/bin`) in `$PATH` for the shim to take effect. The CLI warns if the shim exists but is not first in PATH.
 
-**Ollama backend (`src/ollama-backend.ts` + `src/providers/ollama.ts`):**
+**Ollama backend (`src/ollama-backend.ts`, `src/ollama-cloud-catalog.ts`, `src/providers/ollama.ts`):**
 - Local Router **auto-starts** real `ollama serve` on `127.0.0.1:11435` when the proxy starts (skip with `LOCAL_ROUTER_SKIP_OLLAMA_ENSURE=true` for tests)
 - Base URL: `LOCAL_ROUTER_PROVIDER_OLLAMA_BASE_URL` or `http://127.0.0.1:11435/v1`
-- **Custom Models mode:** discovery lists only curated `:cloud` tags from `providers.txt` + `/config` edits — not every local tag
-- **Endpoint Models mode:** refresh queries local `:11435` and `ollama.com/api/tags`, filtered to `*:cloud` / `*-cloud`
-- Startup and endpoint refresh run `ollama pull` for curated cloud tags (auth via local `ollama signin` session; optional real `OLLAMA_API_KEY` only for direct ollama.com API calls)
+- **Custom Models mode:** discovery lists only catalog models from `providers.txt` + `/config` edits — not every local tag; **no endpoint-cache leak** on discovery APIs
+- **Endpoint Models mode:** refresh queries configured providers; Ollama cloud tags filtered via `filterOllamaCloudTags()`
+- Startup and `POST /api/refresh-endpoint-models` run `ollama pull` only for **free-tier routing tags** (3) unless `OLLAMA_API_KEY` is a real ollama.com key (then Pro tags in allowlist may pull too)
+- **Router/fallback:** `pruneDisallowedOllamaCloudRouting()` strips Pro-only / non-allowlist Ollama cloud IDs from persisted routes on load
+- All **8** cloud tags remain in `providers.txt` for manual selection; defaults intentionally use **3** to avoid burning shared quota
 - Add extra models via Provider Model Manager under the `ollama` provider card
 
 ### OpenAI Responses API Shim (Codex Support)
@@ -379,7 +516,7 @@ Local Router automatically injects prompt caching parameters (such as `cache_con
 ├── CIP.md                             # Community Improvement Proposal process
 ├── README.md                          # Project README
 ├── llms.txt                           # This file — PRD anchor and project reference
-├── providers.txt                      # Source of truth for provider/model metadata (12 providers, 78 models)
+├── providers.txt                      # Source of truth for provider/model metadata (12 providers, ~81 models incl. 8 Ollama :cloud)
 ├── ROUTER-RESEARCH.md                 # Model intelligence framework plan
 ├── .env.example                       # Environment variable template (no real keys)
 ├── tsconfig.json
@@ -390,17 +527,23 @@ Local Router automatically injects prompt caching parameters (such as `cache_con
 │   ├── lib/localrouter-client.js      # HTTP client for headless localrouter commands
 │   └── fvs-code.js                    # Compatibility alias for local-router
 ├── src/
-│   ├── index.ts                       # Express server, routing, CRUD, config UI, router models, auto-router defaults, graceful skip, VS Code integration, session tracking
+│   ├── index.ts                       # Express server, routing, CRUD, config UI, tier order, router/fallback defaults, catalog gate
 │   ├── types.ts                       # TypeScript interfaces (ProxyProvider, etc.)
 │   ├── reasoning.ts                   # Reasoning/thinking metadata handling + configurable thinking levels per provider
 │   ├── responses-stream.ts            # Responses API HTTP SSE + WebSocket stream translator
 │   ├── sessions.ts                    # Session tracking + thumbs up/down feedback
 │   ├── tiers.ts                       # Statistical tiering (median+MAD outlier detection)
+│   ├── ollama-cloud.ts                # `:cloud` tag detection helpers
+│   ├── ollama-cloud-catalog.ts        # Free vs Pro tier map, routing/pull allowlists
+│   ├── ollama-keys.ts                 # Placeholder vs real OLLAMA_API_KEY
+│   ├── ollama-backend.ts              # Auto-start ollama on :11435, filtered cloud pulls
 │   └── providers/
 │       ├── groq.ts                    # Groq provider
 │       ├── ollama.ts                  # Ollama provider (local)
 │       └── openrouter.ts             # OpenRouter provider
 ├── tests/
+│   ├── ollama-cloud.test.mjs
+│   ├── ollama-cloud-catalog.test.mjs
 │   ├── provider-keys.integration.test.mjs
 │   ├── custom-providers.integration.test.mjs
 │   ├── responses-http-stream.integration.test.mjs
@@ -498,7 +641,7 @@ The ML-DSA-65 algorithm and `openssl pkeyutl` invocations are unchanged. Only th
 
 `providers.txt` is the factual source of truth for provider/model metadata. It is synced to `~/.config/providers.txt` and intended to be copied across projects. Runtime model overrides (via `/api/provider-models`) take precedence and immediately update `/v1/models`, `/api/tags`, and `/api/show`.
 
-### Active Providers (12 providers, 88 models as of 2026-06-04)
+### Active Providers (12 providers, ~81 presented models in custom catalog as of 2026-06-04)
 | Provider | Models | Endpoint | Key Env |
 |---|---|---|---|
 | `wafer-serverless` | 5 | `https://pass.wafer.ai/v1` | `WAFER_SERVERLESS_API_KEY` |
@@ -512,7 +655,9 @@ The ML-DSA-65 algorithm and `openssl pkeyutl` invocations are unchanged. Only th
 | `opencode` | 20 | `https://opencode.ai/zen/go/v1` | `OPENCODE_API_KEY` |
 | `opencode-zen` | 8 | `https://opencode.ai/zen/v1` | `OPENCODE_API_KEY` |
 | `zai` | 1 | `https://api.z.ai/api/coding/paas/v4` | `ZAI_API_KEY` |
-| `ollama` | 8 | `http://127.0.0.1:11435/v1` | `OLLAMA_API_KEY` |
+| `ollama` | 8 (`:cloud`; **3** in default router/fallback) | `http://127.0.0.1:11435/v1` | `OLLAMA_API_KEY` |
+
+**Ollama cloud tags in catalog:** 3 free-tier (`nemotron-3-ultra`, `minimax-m3`, `deepseek-v4-flash`) + 5 Pro-only (`deepseek-v4-pro`, `kimi-k2.6`, `glm-5.1`, `minimax-m2.7`, `qwen3.5`). See [Ollama Cloud routing](#ollama-cloud-routing-free-vs-pro).
 
 ### Key Model Metadata
 
@@ -757,16 +902,19 @@ Local Router supports first-class router models presented as `local-router/<rout
 - Type: `auto-local`
 - `minCodingScore`: `0.66`
 - `costQualityTradeoff`: `7`
-- Default candidates (~30 curated models) in provider tier order: Ollama Cloud (8) → NVIDIA NIM → Modal → Nebius → OpenCode Zen free → OpenCode Go → Z.ai → Xiaomi Mimo → Wafer → ZenMux → OpenRouter presets
-- Graceful skip: candidates for unconfigured providers are silently skipped with console warning. If ALL candidates are skipped and `fallback-models` exists, cascade to system fallback; otherwise error lists which providers need API keys.
+- Default candidates (**25** curated models) in provider tier order: **Ollama Cloud (3 free-tier `:cloud`)** → NVIDIA NIM → Modal → Nebius → OpenCode Zen free → OpenCode Go → Z.ai → Xiaomi Mimo → Wafer → ZenMux → OpenRouter presets
+- Ollama entries: `ollama-nemotron-3-ultra-cloud`, `ollama-minimax-m3-cloud`, `ollama-deepseek-v4-flash-cloud` — see `DEFAULT_ROUTER_CANDIDATES_TEXT` in `src/index.ts`
+- Graceful skip: unconfigured providers skipped (`missing_provider_key`); Ollama Pro-only / non-allowlist cloud IDs skipped (`ollama_cloud_tier_blocked`). If zero eligible and system fallback exists, cascade; else 400 with provider hints.
+- `mergeMissingDefaultRouterCandidates()` adds new defaults to persisted routers; `pruneDisallowedOllamaCloudRouting()` removes disallowed Ollama cloud IDs after tier sort
 - Provider presentation prefixes: `wafer-serverless→wafer-ai`, `openrouter-presets→openrouter`; other providers use their name directly
 - The Router Models UI reset action restores this complete default profile
 
 ### Default System Fallback Profile
 - Bootstrapped on first run via `ensureDefaultFallback()` when no fallback routes exist
-- Route id: `fallback-models` (system safety net for direct model failure, router exhaustion, and router zero-eligible)
-- Chain order (provider tiers): **Ollama Cloud** → **NVIDIA NIM** → **Modal** → **Nebius** → **OpenCode Zen** (free) → **OpenCode Go** → **Z.ai** → **Xiaomi Mimo** → **Wafer** → **ZenMux** → **OpenRouter** (same order in `auto-router-main` candidates and `fallback-models`)
-- Fallback stages without configured provider keys are skipped immediately (no retry backoff)
+- Route id: `fallback-models` (system safety net); legacy installs may use id **`default`** — startup merges tier-default IDs into system/legacy routes then `stableSortModelIdsByProviderTier()`
+- Chain order (provider tiers): **Ollama (3 free cloud)** → **NVIDIA NIM** → **Modal** → **Nebius** → **OpenCode Zen** → **OpenCode Go** → **Z.ai** → **Xiaomi Mimo** → **Wafer** → **ZenMux** → **OpenRouter**
+- `normalizeRoutingTierOrder()` re-sorts all fallback routes (not only `fallback-models`)
+- Fallback stages without configured provider keys or blocked Ollama tier are skipped immediately (preflight, no retry backoff)
 - `/config` **Reset Fallback Defaults** restores this chain; candidate badges show Ready / No key / Unavailable
 
 ### Router API
@@ -850,8 +998,9 @@ Full details in `ROUTER.md`. Key findings from SOTA literature (2025-2026):
 ### Ollama Drop-In Compatibility
 - `GET /` and `HEAD /` return `Ollama is running`
 - `GET /api/version` returns `0.6.4`
-- `/api/tags` and `/v1/models` generated from `providers.txt` with runtime overrides applied
+- `/api/tags` and `/v1/models` from catalog resolver (`resolveCatalogModels()`); custom mode excludes endpoint cache unless `?live=true`
 - Ollama discovery: `HEAD /api/version`, `HEAD /api/tags`, `GET /api/ps`, `POST /api/show`
+- Backend on `:11435`; proxy on `:11434`; free-tier cloud pull + Pro gating per `ollama-cloud-catalog.ts`
 - Image arrays in `/api/chat` and `/api/generate` converted to OpenAI-compatible image content parts
 - Tool call translation in Ollama-format responses
 
@@ -880,7 +1029,7 @@ Full details in `ROUTER.md`. Key findings from SOTA literature (2025-2026):
 - `npm run dev:once` runs `tsx src/index.ts` without watch
 - `npm run verify:cli` runs `localrouter verify` against a live server on `:11434`
 - `LOCAL_ROUTER_DEV=true npm run dev` launches dev server on port 11434; use `PORT=11435` alongside production Ollama
-- `npm test` runs all `tests/*.integration.test.mjs` (13 test cases, 4 files)—requires `CODEX_SANDBOX_NETWORK_DISABLED=0`
+- `npm test` runs `ollama-cloud.test.mjs`, `ollama-cloud-catalog.test.mjs`, and all `tests/*.integration.test.mjs` (**17** cases, 5 files)—set `LOCAL_ROUTER_SKIP_OLLAMA_ENSURE=true` for fast CI; requires network for integration suites unless sandbox allows
 
 ## Community Improvement Proposal (CIP) System
 
@@ -902,11 +1051,13 @@ The CIP system automates data-driven router improvements from telemetry. Spec: `
 
 ## Current Test Coverage
 
-`npm run test:integration` builds the project and runs **all** `tests/*.integration.test.mjs` files sequentially (`--test-concurrency=1`). Tests use isolated `HOME` directories and fake upstream HTTP servers where needed—no real provider keys required.
+`npm run test:integration` builds the project, then runs unit + integration tests sequentially (`--test-concurrency=1`). Tests use isolated `HOME` directories and fake upstream HTTP servers where needed—no real provider keys required.
 
 | File | Focus |
 |------|--------|
-| `tests/provider-keys.integration.test.mjs` | Keys, models, Ollama, fallback, router, VS Code metadata, pricing, thinking |
+| `tests/ollama-cloud.test.mjs` | `:cloud` tag detection |
+| `tests/ollama-cloud-catalog.test.mjs` | Free vs Pro tier map, pull filter, presented-ID block rules |
+| `tests/provider-keys.integration.test.mjs` | Keys, models, Ollama, fallback tier order, **3 Ollama router candidates**, VS Code metadata, pricing, thinking |
 | `tests/custom-providers.integration.test.mjs` | Custom provider CRUD, chat proxy, delete guards |
 | `tests/responses-http-stream.integration.test.mjs` | Codex `POST /v1/responses` HTTP SSE |
 | `tests/responses-websocket-anthropic.integration.test.mjs` | Responses WebSocket, Anthropic `/v1/messages` |
@@ -1163,14 +1314,12 @@ localrouter config --open            # http://127.0.0.1:11434/config
 | Gate | Result |
 |------|--------|
 | `npm run build` | pass |
-| `npm test` (6 integration tests) | 6/6 pass |
-| `localrouter verify` (live :11434) | PASSED (72 custom models, router-check ok, `auto-router-main` full candidate catalog) |
+| `npm test` (6 integration tests at time of merge) | 6/6 pass |
+| `localrouter verify` (live :11434) | PASSED |
 | Provider pricing overrides | `GET/PUT/DELETE /api/provider-pricing` → `~/.config/local-router/provider-pricing.json`; `/config` UI panel |
 | `localrouter list --custom` / `router list` | pass |
 
-Pending: operator confirmation → promote `develop` → `main`.
-
-**Branch:** `develop` @ `08195b8` (2 commits ahead of `main`); feature `feat/cli-localrouter-ollama-parity` merged
+**Promotion:** ✅ later released to `main` with full 2026-06-04 chain ending @ `a905726`.
 
 ### 2026-06-03 — Branch Consolidation (Main + Develop Gate)
 
@@ -1231,13 +1380,44 @@ Pending: operator confirmation → promote `develop` → `main`.
 
 **Promotion:** ✅ merged to `develop` @ `ffbc688`; ✅ released `develop` → `main` @ `ffbc688`.
 
-### 2026-06-04 — Ollama Cloud router priority and catalog gate
+### 2026-06-04 — Provider tier order + catalog gate
 
-**Branch:** `feat/routing-ollama-router-catalog`
+**Branch:** `feat/routing-ollama-router-catalog` (and follow-ups `e4758ef`, `954bdea`)
 
 **Tasks completed:**
-1. ✅ **Auto-router** — Added `ollama-nemotron-3-ultra-cloud`, `ollama-qwen3.5-cloud` candidates (MiniMax M3 cloud already present).
-2. ✅ **Fallback** — Ollama Cloud quartet early in `fallback-models` (after free-tier, before paid MiniMax M3).
-3. ✅ **Catalog gate** — Custom model source: `/v1/models`, `/api/tags`, `catalog=active|all`, and unfiltered `?live=true` cannot expose endpoint-cache models; full upstream lists only when **Endpoint Models** toggle is on.
+1. ✅ **Provider tier order** — `DEFAULT_PROVIDER_TIER_ORDER`: Ollama → NVIDIA NIM → … → OpenRouter; `stableSortModelIdsByProviderTier()` on router + all fallback routes.
+2. ✅ **Catalog gate** — Custom model source: `/v1/models`, `/api/tags`, `catalog=active|all` cannot expose endpoint-cache models; `?live=true` only when endpoints mode or explicit live query.
+3. ✅ **Legacy fallback `default`** — System routes union tier-default model IDs then re-sort (`954bdea`).
+4. ✅ **Auto-router expansion (intermediate)** — Up to 8 Ollama `:cloud` candidates — **superseded** by free-tier narrow routing below.
 
-**Promotion:** ✅ merged to `develop` and `main`.
+**Promotion:** ✅ merged through `develop` → `main` @ `954bdea`.
+
+### 2026-06-04 — Ollama free-tier routing (canonical release)
+
+**Branch:** `feat/routing-ollama-free-tier` | worktree `../routing-ollama-free-tier`
+
+**Tasks completed:**
+1. ✅ **`src/ollama-cloud-catalog.ts`** — Free vs Pro tier map; routing/pull allowlists; presented-ID block rules.
+2. ✅ **Default router** — **3** Ollama candidates only: nemotron-3-ultra, minimax-m3, deepseek-v4-flash (`DEFAULT_ROUTER_CANDIDATES_TEXT`, 25 total candidates).
+3. ✅ **Prune on load** — `pruneDisallowedOllamaCloudRouting()` after PQC load + migration; removes 8-model burn from persisted JSON.
+4. ✅ **Pull filter** — `filterOllamaCloudPullTags()` in startup + refresh; Pro tags only when real `ollama.com` API key.
+5. ✅ **`providers.txt`** — 8 cloud tags in catalog with `free` / `Pro` annotations; routing notes updated.
+6. ✅ **Tests** — `tests/ollama-cloud-catalog.test.mjs`; integration asserts exactly 3 Ollama router candidates; **17/17** pass.
+
+**Promotion:** ✅ `develop` @ `a905726` → ✅ `main` @ `a905726`; pushed `local-router/main` and `local-router/develop`.
+
+**Verification (production):**
+- `localrouter verify` — PASS on `:11434`
+- Auto-router Ollama candidates: 3 (no `ollama-qwen3.5-cloud` in defaults)
+- System fallback route `default`: 3 Ollama models at tier head
+
+### 2026-06-04 — llms.txt system snapshot (this document)
+
+**Branch:** `docs/llms-system-state-2026-06`
+
+**Tasks completed:**
+1. ✅ **System Snapshot** — New canonical section: topology, tier order, Ollama free/Pro table, persistence map, iteration checklist.
+2. ✅ **Accuracy pass** — TL;DR, router profiles, Ollama backend, file map, test matrix (17 cases / 5 files), Current Implementation State.
+3. ✅ **Session log** — Consolidated 2026-06-04 release chain; marked superseded 8-model Ollama router note.
+
+**Canonical tip:** `main` = `develop` = **`a905726`**. **Next iteration:** start from [System Snapshot](#system-snapshot--canonical-state-2026-06-04); use worktree + `AGENTS.md` merge policy.
