@@ -153,7 +153,7 @@ Codex 0.135+ dropped the OpenAI chat-completions endpoint for its `exec` subcomm
 1. **Inbound Request:** Maps Responses request fields (`model`, `input`, `instructions`, `max_output_tokens`, `tools`, `tool_choice`, etc.) to standard chat-completion request parameters (`model`, `messages`, `max_tokens`, etc.). System prompts (`instructions`) are prepended as system messages.
 2. **Execution:** Drives the existing `handleChatCompletion` pipeline, retaining all routing, fallback, keys, and reasoning compatibility features.
 3. **Outbound Response:** Re-wraps the returned OpenAI chat-completion response envelope into the Responses envelope (`object: "response"`, `output` array of `message` and `function_call` parts, token usage).
-4. **Streaming:** Supported via stateful WebSocket upgrades at `ws://localhost:PORT/v1/responses` translating incoming Server-Sent Events to Responses protocol WebSocket packets (e.g., `response.created`, `response.output_item.added`, `response.output_text.delta`, `response.output_item.done`, `response.completed`). Uses a `stream.Writable` adapter (`fakeRes`) to support stream piping and reasoning-strip transformations without pipe errors.
+4. **Streaming:** `stream: true` on `POST /v1/responses` returns OpenAI-style HTTP SSE (`event:` + `data:` lines). WebSocket upgrades at `ws://localhost:PORT/v1/responses` emit the same semantic events as JSON messages. Shared translator in `src/responses-stream.ts` maps upstream chat-completion SSE through `createResponsesFakeResponse`.
 
 ### Anthropic Messages API Proxy
 
@@ -196,6 +196,7 @@ Local Router automatically injects prompt caching parameters (such as `cache_con
 │   ├── index.ts                       # Express server, routing, CRUD, config UI, router models, auto-router defaults, graceful skip, VS Code integration, session tracking
 │   ├── types.ts                       # TypeScript interfaces (ProxyProvider, etc.)
 │   ├── reasoning.ts                   # Reasoning/thinking metadata handling + configurable thinking levels per provider
+│   ├── responses-stream.ts            # Responses API HTTP SSE + WebSocket stream translator
 │   ├── sessions.ts                    # Session tracking + thumbs up/down feedback
 │   ├── tiers.ts                       # Statistical tiering (median+MAD outlier detection)
 │   └── providers/
@@ -424,9 +425,9 @@ Local Router supports configurable thinking levels per provider with a global de
 - **Moonshot/Kimi**: `enable_thinking: true`
 - **none**: `reasoning_effort: "none"`, `thinking: { type: "disabled" }`
 
-**Configuration:**
-- **Global default:** Set via `/config` UI or `PUT /api/system-prompt` with `{ thinkingLevel: "none" | "low" | "medium" | "high" | "xhigh" }`
-- **Per-provider override:** Set via `/config` UI dropdown per provider or `PUT /api/thinking-level` with `{ provider: "<name>", level: "<level>" }`
+**Configuration (independent of custom system prompt):**
+- **Global default:** `/config` **Thinking / Reasoning** card or `PUT /api/thinking-level` with `{ global: "none" | "low" | "medium" | "high" | "xhigh" }`
+- **Per-provider override:** `/config` per-provider dropdown or `PUT /api/thinking-level` with `{ provider: "<name>", level: "<level>" }`
 - **Clear override:** `DELETE /api/thinking-level/:provider` falls back to global
 - **Persistence:** `~/.config/local-router/thinking-config.json` (non-secret, `0600`)
 
@@ -456,10 +457,9 @@ Local Router supports an optional custom system prompt injected before every LLM
 ### Configuration
 - **Default:** OFF (disabled)
 - **Default prompt:** Chain of Draft reasoning style — *"Think step by step, but only keep a minimum draft for each thinking step, with 5 words at most. Return the answer after your thinking."*
-- **Thinking level:** Global default `none` (VS Code safe). Configurable per provider via `/config` UI or API.
-- **Persistence:** `~/.config/local-router/system-prompt.json` (non-secret, `0600`); thinking config at `~/.config/local-router/thinking-config.json`
-- **API:** `GET /api/system-prompt` (read), `PUT /api/system-prompt` (update `{ enabled, prompt, thinkingLevel }`)
-- **Config UI:** System Prompt card at `/config` — toggle, textarea, thinking level selector, per-provider overrides, save, and reset-to-default
+- **Persistence:** `~/.config/local-router/system-prompt.json` stores `{ enabled, prompt }` only (non-secret, `0600`)
+- **API:** `GET /api/system-prompt` (read; includes `thinkingLevel` for backward compat), `PUT /api/system-prompt` (update `{ enabled, prompt }` only — use `/api/thinking-level` for reasoning)
+- **Config UI:** System Prompt card — toggle, textarea, save, reset. **Thinking / Reasoning** is a separate card (always visible); not gated on the prompt toggle
 
 ### Behavior
 - When enabled, prepends `{ role: "system", content: "<prompt>" }` as the first message in the messages array before forwarding to the provider
@@ -586,8 +586,13 @@ Full details in `ROUTER.md`. Key findings from SOTA literature (2025-2026):
 ### Custom System Prompt
 - Optional custom system prompt injected before every LLM request across all entry points (`/v1/chat/completions`, `/api/chat`, `/api/generate`)
 - Default: OFF. Default prompt: Chain of Draft reasoning (concise ≤5-word step-by-step)
-- Toggle and textarea in `/config` UI; persisted to `~/.config/local-router/system-prompt.json` (`0600`)
-- `GET /api/system-prompt` / `PUT /api/system-prompt` for programmatic control
+- Toggle and textarea in `/config` UI; persisted to `~/.config/local-router/system-prompt.json` (`0600`, `enabled` + `prompt` only)
+- `GET /api/system-prompt` / `PUT /api/system-prompt` for programmatic control (thinking via `/api/thinking-level`)
+
+### Thinking / Reasoning (separate from system prompt)
+- Global and per-provider thinking levels in dedicated `/config` card; always visible
+- Canonical persistence: `~/.config/local-router/thinking-config.json`
+- Applies on every upstream request regardless of whether custom system prompt is enabled
 
 ### Fallback Routes
 - Persisted to `~/.config/local-router/` as non-secret model-chain JSON; reload on proxy startup
@@ -684,6 +689,8 @@ Coverage includes:
 - Router model presentation as `local-router/<route>` in discovery and routing
 - Router CSV exports for candidates and redacted decision events
 - VS Code/Ollama alias metadata in `/api/show`
+- `POST /v1/responses` non-streaming and HTTP SSE streaming (`tests/responses-http-stream.integration.test.mjs`)
+- Thinking level independent of system prompt toggle (same test file)
 
 ## Next Steps / Roadmap
 

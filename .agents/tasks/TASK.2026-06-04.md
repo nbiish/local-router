@@ -1,20 +1,18 @@
-# TASK 2026-06-04 — auto-router-main + pricing overrides
+# TASK 2026-06-04 — Thinking decouple + Responses HTTP SSE
 
-## Chain-of-Draft
+Branch: feat/routing-thinking-streaming
+Base: develop @ 19f95b0
 
-- Rename default router id
-- ZenMux qwen matched rates
-- Wafer MiniMax-M3 promo
-- Persist provider-pricing.json
-- /config pricing panel
-- providers.txt factual USD/M
-- Tests green (6/6)
+- read plan
+- worktree created
+- decouple UI cards
+- persist prompt only
+- responses-stream module
+- HTTP SSE stream=true
+- WS uses shared sink
+- integration tests
+- llms.txt sync
 
 ####
 
-## Deliverables
-
-- `local-router/auto-router-main` (alias `auto-local-main`)
-- `src/provider-pricing.ts` + `GET/PUT/DELETE /api/provider-pricing`
-- `/config` → Model Pricing Overrides
-- Baseline: zenmux-qwen3.7-max 2.5/7.5, wafer-ai-minimax-m3 0.33/1.32
+Decouple thinking from system prompt in `/config` and APIs. Implement `POST /v1/responses` HTTP SSE streaming via shared translator with WebSocket path.

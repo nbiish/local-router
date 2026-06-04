@@ -20,6 +20,13 @@ import {
   resolveEffectiveCandidatePricing,
   upsertProviderPricingEntry
 } from './provider-pricing';
+import {
+  buildResponseCreatedEvent,
+  chatCompletionToResponsesResponse,
+  createResponsesFakeResponse,
+  cryptoRandomId,
+  formatResponsesSseEvent
+} from './responses-stream';
 
 type ProviderModel = {
   id: string;
@@ -1126,8 +1133,12 @@ function loadPersistedSystemPrompt(): void {
 }
 function persistSystemPrompt(): void {
   ensureLocalRouterConfigDir();
+  const payload = {
+    enabled: systemPromptConfig.enabled,
+    prompt: systemPromptConfig.prompt
+  };
   const temporaryPath = `${SYSTEM_PROMPT_PATH}.${process.pid}.tmp`;
-  fs.writeFileSync(temporaryPath, `${JSON.stringify(systemPromptConfig, null, 2)}\n`, {
+  fs.writeFileSync(temporaryPath, `${JSON.stringify(payload, null, 2)}\n`, {
     encoding: 'utf8',
     mode: 0o600
   });
@@ -2791,26 +2802,34 @@ app.get('/config', (req: Request, res: Response) => {
             <label for="systemPromptText">Prompt text</label>
             <textarea id="systemPromptText" rows="6" placeholder="Enter your system prompt..."></textarea>
           </div>
-          <div class="form-group" style="margin-top:14px;">
-            <label for="thinkingLevelSelect">Global Thinking Level</label>
-            <p class="muted">Controls reasoning/thinking for all providers. Per-provider overrides available below. Default: none (disabled for VS Code compatibility).</p>
-            <select id="thinkingLevelSelect" onchange="saveThinkingLevel()">
-              <option value="none">none — disable reasoning (VS Code safe)</option>
-              <option value="low">low — minimal reasoning</option>
-              <option value="medium">medium — balanced reasoning</option>
-              <option value="high">high — extended reasoning</option>
-              <option value="xhigh">xhigh — maximum reasoning</option>
-            </select>
-          </div>
-          <div class="form-group" id="providerThinkingLevels" style="margin-top:14px;">
-            <label>Per-Provider Thinking Levels</label>
-            <p class="muted">Override the global level for specific providers. Cleared overrides fall back to global.</p>
-            <div id="providerThinkingGrid" style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:8px;"></div>
-          </div>
           <div class="button-row">
             <button onclick="saveSystemPrompt()">Save</button>
             <button class="button-secondary" onclick="resetSystemPromptToDefault()">Reset to Default (CoD)</button>
           </div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="catalog-meta">
+          <div>
+            <h2>Thinking / Reasoning</h2>
+            <p class="muted">Provider-native reasoning controls. Independent of the custom system prompt. Default: none (VS Code safe).</p>
+          </div>
+          <div class="muted" id="thinkingLevelStatus">Loading...</div>
+        </div>
+        <div class="form-group" style="margin-top:12px;">
+          <label for="thinkingLevelSelect">Global Thinking Level</label>
+          <select id="thinkingLevelSelect" onchange="saveThinkingLevel()">
+            <option value="none">none — disable reasoning (VS Code safe)</option>
+            <option value="low">low — minimal reasoning</option>
+            <option value="medium">medium — balanced reasoning</option>
+            <option value="high">high — extended reasoning</option>
+            <option value="xhigh">xhigh — maximum reasoning</option>
+          </select>
+        </div>
+        <div class="form-group" id="providerThinkingLevels" style="margin-top:14px;">
+          <label>Per-Provider Thinking Levels</label>
+          <p class="muted">Override the global level for specific providers. Cleared overrides fall back to global.</p>
+          <div id="providerThinkingGrid" style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:8px;"></div>
         </div>
       </div>
       <div class="card">
@@ -3886,10 +3905,6 @@ app.get('/config', (req: Request, res: Response) => {
             if (textEl) textEl.value = data.prompt || '';
             if (fieldsEl) fieldsEl.style.display = data.enabled ? 'block' : 'none';
             if (statusEl) statusEl.textContent = data.enabled ? 'Active — injecting into all requests' : 'Disabled';
-            // Load thinking level
-            const levelSelect = document.getElementById('thinkingLevelSelect');
-            if (levelSelect) levelSelect.value = data.thinkingLevel || data.defaultThinkingLevel || 'none';
-            await loadThinkingConfig();
           } catch (err) {
             console.error('loadSystemPrompt failed:', err);
             const statusEl = document.getElementById('systemPromptStatus');
@@ -3903,9 +3918,15 @@ app.get('/config', (req: Request, res: Response) => {
             thinkingConfig = await res.json();
             const levelSelect = document.getElementById('thinkingLevelSelect');
             if (levelSelect) levelSelect.value = thinkingConfig.global || 'none';
+            const thinkingStatusEl = document.getElementById('thinkingLevelStatus');
+            if (thinkingStatusEl) {
+              thinkingStatusEl.textContent = 'Global: ' + (thinkingConfig.global || 'none');
+            }
             renderProviderThinkingGrid();
           } catch (err) {
             console.error('loadThinkingConfig failed:', err);
+            const thinkingStatusEl = document.getElementById('thinkingLevelStatus');
+            if (thinkingStatusEl) thinkingStatusEl.textContent = 'Failed to load';
           }
         }
         function renderProviderThinkingGrid() {
@@ -3947,6 +3968,8 @@ app.get('/config', (req: Request, res: Response) => {
           }
           thinkingConfig = payload;
           renderProviderThinkingGrid();
+          const thinkingStatusEl = document.getElementById('thinkingLevelStatus');
+          if (thinkingStatusEl) thinkingStatusEl.textContent = 'Global: ' + level;
           setMessage('Global thinking level set to: ' + level, 'success');
         }
         async function saveProviderThinkingLevel(selectEl) {
@@ -4279,6 +4302,7 @@ app.get('/config', (req: Request, res: Response) => {
         loadProviderPricingPanel();
         loadSessionsPanel();
         loadSystemPrompt();
+        loadThinkingConfig();
         loadModelSource();
 
         async function loadProviderPricingPanel() {
@@ -5439,11 +5463,9 @@ app.put('/api/system-prompt', (req: Request, res: Response) => {
     systemPromptConfig.prompt = prompt.trim() || DEFAULT_CHAIN_OF_DRAFT_PROMPT;
   }
   if (thinkingLevel !== undefined) {
-    const validLevels: ThinkingLevel[] = ['none', 'low', 'medium', 'high', 'xhigh'];
-    if (!validLevels.includes(thinkingLevel)) {
-      return res.status(400).json({ error: `thinkingLevel must be one of: ${validLevels.join(', ')}` });
-    }
-    systemPromptConfig.thinkingLevel = thinkingLevel;
+    return res.status(400).json({
+      error: 'thinkingLevel is configured via PUT /api/thinking-level (use { global: "<level>" }).'
+    });
   }
   if (enabled !== undefined) {
     systemPromptConfig.enabled = enabled;
@@ -7910,7 +7932,7 @@ app.post('/v1/messages', async (req: Request, res: Response) => {
 //
 // Supports: input (string | item array), instructions, model, max_output_tokens,
 // temperature, top_p, stream, tools, tool_choice, stop, user, metadata, store.
-// Non-streaming is fully implemented; streaming falls back to non-streaming.
+// Non-streaming via res.json intercept; streaming via HTTP SSE and WebSocket.
 // =====================================================================
 
 type ResponsesInputItem =
@@ -7985,67 +8007,6 @@ function responsesInputToMessages(input: any, instructions?: string): any[] {
   return messages;
 }
 
-function chatCompletionToResponsesResponse(chatData: any, presentedModel: string): any {
-  // Upstream chat-completion response → OpenAI Responses envelope.
-  // { id, object:'chat.completion', choices:[{message:{role,content,tool_calls}}], usage }
-  // → { id, object:'response', output:[{type:'message', role, content:[{type:'output_text', text}]}], usage:{input_tokens, output_tokens, total_tokens} }
-  const choice = chatData?.choices?.[0] || {};
-  const message = choice.message || {};
-  const content = message.content;
-  const text =
-    typeof content === 'string'
-      ? content
-      : Array.isArray(content)
-        ? content
-            .filter((p: any) => p?.type === 'text' || typeof p?.text === 'string')
-            .map((p: any) => p.text)
-            .join('\n')
-        : '';
-
-  const output: any[] = [];
-  if (text) {
-    output.push({
-      type: 'message',
-      id: `msg_${chatData?.id || cryptoRandomId()}`,
-      role: message.role || 'assistant',
-      status: 'completed',
-      content: [{ type: 'output_text', text, annotations: [] }]
-    });
-  }
-  if (Array.isArray(message.tool_calls) && message.tool_calls.length > 0) {
-    for (const call of message.tool_calls) {
-      output.push({
-        type: 'function_call',
-        id: call.id || `call_${cryptoRandomId()}`,
-        call_id: call.id,
-        name: call.function?.name,
-        arguments: call.function?.arguments || ''
-      });
-    }
-  }
-
-  const usage = chatData?.usage || {};
-  return {
-    id: chatData?.id || `resp_${cryptoRandomId()}`,
-    object: 'response',
-    created_at: chatData?.created || Math.floor(Date.now() / 1000),
-    model: chatData?.model || presentedModel,
-    status: choice.finish_reason === 'length' ? 'incomplete' : 'completed',
-    incomplete_details: choice.finish_reason === 'length' ? { reason: 'max_output_tokens' } : null,
-    output,
-    usage: {
-      input_tokens: usage.prompt_tokens || 0,
-      output_tokens: usage.completion_tokens || 0,
-      total_tokens: usage.total_tokens || 0
-    }
-  };
-}
-
-function cryptoRandomId(): string {
-  // Cheap random id; not security-sensitive.
-  return Math.random().toString(36).slice(2, 10) + Math.random().toString(36).slice(2, 10);
-}
-
 function translateResponsesRequestToChatBody(body: any): any {
   const translated: any = {};
 
@@ -8065,6 +8026,7 @@ function translateResponsesRequestToChatBody(body: any): any {
   // (function name + description + parameters), so we can pass them through.
   if (Array.isArray(body.tools)) translated.tools = body.tools;
   if (body.tool_choice != null) translated.tool_choice = body.tool_choice;
+  if (body.stream != null) translated.stream = Boolean(body.stream);
 
   return translated;
 }
@@ -8089,22 +8051,60 @@ app.post('/v1/responses', async (req: Request, res: Response) => {
     });
   }
 
-  // Streaming is requested by setting stream=true; we currently serve
-  // non-streaming Responses and let the caller handle it. Codex's `exec`
-  // subcommand doesn't stream, so this covers the primary use case.
   if (body.stream) {
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
-    res.write(
-      `event: error\ndata: ${JSON.stringify({
-        error: {
-          message: 'Streaming Responses API is not yet implemented by local-router. Set stream=false.',
-          type: 'invalid_request_error'
+
+    const modelId = String(body.model);
+    const responseId = `resp_${cryptoRandomId()}`;
+    const emitSse = (event: { type: string; [key: string]: unknown }) => {
+      res.write(formatResponsesSseEvent(event));
+    };
+
+    emitSse(buildResponseCreatedEvent(responseId, modelId));
+
+    const fakeReq: any = {
+      body: { ...chatBody, stream: true },
+      get: (name: string) => req.get(name),
+      protocol: req.protocol,
+      headers: req.headers,
+      path: '/v1/responses'
+    };
+
+    let streamEnded = false;
+    const endStream = () => {
+      if (!streamEnded) {
+        streamEnded = true;
+        res.end();
+      }
+    };
+
+    const fakeRes = createResponsesFakeResponse({
+      emit: (event) => {
+        emitSse(event);
+        if (event.type === 'response.completed' || event.type === 'response.failed') {
+          endStream();
         }
-      })}\n\n`
-    );
-    res.end();
+      },
+      modelId,
+      responseId,
+      onFinished: endStream
+    });
+
+    try {
+      await handleChatCompletion(fakeReq, fakeRes as any);
+      // Streaming responses end when the upstream SSE pipe closes (fakeRes final/onFinished).
+    } catch (err: any) {
+      if (!streamEnded) {
+        emitSse({
+          type: 'response.failed',
+          response_id: responseId,
+          error: { message: err?.message || 'Responses shim failure', type: 'server_error' }
+        });
+        endStream();
+      }
+    }
     return;
   }
 
@@ -8362,22 +8362,11 @@ wss.on('connection', (ws: WebSocket) => {
         }
 
         isGenerating = true;
-        
-        const responseId = `resp_${cryptoRandomId()}`;
-        const modelId = body.model;
 
-        ws.send(JSON.stringify({
-          type: 'response.created',
-          response: {
-            id: responseId,
-            object: 'response',
-            created_at: Math.floor(Date.now() / 1000),
-            model: modelId,
-            status: 'in_progress',
-            output: [],
-            usage: { input_tokens: 0, output_tokens: 0, total_tokens: 0 }
-          }
-        }));
+        const responseId = `resp_${cryptoRandomId()}`;
+        const modelId = String(body.model);
+
+        ws.send(JSON.stringify(buildResponseCreatedEvent(responseId, modelId)));
 
         const fakeReq: any = {
           body: chatBody,
@@ -8390,170 +8379,18 @@ wss.on('connection', (ws: WebSocket) => {
           path: '/v1/responses'
         };
 
-        const outputItemMsgId = `msg_${cryptoRandomId()}`;
-        let itemAdded = false;
-        let sseBuffer = '';
-
-        const fakeRes = new Writable({
-          write(chunk, encoding, callback) {
-            try {
-              sseBuffer += chunk.toString();
-              const lines = sseBuffer.split('\n');
-              sseBuffer = lines.pop() || '';
-
-              for (const line of lines) {
-                const trimmed = line.trim();
-                if (trimmed.startsWith('data: ')) {
-                  const dataStr = trimmed.substring(6).trim();
-                  if (dataStr === '[DONE]') continue;
-                  try {
-                    const data = JSON.parse(dataStr);
-                    const choice = data.choices?.[0] || {};
-                    const delta = choice.delta || {};
-                    
-                    if (!itemAdded) {
-                      ws.send(JSON.stringify({
-                        type: 'response.output_item.added',
-                        response_id: responseId,
-                        output_index: 0,
-                        item: {
-                          id: outputItemMsgId,
-                          type: 'message',
-                          status: 'in_progress',
-                          role: delta.role || 'assistant',
-                          content: []
-                        }
-                      }));
-                      itemAdded = true;
-                    }
-
-                    if (delta.content) {
-                      ws.send(JSON.stringify({
-                        type: 'response.output_text.delta',
-                        response_id: responseId,
-                        item_id: outputItemMsgId,
-                        content_index: 0,
-                        delta: delta.content
-                      }));
-                    }
-
-                    if (Array.isArray(delta.tool_calls) && delta.tool_calls.length > 0) {
-                      for (const tc of delta.tool_calls) {
-                        ws.send(JSON.stringify({
-                          type: 'response.output_tool_call.arguments.delta',
-                          response_id: responseId,
-                          item_id: tc.id || `call_${cryptoRandomId()}`,
-                          delta: tc.function?.arguments || ''
-                        }));
-                      }
-                    }
-                  } catch (e) {
-                    // ignore
-                  }
-                }
-              }
-            } catch (e) {
-              // ignore
-            }
-            callback();
-          },
-          final(callback) {
-            try {
-              if (sseBuffer.trim().startsWith('data: ')) {
-                const dataStr = sseBuffer.trim().substring(6).trim();
-                if (dataStr && dataStr !== '[DONE]') {
-                  try {
-                    const data = JSON.parse(dataStr);
-                    const choice = data.choices?.[0] || {};
-                    const delta = choice.delta || {};
-                    if (delta.content) {
-                      ws.send(JSON.stringify({
-                        type: 'response.output_text.delta',
-                        response_id: responseId,
-                        item_id: outputItemMsgId,
-                        content_index: 0,
-                        delta: delta.content
-                      }));
-                    }
-                  } catch (e) {
-                    // ignore
-                  }
-                }
-              }
-              if (itemAdded) {
-                ws.send(JSON.stringify({
-                  type: 'response.output_item.done',
-                  response_id: responseId,
-                  output_index: 0,
-                  item: {
-                    id: outputItemMsgId,
-                    type: 'message',
-                    status: 'completed',
-                    role: 'assistant',
-                    content: [{ type: 'output_text', text: '' }]
-                  }
-                }));
-              }
-              ws.send(JSON.stringify({
-                type: 'response.completed',
-                response: {
-                  id: responseId,
-                  object: 'response',
-                  status: 'completed',
-                  model: modelId,
-                  output: itemAdded ? [{ id: outputItemMsgId, type: 'message', role: 'assistant', status: 'completed' }] : []
-                }
-              }));
-            } catch (err) {
-              // ignore
-            }
+        const fakeRes = createResponsesFakeResponse({
+          emit: (streamEvent) => ws.send(JSON.stringify(streamEvent)),
+          modelId,
+          responseId,
+          onFinished: () => {
             isGenerating = false;
-            callback();
           }
-        }) as any;
-
-        fakeRes.statusCode = 200;
-        fakeRes.setHeader = () => {};
-        fakeRes.status = (code: number) => {
-          fakeRes.statusCode = code;
-          return fakeRes;
-        };
-        fakeRes.json = (data: any) => {
-          if (fakeRes.statusCode >= 400 || data.error) {
-            ws.send(JSON.stringify({
-              type: 'response.failed',
-              response_id: responseId,
-              error: data.error || { message: 'Upstream request failed' }
-            }));
-          } else {
-            const responsesEnvelope = chatCompletionToResponsesResponse(data, modelId);
-            if (!itemAdded) {
-              const choice = data.choices?.[0] || {};
-              const message = choice.message || {};
-              ws.send(JSON.stringify({
-                type: 'response.output_item.added',
-                response_id: responseId,
-                output_index: 0,
-                item: {
-                  id: outputItemMsgId,
-                  type: 'message',
-                  status: 'completed',
-                  role: message.role || 'assistant',
-                  content: [{ type: 'output_text', text: message.content || '' }]
-                }
-              }));
-            }
-            ws.send(JSON.stringify({
-              type: 'response.completed',
-              response: responsesEnvelope
-            }));
-          }
-          isGenerating = false;
-        };
+        });
 
         try {
           fakeReq.body.stream = true;
-          await handleChatCompletion(fakeReq, fakeRes);
+          await handleChatCompletion(fakeReq, fakeRes as any);
         } catch (err: any) {
           ws.send(JSON.stringify({
             type: 'response.failed',
