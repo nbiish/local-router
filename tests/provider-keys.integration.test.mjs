@@ -23,6 +23,28 @@ let testHome = '';
 let proxyEnv = {};
 let selectedProvider;
 
+function baselineProviderModelCount(providerName) {
+  const content = readFileSync('providers.txt', 'utf8');
+  let count = 0;
+
+  for (const rawLine of content.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line.startsWith('# │')) continue;
+
+    const columns = line
+      .replace(/^#\s*/, '')
+      .split('│')
+      .map((part) => part.trim())
+      .filter(Boolean);
+
+    if (columns.length < 3) continue;
+    if (!/^\d+$/.test(columns[0])) continue;
+    if (columns[1] === providerName) count += 1;
+  }
+
+  return count;
+}
+
 function firstProviderSummary() {
   const content = readFileSync('providers.txt', 'utf8');
 
@@ -1464,6 +1486,41 @@ test('provider-models catalog query supports custom and all modes', async (t) =>
   const active = await requestJson('/api/provider-models?catalog=active');
   assert.equal(active.response.status, 200);
   assert.equal(active.body?.catalog, 'active');
+});
+
+test('gateway providers custom catalog stays on providers.txt baseline', async (t) => {
+  if (skipReason) {
+    t.skip(skipReason);
+    return;
+  }
+
+  const modelSource = await requestJson('/api/model-source');
+  assert.equal(modelSource.response.status, 200);
+  assert.equal(modelSource.body?.source, 'custom');
+
+  const configs = await requestJson('/api/provider-configs');
+  assert.equal(configs.response.status, 200);
+
+  for (const providerName of ['kilo', 'cline']) {
+    const baselineCount = baselineProviderModelCount(providerName);
+    assert.ok(baselineCount > 0, `Expected ${providerName} models in providers.txt`);
+
+    const provider = configs.body?.data?.find((entry) => entry?.name === providerName);
+    assert.ok(provider, `Expected ${providerName} in provider configs`);
+    assert.equal(
+      provider.modelCount,
+      baselineCount,
+      `${providerName} custom catalog must not merge live upstream models`
+    );
+  }
+
+  const kiloModels = await requestJson('/api/provider-models/kilo');
+  assert.equal(kiloModels.response.status, 200);
+  assert.equal(
+    (kiloModels.body?.models || []).length,
+    baselineProviderModelCount('kilo'),
+    'GET /api/provider-models/kilo must list providers.txt only in custom mode'
+  );
 });
 
 test('ollama provider is always configured with default Local Router API key', async (t) => {

@@ -110,7 +110,8 @@ export function gatewayModelAllowedForRouter(
   const normalized = normalizeGatewayUpstreamId(upstreamId);
   if (isGatewayRouterModel(normalized)) return false;
   if (providerName === 'kilo') {
-    // Credits apply to the full gateway catalog (live-synced); block meta-routers only.
+    // Credits apply to the full upstream gateway; block meta-routers only.
+    // Custom catalog listing stays on providers.txt — use Endpoint Models for full lists.
     return true;
   }
   if (providerName === 'cline') {
