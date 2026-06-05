@@ -120,7 +120,7 @@ Router and fallback **skip** candidates when the provider has no API key (except
 - **OpenCode Go** (`opencode-go`, `/zen/go/v1`) = subscription Hermes set (9 models in `providers.txt`). **OpenCode Zen** (`opencode-zen`, `/zen/v1`) = free + paid/overage; same `OPENCODE_API_KEY`.
 - **openrouter/free:** routed on `openrouter-presets` and `kilo` (not on Cline — deprecated there). **Excluded:** `kilo-auto/free` only.
 - **Direct chat:** Cline/Kilo failures return upstream errors (no silent cascade to `fallback-models`). Cline responses are unwrapped to standard OpenAI shape.
-- **Router:** Cline uses curated free + paid allowlist; Kilo allows any live-catalog model except `kilo-auto/free`.
+- **Router:** Cline uses curated free + paid allowlist; Kilo allows any upstream gateway model except `kilo-auto/free` at inference time. **Listing:** custom catalog = `providers.txt` only; full Kilo upstream lists require **Endpoint Models** toggle or `GET /api/provider-models?catalog=all` after refresh.
 - **Configure in `/config`** on the built-in provider cards — not via **Add custom provider…** (Kilo base path is `/api/gateway`, not `/v1`).
 - **Client model IDs** use full presented segments (e.g. `cline-nvidia-nemotron-3-ultra-550b-a55b-free`, `kilo-stepfun-step-3.7-flash-free`).
 

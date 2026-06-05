@@ -36,8 +36,7 @@ import {
 } from './ollama-cloud-catalog';
 import {
   gatewayModelAllowedForRouter,
-  gatewayPresentedModelSegment,
-  isGatewayRouterModel
+  gatewayPresentedModelSegment
 } from './gateway-provider-catalog';
 import { normalizeGatewayChatCompletionBody } from './gateway-response';
 import {
@@ -354,8 +353,6 @@ const UPSTREAM_MODEL_ID_ALIASES: Record<string, string> = {
   'kilo/deepseek/deepseek-v4-pro': 'kilo-deepseek-deepseek-v4-pro',
   'kilo/anthropic/claude-opus-4.8': 'kilo-anthropic-claude-opus-4.8'
 };
-
-let kiloGatewayCatalogBoost: ProviderModel[] = [];
 
 function providerTierIndex(providerSlug: string): number {
   const index = DEFAULT_PROVIDER_TIER_ORDER.indexOf(providerSlug as typeof DEFAULT_PROVIDER_TIER_ORDER[number]);
@@ -882,19 +879,7 @@ function editableProviderModels(providerName: string): ProviderModel[] {
 }
 
 function effectiveProviderModels(providerName: string): ProviderModel[] {
-  const base = modelStore[providerName] || readProviderModels().filter((model) => model.provider === providerName);
-  if (providerName !== 'kilo' || persistedProviderModelOverrides.has('kilo') || kiloGatewayCatalogBoost.length === 0) {
-    return base;
-  }
-
-  const merged = [...base];
-  const seen = new Set(merged.map((model) => model.model));
-  for (const model of kiloGatewayCatalogBoost) {
-    if (seen.has(model.model)) continue;
-    seen.add(model.model);
-    merged.push(model);
-  }
-  return merged;
+  return modelStore[providerName] || readProviderModels().filter((model) => model.provider === providerName);
 }
 
 function providerModelSource(providerName: string) {
@@ -5759,9 +5744,6 @@ app.delete('/api/provider-models/:provider', (req: Request, res: Response) => {
   delete modelStore[providerName];
   persistedProviderModelOverrides.delete(providerName);
   persistProviderModels();
-  if (providerName === 'kilo') {
-    void refreshKiloGatewayCatalogBoost();
-  }
   return res.json({
     success: true,
     provider: providerName,
@@ -7324,26 +7306,6 @@ function shouldCascadeDirectModelToSystemFallback(modelName: string): boolean {
     return false;
   }
   return true;
-}
-
-async function refreshKiloGatewayCatalogBoost(): Promise<void> {
-  if (!providerHasConfiguredKey('kilo') || persistedProviderModelOverrides.has('kilo')) {
-    kiloGatewayCatalogBoost = [];
-    return;
-  }
-
-  try {
-    const rawModels = await fetchLiveProviderModels('kilo');
-    kiloGatewayCatalogBoost = mapLiveRawModelsToCatalog('kilo', rawModels)
-      .filter((model) => !isGatewayRouterModel(model.model));
-    console.log(`[kilo] Live gateway catalog: ${kiloGatewayCatalogBoost.length} models merged into custom catalog.`);
-  } catch (error: any) {
-    kiloGatewayCatalogBoost = [];
-    console.error(
-      '[kilo] Failed to refresh live gateway catalog:',
-      sanitizeDiagnosticText(String(error?.message || error))
-    );
-  }
 }
 
 function candidateAvailability(modelName: string) {
@@ -9515,7 +9477,6 @@ const isDevMode = process.env.LOCAL_ROUTER_DEV === 'true' || process.env.NODE_EN
 loadSessions();
 loadFeedback();
 loadPqcSecrets();
-void refreshKiloGatewayCatalogBoost();
 
 const server = app.listen(PORT, () => {
   console.log(`Local Router OpenAI-compatible proxy running on http://localhost:${PORT}`);
