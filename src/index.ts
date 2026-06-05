@@ -2285,7 +2285,8 @@ function normalizeRoutingTierOrder(): void {
     }
   }
 
-  let fallbackChanged = false;
+  let systemFallbackChanged = false;
+  let otherFallbackChanged = false;
   const defaultFallbackIds = resolvedDefaultFallbackModels();
   for (const route of Object.values(fallbackModelStore)) {
     const isSystemFallback = (
@@ -2331,7 +2332,11 @@ function normalizeRoutingTierOrder(): void {
     );
     if (orderChanged) {
       route.models = nextModels;
-      fallbackChanged = true;
+      if (isSystemFallback) {
+        systemFallbackChanged = true;
+      } else {
+        otherFallbackChanged = true;
+      }
     }
   }
 
@@ -2344,10 +2349,19 @@ function normalizeRoutingTierOrder(): void {
     }
   }
 
-  if (fallbackChanged) {
+  if (systemFallbackChanged) {
     try {
       persistFallbackModels();
-      console.log('[router] Reordered fallback-models chain by provider tier.');
+      console.log('[router] Synchronized fallback-models fixed chain with catalog.');
+    } catch (error: any) {
+      console.error('Failed to persist synchronized fallback-models route:', sanitizeDiagnosticText(String(error?.message || error)));
+    }
+  }
+
+  if (otherFallbackChanged) {
+    try {
+      persistFallbackModels();
+      console.log('[router] Reordered fallback route by provider tier.');
     } catch (error: any) {
       console.error('Failed to persist tier-ordered fallback route:', sanitizeDiagnosticText(String(error?.message || error)));
     }
@@ -2691,6 +2705,12 @@ function getPqcBinPath(): string {
 }
 
 function loadPqcSecrets(): void {
+  if (process.env.LOCAL_ROUTER_SKIP_PQC_LOAD === 'true') {
+    ensureDefaultOllamaApiKey(keyStore);
+    pruneDisallowedOllamaCloudRouting();
+    return;
+  }
+
   const bin = getPqcBinPath();
   if (!bin) {
     console.log('[PQC] pqc-secrets binary not found — skipping bundle load.');
@@ -2712,10 +2732,12 @@ function loadPqcSecrets(): void {
       const envVar = match[1];
       const value = match[2];
       process.env[envVar] = value;
-      const provider = findProviderByEnvVar(envVar);
-      if (provider) {
-        keyStore[provider.name] = value;
-        loadedProviders.push(provider.name);
+      const providers = providerSummariesForEnvVar(envVar);
+      if (providers.length > 0) {
+        for (const provider of providers) {
+          keyStore[provider.name] = value;
+          loadedProviders.push(provider.name);
+        }
       } else {
         skippedEnvVars.push(envVar);
       }
@@ -2763,16 +2785,39 @@ function findProviderByEnvVar(envVar: string): ProviderSummary | undefined {
   return allProviderSummaries().find((s) => s.keyEnvVar === envVar);
 }
 
+function providerSummariesForEnvVar(envVar: string): ProviderSummary[] {
+  return allProviderSummaries().filter((summary) => summary.keyEnvVar === envVar);
+}
+
+/** Catalog providers may share one env var (e.g. opencode-go + opencode-zen → OPENCODE_API_KEY). */
+function setProviderKeyForEnvVar(envVar: string, keyValue: string): void {
+  process.env[envVar] = keyValue;
+  for (const summary of providerSummariesForEnvVar(envVar)) {
+    keyStore[summary.name] = keyValue;
+  }
+}
+
+function clearProviderKeyForProvider(providerName: string): void {
+  const summary = getProviderSummary(providerName);
+  if (!summary) return;
+  for (const sibling of providerSummariesForEnvVar(summary.keyEnvVar)) {
+    delete keyStore[sibling.name];
+  }
+  delete process.env[summary.keyEnvVar];
+}
+
 function persistPqcSecrets(): void {
   const bin = getPqcBinPath();
   if (!bin) return;
   try {
     const lines: string[] = [];
+    const packedEnvVars = new Set<string>();
     for (const [providerName, keyValue] of Object.entries(keyStore)) {
       if (!keyValue) continue;
       if (providerName === 'ollama' && isOllamaPlaceholderKey(keyValue)) continue;
       const summary = getProviderSummary(providerName);
-      if (summary) {
+      if (summary && !packedEnvVars.has(summary.keyEnvVar)) {
+        packedEnvVars.add(summary.keyEnvVar);
         lines.push(`${summary.keyEnvVar}=${keyValue}`);
       }
     }
@@ -5450,15 +5495,15 @@ app.post('/api/keys', (req: Request, res: Response) => {
       return res.status(400).json({ error: `Unknown provider: ${providerName}` });
     }
 
-    keyStore[providerName] = keyValue;
-    process.env[summary.keyEnvVar] = keyValue;
+    setProviderKeyForEnvVar(summary.keyEnvVar, keyValue);
     persistPqcSecrets();
     return res.json({
       success: true,
       provider: providerName,
       keyEnvVar: summary.keyEnvVar,
       configured: true,
-      configuredSource: 'memory'
+      configuredSource: 'memory',
+      sharedProviders: providerSummariesForEnvVar(summary.keyEnvVar).map((entry) => entry.name)
     });
   }
 
@@ -5507,8 +5552,7 @@ app.delete('/api/keys/:provider', (req: Request, res: Response) => {
     });
   }
 
-  delete keyStore[providerName];
-  delete process.env[summary.keyEnvVar];
+  clearProviderKeyForProvider(providerName);
   persistPqcSecrets();
 
   return res.json({
@@ -5516,7 +5560,8 @@ app.delete('/api/keys/:provider', (req: Request, res: Response) => {
     provider: providerName,
     keyEnvVar: summary.keyEnvVar,
     configured: false,
-    configuredSource: 'none'
+    configuredSource: 'none',
+    sharedProviders: providerSummariesForEnvVar(summary.keyEnvVar).map((entry) => entry.name)
   });
 });
 app.get('/api/model-source', (req: Request, res: Response) => {

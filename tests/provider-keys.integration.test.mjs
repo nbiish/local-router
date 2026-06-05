@@ -53,6 +53,17 @@ function providerBaseUrlEnvVar(providerName) {
   return `LOCAL_ROUTER_PROVIDER_${providerName.toUpperCase().replace(/[^A-Z0-9]+/g, '_')}_BASE_URL`;
 }
 
+function stripForeignProviderKeys(env, keepKeyEnvVars = []) {
+  const keep = new Set(keepKeyEnvVars);
+  const cleaned = { ...env };
+  for (const key of Object.keys(cleaned)) {
+    if (/^[A-Z0-9_]+_API_KEY$/.test(key) && !keep.has(key)) {
+      delete cleaned[key];
+    }
+  }
+  return cleaned;
+}
+
 async function readRequestBody(req) {
   const chunks = [];
 
@@ -237,9 +248,10 @@ test.before(async () => {
   await startFakeUpstream();
   testHome = mkdtempSync(join(tmpdir(), 'local-router-test-'));
   proxyEnv = {
-    ...process.env,
+    ...stripForeignProviderKeys(process.env, [selectedProvider.keyEnvVar]),
     HOME: testHome,
     PORT: port,
+    LOCAL_ROUTER_SKIP_PQC_LOAD: 'true',
     LOCAL_ROUTER_SKIP_OLLAMA_ENSURE: 'true',
     LOCAL_ROUTER_FALLBACK_BASE_RETRY_SECONDS: '0',
     [selectedProvider.keyEnvVar]: 'integration-test-provider-key',
@@ -1524,4 +1536,47 @@ test('localrouter CLI lists models and inspects routers against running server',
     routerPayload.routers.some((route) => route.candidates.length > 0),
     'Expected router candidates in CLI output'
   );
+});
+
+test('shared OPENCODE_API_KEY applies to opencode-go and opencode-zen', async (t) => {
+  if (skipReason) {
+    t.skip(skipReason);
+    return;
+  }
+
+  const sharedKey = 'shared-opencode-integration-key';
+  const save = await requestJson('/api/keys', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ provider: 'opencode-go', apiKey: sharedKey })
+  });
+  assert.equal(save.response.status, 200);
+  assert.deepEqual(
+    new Set(save.body?.sharedProviders || []),
+    new Set(['opencode-go', 'opencode-zen'])
+  );
+
+  const configs = await requestJson('/api/provider-configs');
+  assert.equal(configs.response.status, 200);
+  for (const name of ['opencode-go', 'opencode-zen']) {
+    const entry = configs.body?.data?.find((item) => item.name === name);
+    assert.ok(entry, `Expected ${name} in provider configs`);
+    assert.equal(entry.configured, true);
+    assert.equal(entry.configuredSource, 'memory');
+  }
+
+  const reset = await requestJson('/api/keys/opencode-go', { method: 'DELETE' });
+  assert.equal(reset.response.status, 200);
+  assert.deepEqual(
+    new Set(reset.body?.sharedProviders || []),
+    new Set(['opencode-go', 'opencode-zen'])
+  );
+
+  const afterReset = await requestJson('/api/provider-configs');
+  for (const name of ['opencode-go', 'opencode-zen']) {
+    const entry = afterReset.body?.data?.find((item) => item.name === name);
+    assert.ok(entry, `Expected ${name} after reset`);
+    assert.equal(entry.configured, false);
+    assert.equal(entry.configuredSource, 'none');
+  }
 });

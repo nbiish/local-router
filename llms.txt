@@ -18,7 +18,7 @@ Local Router is a localhost proxy (port `11434`) with **Ollama-compatible** and 
 - **Ollama shim:** `local-router route set` → `ollama serve` starts real Ollama on `11435` and Local Router on `11434`
 - **Operator CLI:** `localrouter list`, `keys`, `router`, `verify`, `config --open`
 - **Thinking:** Proxy toggle default **OFF** (IDE passthrough); optional levels when enabled. Responses strip `reasoning_content` for VS Code safety; requests preserve it for multi-turn tools
-- **Tests:** `npm test` — **8** test files, **28** cases (integration + routing unit tests; see [Current Test Coverage](#current-test-coverage))
+- **Tests:** `npm test` — **8** test files, **29** cases (integration + routing unit tests; see [Current Test Coverage](#current-test-coverage))
 - **Canonical release:** `main` = `develop` @ **`5a58799`** (2026-06-04) — see [System Snapshot](#system-snapshot--canonical-state-2026-06-04)
 
 ## System Snapshot — Canonical State (2026-06-04)
@@ -712,8 +712,8 @@ The ML-DSA-65 algorithm and `openssl pkeyutl` invocations are unchanged. Only th
 | `opencode-zen` | 8 | `https://opencode.ai/zen/v1` | `OPENCODE_API_KEY` |
 | `zai` | 1 | `https://api.z.ai/api/coding/paas/v4` | `ZAI_API_KEY` |
 | `ollama` | 8 (`:cloud`; **3** in default router/fallback) | `http://127.0.0.1:11435/v1` | `OLLAMA_API_KEY` |
-| `cline` | 4 (free CLI catalog) | `https://api.cline.bot/api/v1` | `CLINE_API_KEY` |
-| `kilo` | 2 (free gateway catalog) | `https://api.kilo.ai/api/gateway` | `KILO_API_KEY` |
+| `cline` | 5 (free + paid CLI catalog) | `https://api.cline.bot/api/v1` | `CLINE_API_KEY` |
+| `kilo` | 5 (free + paid gateway catalog) | `https://api.kilo.ai/api/gateway` | `KILO_API_KEY` |
 
 **Ollama cloud tags in catalog:** 3 free-tier (`nemotron-3-ultra`, `minimax-m3`, `deepseek-v4-flash`) + 5 Pro-only (`deepseek-v4-pro`, `kimi-k2.6`, `glm-5.1`, `minimax-m2.7`, `qwen3.5`). See [Ollama Cloud routing](#ollama-cloud-routing-free-vs-pro).
 
@@ -1529,4 +1529,17 @@ localrouter config --open            # http://127.0.0.1:11434/config
 
 **Promotion:** `feat/routing-opencode-go-fallback` → `develop` @ `5a58799`; llms snapshot on `docs/llms-5a58799-snapshot` → merge to `develop` → `main`.
 
-**Canonical tip:** `main` = `develop` = **`5a58799`**. **Next iteration:** configure `CLINE_API_KEY` / `KILO_API_KEY` in `/config` for gateway free models; run `localrouter verify` after `npm test`.
+**Canonical tip:** `main` = `develop` = **`8d949f9`**. **Ops verified (2026-06-04):** all 14 providers configured (incl. Cline/Kilo); `localrouter verify` PASS; 16-step fallback + 46-candidate auto-router live on `:11434`.
+
+### 2026-06-04 — shared provider keys + ops verification
+
+**Branch:** `fix/shared-provider-keys`
+
+**Tasks completed:**
+1. ✅ **Push** — `local-router/main` and `local-router/develop` @ `8d949f9`.
+2. ✅ **Runtime** — rebuilt + restarted on `main`; `localrouter verify` PASS; fallback chain + auto-router counts confirmed via API.
+3. ✅ **Gateway probes** — `scripts/probe-cline-kilo.mjs` with PQC keys; Kilo 342 models auth; Cline DeepSeek V4 Flash 200.
+4. ✅ **Shared `OPENCODE_API_KEY`** — save/delete/load mirrors key to `opencode-go` + `opencode-zen`; PQC pack dedupes env vars.
+5. ✅ **Log hygiene** — system `fallback-models` sync logs as fixed-chain catalog sync (not tier reorder).
+
+**Next iteration:** refresh VS Code picker (`POST /api/vscode/configure` or `/config` button) after key changes; monitor Cline free-model upstream 500s on probe.
