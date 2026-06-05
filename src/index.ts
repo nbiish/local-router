@@ -39,7 +39,8 @@ import {
   gatewayPresentedModelSegment
 } from './gateway-provider-catalog';
 import {
-  DEFAULT_AUTO_ROUTER_CANDIDATES_TEXT,
+  DEFAULT_FALLBACK_ORDERED_IDS,
+  buildDefaultAutoRouterCandidateLines,
   buildDefaultFallbackModelIds,
   buildDefaultFallbackModelsText
 } from './routing-defaults';
@@ -243,7 +244,7 @@ const DEFAULT_PROVIDER_TIER_ORDER = [
   'modal',
   'nebius',
   'opencode-zen',
-  'opencode-code',
+  'opencode-go',
   'zai',
   'xiaomi-mimo',
   'wafer-serverless',
@@ -259,8 +260,8 @@ const PRESENTATION_PREFIX_TO_PROVIDER: Record<string, string> = {
   modal: 'modal',
   nebius: 'nebius',
   'opencode-zen': 'opencode-zen',
-  'opencode-code': 'opencode-code',
-  opencode: 'opencode-code',
+  'opencode-go': 'opencode-go',
+  opencode: 'opencode-go',
   zai: 'zai',
   'xiaomi-mimo': 'xiaomi-mimo',
   'wafer-ai': 'wafer-serverless',
@@ -270,7 +271,9 @@ const PRESENTATION_PREFIX_TO_PROVIDER: Record<string, string> = {
   'openrouter-presets': 'openrouter-presets'
 };
 
-const DEFAULT_ROUTER_CANDIDATES_TEXT = DEFAULT_AUTO_ROUTER_CANDIDATES_TEXT;
+function resolvedDefaultAutoRouterCandidatesText(): string {
+  return buildDefaultAutoRouterCandidateLines(catalogRefForPresentedModel).join('\n');
+}
 
 const LEGACY_AUTO_LOCAL_MAIN_MODELS = new Set([
   'openrouter-1-million-chain-of-draft',
@@ -286,38 +289,51 @@ const UPSTREAM_MODEL_ID_ALIASES: Record<string, string> = {
   'modal/zai-org/GLM-5.1-FP8': 'modal-glm-5.1-fp8',
   'nvidia-nim/stepfun-ai/step-3.7-flash': 'nvidia-nim-step-3.7-flash',
   'nebius/deepseek-ai/DeepSeek-V4-Pro': 'nebius-deepseek-v4-pro',
-  'opencode/deepseek-v4-pro': 'opencode-code-deepseek-v4-pro',
-  'opencode-code/deepseek-v4-pro': 'opencode-code-deepseek-v4-pro',
-  'opencode/minimax-m3': 'opencode-code-minimax-m3',
-  'opencode-code/minimax-m3': 'opencode-code-minimax-m3',
-  'opencode/minimax-m3-free': 'opencode-code-minimax-m3-free',
-  'opencode-code/minimax-m3-free': 'opencode-code-minimax-m3-free',
-  'opencode/kimi-k2.6': 'opencode-code-kimi-k2.6',
-  'opencode-code/kimi-k2.6': 'opencode-code-kimi-k2.6',
-  'opencode/glm-5.1': 'opencode-code-glm-5.1',
-  'opencode-code/glm-5.1': 'opencode-code-glm-5.1',
-  'opencode/glm-5': 'opencode-code-glm-5',
-  'opencode-code/glm-5': 'opencode-code-glm-5',
-  'opencode/deepseek-v4-flash': 'opencode-code-deepseek-v4-flash',
-  'opencode-code/deepseek-v4-flash': 'opencode-code-deepseek-v4-flash',
-  'opencode/qwen3.7-max': 'opencode-code-qwen3.7-max',
-  'opencode-code/qwen3.7-max': 'opencode-code-qwen3.7-max',
-  'opencode/mimo-v2.5-pro': 'opencode-code-mimo-v2.5-pro',
-  'opencode-code/mimo-v2.5-pro': 'opencode-code-mimo-v2.5-pro',
-  'opencode/mimo-v2.5': 'opencode-code-mimo-v2.5',
-  'opencode-code/mimo-v2.5': 'opencode-code-mimo-v2.5',
-  'opencode-minimax-m3': 'opencode-code-minimax-m3',
-  'opencode-minimax-m3-free': 'opencode-code-minimax-m3-free',
-  'opencode-kimi-k2.6': 'opencode-code-kimi-k2.6',
-  'opencode-glm-5.1': 'opencode-code-glm-5.1',
-  'opencode-glm-5': 'opencode-code-glm-5',
-  'opencode-deepseek-v4-pro': 'opencode-code-deepseek-v4-pro',
-  'opencode-deepseek-v4-flash': 'opencode-code-deepseek-v4-flash',
-  'opencode-qwen3.7-max': 'opencode-code-qwen3.7-max',
-  'opencode-mimo-v2.5-pro': 'opencode-code-mimo-v2.5-pro',
-  'opencode-mimo-v2.5': 'opencode-code-mimo-v2.5',
+  'opencode/deepseek-v4-pro': 'opencode-go-deepseek-v4-pro',
+  'opencode-go/deepseek-v4-pro': 'opencode-go-deepseek-v4-pro',
+  'opencode/minimax-m3': 'opencode-go-minimax-m3',
+  'opencode-go/minimax-m3': 'opencode-go-minimax-m3',
+  'opencode/minimax-m3-free': 'opencode-zen-minimax-m3-free',
+  'opencode-go/minimax-m3-free': 'opencode-zen-minimax-m3-free',
+  'opencode-code/minimax-m3-free': 'opencode-zen-minimax-m3-free',
+  'opencode/kimi-k2.6': 'opencode-go-kimi-k2.6',
+  'opencode-go/kimi-k2.6': 'opencode-go-kimi-k2.6',
+  'opencode/glm-5.1': 'opencode-go-glm-5.1',
+  'opencode-go/glm-5.1': 'opencode-go-glm-5.1',
+  'opencode/glm-5': 'opencode-go-glm-5',
+  'opencode-go/glm-5': 'opencode-go-glm-5',
+  'opencode/deepseek-v4-flash': 'opencode-go-deepseek-v4-flash',
+  'opencode-go/deepseek-v4-flash': 'opencode-go-deepseek-v4-flash',
+  'opencode/qwen3.7-max': 'opencode-go-qwen3.7-max',
+  'opencode-go/qwen3.7-max': 'opencode-go-qwen3.7-max',
+  'opencode/mimo-v2.5-pro': 'opencode-go-mimo-v2.5-pro',
+  'opencode-go/mimo-v2.5-pro': 'opencode-go-mimo-v2.5-pro',
+  'opencode/mimo-v2.5': 'opencode-go-mimo-v2.5',
+  'opencode-go/mimo-v2.5': 'opencode-go-mimo-v2.5',
+  'opencode-minimax-m3': 'opencode-go-minimax-m3',
+  'opencode-minimax-m3-free': 'opencode-zen-minimax-m3-free',
+  'opencode-code-minimax-m3': 'opencode-go-minimax-m3',
+  'opencode-code-minimax-m3-free': 'opencode-zen-minimax-m3-free',
+  'opencode-code-kimi-k2.6': 'opencode-go-kimi-k2.6',
+  'opencode-code-glm-5.1': 'opencode-go-glm-5.1',
+  'opencode-code-glm-5': 'opencode-go-glm-5',
+  'opencode-code-deepseek-v4-pro': 'opencode-go-deepseek-v4-pro',
+  'opencode-code-deepseek-v4-flash': 'opencode-go-deepseek-v4-flash',
+  'opencode-code-qwen3.7-max': 'opencode-go-qwen3.7-max',
+  'opencode-code-mimo-v2.5-pro': 'opencode-go-mimo-v2.5-pro',
+  'opencode-code-mimo-v2.5': 'opencode-go-mimo-v2.5',
+  'opencode-kimi-k2.6': 'opencode-go-kimi-k2.6',
+  'opencode-glm-5.1': 'opencode-go-glm-5.1',
+  'opencode-glm-5': 'opencode-go-glm-5',
+  'opencode-deepseek-v4-pro': 'opencode-go-deepseek-v4-pro',
+  'opencode-deepseek-v4-flash': 'opencode-go-deepseek-v4-flash',
+  'opencode-qwen3.7-max': 'opencode-go-qwen3.7-max',
+  'opencode-mimo-v2.5-pro': 'opencode-go-mimo-v2.5-pro',
+  'opencode-mimo-v2.5': 'opencode-go-mimo-v2.5',
   'xiaomi-mimo/mimo-v2.5': 'xiaomi-mimo-mimo-v2.5',
   'zenmux/xiaomi/mimo-v2.5': 'zenmux-mimo-v2.5',
+  'zenmux/xiaomi/mimo-v2.5-pro': 'zenmux-mimo-v2.5-pro',
+  'nebius/nvidia/Nemotron-3-Ultra-550b-a55b': 'nebius-nemotron-3-ultra-550b-a55b',
   'openrouter-presets/@preset/chain-of-draft': 'openrouter-chain-of-draft',
   'wafer-serverless/deepseek-v4-flash': 'wafer-ai-deepseek-v4-flash',
   'wafer-serverless/MiniMax-M3': 'wafer-ai-minimax-m3',
@@ -2148,7 +2164,7 @@ function buildDefaultAutoLocalRouterModel(): RouterModel | null {
     type: DEFAULT_ROUTER_TYPE,
     minCodingScore: DEFAULT_ROUTER_MIN_CODING_SCORE,
     costQualityTradeoff: DEFAULT_ROUTER_COST_QUALITY_TRADEOFF,
-    candidatesText: DEFAULT_ROUTER_CANDIDATES_TEXT
+    candidatesText: resolvedDefaultAutoRouterCandidatesText()
   });
   if (!parsed.ok) {
     console.error('Failed to build default auto-local router:', parsed.error);
@@ -2277,26 +2293,44 @@ function normalizeRoutingTierOrder(): void {
       || normalizeFallbackRouteId(route.id) === SYSTEM_FALLBACK_ROUTE_ID
       || normalizeFallbackRouteId(route.id) === 'default'
     );
-    const seedModels = isSystemFallback
-      ? [...defaultFallbackIds, ...route.models]
-      : [...route.models];
-    const deduped: string[] = [];
-    const seenModels = new Set<string>();
-    for (const modelId of seedModels) {
-      const trimmed = String(modelId || '').trim();
-      if (!trimmed || seenModels.has(trimmed) || !findProviderModel(trimmed)) continue;
-      seenModels.add(trimmed);
-      deduped.push(trimmed);
-    }
-    if (deduped.length === 0) continue;
 
-    const sortedModels = stableSortModelIdsByProviderTier(deduped);
+    let nextModels: string[];
+    if (isSystemFallback) {
+      const catalogValid = (modelId: string) => Boolean(findProviderModel(modelId));
+      const preferred = DEFAULT_FALLBACK_ORDERED_IDS.filter(catalogValid);
+      const preferredSet = new Set(preferred);
+      const extras: string[] = [];
+      const seenExtras = new Set<string>();
+      for (const modelId of [...defaultFallbackIds, ...route.models]) {
+        const trimmed = String(modelId || '').trim();
+        if (!trimmed || preferredSet.has(trimmed) || seenExtras.has(trimmed) || !catalogValid(trimmed)) {
+          continue;
+        }
+        seenExtras.add(trimmed);
+        extras.push(trimmed);
+      }
+      nextModels = [...preferred, ...extras];
+    } else {
+      const deduped: string[] = [];
+      const seenModels = new Set<string>();
+      for (const modelId of route.models) {
+        const trimmed = String(modelId || '').trim();
+        if (!trimmed || seenModels.has(trimmed) || !findProviderModel(trimmed)) continue;
+        seenModels.add(trimmed);
+        deduped.push(trimmed);
+      }
+      if (deduped.length === 0) continue;
+      nextModels = stableSortModelIdsByProviderTier(deduped);
+    }
+
+    if (nextModels.length === 0) continue;
+
     const orderChanged = (
-      sortedModels.length !== route.models.length
-      || sortedModels.some((modelId, index) => modelId !== route.models[index])
+      nextModels.length !== route.models.length
+      || nextModels.some((modelId, index) => modelId !== route.models[index])
     );
     if (orderChanged) {
-      route.models = sortedModels;
+      route.models = nextModels;
       fallbackChanged = true;
     }
   }
@@ -3597,7 +3631,7 @@ app.get('/config', (req: Request, res: Response) => {
         let activeFallbackRouteId = '';
         let activeRouterRouteId = '';
         const DEFAULT_ROUTER_ID = ${JSON.stringify(DEFAULT_ROUTER_ID)};
-        const DEFAULT_ROUTER_CANDIDATES_TEXT = ${JSON.stringify(DEFAULT_ROUTER_CANDIDATES_TEXT)};
+        const DEFAULT_ROUTER_CANDIDATES_TEXT = ${JSON.stringify(resolvedDefaultAutoRouterCandidatesText())};
         const DEFAULT_FALLBACK_MODELS_TEXT = ${JSON.stringify(DEFAULT_FALLBACK_MODELS_TEXT)};
         let routerCandidateStore = [];
         let allModelsCache = [];
@@ -6842,7 +6876,7 @@ function ensureDefaultRouter() {
     type: DEFAULT_ROUTER_TYPE,
     minCodingScore: DEFAULT_ROUTER_MIN_CODING_SCORE,
     costQualityTradeoff: DEFAULT_ROUTER_COST_QUALITY_TRADEOFF,
-    candidatesText: DEFAULT_ROUTER_CANDIDATES_TEXT
+    candidatesText: resolvedDefaultAutoRouterCandidatesText()
   });
 
   if (!parsed.ok) {
@@ -7838,7 +7872,7 @@ function appendRouterEvent(event: Record<string, unknown>) {
 }
 
 function injectPromptCaching(body: any, providerName: string): any {
-  const isCachingSupported = ['zenmux', 'opencode-code', 'opencode-zen', 'xiaomi-mimo', 'wafer-serverless', 'openrouter', 'openrouter-presets'].includes(providerName);
+  const isCachingSupported = ['zenmux', 'opencode-go', 'opencode-zen', 'xiaomi-mimo', 'wafer-serverless', 'openrouter', 'openrouter-presets'].includes(providerName);
   if (!isCachingSupported) return body;
 
   const messages = body.messages || [];

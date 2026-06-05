@@ -1,6 +1,6 @@
 /**
  * Fallback / auto-router exhaustion order: free → subscription → paid.
- * Paid API order (after subscription): Wafer → ZenMux → OpenRouter → Cline → Kilo → OpenCode Zen → NIM → Modal → Nebius.
+ * Paid API order (after subscription): Wafer → ZenMux → OpenRouter → Nebius → Cline → Kilo → OpenCode Zen → NIM → Modal.
  */
 
 import {
@@ -20,21 +20,31 @@ export const ROUTING_EXHAUSTION_BAND = {
   PAID: 5
 } as const;
 
-/** DeepSeek V4 Flash presented IDs (one per paid provider slot; sorts by paid provider order). */
-export const DEEPSEEK_V4_FLASH_PAID_PRESENTED_IDS: readonly string[] = [
+/** Default fallback paid tail (six anchors; explicit fallback order is authoritative). */
+export const FALLBACK_PAID_TAIL_IDS: readonly string[] = [
   'wafer-ai-deepseek-v4-flash',
-  'zenmux-deepseek-v4-flash',
-  'openrouter-deepseek-v4-flash',
+  'zenmux-mimo-v2.5-pro',
+  'openrouter-chain-of-draft',
+  'nebius-nemotron-3-ultra-550b-a55b',
   'cline-deepseek-deepseek-v4-flash',
-  'kilo-deepseek-deepseek-v4-flash',
-  'opencode-zen-deepseek-v4-flash'
+  'kilo-deepseek-deepseek-v4-flash'
 ] as const;
+
+/** @deprecated Use FALLBACK_PAID_TAIL_IDS */
+export const DEEPSEEK_V4_FLASH_PAID_PRESENTED_IDS = FALLBACK_PAID_TAIL_IDS;
 
 export type RoutingExhaustionBand = typeof ROUTING_EXHAUSTION_BAND[keyof typeof ROUTING_EXHAUSTION_BAND];
 
 /** Subscription endpoints (OpenCode Go, Z.ai, Xiaomi). OpenCode Zen paid is in PAID band. */
 export const SUBSCRIPTION_PROVIDERS = [
-  'opencode-code',
+  'opencode-go',
+  'zai',
+  'xiaomi-mimo'
+] as const;
+
+/** Subscription try order within band 4. */
+export const SUBSCRIPTION_PROVIDER_SUB_ORDER = [
+  'opencode-go',
   'zai',
   'xiaomi-mimo'
 ] as const;
@@ -44,22 +54,21 @@ export const ROUTING_PAID_PROVIDER_SUB_ORDER = [
   'wafer-serverless',
   'zenmux',
   'openrouter-presets',
+  'nebius',
   'cline',
   'kilo',
   'opencode-zen',
   'nvidia-nim',
-  'modal',
-  'nebius'
+  'modal'
 ] as const;
 
-/** Sub-order within free bands (Ollama → gateway free → OpenCode free). */
+/** Sub-order within free bands (Ollama → gateway free → OpenCode Zen free). */
 export const ROUTING_FREE_PROVIDER_SUB_ORDER = [
   'ollama',
   'kilo',
   'cline',
   'openrouter-presets',
-  'opencode-zen',
-  'opencode-code'
+  'opencode-zen'
 ] as const;
 
 const PRESENTATION_PREFIX_TO_PROVIDER: Record<string, string> = {
@@ -70,8 +79,9 @@ const PRESENTATION_PREFIX_TO_PROVIDER: Record<string, string> = {
   modal: 'modal',
   nebius: 'nebius',
   'opencode-zen': 'opencode-zen',
-  'opencode-code': 'opencode-code',
-  opencode: 'opencode-code',
+  'opencode-go': 'opencode-go',
+  'opencode-code': 'opencode-go',
+  opencode: 'opencode-go',
   zai: 'zai',
   'xiaomi-mimo': 'xiaomi-mimo',
   'wafer-ai': 'wafer-serverless',
@@ -116,13 +126,20 @@ function freeProviderSubOrderIndex(providerSlug: string): number {
   return index >= 0 ? index : ROUTING_FREE_PROVIDER_SUB_ORDER.length;
 }
 
+function subscriptionProviderSubOrderIndex(providerSlug: string): number {
+  const index = SUBSCRIPTION_PROVIDER_SUB_ORDER.indexOf(
+    providerSlug as typeof SUBSCRIPTION_PROVIDER_SUB_ORDER[number]
+  );
+  return index >= 0 ? index : SUBSCRIPTION_PROVIDER_SUB_ORDER.length;
+}
+
 function isPresentedFreeSlug(modelId: string): boolean {
   const normalized = String(modelId || '').trim().toLowerCase();
   return normalized.endsWith('-free') || normalized.includes(':free');
 }
 
 function isOpencodeFamilyFree(provider: string | null, modelId: string, upstream: string): boolean {
-  if (provider !== 'opencode-zen' && provider !== 'opencode-code') return false;
+  if (provider !== 'opencode-zen' && provider !== 'opencode-go') return false;
   const normalizedUpstream = String(upstream || '').trim().toLowerCase();
   return isPresentedFreeSlug(modelId)
     || normalizedUpstream.endsWith('-free')
@@ -210,6 +227,9 @@ export function routingExhaustionSortKey(
     || band === ROUTING_EXHAUSTION_BAND.OTHER_FREE
   ) {
     return band * 100_000 + freeProviderSubOrderIndex(provider) * 100 + originalIndex;
+  }
+  if (band === ROUTING_EXHAUSTION_BAND.SUBSCRIPTION) {
+    return band * 100_000 + subscriptionProviderSubOrderIndex(provider) * 100 + originalIndex;
   }
 
   return band * 100_000 + originalIndex;

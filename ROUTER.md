@@ -40,17 +40,17 @@ Canonical defaults live in [`src/routing-defaults.ts`](src/routing-defaults.ts) 
 - Type: `auto-local`
 - Minimum coding score: `0.66`
 - Cost/quality tradeoff: `7`
-- **Exhaustion order:** free (Ollama, `openrouter/free` on OpenRouter + Kilo + Cline, gateway free, OpenCode free) → subscription (OpenCode Go, OpenCode Zen paid, Z.ai, Xiaomi) → DeepSeek V4 Flash paid chain → preferred API-paid (NVIDIA NIM, Modal, Nebius, Wafer, ZenMux, OpenRouter presets)
+- **Exhaustion order:** free (Ollama, gateway free, OpenCode Zen free, `openrouter/free`) → subscription (OpenCode Go → Z.ai → Xiaomi) → paid (Wafer → ZenMux → OpenRouter → Nebius → Cline → Kilo → Zen/NIM/Modal extras on auto-router)
 
 ## Default System Fallback Profile
 
-Canonical defaults live in [`src/routing-defaults.ts`](src/routing-defaults.ts) (`DEFAULT_FALLBACK_CANDIDATES_TEXT`, ~45 models). **Not** a subset of the auto-router list.
+Canonical defaults live in [`src/routing-defaults.ts`](src/routing-defaults.ts) (`DEFAULT_FALLBACK_ORDERED_IDS`, **16** models). **Not** a subset of the auto-router list.
 
-Bootstrapped on first run when no fallback routes exist (`ensureDefaultFallback()`). Route id: `fallback-models`.
+Bootstrapped on first run when no fallback routes exist (`ensureDefaultFallback()`). Route id: `fallback-models`. Order is **fixed** (no exhaustion re-sort on bootstrap).
 
-- Same free + subscription bands as the auto-router defaults
-- **Paid tail only:** `wafer-ai-deepseek-v4-flash` → `zenmux-deepseek-v4-flash` → `openrouter-deepseek-v4-flash` → `cline-deepseek-deepseek-v4-flash` → `kilo-deepseek-deepseek-v4-flash` → `opencode-zen-deepseek-v4-flash`
-- Does **not** include NVIDIA NIM, Modal, or Nebius
+1. `ollama-nemotron-3-ultra-cloud` → `nvidia-nim-minimax-m3` → `modal-glm-5.1-fp8` → `kilo-nvidia-nemotron-3-ultra-550b-a55b-free` → `cline-nvidia-nemotron-3-ultra-550b-a55b-free` → `opencode-zen-minimax-m3-free` → `openrouter-free`
+2. `opencode-go-deepseek-v4-pro` → `zai-code-pass-glm-5.1` → `xiaomi-mimo-mimo-v2.5-pro`
+3. `wafer-ai-deepseek-v4-flash` → `zenmux-mimo-v2.5-pro` → `openrouter-chain-of-draft` → `nebius-nemotron-3-ultra-550b-a55b` → `cline-deepseek-deepseek-v4-flash` → `kilo-deepseek-deepseek-v4-flash`
 
 The `/config` **Reset Fallback Defaults** button restores this chain. Stages without configured provider keys are skipped immediately at request time.
 

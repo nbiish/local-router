@@ -47,16 +47,27 @@ export const BASELINE_PROVIDER_PRICING: Record<string, ProviderPricingEntry> = {
     label: 'ZenMux MiniMax M3 intro 50% off',
     sourceUrl: 'https://zenmux.ai/models'
   },
-  'opencode-code-minimax-m3': {
+  'opencode-go-minimax-m3': {
     inputPricePerM: 0.3,
     outputPricePerM: 1.2,
-    label: 'OpenCode Code MiniMax M3',
+    label: 'OpenCode Go MiniMax M3 subscription',
     sourceUrl: 'https://opencode.ai/zen/go/v1/models'
   },
-  'opencode-code-minimax-m3-free': {
+  'opencode-zen-minimax-m3-free': {
     inputPricePerM: 0,
     outputPricePerM: 0,
-    label: 'OpenCode Code MiniMax M3 free tier'
+    label: 'OpenCode Zen MiniMax M3 free tier'
+  },
+  'zenmux-mimo-v2.5-pro': {
+    inputPricePerM: 0.44,
+    outputPricePerM: 0.88,
+    label: 'ZenMux xiaomi/mimo-v2.5-pro fallback paid tail',
+    sourceUrl: 'https://zenmux.ai/models'
+  },
+  'nebius-nemotron-3-ultra-550b-a55b': {
+    inputPricePerM: 0.5,
+    outputPricePerM: 1,
+    label: 'Nebius nvidia/Nemotron-3-Ultra-550b-a55b paid fallback tail'
   },
   'kilo-stepfun-step-3.7-flash-free': {
     inputPricePerM: 0,

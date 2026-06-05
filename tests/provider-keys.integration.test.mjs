@@ -338,54 +338,29 @@ test('provider key save/reset lifecycle exposes configured source', async (t) =>
 
   const systemFallback = bootstrappedFallbackRoutes.body?.data?.find((route) => route.routeId === 'fallback-models');
   const fallbackChain = systemFallback?.models || [];
-  const tierIndex = (prefix) => fallbackChain.findIndex((id) => String(id).startsWith(prefix));
-  const ollamaIdx = tierIndex('ollama-');
-  const kiloIdx = tierIndex('kilo-');
-  const clineIdx = tierIndex('cline-');
-  const ozenIdx = tierIndex('opencode-zen-');
-  const zaiIdx = tierIndex('zai-');
-  const waferIdx = tierIndex('wafer-ai-deepseek-v4-flash');
-  const zenmuxDsIdx = tierIndex('zenmux-deepseek-v4-flash');
-  const openrouterDsIdx = tierIndex('openrouter-deepseek-v4-flash');
-  const clineDsIdx = tierIndex('cline-deepseek-deepseek-v4-flash');
-  const kiloDsIdx = tierIndex('kilo-deepseek-deepseek-v4-flash');
-  const ozenDsIdx = fallbackChain.findIndex((id) => id === 'opencode-zen-deepseek-v4-flash');
-  const nvidiaIdx = tierIndex('nvidia-nim-');
-
-  assert.ok(ollamaIdx >= 0, 'fallback-models should include Ollama tier');
-  assert.equal(ollamaIdx, 0, 'fallback chain should exhaust Ollama tier first');
-  if (kiloIdx >= 0) {
-    assert.ok(kiloIdx > ollamaIdx, 'Kilo free gateway should follow Ollama');
-  }
-  if (clineIdx >= 0 && kiloIdx >= 0) {
-    assert.ok(clineIdx > kiloIdx, 'Cline free gateway should follow Kilo');
-  }
-  if (clineIdx >= 0 && kiloIdx < 0) {
-    assert.ok(clineIdx > ollamaIdx, 'Cline free gateway should follow Ollama');
-  }
-  const opencodeFreeIdx = fallbackChain.findIndex((id) => (
-    String(id).startsWith('opencode-code-') && String(id).includes('-free')
-  ));
-  if (clineIdx >= 0 && ozenIdx >= 0) {
-    assert.ok(ozenIdx > clineIdx, 'OpenCode Zen free should follow Cline free gateway');
-  }
-  if (ozenIdx >= 0 && opencodeFreeIdx >= 0) {
-    assert.ok(opencodeFreeIdx > ozenIdx, 'OpenCode Go free should follow OpenCode Zen free');
-  }
-  const xiaomiIdx = tierIndex('xiaomi-mimo-');
-  const opencodePaidIdx = fallbackChain.findIndex((id) => (
-    String(id) === 'opencode-code-minimax-m3'
-  ));
-  if (opencodeFreeIdx >= 0 && opencodePaidIdx >= 0) {
-    assert.ok(opencodePaidIdx > opencodeFreeIdx, 'OpenCode Go paid should follow OpenCode Go free');
-  }
-  if (opencodePaidIdx >= 0 && zaiIdx >= 0) {
-    assert.ok(zaiIdx > opencodeFreeIdx, 'Z.ai subscription should follow free tiers');
-  }
-  if (zaiIdx >= 0 && xiaomiIdx >= 0) {
-    assert.ok(xiaomiIdx > zaiIdx, 'Xiaomi MiMo subscription should follow Z.ai');
-  }
-  assert.equal(nvidiaIdx, -1, 'fallback-models should not include NVIDIA NIM by default');
+  const expectedFallbackChain = [
+    'ollama-nemotron-3-ultra-cloud',
+    'nvidia-nim-minimax-m3',
+    'modal-glm-5.1-fp8',
+    'kilo-nvidia-nemotron-3-ultra-550b-a55b-free',
+    'cline-nvidia-nemotron-3-ultra-550b-a55b-free',
+    'opencode-zen-minimax-m3-free',
+    'openrouter-free',
+    'opencode-go-deepseek-v4-pro',
+    'zai-code-pass-glm-5.1',
+    'xiaomi-mimo-mimo-v2.5-pro',
+    'wafer-ai-deepseek-v4-flash',
+    'zenmux-mimo-v2.5-pro',
+    'openrouter-chain-of-draft',
+    'nebius-nemotron-3-ultra-550b-a55b',
+    'cline-deepseek-deepseek-v4-flash',
+    'kilo-deepseek-deepseek-v4-flash'
+  ];
+  assert.deepEqual(
+    fallbackChain,
+    expectedFallbackChain,
+    `fallback-models should match the fixed 16-step chain; got: ${fallbackChain.join(', ')}`
+  );
   assert.ok(
     autoRouterCandidates.includes('openrouter-free'),
     'auto-router should include OpenRouter openrouter/free'
@@ -398,13 +373,10 @@ test('provider key save/reset lifecycle exposes configured source', async (t) =>
     autoRouterCandidates.includes('cline-openrouter-free'),
     'auto-router should include Cline openrouter/free'
   );
-  assert.ok(waferIdx >= 0, 'fallback should include wafer-ai-deepseek-v4-flash');
-  assert.ok(zenmuxDsIdx > waferIdx, 'ZenMux DS V4 Flash should follow Wafer in fallback tail');
-  assert.ok(openrouterDsIdx > zenmuxDsIdx, 'OpenRouter DS V4 Flash should follow ZenMux');
-  assert.ok(clineDsIdx > openrouterDsIdx, 'Cline DS V4 Flash should follow OpenRouter');
-  assert.ok(kiloDsIdx > clineDsIdx, 'Kilo DS V4 Flash should follow Cline');
-  assert.ok(ozenDsIdx > kiloDsIdx, 'OpenCode Zen DS V4 Flash should follow Kilo');
-  assert.equal(ozenDsIdx, fallbackChain.length - 1, 'fallback chain should end with OpenCode Zen DS V4 Flash');
+  assert.ok(
+    autoRouterCandidates.includes('opencode-go-minimax-m3'),
+    'auto-router should include OpenCode Go subscription models'
+  );
 
   const firstRouterCandidate = autoRouterCandidates[0] || '';
   assert.ok(
@@ -415,10 +387,10 @@ test('provider key save/reset lifecycle exposes configured source', async (t) =>
   const routerClineIdx = autoRouterCandidates.findIndex((id) => String(id).startsWith('cline-'));
   const routerOzenIdx = autoRouterCandidates.findIndex((id) => String(id).startsWith('opencode-zen-'));
   const routerOpencodeFreeIdx = autoRouterCandidates.findIndex((id) => (
-    String(id).startsWith('opencode-code-') && String(id).includes('-free')
+    id === 'opencode-zen-minimax-m3-free'
   ));
-  const routerOpencodePaidIdx = autoRouterCandidates.findIndex((id) => (
-    String(id) === 'opencode-code-minimax-m3'
+  const routerOpencodeSubIdx = autoRouterCandidates.findIndex((id) => (
+    id === 'opencode-go-deepseek-v4-pro'
   ));
   const routerZaiIdx = autoRouterCandidates.findIndex((id) => String(id).startsWith('zai-'));
   const routerXiaomiIdx = autoRouterCandidates.findIndex((id) => String(id).startsWith('xiaomi-mimo-'));
@@ -429,11 +401,11 @@ test('provider key save/reset lifecycle exposes configured source', async (t) =>
   if (routerClineIdx >= 0 && routerOzenIdx >= 0) {
     assert.ok(routerClineIdx < routerOzenIdx, 'auto-router should list Cline before OpenCode Zen free');
   }
-  if (routerOpencodePaidIdx >= 0 && routerOpencodeFreeIdx >= 0) {
-    assert.ok(routerOpencodePaidIdx > routerOpencodeFreeIdx, 'auto-router should list OpenCode Go paid after free');
+  if (routerOpencodeSubIdx >= 0 && routerOpencodeFreeIdx >= 0) {
+    assert.ok(routerOpencodeSubIdx > routerOpencodeFreeIdx, 'auto-router should list OpenCode Go subscription after Zen free');
   }
-  if (routerZaiIdx >= 0 && routerOpencodePaidIdx >= 0) {
-    assert.ok(routerZaiIdx > routerOpencodeFreeIdx, 'auto-router should list Z.ai after free tiers');
+  if (routerZaiIdx >= 0 && routerOpencodeSubIdx >= 0) {
+    assert.ok(routerZaiIdx > routerOpencodeSubIdx, 'auto-router should list Z.ai after OpenCode Go subscription');
   }
   if (routerNvidiaIdx >= 0 && routerXiaomiIdx >= 0) {
     assert.ok(routerNvidiaIdx > routerXiaomiIdx, 'auto-router should list API-paid NVIDIA after subscription');

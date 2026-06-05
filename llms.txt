@@ -12,8 +12,8 @@ Local Router is a localhost proxy (port `11434`) with **Ollama-compatible** and 
 - **Keys:** `/config` UI → in-memory while running → **PQC bundle** `~/.config/pqc-secrets/secrets.bundle.json` on every save (ML-KEM-768 + AES-256-GCM). Never committed to git or `providers.txt`
 - **Catalog:** `providers.txt` (14 providers, ~102 presented models in custom mode) + runtime edits in `provider-models.json` + **custom providers** in `custom-providers.json`
 - **Custom providers:** `/config` → **Add custom provider…** or `POST /api/providers` (HTTPS `/v1` upstream; loopback HTTP allowed for dev)
-- **Auto-router:** `local-router/auto-router-main` — **~49** candidates (`src/routing-defaults.ts`): free → `opencode-code` / Zen subscription → preferred API-paid; cascades to system fallback on exhaustion
-- **System fallback:** `local-router/fallback-models` — **~33** models: same free + subscription bands; paid tail is six DeepSeek V4 Flash paths (Wafer → ZenMux → OpenRouter → Cline → Kilo → OpenCode Zen) — not NVIDIA/Modal/Nebius
+- **Auto-router:** `local-router/auto-router-main` — expanded curated set (`src/routing-defaults.ts`): free → subscription (`opencode-go` → Z.ai → Xiaomi) → paid (Wafer → ZenMux → OpenRouter → Nebius → Cline → Kilo + NIM/Modal/Zen extras); exhaustion-sorted at bootstrap
+- **System fallback:** `local-router/fallback-models` — **16** fixed steps (`DEFAULT_FALLBACK_ORDERED_IDS`): Ollama → NIM → Modal → Kilo/Cline free → OpenCode Zen free → OpenRouter free → Go/Z.ai/Xiaomi subscription → six paid anchors (no exhaustion re-sort on bootstrap)
 - **Ollama Cloud:** Shared quota — router/fallback/pull use **nemotron-3-ultra**, **minimax-m3**, **deepseek-v4-flash** only unless a real `ollama.com` API key is set (Pro tags gated). See [Ollama Cloud routing](#ollama-cloud-routing-free-vs-pro)
 - **Ollama shim:** `local-router route set` → `ollama serve` starts real Ollama on `11435` and Local Router on `11434`
 - **Operator CLI:** `localrouter list`, `keys`, `router`, `verify`, `config --open`
@@ -23,13 +23,13 @@ Local Router is a localhost proxy (port `11434`) with **Ollama-compatible** and 
 
 ## System Snapshot — Canonical State (2026-06-04)
 
-Use this section to resume work without re-deriving architecture. Remote: `https://github.com/nbiish/local-router.git` (`local-router` remote). **`main` and `develop` @ `38d9e73`** — routing tier split + curated `opencode-code` catalog (10 models).
+Use this section to resume work without re-deriving architecture. Remote: `https://github.com/nbiish/local-router.git` (`local-router` remote). **`main` and `develop` @ `38d9e73`** — routing tier split + curated `opencode-go` catalog (9 models).
 
 ### Release lineage (recent)
 
 | Commit | Summary |
 |--------|---------|
-| `38d9e73` | **`opencode-code`** — rename `opencode` provider; trim 9 legacy Go models from catalog/router/fallback; legacy `opencode-*` → `opencode-code-*` aliases |
+| `38d9e73` | **`opencode-go`** — rename `opencode` provider; trim 9 legacy Go models from catalog/router/fallback; legacy `opencode-*` → `opencode-go-*` aliases |
 | `fa18504` | **Routing tier split** — separate fallback vs auto-router defaults; paid order wafer→zenmux→OR→cline→kilo→ozen; `openrouter/free` x3 |
 | `acbb577` | **Init fix** — default fallback sort at module load must not call `findProviderModel` before `modelSourceConfig` exists |
 | `2b47b1e` | **Wraparound exhaustion** — free → subscription → paid bands; `buildWraparoundExecutionPlan()` revisits earlier models before advancing |
@@ -76,12 +76,12 @@ Used by `stableSortModelIdsByRoutingExhaustion()` (`src/routing-exhaustion-order
 
 **Subscription exhaustion band:**
 
-5. `opencode-code` (Code/Go subscription), `zai`, `xiaomi-mimo` — OpenCode Zen **paid** is in band 6; Zen **free** stays in band 4
+5. `opencode-go` → `zai` → `xiaomi-mimo` (subscription sub-order) — OpenCode Zen **free** stays in band 4; Zen **paid** is in band 6
 
 **Paid exhaustion (provider sub-order within band 6):**
 
-6. **Paid API order** — `wafer-serverless` → `zenmux` → `openrouter-presets` → `cline` → `kilo` → `opencode-zen` → `nvidia-nim` → `modal` → `nebius`
-   - **Fallback paid tail (DS V4 Flash only):** `wafer-ai-deepseek-v4-flash` → `zenmux-deepseek-v4-flash` → `openrouter-deepseek-v4-flash` → `cline-deepseek-deepseek-v4-flash` → `kilo-deepseek-deepseek-v4-flash` → `opencode-zen-deepseek-v4-flash`
+6. **Paid API order** — `wafer-serverless` → `zenmux` → `openrouter-presets` → `nebius` → `cline` → `kilo` → `opencode-zen` → `nvidia-nim` → `modal`
+   - **Fallback paid tail (fixed six):** `wafer-ai-deepseek-v4-flash` → `zenmux-mimo-v2.5-pro` → `openrouter-chain-of-draft` → `nebius-nemotron-3-ultra-550b-a55b` → `cline-deepseek-deepseek-v4-flash` → `kilo-deepseek-deepseek-v4-flash`
    - **Auto-router** adds other paid models (NIM, Modal, Nebius, MiniMax M3, etc.) after the fallback set; OpenCode Zen subscription models (GLM, Claude, …) sort with `opencode-zen` in band 6
 
 Router and fallback **skip** candidates when the provider has no API key (except `ollama`, always “configured” with placeholder). Ollama Cloud **Pro-only** presented IDs are skipped when the key is the placeholder.
@@ -116,7 +116,7 @@ Router and fallback **skip** candidates when the provider has no API key (except
 | `cline` | `https://api.cline.bot/api/v1` | `CLINE_API_KEY` | Free: `cline-openrouter-free`, Nemotron Ultra, MiniMax M3, MiMo V2.5. Paid tail: `cline-deepseek-deepseek-v4-flash` |
 | `kilo` | `https://api.kilo.ai/api/gateway` | `KILO_API_KEY` | Free: `kilo-openrouter-free`, Step 3.7 Flash, Nemotron Super, Nemotron Ultra. Paid tail: `kilo-deepseek-deepseek-v4-flash` |
 
-- **OpenCode Code** (`opencode-code`, Zen/Go endpoint) = curated subscription Hermes set (10 models in `providers.txt`). **OpenCode Zen** (`opencode-zen`) = paid API (after Kilo) + Zen free-tier models in band 4.
+- **OpenCode Go** (`opencode-go`, `/zen/go/v1`) = subscription Hermes set (9 models in `providers.txt`). **OpenCode Zen** (`opencode-zen`, `/zen/v1`) = free + paid/overage; same `OPENCODE_API_KEY`.
 - **openrouter/free:** routed on `openrouter-presets`, `kilo`, and `cline` (three paths for extra free quota). **Excluded:** `kilo-auto/free` only.
 - **Configure in `/config`** on the built-in provider cards — not via **Add custom provider…** (Kilo base path is `/api/gateway`, not `/v1`).
 - **Client model IDs** use full presented segments above (not short aliases like `cline-minimax-m3`).
@@ -132,8 +132,8 @@ Router and fallback **skip** candidates when the provider has no API key (except
 ### Default system fallback
 
 - **Route id:** `fallback-models` (bootstrapped); persisted installs may also use legacy id **`default`** — startup **merges** tier-default model IDs into system/legacy routes, then tier-sorts
-- **Source:** [`src/routing-defaults.ts`](src/routing-defaults.ts) (`DEFAULT_FALLBACK_CANDIDATES_TEXT`) — **decoupled** from auto-router; does **not** include NVIDIA/Modal/Nebius
-- **Paid tail:** six DeepSeek V4 Flash models only (see band 6 above)
+- **Source:** [`src/routing-defaults.ts`](src/routing-defaults.ts) (`DEFAULT_FALLBACK_ORDERED_IDS`, 16 models) — **fixed order** at bootstrap; broader auto-router superset is exhaustion-sorted separately
+- **Paid tail:** six models (see band 6 above); includes NIM + Modal in the free wave (positions 2–3)
 - **Stages:** wraparound plan with 3 primary attempts per stage; skip stages with `fallbackStagePreflight()` (no key, Ollama tier block, unknown model)
 
 ### Configuration on disk (`~/.config/local-router/`)
@@ -234,14 +234,14 @@ Use this table to know **which dropdown entry** and **which env var** match a se
 | [Modal](https://modal.com/) GLM endpoint | `modal` | `MODAL_API_KEY` | Modal GLM-5.1-FP8 endpoint | Single-model provider in catalog |
 | [OpenRouter](https://openrouter.ai/) presets you own | `openrouter-presets` | `OPENROUTER_API_KEY` | `https://openrouter.ai/api/v1` | Uses **preset slugs** (`@preset/...`), not raw OR model ids—confirm preset ownership |
 | [Xiaomi Mimo](https://www.mimo.ai/) plan | `xiaomi-mimo` | `XIAOMI_MIMO_API_KEY` | Mimo token plan URL | 1M-context Mimo models |
-| [OpenCode Code](https://opencode.ai/) (Zen/Go) | `opencode-code` | `OPENCODE_API_KEY` | `https://opencode.ai/zen/go/v1` | Curated 10-model Hermes set; shares key with Zen |
+| [OpenCode Code](https://opencode.ai/) (Zen/Go) | `opencode-go` | `OPENCODE_API_KEY` | `https://opencode.ai/zen/go/v1` | Curated 10-model Hermes set; shares key with Zen |
 | [OpenCode Zen](https://opencode.ai/) subscription | `opencode-zen` | `OPENCODE_API_KEY` | `https://opencode.ai/zen/v1` | Curated subset in `providers.txt`; free-tier models (e.g. `minimax-m3-free`) |
 | [Z.AI](https://z.ai/) coding API | `zai` | `ZAI_API_KEY` | `https://api.z.ai/api/coding/paas/v4` | GLM-5.1 coding pass |
 | Local [Ollama](https://ollama.com/) Cloud models | `ollama` | `OLLAMA_API_KEY` | `http://127.0.0.1:11435/v1` | Always configured with default `local-router-ollama`; cloud free tier via `ollama signin` (no ollama.com API key required) |
 | [Cline](https://docs.cline.bot/api/overview) API credits | `cline` | `CLINE_API_KEY` | `https://api.cline.bot/api/v1` | Free CLI catalog: Nemotron 3 Ultra, MiniMax M3, MiMo V2.5, DeepSeek V4 Flash (excludes `openrouter/free` router) |
 | [Kilo](https://kilo.ai/docs/gateway) Gateway credits / Kilo Pass | `kilo` | `KILO_API_KEY` | `https://api.kilo.ai/api/gateway` | Free catalog: Step 3.7 Flash, Nemotron 3 Super (`:free` tags). Excludes Auto Free / Free Models Router. **Do not** use Add custom provider UI |
 
-**Shared keys:** `opencode-code` and `opencode-zen` both use `OPENCODE_API_KEY`—set the key once on either provider card.
+**Shared keys:** `opencode-go` and `opencode-zen` both use `OPENCODE_API_KEY`—set the key once on either provider card.
 
 **Not in catalog?** Use **Add custom provider…** (see [Custom providers](#custom-providers-for-other-vendors)) for any other OpenAI-compatible vendor (Together, Fireworks, private gateway, etc.).
 
@@ -443,7 +443,7 @@ Per `AGENTS.md`: create a git worktree for every task. One task = one branch = o
 - On server startup, `loadPqcSecrets()` decrypts the bundle and loads all keys into memory — keys survive restarts
 - `DELETE /api/keys/:provider` clears a provider key from memory AND re-packs the PQC bundle without it
 - "Reset key" button on each provider card in `/config` UI provides one-click key deletion
-- Shared keys (e.g., `opencode-code`/`opencode-zen` both use `OPENCODE_API_KEY`) are deduplicated in the bundle
+- Shared keys (e.g., `opencode-go`/`opencode-zen` both use `OPENCODE_API_KEY`) are deduplicated in the bundle
 
 ### Stream Translation (Ollama ↔ OpenAI)
 - **Inbound:** Ollama JSON schema → OpenAI JSON schema
@@ -689,7 +689,7 @@ The ML-DSA-65 algorithm and `openssl pkeyutl` invocations are unchanged. Only th
 | `modal` | 1 | Modal GLM endpoint | `MODAL_API_KEY` |
 | `openrouter-presets` | 8 | `https://openrouter.ai/api/v1` | `OPENROUTER_API_KEY` |
 | `xiaomi-mimo` | 2 | `https://token-plan-sgp.xiaomimimo.com/v1` | `XIAOMI_MIMO_API_KEY` |
-| `opencode-code` | 10 | `https://opencode.ai/zen/go/v1` | `OPENCODE_API_KEY` |
+| `opencode-go` | 10 | `https://opencode.ai/zen/go/v1` | `OPENCODE_API_KEY` |
 | `opencode-zen` | 8 | `https://opencode.ai/zen/v1` | `OPENCODE_API_KEY` |
 | `zai` | 1 | `https://api.z.ai/api/coding/paas/v4` | `ZAI_API_KEY` |
 | `ollama` | 8 (`:cloud`; **3** in default router/fallback) | `http://127.0.0.1:11435/v1` | `OLLAMA_API_KEY` |
@@ -709,10 +709,10 @@ The ML-DSA-65 algorithm and `openssl pkeyutl` invocations are unchanged. Only th
 - `xiaomi-mimo/mimo-v2.5-pro`, `xiaomi-mimo/mimo-v2.5`
 
 **Notable model specs:**
-- **MiniMax M3** (released May 31, 2026): 512K context, 512K output, multimodal (text/image/video/file), native reasoning, tools, prompt caching. Built on MiniMax Sparse Attention (MSA) — ~1/20 cost at long context vs previous generation. Pricing: $0.30/$1.20 per 1M tokens (intro 50% off). Available via: zenmux, openrouter-presets, opencode-code, nvidia-nim, opencode-zen (free tier: `minimax-m3-free`)
+- **MiniMax M3** (released May 31, 2026): 512K context, 512K output, multimodal (text/image/video/file), native reasoning, tools, prompt caching. Built on MiniMax Sparse Attention (MSA) — ~1/20 cost at long context vs previous generation. Pricing: $0.30/$1.20 per 1M tokens (intro 50% off). Available via: zenmux, openrouter-presets, opencode-go, nvidia-nim, opencode-zen (free tier: `minimax-m3-free`)
 - **Step-3.7-flash** (StepFun): 256K context, 256K output, tools+vision+cache+reasoning. Available via: zenmux, openrouter-presets, nvidia-nim
-- **Qwen3.7-max**: 1M context, 64K output. Available via: wafer-serverless, zenmux, opencode-code, openrouter-presets
-- **GLM-5.1** (Z.AI): 200K context, 128K output. Available via: opencode-code, opencode-zen, zai (`code-pass-glm-5.1`), modal (FP8), wafer-serverless
+- **Qwen3.7-max**: 1M context, 64K output. Available via: wafer-serverless, zenmux, opencode-go, openrouter-presets
+- **GLM-5.1** (Z.AI): 200K context, 128K output. Available via: opencode-go, opencode-zen, zai (`code-pass-glm-5.1`), modal (FP8), wafer-serverless
 - Wafer Serverless intake IDs: `GLM-5.1`, `Kimi-K2.6`, `deepseek-v4-flash`, `deepseek-v4-pro`, `qwen3.7-max`
 - ZenMux models (19): includes DeepSeek V4 Pro/Flash, GLM-5.1, Qwen3.7-max, Gemini 3.1-pro/3.5-flash, MiniMax M3/M2.7, Step 3.7-flash, Agnes 2.0-flash, MiMo V2.5 Pro/V2.5, Kimi K2.6, Qwen3-coder-plus, GPT-5-codex
 - Moonshot/Kimi K2.6: 256K context, multimodal input, tool calling. v1 models: 8K/32K/128K contexts
@@ -722,7 +722,7 @@ The ML-DSA-65 algorithm and `openssl pkeyutl` invocations are unchanged. Only th
 - OpenRouter presets: 1M context, 120K max output, tools + vision. Also `stepfun/step-3.7-flash`, `minimax/minimax-m3`, `qwen/qwen3.7-max`. All compositions must be confirmed with preset owner
 - **OpenCode Zen** (full subscription, `https://opencode.ai/zen/v1`): 42 models across Claude Opus/Sonnet/Haiku, Gemini, GPT-5.5/5.4/5.3/5.2/5.1/5, Grok, DeepSeek, GLM, MiniMax, Kimi, Qwen + 5 free-tier models. Curated 8 in providers.txt: `deepseek-v4-flash`, `gemini-3.5-flash`, `gpt-5.4`, `gpt-5.3-codex`, `claude-sonnet-4-6`, `minimax-m3-free`, `deepseek-v4-flash-free`, `glm-5.1`
 - **NVIDIA NIM Kimi K2.6** (added 2026-06-02): 256K context, 32K output, multimodal image input, tool calling, implicit prompt caching. Available as `nvidia-nim/moonshotai-kimi-k2.6` (presented as `nvidia-nim-kimi-k2.6`). Reference: `https://docs.api.nvidia.com/nim/reference/moonshotai-kimi-k2-6`
-- **OpenCode MiniMax M3 free tier** (added 2026-06-02): 512K context, 512K output, multimodal, tool calling, prompt caching, native reasoning stripped for VS Code. Available as `opencode-code/minimax-m3-free` (presented as `opencode-code-minimax-m3-free`). Also via `opencode-zen/minimax-m3-free` (`opencode-zen-minimax-m3-free`)
+- **OpenCode MiniMax M3 free tier** (added 2026-06-02): 512K context, 512K output, multimodal, tool calling, prompt caching, native reasoning stripped for VS Code. Available as `opencode-go/minimax-m3-free` (presented as `opencode-zen-minimax-m3-free`). Also via `opencode-zen/minimax-m3-free` (`opencode-zen-minimax-m3-free`)
 - **Z.ai**: `code-pass-glm-5.1` — coding-focused GLM-5.1, 200K context, 128K output
 - MiniMax M2.7: 204.8K context, 131K max output, tools YES, vision NO, reasoning YES (stripped for VS Code)
 
