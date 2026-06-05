@@ -10,7 +10,7 @@ Local Router is a localhost proxy (port `11434`) with **Ollama-compatible** and 
 - **Client inference:** `POST /v1/chat/completions`, Ollama `/api/chat` & `/api/generate`, Codex `POST /v1/responses`, Claude Code `POST /v1/messages`
 - **Model IDs:** `{provider-slug}/{presented-alias}` (e.g. `zenmux/qwen3.7-max`, `my-vendor/my-alias`) or `local-router/{router-or-fallback-id}`
 - **Keys:** `/config` UI → in-memory while running → **PQC bundle** `~/.config/pqc-secrets/secrets.bundle.json` on every save (ML-KEM-768 + AES-256-GCM). Never committed to git or `providers.txt`
-- **Catalog:** `providers.txt` (14 providers, ~102 presented models in custom mode) + runtime edits in `provider-models.json` + **custom providers** in `custom-providers.json`
+- **Catalog:** `providers.txt` (14 providers, **~105** presented models in custom mode) + runtime edits in `provider-models.json` + **custom providers** in `custom-providers.json`
 - **Custom providers:** `/config` → **Add custom provider…** or `POST /api/providers` (HTTPS `/v1` upstream; loopback HTTP allowed for dev)
 - **Auto-router:** `local-router/auto-router-main` — expanded curated set (`src/routing-defaults.ts`): free → subscription (`opencode-go` → Z.ai → Xiaomi) → paid (Wafer → ZenMux → OpenRouter → Nebius → Cline → Kilo + NIM/Modal/Zen extras); exhaustion-sorted at bootstrap
 - **System fallback:** `local-router/fallback-models` — **16** fixed steps (`DEFAULT_FALLBACK_ORDERED_IDS`): Ollama → NIM → Modal → Kilo/Cline free → OpenCode Zen free → OpenRouter free → Go/Z.ai/Xiaomi subscription → six paid anchors (no exhaustion re-sort on bootstrap)
@@ -18,17 +18,22 @@ Local Router is a localhost proxy (port `11434`) with **Ollama-compatible** and 
 - **Ollama shim:** `local-router route set` → `ollama serve` starts real Ollama on `11435` and Local Router on `11434`
 - **Operator CLI:** `localrouter list`, `keys`, `router`, `verify`, `config --open`
 - **Thinking:** Proxy toggle default **OFF** (IDE passthrough); optional levels when enabled. Responses strip `reasoning_content` for VS Code safety; requests preserve it for multi-turn tools
-- **Tests:** `npm test` — **8** test files, **29** cases (integration + routing unit tests; see [Current Test Coverage](#current-test-coverage))
-- **Canonical release:** `main` = `develop` @ **`5a58799`** (2026-06-04) — see [System Snapshot](#system-snapshot--canonical-state-2026-06-04)
+- **Tests:** `npm test` — **10** test files, **35** cases (integration + routing unit tests; see [Current Test Coverage](#current-test-coverage))
+- **Canonical release:** `main` = `develop` @ **`d8a1c8e`** (2026-06-05) — see [System Snapshot](#system-snapshot--canonical-state-2026-06-05)
 
-## System Snapshot — Canonical State (2026-06-04)
+## System Snapshot — Canonical State (2026-06-05)
 
-Use this section to resume work without re-deriving architecture. Remote: `https://github.com/nbiish/local-router.git` (`local-router` remote). **`main` and `develop` @ `5a58799`** — OpenCode Go vs Zen naming, fixed 16-step fallback, exhaustion tier order.
+Use this section to resume work without re-deriving architecture. Remote: `https://github.com/nbiish/local-router.git` (`local-router` remote). **`main` and `develop` @ `d8a1c8e`** — chat-proven Cline/Kilo catalogs, tier-suffixed gateway IDs, MiniMax M3 fallback hops, curated gateway free auto-router.
 
 ### Release lineage (recent)
 
 | Commit | Summary |
 |--------|---------|
+| `d8a1c8e` | **Gateway routing curation** — fallback steps 4–5: **MiniMax M3** (Kilo paid / Cline free) replaces Nemotron Ultra; auto-router Cline/Kilo **free** limited to Nemotron Ultra + MiniMax M3 (Cline) + Step 3.7 Flash (Kilo); startup prune for non-curated gateway free rows |
+| `1085c21` | **Tier-suffixed presented IDs** — Cline/Kilo models use explicit `-free` / `-paid` local-router IDs + friendly config labels; legacy alias map for persisted routers |
+| `cbf1099` | **Chat-proven catalogs** — `scripts/validate-cline-kilo-catalog.mjs` + JSON artifact; **12 Cline** + **19 Kilo** rows (every row live chat 200); removed `openrouter/owl-alpha` (Kilo) and Cline `openrouter/free` |
+| `1b8977d` | **Cline curated catalog** — 4 free + 8 paid chat-proven models in `providers.txt` |
+| `8d62919` | **Kilo curated catalog** — 8 free + 11 paid chat-proven models; custom mode = `providers.txt` only |
 | `5a58799` | **`opencode-go` routing** — rename `opencode-code` → `opencode-go` (subscription `/zen/go/v1`) vs `opencode-zen` (free/paid `/zen/v1`); **16-step fixed** `fallback-models` chain; paid order Wafer→ZenMux→OR→**Nebius**→Cline→Kilo; subscription order Go→Z.ai→Xiaomi; ~46 auto-router candidates with catalog-aware exhaustion bootstrap |
 | `38d9e73` | **`opencode-code`** — interim rename `opencode` provider; trim 9 legacy Go models; legacy `opencode-*` aliases (superseded by `5a58799` → use `opencode-go-*`) |
 | `fa18504` | **Routing tier split** — separate fallback vs auto-router defaults; paid order wafer→zenmux→OR→cline→kilo→ozen; `openrouter/free` x3 |
@@ -71,8 +76,8 @@ Used by `stableSortModelIdsByRoutingExhaustion()` (`src/routing-exhaustion-order
 **Free exhaustion bands (in order):**
 
 1. `ollama` — **3 free-tier `:cloud` tags only** in defaults (see below)
-2. `kilo` — **free** gateway: `openrouter/free`, Step 3.7 Flash, Nemotron Super, Nemotron Ultra 550B
-3. `cline` — **free** gateway: Nemotron Ultra, MiniMax M3, MiMo V2.5, DeepSeek V4 Flash
+2. `kilo` — **free** gateway (catalog): 8 chat-proven rows; **auto-router free** curated to Nemotron Ultra + Step 3.7 Flash only
+3. `cline` — **free** gateway (catalog): 4 chat-proven rows; **auto-router free** curated to Nemotron Ultra + MiniMax M3 only
 4. **Other free** — `openrouter/free` on **openrouter-presets** (personal key), OpenCode Zen `*-free` (e.g. `opencode-zen-minimax-m3-free`), other zero-price catalog models
 
 **Subscription exhaustion band:**
@@ -82,7 +87,7 @@ Used by `stableSortModelIdsByRoutingExhaustion()` (`src/routing-exhaustion-order
 **Paid exhaustion (provider sub-order within band 6):**
 
 6. **Paid API order** — `wafer-serverless` → `zenmux` → `openrouter-presets` → `nebius` → `cline` → `kilo` → `opencode-zen` → `nvidia-nim` → `modal`
-   - **Fallback paid tail (fixed six):** `wafer-ai-deepseek-v4-flash` → `zenmux-mimo-v2.5-pro` → `openrouter-chain-of-draft` → `nebius-nemotron-3-ultra-550b-a55b` → `cline-deepseek-deepseek-v4-flash` → `kilo-deepseek-deepseek-v4-flash`
+   - **Fallback paid tail (fixed six):** `wafer-ai-deepseek-v4-flash` → `zenmux-mimo-v2.5-pro` → `openrouter-chain-of-draft` → `nebius-nemotron-3-ultra-550b-a55b` → `cline-deepseek-deepseek-v4-flash-free` → `kilo-deepseek-deepseek-v4-flash-paid`
    - **Auto-router** adds other paid models (NIM, Modal, Nebius, MiniMax M3, etc.) after the fallback set; OpenCode Zen subscription models (GLM, Claude, …) sort with `opencode-zen` in band 6
 
 Router and fallback **skip** candidates when the provider has no API key (except `ollama`, always “configured” with placeholder). Ollama Cloud **Pro-only** presented IDs are skipped when the key is the placeholder.
@@ -114,11 +119,12 @@ Router and fallback **skip** candidates when the provider has no API key (except
 
 | Provider | Upstream | Key | Catalog |
 |----------|----------|-----|---------|
-| `cline` | `https://api.cline.bot/api/v1` | `CLINE_API_KEY` | Custom catalog: **4 free** + **8 paid** — every row chat-proven on Cline. Excludes Anthropic/Gemini/OpenAI |
-| `kilo` | `https://api.kilo.ai/api/gateway` | `KILO_API_KEY` | Custom catalog: **8 free** + **11 paid** — every row chat-proven on Kilo. Excludes Anthropic/Gemini/OpenAI. `kilo-auto/free` excluded |
+| `cline` | `https://api.cline.bot/api/v1` | `CLINE_API_KEY` | Custom catalog: **4 free** + **8 paid** — every row chat-proven on Cline (`npm run validate:cline-kilo`). Presented IDs: `-free` / `-paid` suffixes. Excludes Anthropic/Gemini/OpenAI |
+| `kilo` | `https://api.kilo.ai/api/gateway` | `KILO_API_KEY` | Custom catalog: **8 free** + **11 paid** — every row chat-proven on Kilo. Presented IDs: `-free` / `-paid` suffixes. `kilo-auto/free` excluded |
 
 - **OpenCode Go** (`opencode-go`, `/zen/go/v1`) = subscription Hermes set (9 models in `providers.txt`). **OpenCode Zen** (`opencode-zen`, `/zen/v1`) = free + paid/overage; same `OPENCODE_API_KEY`.
-- **openrouter/free:** routed on `openrouter-presets` and `kilo` (not on Cline — deprecated there). **Excluded:** `kilo-auto/free` only.
+- **openrouter/free:** routed on `openrouter-presets` and `kilo` catalog (not Cline — chat 500). **Excluded:** `kilo-auto/free` only.
+- **Validation:** `scripts/validate-cline-kilo-catalog.mjs` — live chat probes; artifact `.agents/research/cline-kilo-catalog-validation.json`
 - **Direct chat:** Cline/Kilo failures return upstream errors (no silent cascade to `fallback-models`). Cline responses are unwrapped to standard OpenAI shape.
 - **Router:** Cline uses curated free + paid allowlist; Kilo allows any upstream gateway model except `kilo-auto/free` at inference time. **Listing:** custom catalog = `providers.txt` only; full Kilo upstream lists require **Endpoint Models** toggle or `GET /api/provider-models?catalog=all` after refresh.
 - **Configure in `/config`** on the built-in provider cards — not via **Add custom provider…** (Kilo base path is `/api/gateway`, not `/v1`).
@@ -700,7 +706,7 @@ The ML-DSA-65 algorithm and `openssl pkeyutl` invocations are unchanged. Only th
 
 `providers.txt` is the factual source of truth for provider/model metadata. It is synced to `~/.config/providers.txt` and intended to be copied across projects. Runtime model overrides (via `/api/provider-models`) take precedence and immediately update `/v1/models`, `/api/tags`, and `/api/show`.
 
-### Active Providers (14 providers, **45** catalog rows in `providers.txt` as of 2026-06-04)
+### Active Providers (14 providers, **~105** presented models in custom catalog as of 2026-06-05; includes **12 Cline** + **19 Kilo** gateway rows)
 | Provider | Models | Endpoint | Key Env |
 |---|---|---|---|
 | `wafer-serverless` | 5 | `https://pass.wafer.ai/v1` | `WAFER_SERVERLESS_API_KEY` |
@@ -1118,7 +1124,8 @@ The CIP system automates data-driven router improvements from telemetry. Spec: `
 |------|--------|
 | `tests/ollama-cloud.test.mjs` | `:cloud` tag detection |
 | `tests/ollama-cloud-catalog.test.mjs` | Free vs Pro tier map, pull filter, presented-ID block rules |
-| `tests/gateway-provider-catalog.test.mjs` | Cline/Kilo free allowlists, router-model exclusions, presented segments |
+| `tests/gateway-provider-catalog.test.mjs` | Cline/Kilo free allowlists, tier-suffixed presented IDs, router-model exclusions |
+| `tests/cline-kilo-catalog-validation.test.mjs` | Chat-proven catalog report matches `providers.txt` |
 | `tests/routing-exhaustion-order.test.mjs` | Free → subscription → paid sort bands |
 | `tests/execution-plan.test.mjs` | Wraparound plan revisits before advancing |
 | `tests/provider-keys.integration.test.mjs` | Keys, models, Ollama, gateway tiers, fallback exhaustion order, **3 Ollama + 6 gateway** router candidates, VS Code metadata, pricing, thinking |
@@ -1546,3 +1553,19 @@ localrouter config --open            # http://127.0.0.1:11434/config
 5. ✅ **Log hygiene** — system `fallback-models` sync logs as fixed-chain catalog sync (not tier reorder).
 
 **Next iteration:** refresh VS Code picker (`POST /api/vscode/configure` or `/config` button) after key changes; monitor Cline free-model upstream 500s on probe.
+
+### 2026-06-05 — Cline/Kilo catalogs, tier naming, routing curation (canonical release)
+
+**Branches:** `fix/catalog-prove-cline-kilo`, `fix/cline-kilo-tier-naming`, `fix/routing-gateway-free-curate` → `develop` → `main`
+
+**Tasks completed:**
+1. ✅ **Chat-proven catalogs** — `validate-cline-kilo-catalog.mjs`; **12 Cline** + **19 Kilo** rows; dropped unprovable `openrouter/owl-alpha` and Cline `openrouter/free`
+2. ✅ **Tier-suffixed IDs** — `-free` / `-paid` presented names + friendly `/config` labels; legacy alias migration for persisted routers
+3. ✅ **Fallback chain** — steps 4–5: `kilo-minimax-minimax-m3-paid` → `cline-minimax-minimax-m3-free` (replaces Nemotron Ultra gateway hops)
+4. ✅ **Auto-router curation** — Cline/Kilo free limited to Nemotron Ultra + MiniMax M3 (Cline) + Step 3.7 Flash (Kilo); startup prune removes other gateway free rows
+5. ✅ **Integration gate** — `npm test` **35/35** PASS on `develop`
+6. ✅ **Ops** — `localrouter verify` PASS; 105 custom-catalog models; server on `:11434`
+
+**Promotion:** `develop` @ **`d8a1c8e`** → `main` (2026-06-05).
+
+**Canonical tip:** `main` = `develop` = **`d8a1c8e`**. **Next iteration:** start from [System Snapshot](#system-snapshot--canonical-state-2026-06-05); use worktree + `AGENTS.md` merge policy.
