@@ -118,17 +118,30 @@
 # │ 94 │ cline              │ deepseek/deepseek-v4-flash          │ cline:deepseek-v4-flash        │1,000,000 │ 384,000  │ YES   │ NO   │ YES   │ NO* paid  │
 # │ 95 │ kilo               │ stepfun/step-3.7-flash:free         │ kilo:stepfun-step-3.7-flash:free │ 256,000 │ 256,000 │ YES │ YES │ YES │ YES* free │
 # │ 96 │ kilo               │ nvidia/nemotron-3-super-120b-a12b:free │ kilo:nvidia-nemotron-3-super-120b-a12b:free │ 256,000 │ 32,768 │ YES │ NO │ NO │ YES* free │
-# │ 97 │ openrouter-presets │ openrouter/free                     │ orps:openrouter-free           │ 256,000  │ 32,768   │ YES   │ NO   │ NO    │ YES* free │
-# │ 98 │ openrouter-presets │ deepseek/deepseek-v4-flash          │ orps:deepseek-v4-flash         │1,000,000 │ 131,072  │ YES   │ NO   │ YES   │ NO*       │
-# │ 99 │ kilo               │ openrouter/free                     │ kilo:openrouter-free           │ 256,000  │ 32,768   │ YES   │ NO   │ NO    │ YES* free │
-# │100 │ kilo               │ nvidia/nemotron-3-ultra-550b-a55b:free │ kilo:nvidia-nemotron-3-ultra-550b-a55b:free │ 256,000 │ 32,768 │ YES │ NO │ NO │ YES* free │
-# │101 │ kilo               │ deepseek/deepseek-v4-flash          │ kilo:deepseek-deepseek-v4-flash │1,000,000 │ 384,000  │ YES   │ NO   │ YES   │ NO* paid  │
-# │103 │ cline              │ deepseek/deepseek-chat              │ cline:deepseek-chat            │ 128,000  │ 16,000   │ YES   │ NO   │ YES   │ NO* paid  │
-# │104 │ cline              │ google/gemini-2.5-flash             │ cline:gemini-2.5-flash         │1,000,000 │ 65,536   │ YES   │ YES  │ YES   │ NO* paid  │
-# │105 │ cline              │ minimax/minimax-m2.7                │ cline:minimax-m2.7             │ 204,800  │ 131,072  │ YES   │ NO   │ YES   │ NO* paid  │
-# │106 │ cline              │ qwen/qwen3-coder                    │ cline:qwen3-coder              │ 256,000  │ 32,768   │ YES   │ NO   │ YES   │ NO* paid  │
+# │ 97 │ kilo               │ nvidia/nemotron-3-ultra-550b-a55b:free │ kilo:nvidia-nemotron-3-ultra-550b-a55b:free │ 256,000 │ 32,768 │ YES │ NO │ NO │ YES* free │
+# │ 98 │ kilo               │ nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free │ kilo:nemotron-3-nano-omni-reasoning:free │ 256,000 │ 20,480 │ YES │ YES │ NO │ YES* free │
+# │ 99 │ kilo               │ nvidia/nemotron-3.5-content-safety:free │ kilo:nemotron-3.5-content-safety:free │ 256,000 │ 32,768 │ YES │ NO │ NO │ YES* free │
+# │100 │ kilo               │ openrouter/free                     │ kilo:openrouter-free           │ 256,000  │ 32,768   │ YES   │ NO   │ NO    │ YES* free │
+# │101 │ kilo               │ openrouter/owl-alpha                  │ kilo:openrouter-owl-alpha      │ 256,000  │ 32,768   │ YES   │ NO   │ NO    │ YES* free │
+# │102 │ kilo               │ poolside/laguna-m.1:free              │ kilo:laguna-m.1:free           │ 256,000  │ 32,768   │ YES   │ NO   │ NO    │ YES* free │
+# │103 │ kilo               │ poolside/laguna-xs.2:free           │ kilo:laguna-xs.2:free          │ 256,000  │ 32,768   │ YES   │ NO   │ NO    │ YES* free │
+# │104 │ openrouter-presets │ openrouter/free                     │ orps:openrouter-free           │ 256,000  │ 32,768   │ YES   │ NO   │ NO    │ YES* free │
+# │105 │ openrouter-presets │ deepseek/deepseek-v4-flash          │ orps:deepseek-v4-flash         │1,000,000 │ 131,072  │ YES   │ NO   │ YES   │ NO*       │
+# │106 │ kilo               │ deepseek/deepseek-v4-flash          │ kilo:deepseek-deepseek-v4-flash │1,000,000 │ 384,000  │ YES   │ NO   │ YES   │ NO* paid  │
 # │107 │ kilo               │ deepseek/deepseek-v4-pro            │ kilo:deepseek-v4-pro           │1,000,000 │ 384,000  │ YES   │ NO   │ YES   │ NO* paid  │
-# │108 │ kilo               │ anthropic/claude-opus-4.8           │ kilo:claude-opus-4.8           │ 200,000  │ 32,000   │ YES   │ YES  │ YES   │ NO* paid  │
+# │108 │ kilo               │ deepseek/deepseek-chat              │ kilo:deepseek-chat             │ 128,000  │ 16,000   │ YES   │ NO   │ YES   │ NO* paid  │
+# │109 │ kilo               │ z-ai/glm-5.1                        │ kilo:glm-5.1                   │ 200,000  │ 128,000  │ YES   │ NO   │ YES   │ NO* paid  │
+# │110 │ kilo               │ qwen/qwen3.7-max                    │ kilo:qwen3.7-max               │1,000,000 │ 65,536   │ YES   │ NO   │ YES   │ NO* paid  │
+# │111 │ kilo               │ minimax/minimax-m3                  │ kilo:minimax-m3                │ 512,000  │ 512,000  │ YES   │ YES  │ YES   │ YES* paid │
+# │112 │ kilo               │ minimax/minimax-m2.7                │ kilo:minimax-m2.7              │ 204,800  │ 131,072  │ YES   │ NO   │ NO    │ NO* paid  │
+# │113 │ kilo               │ stepfun/step-3.7-flash              │ kilo:step-3.7-flash            │ 256,000  │ 256,000  │ YES   │ YES  │ YES   │ YES* paid │
+# │114 │ kilo               │ xiaomi/mimo-v2.5-pro                │ kilo:mimo-v2.5-pro             │1,048,576 │ 131,072  │ YES   │ NO   │ YES   │ NO* paid  │
+# │115 │ kilo               │ xiaomi/mimo-v2.5                    │ kilo:mimo-v2.5                 │1,048,576 │ 131,072  │ YES   │ YES  │ YES   │ NO* paid  │
+# │116 │ kilo               │ moonshotai/kimi-k2.6                │ kilo:kimi-k2.6                 │ 262,144  │ 262,144  │ YES   │ YES  │ YES   │ NO* paid  │
+# │117 │ cline              │ deepseek/deepseek-chat              │ cline:deepseek-chat            │ 128,000  │ 16,000   │ YES   │ NO   │ YES   │ NO* paid  │
+# │118 │ cline              │ google/gemini-2.5-flash             │ cline:gemini-2.5-flash         │1,000,000 │ 65,536   │ YES   │ YES  │ YES   │ NO* paid  │
+# │119 │ cline              │ minimax/minimax-m2.7                │ cline:minimax-m2.7             │ 204,800  │ 131,072  │ YES   │ NO   │ YES   │ NO* paid  │
+# │120 │ cline              │ qwen/qwen3-coder                    │ cline:qwen3-coder              │ 256,000  │ 32,768   │ YES   │ NO   │ YES   │ NO* paid  │
 # #
 # * Native reasoning DISABLED — VS Code/Copilot Chat and Zed cannot reliably
 #   preserve provider-native reasoning metadata across turns. FVS-CODE strips
@@ -453,8 +466,9 @@
 # Key env:     KILO_API_KEY  (JWT from app.kilo.ai profile)
 # Zed prefix:  kilo
 # Cross-tool:  Kilo Code, Vercel AI SDK, OpenAI SDK, Local Router
-# Models:      4 curated free + paid anchors in providers.txt; live GET /models merges ~340+ gateway models at startup.
-# Discovery:   GET /models and GET /providers (auth optional; full catalog when KILO_API_KEY set).
+# Models:      9 free (full Kilo Gateway free tier) + 11 paid ZenMux-parity picks in providers.txt.
+#              Excludes Anthropic, Gemini, and OpenAI upstream families (too expensive).
+# Discovery:   GET /models when using Endpoint Models toggle; custom mode = this curated list only.
 # Router:      Ollama → Kilo free (incl. openrouter/free) → subscription → paid API tiers.
 # Notes:       Never register via Add custom provider (appends /v1 and breaks paths).
 #              kilo-auto/free remains excluded from routing.

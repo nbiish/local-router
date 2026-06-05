@@ -156,10 +156,75 @@ export const BASELINE_PROVIDER_PRICING: Record<string, ProviderPricingEntry> = {
     outputPricePerM: 1,
     label: 'Kilo Gateway deepseek/deepseek-v4-pro paid'
   },
-  'kilo-anthropic-claude-opus-4.8': {
-    inputPricePerM: 5,
-    outputPricePerM: 25,
-    label: 'Kilo Gateway anthropic/claude-opus-4.8 paid'
+  'kilo-deepseek-deepseek-chat': {
+    inputPricePerM: 0.5,
+    outputPricePerM: 1,
+    label: 'Kilo Gateway deepseek/deepseek-chat paid'
+  },
+  'kilo-z-ai-glm-5.1': {
+    inputPricePerM: 0.5,
+    outputPricePerM: 1,
+    label: 'Kilo Gateway z-ai/glm-5.1 paid'
+  },
+  'kilo-qwen-qwen3.7-max': {
+    inputPricePerM: 1.25,
+    outputPricePerM: 3.75,
+    label: 'Kilo Gateway qwen/qwen3.7-max paid'
+  },
+  'kilo-minimax-minimax-m3': {
+    inputPricePerM: 0.3,
+    outputPricePerM: 1.2,
+    label: 'Kilo Gateway minimax/minimax-m3 paid'
+  },
+  'kilo-minimax-minimax-m2.7': {
+    inputPricePerM: 0.5,
+    outputPricePerM: 1,
+    label: 'Kilo Gateway minimax/minimax-m2.7 paid'
+  },
+  'kilo-stepfun-step-3.7-flash': {
+    inputPricePerM: 0.1,
+    outputPricePerM: 0.3,
+    label: 'Kilo Gateway stepfun/step-3.7-flash paid'
+  },
+  'kilo-xiaomi-mimo-v2.5-pro': {
+    inputPricePerM: 0.44,
+    outputPricePerM: 0.88,
+    label: 'Kilo Gateway xiaomi/mimo-v2.5-pro paid'
+  },
+  'kilo-xiaomi-mimo-v2.5': {
+    inputPricePerM: 0.15,
+    outputPricePerM: 0.29,
+    label: 'Kilo Gateway xiaomi/mimo-v2.5 paid'
+  },
+  'kilo-moonshotai-kimi-k2.6': {
+    inputPricePerM: 0.6,
+    outputPricePerM: 2.5,
+    label: 'Kilo Gateway moonshotai/kimi-k2.6 paid'
+  },
+  'kilo-openrouter-owl-alpha': {
+    inputPricePerM: 0,
+    outputPricePerM: 0,
+    label: 'Kilo Gateway openrouter/owl-alpha free'
+  },
+  'kilo-nvidia-nemotron-3-nano-omni-30b-a3b-reasoning-free': {
+    inputPricePerM: 0,
+    outputPricePerM: 0,
+    label: 'Kilo Gateway nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free'
+  },
+  'kilo-nvidia-nemotron-3.5-content-safety-free': {
+    inputPricePerM: 0,
+    outputPricePerM: 0,
+    label: 'Kilo Gateway nvidia/nemotron-3.5-content-safety:free'
+  },
+  'kilo-poolside-laguna-m.1-free': {
+    inputPricePerM: 0,
+    outputPricePerM: 0,
+    label: 'Kilo Gateway poolside/laguna-m.1:free'
+  },
+  'kilo-poolside-laguna-xs.2-free': {
+    inputPricePerM: 0,
+    outputPricePerM: 0,
+    label: 'Kilo Gateway poolside/laguna-xs.2:free'
   }
 };
 

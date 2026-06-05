@@ -29,6 +29,9 @@ test('kilo free tier allowlist', () => {
   assert.equal(isKiloFreeModel('nvidia/nemotron-3-super-120b-a12b:free'), true);
   assert.equal(isKiloFreeModel('nvidia/nemotron-3-ultra-550b-a55b:free'), true);
   assert.equal(isKiloFreeModel('openrouter/free'), true);
+  assert.equal(isKiloFreeModel('openrouter/owl-alpha'), true);
+  assert.equal(isKiloFreeModel('nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free'), true);
+  assert.equal(isKiloFreeModel('poolside/laguna-m.1:free'), true);
   assert.equal(isKiloFreeModel('anthropic/claude-opus-4.8'), false);
   assert.equal(isKiloFreeModel('deepseek/deepseek-v4-flash'), false);
 });
