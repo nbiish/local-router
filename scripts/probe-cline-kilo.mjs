@@ -92,9 +92,9 @@ async function main() {
   );
 
   const clineModels = [
-    'openrouter/free',
+    'nvidia/nemotron-3-ultra-550b-a55b:free',
     'deepseek/deepseek-v4-flash',
-    'minimax/minimax-m2.5'
+    'minimax/minimax-m3'
   ];
   const clineProbes = {};
   for (const model of clineModels) {

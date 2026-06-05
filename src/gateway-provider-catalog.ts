@@ -5,7 +5,7 @@
 
 export type GatewayBillingTier = 'free' | 'api-paid' | 'subscription-only';
 
-/** Meta-routers excluded from routing (not openrouter/free — routed on OR + Kilo + Cline). */
+/** Meta-routers excluded from routing (not openrouter/free — routed on OR + Kilo). */
 export const GATEWAY_ROUTER_UPSTREAM_IDS: readonly string[] = [
   'kilo-auto/free'
 ] as const;
@@ -17,11 +17,14 @@ const GATEWAY_ROUTER_SET = new Set<string>(GATEWAY_ROUTER_UPSTREAM_IDS);
  * DeepSeek V4 Flash is api-paid (fallback/auto paid tail after subscriptions).
  */
 export const CLINE_MODEL_TIERS: Record<string, GatewayBillingTier> = {
-  'openrouter/free': 'free',
   'nvidia/nemotron-3-ultra-550b-a55b:free': 'free',
   'minimax/minimax-m3': 'free',
   'xiaomi/mimo-v2.5': 'free',
-  'deepseek/deepseek-v4-flash': 'api-paid'
+  'deepseek/deepseek-v4-flash': 'api-paid',
+  'deepseek/deepseek-chat': 'api-paid',
+  'google/gemini-2.5-flash': 'api-paid',
+  'minimax/minimax-m2.7': 'api-paid',
+  'qwen/qwen3-coder': 'api-paid'
 };
 
 /** Kilo CLI free models; excludes kilo-auto/free router preset. */
@@ -36,11 +39,17 @@ const KILO_FREE_SET = new Set<string>(KILO_FREE_MODEL_IDS);
 
 /** Paid gateway models allowed in router/fallback after subscription band. */
 export const KILO_PAID_ROUTING_IDS: readonly string[] = [
-  'deepseek/deepseek-v4-flash'
+  'deepseek/deepseek-v4-flash',
+  'deepseek/deepseek-v4-pro',
+  'anthropic/claude-opus-4.8'
 ] as const;
 
 export const CLINE_PAID_ROUTING_IDS: readonly string[] = [
-  'deepseek/deepseek-v4-flash'
+  'deepseek/deepseek-v4-flash',
+  'deepseek/deepseek-chat',
+  'google/gemini-2.5-flash',
+  'minimax/minimax-m2.7',
+  'qwen/qwen3-coder'
 ] as const;
 
 const KILO_PAID_SET = new Set<string>(KILO_PAID_ROUTING_IDS);
@@ -56,7 +65,6 @@ export const DEFAULT_KILO_FREE_ROUTING_IDS = [
 
 /** Cline auto-router / fallback free chain. */
 export const DEFAULT_CLINE_FREE_ROUTING_IDS = [
-  'openrouter/free',
   'nvidia/nemotron-3-ultra-550b-a55b:free',
   'minimax/minimax-m3',
   'xiaomi/mimo-v2.5'
@@ -102,7 +110,8 @@ export function gatewayModelAllowedForRouter(
   const normalized = normalizeGatewayUpstreamId(upstreamId);
   if (isGatewayRouterModel(normalized)) return false;
   if (providerName === 'kilo') {
-    return isKiloFreeModel(normalized) || KILO_PAID_SET.has(normalized);
+    // Credits apply to the full gateway catalog (live-synced); block meta-routers only.
+    return true;
   }
   if (providerName === 'cline') {
     return isClineFreeModel(normalized) || CLINE_PAID_SET.has(normalized);

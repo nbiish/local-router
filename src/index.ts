@@ -36,8 +36,10 @@ import {
 } from './ollama-cloud-catalog';
 import {
   gatewayModelAllowedForRouter,
-  gatewayPresentedModelSegment
+  gatewayPresentedModelSegment,
+  isGatewayRouterModel
 } from './gateway-provider-catalog';
+import { normalizeGatewayChatCompletionBody } from './gateway-response';
 import {
   DEFAULT_FALLBACK_ORDERED_IDS,
   buildDefaultAutoRouterCandidateLines,
@@ -344,9 +346,16 @@ const UPSTREAM_MODEL_ID_ALIASES: Record<string, string> = {
   'kilo/openrouter/free': 'kilo-openrouter-free',
   'kilo/nvidia/nemotron-3-ultra-550b-a55b:free': 'kilo-nvidia-nemotron-3-ultra-550b-a55b-free',
   'kilo/deepseek/deepseek-v4-flash': 'kilo-deepseek-deepseek-v4-flash',
-  'cline/openrouter/free': 'cline-openrouter-free',
-  'cline/deepseek/deepseek-v4-flash': 'cline-deepseek-deepseek-v4-flash'
+  'cline/deepseek/deepseek-v4-flash': 'cline-deepseek-deepseek-v4-flash',
+  'cline/deepseek/deepseek-chat': 'cline-deepseek-deepseek-chat',
+  'cline/google/gemini-2.5-flash': 'cline-google-gemini-2.5-flash',
+  'cline/minimax/minimax-m2.7': 'cline-minimax-minimax-m2.7',
+  'cline/qwen/qwen3-coder': 'cline-qwen-qwen3-coder',
+  'kilo/deepseek/deepseek-v4-pro': 'kilo-deepseek-deepseek-v4-pro',
+  'kilo/anthropic/claude-opus-4.8': 'kilo-anthropic-claude-opus-4.8'
 };
+
+let kiloGatewayCatalogBoost: ProviderModel[] = [];
 
 function providerTierIndex(providerSlug: string): number {
   const index = DEFAULT_PROVIDER_TIER_ORDER.indexOf(providerSlug as typeof DEFAULT_PROVIDER_TIER_ORDER[number]);
@@ -418,6 +427,7 @@ app.use(express.json({ limit: '10mb' }));
 // In-memory Key Store
 const keyStore: Record<string, string> = {};
 const modelStore: Record<string, ProviderModel[]> = {};
+const persistedProviderModelOverrides = new Set<string>();
 let customProviderStore: CustomProviderRecord[] = [];
 const fallbackModelStore: Record<string, FallbackModel> = {};
 const routerModelStore: Record<string, RouterModel> = {};
@@ -872,7 +882,19 @@ function editableProviderModels(providerName: string): ProviderModel[] {
 }
 
 function effectiveProviderModels(providerName: string): ProviderModel[] {
-  return modelStore[providerName] || readProviderModels().filter((model) => model.provider === providerName);
+  const base = modelStore[providerName] || readProviderModels().filter((model) => model.provider === providerName);
+  if (providerName !== 'kilo' || persistedProviderModelOverrides.has('kilo') || kiloGatewayCatalogBoost.length === 0) {
+    return base;
+  }
+
+  const merged = [...base];
+  const seen = new Set(merged.map((model) => model.model));
+  for (const model of kiloGatewayCatalogBoost) {
+    if (seen.has(model.model)) continue;
+    seen.add(model.model);
+    merged.push(model);
+  }
+  return merged;
 }
 
 function providerModelSource(providerName: string) {
@@ -1680,6 +1702,7 @@ function loadPersistedProviderModels() {
         supportsCache: Boolean(raw?.supportsCache),
         supportsReasoning: Boolean(raw?.supportsReasoning)
       }));
+      persistedProviderModelOverrides.add(providerName);
     }
   } catch (error: any) {
     console.error('Failed to load persisted provider models:', sanitizeDiagnosticText(String(error?.message || error)));
@@ -5648,6 +5671,7 @@ app.put('/api/provider-models/:provider', (req: Request, res: Response) => {
   }
 
   modelStore[providerName] = parsed.models.map((model) => cloneProviderModel(model));
+  persistedProviderModelOverrides.add(providerName);
   persistProviderModels();
   return res.json({
     success: true,
@@ -5733,7 +5757,11 @@ app.delete('/api/provider-models/:provider', (req: Request, res: Response) => {
   }
 
   delete modelStore[providerName];
+  persistedProviderModelOverrides.delete(providerName);
   persistProviderModels();
+  if (providerName === 'kilo') {
+    void refreshKiloGatewayCatalogBoost();
+  }
   return res.json({
     success: true,
     provider: providerName,
@@ -7290,6 +7318,34 @@ function providerHasConfiguredKey(providerName: string) {
   return Boolean(keyStore[summary.name] || process.env[summary.keyEnvVar]);
 }
 
+function shouldCascadeDirectModelToSystemFallback(modelName: string): boolean {
+  const target = resolveModelTarget(modelName);
+  if (target?.providerName === 'kilo' || target?.providerName === 'cline') {
+    return false;
+  }
+  return true;
+}
+
+async function refreshKiloGatewayCatalogBoost(): Promise<void> {
+  if (!providerHasConfiguredKey('kilo') || persistedProviderModelOverrides.has('kilo')) {
+    kiloGatewayCatalogBoost = [];
+    return;
+  }
+
+  try {
+    const rawModels = await fetchLiveProviderModels('kilo');
+    kiloGatewayCatalogBoost = mapLiveRawModelsToCatalog('kilo', rawModels)
+      .filter((model) => !isGatewayRouterModel(model.model));
+    console.log(`[kilo] Live gateway catalog: ${kiloGatewayCatalogBoost.length} models merged into custom catalog.`);
+  } catch (error: any) {
+    kiloGatewayCatalogBoost = [];
+    console.error(
+      '[kilo] Failed to refresh live gateway catalog:',
+      sanitizeDiagnosticText(String(error?.message || error))
+    );
+  }
+}
+
 function candidateAvailability(modelName: string) {
   const target = resolveModelTarget(modelName);
   const resolved = Boolean(findProviderModel(modelName));
@@ -8181,7 +8237,8 @@ async function sendSuccessfulProxyResponse(
   }
 
   const upstreamData = await fetchResponse.json();
-  const data = stripReasoningMetadata(upstreamData);
+  const normalizedUpstream = normalizeGatewayChatCompletionBody(success.providerName, upstreamData);
+  const data = stripReasoningMetadata(normalizedUpstream) as Record<string, any>;
 
   pushDiagnostic({
     event: 'proxy_response',
@@ -8549,7 +8606,7 @@ async function handleChatCompletion(req: Request, res: Response, bodyOverrides?:
   });
 
   const sysFallback = findSystemFallback();
-  if (sysFallback) {
+  if (sysFallback && shouldCascadeDirectModelToSystemFallback(model)) {
     pushDiagnostic({
       event: 'proxy_error',
       route: requestRoute,
@@ -9458,6 +9515,7 @@ const isDevMode = process.env.LOCAL_ROUTER_DEV === 'true' || process.env.NODE_EN
 loadSessions();
 loadFeedback();
 loadPqcSecrets();
+void refreshKiloGatewayCatalogBoost();
 
 const server = app.listen(PORT, () => {
   console.log(`Local Router OpenAI-compatible proxy running on http://localhost:${PORT}`);

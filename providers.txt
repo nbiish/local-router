@@ -123,7 +123,12 @@
 # │ 99 │ kilo               │ openrouter/free                     │ kilo:openrouter-free           │ 256,000  │ 32,768   │ YES   │ NO   │ NO    │ YES* free │
 # │100 │ kilo               │ nvidia/nemotron-3-ultra-550b-a55b:free │ kilo:nvidia-nemotron-3-ultra-550b-a55b:free │ 256,000 │ 32,768 │ YES │ NO │ NO │ YES* free │
 # │101 │ kilo               │ deepseek/deepseek-v4-flash          │ kilo:deepseek-deepseek-v4-flash │1,000,000 │ 384,000  │ YES   │ NO   │ YES   │ NO* paid  │
-# │102 │ cline              │ openrouter/free                     │ cline:openrouter-free          │ 256,000  │ 32,768   │ YES   │ NO   │ NO    │ YES* free │
+# │103 │ cline              │ deepseek/deepseek-chat              │ cline:deepseek-chat            │ 128,000  │ 16,000   │ YES   │ NO   │ YES   │ NO* paid  │
+# │104 │ cline              │ google/gemini-2.5-flash             │ cline:gemini-2.5-flash         │1,000,000 │ 65,536   │ YES   │ YES  │ YES   │ NO* paid  │
+# │105 │ cline              │ minimax/minimax-m2.7                │ cline:minimax-m2.7             │ 204,800  │ 131,072  │ YES   │ NO   │ YES   │ NO* paid  │
+# │106 │ cline              │ qwen/qwen3-coder                    │ cline:qwen3-coder              │ 256,000  │ 32,768   │ YES   │ NO   │ YES   │ NO* paid  │
+# │107 │ kilo               │ deepseek/deepseek-v4-pro            │ kilo:deepseek-v4-pro           │1,000,000 │ 384,000  │ YES   │ NO   │ YES   │ NO* paid  │
+# │108 │ kilo               │ anthropic/claude-opus-4.8           │ kilo:claude-opus-4.8           │ 200,000  │ 32,000   │ YES   │ YES  │ YES   │ NO* paid  │
 # #
 # * Native reasoning DISABLED — VS Code/Copilot Chat and Zed cannot reliably
 #   preserve provider-native reasoning metadata across turns. FVS-CODE strips
@@ -315,7 +320,7 @@
 #                     deepseek/deepseek-v4-flash,
 #                     stepfun/step-3.7-flash, minimax/minimax-m3,
 #                     qwen/qwen3.7-max, qwen/qwen3.7-plus
-# Routing:     openrouter/free is free-tier on OR + Kilo + Cline paths.
+# Routing:     openrouter/free is free-tier on OR + Kilo paths (not Cline).
 #              fallback-models paid tail ends with DS V4 Flash across 5 providers.
 # Notes:       Presets are PRIVATE — not listed in /v1/models.
 #              All current presets are recorded at 1,000,000 context,
@@ -436,7 +441,7 @@
 # Key env:     CLINE_API_KEY
 # Zed prefix:  cline
 # Cross-tool:  Cline extension, CLI, any OpenAI-compatible client via Local Router
-# Models:      5 free (openrouter/free, Nemotron 3 Ultra, MiniMax M3, MiMo V2.5) + 1 paid (DS V4 Flash)
+# Models:      4 free + 5 paid (DS V4 Flash/Chat, Gemini 2.5 Flash, MiniMax M2.7, Qwen3 Coder)
 # Discovery:   No GET /models — catalog from CLI + chat probes.
 # Router:      free → subscription → paid DS V4 Flash tail (with Kilo/OR/Wafer/ZenMux).
 # Notes:       Model IDs use provider/model format (OpenRouter-style). Do not use /config
@@ -448,9 +453,8 @@
 # Key env:     KILO_API_KEY  (JWT from app.kilo.ai profile)
 # Zed prefix:  kilo
 # Cross-tool:  Kilo Code, Vercel AI SDK, OpenAI SDK, Local Router
-# Models:      4 free (openrouter/free, Step 3.7 Flash, Nemotron Super, Nemotron Ultra 550B)
-#              + deepseek/deepseek-v4-flash (paid routing tail)
-# Discovery:   GET /models and GET /providers (auth optional; 342 models live).
+# Models:      4 curated free + paid anchors in providers.txt; live GET /models merges ~340+ gateway models at startup.
+# Discovery:   GET /models and GET /providers (auth optional; full catalog when KILO_API_KEY set).
 # Router:      Ollama → Kilo free (incl. openrouter/free) → subscription → paid API tiers.
 # Notes:       Never register via Add custom provider (appends /v1 and breaks paths).
 #              kilo-auto/free remains excluded from routing.
