@@ -5,7 +5,7 @@
 
 export type GatewayBillingTier = 'free' | 'api-paid' | 'subscription-only';
 
-/** Meta-routers excluded from routing (not openrouter/free — routed on OR + Kilo + Cline). */
+/** Meta-routers excluded from routing (not openrouter/free — routed on OR + Kilo). */
 export const GATEWAY_ROUTER_UPSTREAM_IDS: readonly string[] = [
   'kilo-auto/free'
 ] as const;
@@ -17,7 +17,6 @@ const GATEWAY_ROUTER_SET = new Set<string>(GATEWAY_ROUTER_UPSTREAM_IDS);
  * DeepSeek V4 Flash is api-paid (fallback/auto paid tail after subscriptions).
  */
 export const CLINE_MODEL_TIERS: Record<string, GatewayBillingTier> = {
-  'openrouter/free': 'free',
   'nvidia/nemotron-3-ultra-550b-a55b:free': 'free',
   'minimax/minimax-m3': 'free',
   'xiaomi/mimo-v2.5': 'free',
@@ -66,7 +65,6 @@ export const DEFAULT_KILO_FREE_ROUTING_IDS = [
 
 /** Cline auto-router / fallback free chain. */
 export const DEFAULT_CLINE_FREE_ROUTING_IDS = [
-  'openrouter/free',
   'nvidia/nemotron-3-ultra-550b-a55b:free',
   'minimax/minimax-m3',
   'xiaomi/mimo-v2.5'

@@ -131,11 +131,6 @@ export const BASELINE_PROVIDER_PRICING: Record<string, ProviderPricingEntry> = {
     outputPricePerM: 0,
     label: 'Kilo Gateway openrouter/free'
   },
-  'cline-openrouter-free': {
-    inputPricePerM: 0,
-    outputPricePerM: 0,
-    label: 'Cline API openrouter/free'
-  },
   'kilo-nvidia-nemotron-3-ultra-550b-a55b-free': {
     inputPricePerM: 0,
     outputPricePerM: 0,

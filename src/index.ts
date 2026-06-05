@@ -346,7 +346,6 @@ const UPSTREAM_MODEL_ID_ALIASES: Record<string, string> = {
   'kilo/openrouter/free': 'kilo-openrouter-free',
   'kilo/nvidia/nemotron-3-ultra-550b-a55b:free': 'kilo-nvidia-nemotron-3-ultra-550b-a55b-free',
   'kilo/deepseek/deepseek-v4-flash': 'kilo-deepseek-deepseek-v4-flash',
-  'cline/openrouter/free': 'cline-openrouter-free',
   'cline/deepseek/deepseek-v4-flash': 'cline-deepseek-deepseek-v4-flash',
   'cline/deepseek/deepseek-chat': 'cline-deepseek-deepseek-chat',
   'cline/google/gemini-2.5-flash': 'cline-google-gemini-2.5-flash',
