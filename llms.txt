@@ -259,7 +259,7 @@ Use this table to know **which dropdown entry** and **which env var** match a se
 | [Z.AI](https://z.ai/) coding API | `zai` | `ZAI_API_KEY` | `https://api.z.ai/api/coding/paas/v4` | GLM-5.1 coding pass |
 | Local [Ollama](https://ollama.com/) Cloud models | `ollama` | `OLLAMA_API_KEY` | `http://127.0.0.1:11435/v1` | Always configured with default `local-router-ollama`; cloud free tier via `ollama signin` (no ollama.com API key required) |
 | [Cline](https://docs.cline.bot/api/overview) API credits | `cline` | `CLINE_API_KEY` | `https://api.cline.bot/api/v1` | Free CLI catalog: Nemotron 3 Ultra, MiniMax M3, MiMo V2.5, DeepSeek V4 Flash (excludes `openrouter/free` router) |
-| [Kilo](https://kilo.ai/docs/gateway) Gateway credits / Kilo Pass | `kilo` | `KILO_API_KEY` | `https://api.kilo.ai/api/gateway` | Free catalog: Step 3.7 Flash, Nemotron 3 Super (`:free` tags). Excludes Auto Free / Free Models Router. **Do not** use Add custom provider UI |
+| [Kilo](https://kilo.ai/docs/gateway) Gateway credits / Kilo Pass | `kilo` | `KILO_API_KEY` | `https://api.kilo.ai/api/gateway` | Custom catalog: **9 free** (full Kilo `:free` tier + `openrouter/owl-alpha`) + **11 paid** ZenMux-parity picks (DeepSeek, GLM, Qwen, MiniMax, Step, MiMo, Kimi). Excludes Anthropic/Gemini/OpenAI. `kilo-auto/free` router excluded. **Do not** use Add custom provider UI |
 
 **Shared keys:** `opencode-go` and `opencode-zen` both use `OPENCODE_API_KEY`—set the key once on either provider card.
 

@@ -351,7 +351,15 @@ const UPSTREAM_MODEL_ID_ALIASES: Record<string, string> = {
   'cline/minimax/minimax-m2.7': 'cline-minimax-minimax-m2.7',
   'cline/qwen/qwen3-coder': 'cline-qwen-qwen3-coder',
   'kilo/deepseek/deepseek-v4-pro': 'kilo-deepseek-deepseek-v4-pro',
-  'kilo/anthropic/claude-opus-4.8': 'kilo-anthropic-claude-opus-4.8'
+  'kilo/deepseek/deepseek-chat': 'kilo-deepseek-deepseek-chat',
+  'kilo/z-ai/glm-5.1': 'kilo-z-ai-glm-5.1',
+  'kilo/qwen/qwen3.7-max': 'kilo-qwen-qwen3.7-max',
+  'kilo/minimax/minimax-m3': 'kilo-minimax-minimax-m3',
+  'kilo/minimax/minimax-m2.7': 'kilo-minimax-minimax-m2.7',
+  'kilo/stepfun/step-3.7-flash': 'kilo-stepfun-step-3.7-flash',
+  'kilo/xiaomi/mimo-v2.5-pro': 'kilo-xiaomi-mimo-v2.5-pro',
+  'kilo/xiaomi/mimo-v2.5': 'kilo-xiaomi-mimo-v2.5',
+  'kilo/moonshotai/kimi-k2.6': 'kilo-moonshotai-kimi-k2.6'
 };
 
 function providerTierIndex(providerSlug: string): number {
