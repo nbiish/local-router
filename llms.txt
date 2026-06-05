@@ -72,7 +72,7 @@ Used by `stableSortModelIdsByRoutingExhaustion()` (`src/routing-exhaustion-order
 
 1. `ollama` — **3 free-tier `:cloud` tags only** in defaults (see below)
 2. `kilo` — **free** gateway: `openrouter/free`, Step 3.7 Flash, Nemotron Super, Nemotron Ultra 550B
-3. `cline` — **free** gateway: Nemotron Ultra, MiniMax M3, MiMo V2.5, openrouter/free, DeepSeek V4 Flash
+3. `cline` — **free** gateway: Nemotron Ultra, MiniMax M3, MiMo V2.5, DeepSeek V4 Flash
 4. **Other free** — `openrouter/free` on **openrouter-presets** (personal key), OpenCode Zen `*-free` (e.g. `opencode-zen-minimax-m3-free`), other zero-price catalog models
 
 **Subscription exhaustion band:**
@@ -114,8 +114,8 @@ Router and fallback **skip** candidates when the provider has no API key (except
 
 | Provider | Upstream | Key | Catalog |
 |----------|----------|-----|---------|
-| `cline` | `https://api.cline.bot/api/v1` | `CLINE_API_KEY` | Custom catalog: **5 free** (recommended-models API + probes) + **8 paid** ZenMux-parity picks. Excludes Anthropic/Gemini/OpenAI |
-| `kilo` | `https://api.kilo.ai/api/gateway` | `KILO_API_KEY` | Custom catalog: **9 free** + **11 paid** ZenMux-parity picks. Excludes Anthropic/Gemini/OpenAI. `kilo-auto/free` excluded |
+| `cline` | `https://api.cline.bot/api/v1` | `CLINE_API_KEY` | Custom catalog: **4 free** + **8 paid** — every row chat-proven on Cline. Excludes Anthropic/Gemini/OpenAI |
+| `kilo` | `https://api.kilo.ai/api/gateway` | `KILO_API_KEY` | Custom catalog: **8 free** + **11 paid** — every row chat-proven on Kilo. Excludes Anthropic/Gemini/OpenAI. `kilo-auto/free` excluded |
 
 - **OpenCode Go** (`opencode-go`, `/zen/go/v1`) = subscription Hermes set (9 models in `providers.txt`). **OpenCode Zen** (`opencode-zen`, `/zen/v1`) = free + paid/overage; same `OPENCODE_API_KEY`.
 - **openrouter/free:** routed on `openrouter-presets` and `kilo` (not on Cline — deprecated there). **Excluded:** `kilo-auto/free` only.
@@ -258,8 +258,8 @@ Use this table to know **which dropdown entry** and **which env var** match a se
 | [OpenCode Zen](https://opencode.ai/) subscription | `opencode-zen` | `OPENCODE_API_KEY` | `https://opencode.ai/zen/v1` | Curated subset in `providers.txt`; free-tier models (e.g. `minimax-m3-free`) |
 | [Z.AI](https://z.ai/) coding API | `zai` | `ZAI_API_KEY` | `https://api.z.ai/api/coding/paas/v4` | GLM-5.1 coding pass |
 | Local [Ollama](https://ollama.com/) Cloud models | `ollama` | `OLLAMA_API_KEY` | `http://127.0.0.1:11435/v1` | Always configured with default `local-router-ollama`; cloud free tier via `ollama signin` (no ollama.com API key required) |
-| [Cline](https://docs.cline.bot/api/overview) API credits | `cline` | `CLINE_API_KEY` | `https://api.cline.bot/api/v1` | Custom catalog: **5 free** + **8 paid** ZenMux-parity (DeepSeek, GLM, Qwen, MiniMax, Step, MiMo, Kimi). Excludes Anthropic/Gemini/OpenAI |
-| [Kilo](https://kilo.ai/docs/gateway) Gateway credits / Kilo Pass | `kilo` | `KILO_API_KEY` | `https://api.kilo.ai/api/gateway` | Custom catalog: **9 free** (full Kilo `:free` tier + `openrouter/owl-alpha`) + **11 paid** ZenMux-parity picks (DeepSeek, GLM, Qwen, MiniMax, Step, MiMo, Kimi). Excludes Anthropic/Gemini/OpenAI. `kilo-auto/free` router excluded. **Do not** use Add custom provider UI |
+| [Cline](https://docs.cline.bot/api/overview) API credits | `cline` | `CLINE_API_KEY` | `https://api.cline.bot/api/v1` | Custom catalog: **5 free** + **8 paid**, each row **chat-proven** on Cline (`scripts/validate-cline-kilo-catalog.mjs`). Not copied from ZenMux. Excludes Anthropic/Gemini/OpenAI |
+| [Kilo](https://kilo.ai/docs/gateway) Gateway credits / Kilo Pass | `kilo` | `KILO_API_KEY` | `https://api.kilo.ai/api/gateway` | Custom catalog: **8 free** (zero pricing + chat 200 on Kilo) + **11 paid** (upstream paid + chat 200). Chat-proven; not ZenMux copy. `kilo-auto/free` excluded. **Do not** use Add custom provider UI |
 
 **Shared keys:** `opencode-go` and `opencode-zen` both use `OPENCODE_API_KEY`—set the key once on either provider card.
 

@@ -96,11 +96,6 @@ export const BASELINE_PROVIDER_PRICING: Record<string, ProviderPricingEntry> = {
     outputPricePerM: 0,
     label: 'Cline API xiaomi/mimo-v2.5 free tier'
   },
-  'cline-openrouter-free': {
-    inputPricePerM: 0,
-    outputPricePerM: 0,
-    label: 'Cline API openrouter/free free tier'
-  },
   'cline-deepseek-deepseek-v4-flash': {
     inputPricePerM: 0,
     outputPricePerM: 0,
@@ -225,11 +220,6 @@ export const BASELINE_PROVIDER_PRICING: Record<string, ProviderPricingEntry> = {
     inputPricePerM: 0.6,
     outputPricePerM: 2.5,
     label: 'Kilo Gateway moonshotai/kimi-k2.6 paid'
-  },
-  'kilo-openrouter-owl-alpha': {
-    inputPricePerM: 0,
-    outputPricePerM: 0,
-    label: 'Kilo Gateway openrouter/owl-alpha free'
   },
   'kilo-nvidia-nemotron-3-nano-omni-30b-a3b-reasoning-free': {
     inputPricePerM: 0,

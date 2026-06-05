@@ -1,0 +1,441 @@
+{
+  "generatedAt": "2026-06-05T14:32:28.534Z",
+  "policy": {
+    "excludedFamilies": [
+      "anthropic/",
+      "openai/",
+      "google/"
+    ],
+    "kiloFreeSource": "GET /models zero pricing + chat 200",
+    "clineFreeSource": "recommended-models free[] + chat 200 (openrouter/free excluded — Kilo/OR only)",
+    "paidSource": "chat 200 on provider endpoint (upstream tier paid for Kilo)"
+  },
+  "cline": {
+    "endpoint": "https://api.cline.bot/api/v1",
+    "recommendedFree": [
+      "nvidia/nemotron-3-ultra-550b-a55b",
+      "minimax/minimax-m3",
+      "xiaomi/mimo-v2.5",
+      "deepseek/deepseek-v4-flash"
+    ],
+    "provableFree": [
+      "nvidia/nemotron-3-ultra-550b-a55b:free",
+      "minimax/minimax-m3",
+      "xiaomi/mimo-v2.5",
+      "deepseek/deepseek-v4-flash"
+    ],
+    "catalogResults": [
+      {
+        "model": "nvidia/nemotron-3-ultra-550b-a55b:free",
+        "row": "91",
+        "inCatalog": true,
+        "recommendedFree": true,
+        "chat": {
+          "status": 200,
+          "ok": true,
+          "error": ""
+        },
+        "keep": true
+      },
+      {
+        "model": "minimax/minimax-m3",
+        "row": "92",
+        "inCatalog": true,
+        "recommendedFree": true,
+        "chat": {
+          "status": 200,
+          "ok": true,
+          "error": ""
+        },
+        "keep": true
+      },
+      {
+        "model": "xiaomi/mimo-v2.5",
+        "row": "93",
+        "inCatalog": true,
+        "recommendedFree": true,
+        "chat": {
+          "status": 200,
+          "ok": true,
+          "error": ""
+        },
+        "keep": true
+      },
+      {
+        "model": "deepseek/deepseek-v4-flash",
+        "row": "95",
+        "inCatalog": true,
+        "recommendedFree": true,
+        "chat": {
+          "status": 200,
+          "ok": true,
+          "error": ""
+        },
+        "keep": true
+      },
+      {
+        "model": "deepseek/deepseek-v4-pro",
+        "row": "96",
+        "inCatalog": true,
+        "recommendedFree": false,
+        "chat": {
+          "status": 200,
+          "ok": true,
+          "error": ""
+        },
+        "keep": true
+      },
+      {
+        "model": "deepseek/deepseek-chat",
+        "row": "97",
+        "inCatalog": true,
+        "recommendedFree": false,
+        "chat": {
+          "status": 200,
+          "ok": true,
+          "error": ""
+        },
+        "keep": true
+      },
+      {
+        "model": "z-ai/glm-5.1",
+        "row": "98",
+        "inCatalog": true,
+        "recommendedFree": false,
+        "chat": {
+          "status": 200,
+          "ok": true,
+          "error": ""
+        },
+        "keep": true
+      },
+      {
+        "model": "qwen/qwen3.7-max",
+        "row": "99",
+        "inCatalog": true,
+        "recommendedFree": false,
+        "chat": {
+          "status": 200,
+          "ok": true,
+          "error": ""
+        },
+        "keep": true
+      },
+      {
+        "model": "minimax/minimax-m2.7",
+        "row": "100",
+        "inCatalog": true,
+        "recommendedFree": false,
+        "chat": {
+          "status": 200,
+          "ok": true,
+          "error": ""
+        },
+        "keep": true
+      },
+      {
+        "model": "stepfun/step-3.7-flash",
+        "row": "101",
+        "inCatalog": true,
+        "recommendedFree": false,
+        "chat": {
+          "status": 200,
+          "ok": true,
+          "error": ""
+        },
+        "keep": true
+      },
+      {
+        "model": "xiaomi/mimo-v2.5-pro",
+        "row": "102",
+        "inCatalog": true,
+        "recommendedFree": false,
+        "chat": {
+          "status": 200,
+          "ok": true,
+          "error": ""
+        },
+        "keep": true
+      },
+      {
+        "model": "moonshotai/kimi-k2.6",
+        "row": "103",
+        "inCatalog": true,
+        "recommendedFree": false,
+        "chat": {
+          "status": 200,
+          "ok": true,
+          "error": ""
+        },
+        "keep": true
+      }
+    ],
+    "missingFree": [],
+    "staleCatalog": []
+  },
+  "kilo": {
+    "endpoint": "https://api.kilo.ai/api/gateway",
+    "upstreamCount": 340,
+    "provableFree": [
+      "poolside/laguna-m.1:free",
+      "stepfun/step-3.7-flash:free",
+      "nvidia/nemotron-3.5-content-safety:free",
+      "nvidia/nemotron-3-ultra-550b-a55b:free",
+      "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+      "poolside/laguna-xs.2:free",
+      "nvidia/nemotron-3-super-120b-a12b:free",
+      "openrouter/free"
+    ],
+    "catalogResults": [
+      {
+        "model": "stepfun/step-3.7-flash:free",
+        "row": "104",
+        "inCatalog": true,
+        "inUpstream": true,
+        "upstreamTier": "free",
+        "chat": {
+          "status": 200,
+          "ok": true,
+          "error": ""
+        },
+        "keep": true
+      },
+      {
+        "model": "nvidia/nemotron-3-super-120b-a12b:free",
+        "row": "105",
+        "inCatalog": true,
+        "inUpstream": true,
+        "upstreamTier": "free",
+        "chat": {
+          "status": 200,
+          "ok": true,
+          "error": ""
+        },
+        "keep": true
+      },
+      {
+        "model": "nvidia/nemotron-3-ultra-550b-a55b:free",
+        "row": "106",
+        "inCatalog": true,
+        "inUpstream": true,
+        "upstreamTier": "free",
+        "chat": {
+          "status": 200,
+          "ok": true,
+          "error": ""
+        },
+        "keep": true
+      },
+      {
+        "model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+        "row": "107",
+        "inCatalog": true,
+        "inUpstream": true,
+        "upstreamTier": "free",
+        "chat": {
+          "status": 200,
+          "ok": true,
+          "error": ""
+        },
+        "keep": true
+      },
+      {
+        "model": "nvidia/nemotron-3.5-content-safety:free",
+        "row": "108",
+        "inCatalog": true,
+        "inUpstream": true,
+        "upstreamTier": "free",
+        "chat": {
+          "status": 200,
+          "ok": true,
+          "error": ""
+        },
+        "keep": true
+      },
+      {
+        "model": "openrouter/free",
+        "row": "109",
+        "inCatalog": true,
+        "inUpstream": true,
+        "upstreamTier": "free",
+        "chat": {
+          "status": 200,
+          "ok": true,
+          "error": ""
+        },
+        "keep": true
+      },
+      {
+        "model": "poolside/laguna-m.1:free",
+        "row": "110",
+        "inCatalog": true,
+        "inUpstream": true,
+        "upstreamTier": "free",
+        "chat": {
+          "status": 200,
+          "ok": true,
+          "error": ""
+        },
+        "keep": true
+      },
+      {
+        "model": "poolside/laguna-xs.2:free",
+        "row": "111",
+        "inCatalog": true,
+        "inUpstream": true,
+        "upstreamTier": "free",
+        "chat": {
+          "status": 200,
+          "ok": true,
+          "error": ""
+        },
+        "keep": true
+      },
+      {
+        "model": "deepseek/deepseek-v4-flash",
+        "row": "115",
+        "inCatalog": true,
+        "inUpstream": true,
+        "upstreamTier": "paid",
+        "chat": {
+          "status": 200,
+          "ok": true,
+          "error": ""
+        },
+        "keep": true
+      },
+      {
+        "model": "deepseek/deepseek-v4-pro",
+        "row": "116",
+        "inCatalog": true,
+        "inUpstream": true,
+        "upstreamTier": "paid",
+        "chat": {
+          "status": 200,
+          "ok": true,
+          "error": ""
+        },
+        "keep": true
+      },
+      {
+        "model": "deepseek/deepseek-chat",
+        "row": "117",
+        "inCatalog": true,
+        "inUpstream": true,
+        "upstreamTier": "paid",
+        "chat": {
+          "status": 200,
+          "ok": true,
+          "error": ""
+        },
+        "keep": true
+      },
+      {
+        "model": "z-ai/glm-5.1",
+        "row": "118",
+        "inCatalog": true,
+        "inUpstream": true,
+        "upstreamTier": "paid",
+        "chat": {
+          "status": 200,
+          "ok": true,
+          "error": ""
+        },
+        "keep": true
+      },
+      {
+        "model": "qwen/qwen3.7-max",
+        "row": "119",
+        "inCatalog": true,
+        "inUpstream": true,
+        "upstreamTier": "paid",
+        "chat": {
+          "status": 200,
+          "ok": true,
+          "error": ""
+        },
+        "keep": true
+      },
+      {
+        "model": "minimax/minimax-m3",
+        "row": "120",
+        "inCatalog": true,
+        "inUpstream": true,
+        "upstreamTier": "paid",
+        "chat": {
+          "status": 200,
+          "ok": true,
+          "error": "Invalid JSON response"
+        },
+        "keep": true
+      },
+      {
+        "model": "minimax/minimax-m2.7",
+        "row": "121",
+        "inCatalog": true,
+        "inUpstream": true,
+        "upstreamTier": "paid",
+        "chat": {
+          "status": 200,
+          "ok": true,
+          "error": ""
+        },
+        "keep": true
+      },
+      {
+        "model": "stepfun/step-3.7-flash",
+        "row": "122",
+        "inCatalog": true,
+        "inUpstream": true,
+        "upstreamTier": "paid",
+        "chat": {
+          "status": 200,
+          "ok": true,
+          "error": ""
+        },
+        "keep": true
+      },
+      {
+        "model": "xiaomi/mimo-v2.5-pro",
+        "row": "123",
+        "inCatalog": true,
+        "inUpstream": true,
+        "upstreamTier": "paid",
+        "chat": {
+          "status": 200,
+          "ok": true,
+          "error": ""
+        },
+        "keep": true
+      },
+      {
+        "model": "xiaomi/mimo-v2.5",
+        "row": "124",
+        "inCatalog": true,
+        "inUpstream": true,
+        "upstreamTier": "paid",
+        "chat": {
+          "status": 200,
+          "ok": true,
+          "error": ""
+        },
+        "keep": true
+      },
+      {
+        "model": "moonshotai/kimi-k2.6",
+        "row": "125",
+        "inCatalog": true,
+        "inUpstream": true,
+        "upstreamTier": "paid",
+        "chat": {
+          "status": 200,
+          "ok": true,
+          "error": ""
+        },
+        "keep": true
+      }
+    ],
+    "missingFree": [],
+    "staleCatalog": []
+  }
+}

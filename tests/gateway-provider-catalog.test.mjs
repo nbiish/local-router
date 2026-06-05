@@ -21,7 +21,7 @@ test('kilo-auto/free excluded from routing; openrouter/free allowed', () => {
   assert.equal(isGatewayRouterModel('openrouter/free'), false);
   assert.equal(gatewayModelAllowedForRouter('kilo', 'openrouter/free'), true);
   assert.equal(gatewayModelAllowedForRouter('kilo', 'kilo-auto/free'), false);
-  assert.equal(gatewayModelAllowedForRouter('cline', 'openrouter/free'), true);
+  assert.equal(gatewayModelAllowedForRouter('cline', 'openrouter/free'), false);
 });
 
 test('kilo free tier allowlist', () => {
@@ -29,17 +29,17 @@ test('kilo free tier allowlist', () => {
   assert.equal(isKiloFreeModel('nvidia/nemotron-3-super-120b-a12b:free'), true);
   assert.equal(isKiloFreeModel('nvidia/nemotron-3-ultra-550b-a55b:free'), true);
   assert.equal(isKiloFreeModel('openrouter/free'), true);
-  assert.equal(isKiloFreeModel('openrouter/owl-alpha'), true);
   assert.equal(isKiloFreeModel('nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free'), true);
+  assert.equal(isKiloFreeModel('openrouter/owl-alpha'), false);
   assert.equal(isKiloFreeModel('poolside/laguna-m.1:free'), true);
   assert.equal(isKiloFreeModel('anthropic/claude-opus-4.8'), false);
   assert.equal(isKiloFreeModel('deepseek/deepseek-v4-flash'), false);
 });
 
-test('cline free tier allowlist and paid zenmux parity', () => {
+test('cline free tier allowlist and chat-proven paid catalog', () => {
   assert.equal(isClineFreeModel('nvidia/nemotron-3-ultra-550b-a55b:free'), true);
   assert.equal(isClineFreeModel('minimax/minimax-m3'), true);
-  assert.equal(isClineFreeModel('openrouter/free'), true);
+  assert.equal(isClineFreeModel('openrouter/free'), false);
   assert.equal(isClineFreeModel('deepseek/deepseek-v4-flash'), true);
   assert.equal(isClineFreeModel('deepseek/deepseek-v4-pro'), false);
   assert.equal(gatewayModelAllowedForRouter('cline', 'deepseek/deepseek-v4-pro'), true);

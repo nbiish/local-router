@@ -1,6 +1,6 @@
 /**
  * Billing tiers for OpenAI-compatible gateway providers (Cline, Kilo).
- * Curated from recommended-models API + chat probes (2026-06-04).
+ * Every catalog row is chat-proven on its endpoint (validate-cline-kilo-catalog.mjs).
  */
 
 export type GatewayBillingTier = 'free' | 'api-paid' | 'subscription-only';
@@ -12,18 +12,17 @@ export const GATEWAY_ROUTER_UPSTREAM_IDS: readonly string[] = [
 
 const GATEWAY_ROUTER_SET = new Set<string>(GATEWAY_ROUTER_UPSTREAM_IDS);
 
-/** Cline API free models (recommended-models + chat probes). */
+/** Cline API free models (recommended-models + chat 200; not openrouter/free). */
 export const CLINE_FREE_MODEL_IDS: readonly string[] = [
   'nvidia/nemotron-3-ultra-550b-a55b:free',
   'minimax/minimax-m3',
   'xiaomi/mimo-v2.5',
-  'openrouter/free',
   'deepseek/deepseek-v4-flash'
 ] as const;
 
 const CLINE_FREE_SET = new Set<string>(CLINE_FREE_MODEL_IDS);
 
-/** Paid Cline models curated in providers.txt (ZenMux-parity; no Anthropic/Gemini/OpenAI). */
+/** Paid Cline models chat-proven on Cline (no Anthropic/Gemini/OpenAI). */
 export const CLINE_PAID_ROUTING_IDS: readonly string[] = [
   'deepseek/deepseek-v4-pro',
   'deepseek/deepseek-chat',
@@ -38,7 +37,6 @@ export const CLINE_PAID_ROUTING_IDS: readonly string[] = [
 /** Kilo Gateway free models (API-verified 2026-06); excludes kilo-auto/free router preset. */
 export const KILO_FREE_MODEL_IDS: readonly string[] = [
   'openrouter/free',
-  'openrouter/owl-alpha',
   'stepfun/step-3.7-flash:free',
   'nvidia/nemotron-3-super-120b-a12b:free',
   'nvidia/nemotron-3-ultra-550b-a55b:free',
@@ -50,7 +48,7 @@ export const KILO_FREE_MODEL_IDS: readonly string[] = [
 
 const KILO_FREE_SET = new Set<string>(KILO_FREE_MODEL_IDS);
 
-/** Paid Kilo models curated in providers.txt (ZenMux-parity; no Anthropic/Gemini/OpenAI). */
+/** Paid Kilo models chat-proven on Kilo (no Anthropic/Gemini/OpenAI). */
 export const KILO_PAID_ROUTING_IDS: readonly string[] = [
   'deepseek/deepseek-v4-flash',
   'deepseek/deepseek-v4-pro',
@@ -81,7 +79,6 @@ export const DEFAULT_CLINE_FREE_ROUTING_IDS = [
   'nvidia/nemotron-3-ultra-550b-a55b:free',
   'minimax/minimax-m3',
   'xiaomi/mimo-v2.5',
-  'openrouter/free',
   'deepseek/deepseek-v4-flash'
 ] as const;
 

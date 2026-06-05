@@ -115,7 +115,6 @@
 # │ 91 │ cline              │ nvidia/nemotron-3-ultra-550b-a55b:free │ cline:nvidia-nemotron-3-ultra-550b-a55b:free │ 256,000 │ 32,768 │ YES │ NO │ NO │ YES* free │
 # │ 92 │ cline              │ minimax/minimax-m3                  │ cline:minimax-m3               │ 512,000  │ 512,000  │ YES   │ YES  │ YES   │ YES* free │
 # │ 93 │ cline              │ xiaomi/mimo-v2.5                    │ cline:xiaomi-mimo-v2.5         │1,000,000 │ 128,000  │ YES   │ YES  │ YES   │ NO* free  │
-# │ 94 │ cline              │ openrouter/free                     │ cline:openrouter-free          │ 256,000  │ 32,768   │ YES   │ NO   │ NO    │ YES* free │
 # │ 95 │ cline              │ deepseek/deepseek-v4-flash          │ cline:deepseek-v4-flash        │1,000,000 │ 384,000  │ YES   │ NO   │ YES   │ YES* free │
 # │ 96 │ cline              │ deepseek/deepseek-v4-pro            │ cline:deepseek-v4-pro          │1,000,000 │ 384,000  │ YES   │ NO   │ YES   │ NO* paid  │
 # │ 97 │ cline              │ deepseek/deepseek-chat              │ cline:deepseek-chat            │ 128,000  │ 16,000   │ YES   │ NO   │ YES   │ NO* paid  │
@@ -131,9 +130,8 @@
 # │107 │ kilo               │ nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free │ kilo:nemotron-3-nano-omni-reasoning:free │ 256,000 │ 20,480 │ YES │ YES │ NO │ YES* free │
 # │108 │ kilo               │ nvidia/nemotron-3.5-content-safety:free │ kilo:nemotron-3.5-content-safety:free │ 256,000 │ 32,768 │ YES │ NO │ NO │ YES* free │
 # │109 │ kilo               │ openrouter/free                     │ kilo:openrouter-free           │ 256,000  │ 32,768   │ YES   │ NO   │ NO    │ YES* free │
-# │110 │ kilo               │ openrouter/owl-alpha                  │ kilo:openrouter-owl-alpha      │ 256,000  │ 32,768   │ YES   │ NO   │ NO    │ YES* free │
-# │111 │ kilo               │ poolside/laguna-m.1:free              │ kilo:laguna-m.1:free           │ 256,000  │ 32,768   │ YES   │ NO   │ NO    │ YES* free │
-# │112 │ kilo               │ poolside/laguna-xs.2:free           │ kilo:laguna-xs.2:free          │ 256,000  │ 32,768   │ YES   │ NO   │ NO    │ YES* free │
+# │110 │ kilo               │ poolside/laguna-m.1:free              │ kilo:laguna-m.1:free           │ 256,000  │ 32,768   │ YES   │ NO   │ NO    │ YES* free │
+# │111 │ kilo               │ poolside/laguna-xs.2:free           │ kilo:laguna-xs.2:free          │ 256,000  │ 32,768   │ YES   │ NO   │ NO    │ YES* free │
 # │113 │ openrouter-presets │ openrouter/free                     │ orps:openrouter-free           │ 256,000  │ 32,768   │ YES   │ NO   │ NO    │ YES* free │
 # │114 │ openrouter-presets │ deepseek/deepseek-v4-flash          │ orps:deepseek-v4-flash         │1,000,000 │ 131,072  │ YES   │ NO   │ YES   │ NO*       │
 # │115 │ kilo               │ deepseek/deepseek-v4-flash          │ kilo:deepseek-deepseek-v4-flash │1,000,000 │ 384,000  │ YES   │ NO   │ YES   │ NO* paid  │
@@ -459,9 +457,10 @@
 # Key env:     CLINE_API_KEY
 # Zed prefix:  cline
 # Cross-tool:  Cline extension, CLI, any OpenAI-compatible client via Local Router
-# Models:      5 free (recommended-models API + chat probes) + 8 paid ZenMux-parity picks.
-#              Excludes Anthropic, Gemini, and OpenAI upstream families (too expensive).
-# Discovery:   GET /ai/cline/recommended-models (free tier); custom mode = providers.txt only.
+# Models:      4 free + 8 paid — every row chat-proven on Cline (see validate-cline-kilo-catalog.mjs).
+#              Free = recommended-models API + chat 200. Paid = chat 200 only. openrouter/free is Kilo/OR only.
+#              Excludes Anthropic, Gemini, and OpenAI families (too expensive).
+# Discovery:   GET /ai/cline/recommended-models; custom mode = providers.txt only.
 # Router:      free → subscription → paid DS V4 Flash tail (with Kilo/OR/Wafer/ZenMux).
 # Notes:       Model IDs use provider/model format (OpenRouter-style). Do not use /config
 #              custom provider UI for this host (use catalog row). Keys in PQC bundle only.
@@ -472,8 +471,9 @@
 # Key env:     KILO_API_KEY  (JWT from app.kilo.ai profile)
 # Zed prefix:  kilo
 # Cross-tool:  Kilo Code, Vercel AI SDK, OpenAI SDK, Local Router
-# Models:      9 free (full Kilo Gateway free tier) + 11 paid ZenMux-parity picks in providers.txt.
-#              Excludes Anthropic, Gemini, and OpenAI upstream families (too expensive).
+# Models:      8 free + 11 paid — every row chat-proven on Kilo (see validate-cline-kilo-catalog.mjs).
+#              Free = GET /models zero pricing + chat 200. Paid = upstream paid tier + chat 200.
+#              Excludes Anthropic, Gemini, OpenAI, and kilo-auto/free router.
 # Discovery:   GET /models when using Endpoint Models toggle; custom mode = this curated list only.
 # Router:      Ollama → Kilo free (incl. openrouter/free) → subscription → paid API tiers.
 # Notes:       Never register via Add custom provider (appends /v1 and breaks paths).
