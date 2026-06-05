@@ -85,7 +85,7 @@ test('paid provider order: wafer → zenmux → openrouter → nebius → cline 
   const catalog = new Map([
     ['nebius-nemotron-3-ultra-550b-a55b', { provider: 'nebius', model: 'nvidia/Nemotron-3-Ultra-550b-a55b' }],
     ['kilo-deepseek-deepseek-v4-flash', { provider: 'kilo', model: 'deepseek/deepseek-v4-flash' }],
-    ['cline-deepseek-deepseek-v4-flash', { provider: 'cline', model: 'deepseek/deepseek-v4-flash' }],
+    ['cline-deepseek-deepseek-v4-pro', { provider: 'cline', model: 'deepseek/deepseek-v4-pro' }],
     ['openrouter-chain-of-draft', { provider: 'openrouter-presets', model: '@preset/chain-of-draft' }],
     ['zenmux-mimo-v2.5-pro', { provider: 'zenmux', model: 'xiaomi/mimo-v2.5-pro' }],
     ['wafer-ai-deepseek-v4-flash', { provider: 'wafer-serverless', model: 'deepseek-v4-flash' }],
@@ -97,7 +97,7 @@ test('paid provider order: wafer → zenmux → openrouter → nebius → cline 
       'nvidia-nim-step-3.7-flash',
       'nebius-nemotron-3-ultra-550b-a55b',
       'kilo-deepseek-deepseek-v4-flash',
-      'cline-deepseek-deepseek-v4-flash',
+      'cline-deepseek-deepseek-v4-pro',
       'openrouter-chain-of-draft',
       'zenmux-mimo-v2.5-pro',
       'wafer-ai-deepseek-v4-flash',
@@ -111,7 +111,7 @@ test('paid provider order: wafer → zenmux → openrouter → nebius → cline 
     'zenmux-mimo-v2.5-pro',
     'openrouter-chain-of-draft',
     'nebius-nemotron-3-ultra-550b-a55b',
-    'cline-deepseek-deepseek-v4-flash',
+    'cline-deepseek-deepseek-v4-pro',
     'kilo-deepseek-deepseek-v4-flash',
     'nvidia-nim-step-3.7-flash'
   ]);

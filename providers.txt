@@ -115,33 +115,38 @@
 # │ 91 │ cline              │ nvidia/nemotron-3-ultra-550b-a55b:free │ cline:nvidia-nemotron-3-ultra-550b-a55b:free │ 256,000 │ 32,768 │ YES │ NO │ NO │ YES* free │
 # │ 92 │ cline              │ minimax/minimax-m3                  │ cline:minimax-m3               │ 512,000  │ 512,000  │ YES   │ YES  │ YES   │ YES* free │
 # │ 93 │ cline              │ xiaomi/mimo-v2.5                    │ cline:xiaomi-mimo-v2.5         │1,000,000 │ 128,000  │ YES   │ YES  │ YES   │ NO* free  │
-# │ 94 │ cline              │ deepseek/deepseek-v4-flash          │ cline:deepseek-v4-flash        │1,000,000 │ 384,000  │ YES   │ NO   │ YES   │ NO* paid  │
-# │ 95 │ kilo               │ stepfun/step-3.7-flash:free         │ kilo:stepfun-step-3.7-flash:free │ 256,000 │ 256,000 │ YES │ YES │ YES │ YES* free │
-# │ 96 │ kilo               │ nvidia/nemotron-3-super-120b-a12b:free │ kilo:nvidia-nemotron-3-super-120b-a12b:free │ 256,000 │ 32,768 │ YES │ NO │ NO │ YES* free │
-# │ 97 │ kilo               │ nvidia/nemotron-3-ultra-550b-a55b:free │ kilo:nvidia-nemotron-3-ultra-550b-a55b:free │ 256,000 │ 32,768 │ YES │ NO │ NO │ YES* free │
-# │ 98 │ kilo               │ nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free │ kilo:nemotron-3-nano-omni-reasoning:free │ 256,000 │ 20,480 │ YES │ YES │ NO │ YES* free │
-# │ 99 │ kilo               │ nvidia/nemotron-3.5-content-safety:free │ kilo:nemotron-3.5-content-safety:free │ 256,000 │ 32,768 │ YES │ NO │ NO │ YES* free │
-# │100 │ kilo               │ openrouter/free                     │ kilo:openrouter-free           │ 256,000  │ 32,768   │ YES   │ NO   │ NO    │ YES* free │
-# │101 │ kilo               │ openrouter/owl-alpha                  │ kilo:openrouter-owl-alpha      │ 256,000  │ 32,768   │ YES   │ NO   │ NO    │ YES* free │
-# │102 │ kilo               │ poolside/laguna-m.1:free              │ kilo:laguna-m.1:free           │ 256,000  │ 32,768   │ YES   │ NO   │ NO    │ YES* free │
-# │103 │ kilo               │ poolside/laguna-xs.2:free           │ kilo:laguna-xs.2:free          │ 256,000  │ 32,768   │ YES   │ NO   │ NO    │ YES* free │
-# │104 │ openrouter-presets │ openrouter/free                     │ orps:openrouter-free           │ 256,000  │ 32,768   │ YES   │ NO   │ NO    │ YES* free │
-# │105 │ openrouter-presets │ deepseek/deepseek-v4-flash          │ orps:deepseek-v4-flash         │1,000,000 │ 131,072  │ YES   │ NO   │ YES   │ NO*       │
-# │106 │ kilo               │ deepseek/deepseek-v4-flash          │ kilo:deepseek-deepseek-v4-flash │1,000,000 │ 384,000  │ YES   │ NO   │ YES   │ NO* paid  │
-# │107 │ kilo               │ deepseek/deepseek-v4-pro            │ kilo:deepseek-v4-pro           │1,000,000 │ 384,000  │ YES   │ NO   │ YES   │ NO* paid  │
-# │108 │ kilo               │ deepseek/deepseek-chat              │ kilo:deepseek-chat             │ 128,000  │ 16,000   │ YES   │ NO   │ YES   │ NO* paid  │
-# │109 │ kilo               │ z-ai/glm-5.1                        │ kilo:glm-5.1                   │ 200,000  │ 128,000  │ YES   │ NO   │ YES   │ NO* paid  │
-# │110 │ kilo               │ qwen/qwen3.7-max                    │ kilo:qwen3.7-max               │1,000,000 │ 65,536   │ YES   │ NO   │ YES   │ NO* paid  │
-# │111 │ kilo               │ minimax/minimax-m3                  │ kilo:minimax-m3                │ 512,000  │ 512,000  │ YES   │ YES  │ YES   │ YES* paid │
-# │112 │ kilo               │ minimax/minimax-m2.7                │ kilo:minimax-m2.7              │ 204,800  │ 131,072  │ YES   │ NO   │ NO    │ NO* paid  │
-# │113 │ kilo               │ stepfun/step-3.7-flash              │ kilo:step-3.7-flash            │ 256,000  │ 256,000  │ YES   │ YES  │ YES   │ YES* paid │
-# │114 │ kilo               │ xiaomi/mimo-v2.5-pro                │ kilo:mimo-v2.5-pro             │1,048,576 │ 131,072  │ YES   │ NO   │ YES   │ NO* paid  │
-# │115 │ kilo               │ xiaomi/mimo-v2.5                    │ kilo:mimo-v2.5                 │1,048,576 │ 131,072  │ YES   │ YES  │ YES   │ NO* paid  │
-# │116 │ kilo               │ moonshotai/kimi-k2.6                │ kilo:kimi-k2.6                 │ 262,144  │ 262,144  │ YES   │ YES  │ YES   │ NO* paid  │
-# │117 │ cline              │ deepseek/deepseek-chat              │ cline:deepseek-chat            │ 128,000  │ 16,000   │ YES   │ NO   │ YES   │ NO* paid  │
-# │118 │ cline              │ google/gemini-2.5-flash             │ cline:gemini-2.5-flash         │1,000,000 │ 65,536   │ YES   │ YES  │ YES   │ NO* paid  │
-# │119 │ cline              │ minimax/minimax-m2.7                │ cline:minimax-m2.7             │ 204,800  │ 131,072  │ YES   │ NO   │ YES   │ NO* paid  │
-# │120 │ cline              │ qwen/qwen3-coder                    │ cline:qwen3-coder              │ 256,000  │ 32,768   │ YES   │ NO   │ YES   │ NO* paid  │
+# │ 94 │ cline              │ openrouter/free                     │ cline:openrouter-free          │ 256,000  │ 32,768   │ YES   │ NO   │ NO    │ YES* free │
+# │ 95 │ cline              │ deepseek/deepseek-v4-flash          │ cline:deepseek-v4-flash        │1,000,000 │ 384,000  │ YES   │ NO   │ YES   │ YES* free │
+# │ 96 │ cline              │ deepseek/deepseek-v4-pro            │ cline:deepseek-v4-pro          │1,000,000 │ 384,000  │ YES   │ NO   │ YES   │ NO* paid  │
+# │ 97 │ cline              │ deepseek/deepseek-chat              │ cline:deepseek-chat            │ 128,000  │ 16,000   │ YES   │ NO   │ YES   │ NO* paid  │
+# │ 98 │ cline              │ z-ai/glm-5.1                        │ cline:glm-5.1                  │ 200,000  │ 128,000  │ YES   │ NO   │ YES   │ NO* paid  │
+# │ 99 │ cline              │ qwen/qwen3.7-max                    │ cline:qwen3.7-max              │1,000,000 │ 65,536   │ YES   │ NO   │ YES   │ NO* paid  │
+# │100 │ cline              │ minimax/minimax-m2.7                │ cline:minimax-m2.7             │ 204,800  │ 131,072  │ YES   │ NO   │ NO    │ NO* paid  │
+# │101 │ cline              │ stepfun/step-3.7-flash              │ cline:step-3.7-flash           │ 256,000  │ 256,000  │ YES   │ YES  │ YES   │ YES* paid │
+# │102 │ cline              │ xiaomi/mimo-v2.5-pro                │ cline:mimo-v2.5-pro            │1,048,576 │ 131,072  │ YES   │ NO   │ YES   │ NO* paid  │
+# │103 │ cline              │ moonshotai/kimi-k2.6                │ cline:kimi-k2.6                │ 262,144  │ 262,144  │ YES   │ YES  │ YES   │ NO* paid  │
+# │104 │ kilo               │ stepfun/step-3.7-flash:free         │ kilo:stepfun-step-3.7-flash:free │ 256,000 │ 256,000 │ YES │ YES │ YES │ YES* free │
+# │105 │ kilo               │ nvidia/nemotron-3-super-120b-a12b:free │ kilo:nvidia-nemotron-3-super-120b-a12b:free │ 256,000 │ 32,768 │ YES │ NO │ NO │ YES* free │
+# │106 │ kilo               │ nvidia/nemotron-3-ultra-550b-a55b:free │ kilo:nvidia-nemotron-3-ultra-550b-a55b:free │ 256,000 │ 32,768 │ YES │ NO │ NO │ YES* free │
+# │107 │ kilo               │ nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free │ kilo:nemotron-3-nano-omni-reasoning:free │ 256,000 │ 20,480 │ YES │ YES │ NO │ YES* free │
+# │108 │ kilo               │ nvidia/nemotron-3.5-content-safety:free │ kilo:nemotron-3.5-content-safety:free │ 256,000 │ 32,768 │ YES │ NO │ NO │ YES* free │
+# │109 │ kilo               │ openrouter/free                     │ kilo:openrouter-free           │ 256,000  │ 32,768   │ YES   │ NO   │ NO    │ YES* free │
+# │110 │ kilo               │ openrouter/owl-alpha                  │ kilo:openrouter-owl-alpha      │ 256,000  │ 32,768   │ YES   │ NO   │ NO    │ YES* free │
+# │111 │ kilo               │ poolside/laguna-m.1:free              │ kilo:laguna-m.1:free           │ 256,000  │ 32,768   │ YES   │ NO   │ NO    │ YES* free │
+# │112 │ kilo               │ poolside/laguna-xs.2:free           │ kilo:laguna-xs.2:free          │ 256,000  │ 32,768   │ YES   │ NO   │ NO    │ YES* free │
+# │113 │ openrouter-presets │ openrouter/free                     │ orps:openrouter-free           │ 256,000  │ 32,768   │ YES   │ NO   │ NO    │ YES* free │
+# │114 │ openrouter-presets │ deepseek/deepseek-v4-flash          │ orps:deepseek-v4-flash         │1,000,000 │ 131,072  │ YES   │ NO   │ YES   │ NO*       │
+# │115 │ kilo               │ deepseek/deepseek-v4-flash          │ kilo:deepseek-deepseek-v4-flash │1,000,000 │ 384,000  │ YES   │ NO   │ YES   │ NO* paid  │
+# │116 │ kilo               │ deepseek/deepseek-v4-pro            │ kilo:deepseek-v4-pro           │1,000,000 │ 384,000  │ YES   │ NO   │ YES   │ NO* paid  │
+# │117 │ kilo               │ deepseek/deepseek-chat              │ kilo:deepseek-chat             │ 128,000  │ 16,000   │ YES   │ NO   │ YES   │ NO* paid  │
+# │118 │ kilo               │ z-ai/glm-5.1                        │ kilo:glm-5.1                   │ 200,000  │ 128,000  │ YES   │ NO   │ YES   │ NO* paid  │
+# │119 │ kilo               │ qwen/qwen3.7-max                    │ kilo:qwen3.7-max               │1,000,000 │ 65,536   │ YES   │ NO   │ YES   │ NO* paid  │
+# │120 │ kilo               │ minimax/minimax-m3                  │ kilo:minimax-m3                │ 512,000  │ 512,000  │ YES   │ YES  │ YES   │ YES* paid │
+# │121 │ kilo               │ minimax/minimax-m2.7                │ kilo:minimax-m2.7              │ 204,800  │ 131,072  │ YES   │ NO   │ NO    │ NO* paid  │
+# │122 │ kilo               │ stepfun/step-3.7-flash              │ kilo:step-3.7-flash            │ 256,000  │ 256,000  │ YES   │ YES  │ YES   │ YES* paid │
+# │123 │ kilo               │ xiaomi/mimo-v2.5-pro                │ kilo:mimo-v2.5-pro             │1,048,576 │ 131,072  │ YES   │ NO   │ YES   │ NO* paid  │
+# │124 │ kilo               │ xiaomi/mimo-v2.5                    │ kilo:mimo-v2.5                 │1,048,576 │ 131,072  │ YES   │ YES  │ YES   │ NO* paid  │
+# │125 │ kilo               │ moonshotai/kimi-k2.6                │ kilo:kimi-k2.6                 │ 262,144  │ 262,144  │ YES   │ YES  │ YES   │ NO* paid  │
 # #
 # * Native reasoning DISABLED — VS Code/Copilot Chat and Zed cannot reliably
 #   preserve provider-native reasoning metadata across turns. FVS-CODE strips
@@ -454,8 +459,9 @@
 # Key env:     CLINE_API_KEY
 # Zed prefix:  cline
 # Cross-tool:  Cline extension, CLI, any OpenAI-compatible client via Local Router
-# Models:      4 free + 5 paid (DS V4 Flash/Chat, Gemini 2.5 Flash, MiniMax M2.7, Qwen3 Coder)
-# Discovery:   No GET /models — catalog from CLI + chat probes.
+# Models:      5 free (recommended-models API + chat probes) + 8 paid ZenMux-parity picks.
+#              Excludes Anthropic, Gemini, and OpenAI upstream families (too expensive).
+# Discovery:   GET /ai/cline/recommended-models (free tier); custom mode = providers.txt only.
 # Router:      free → subscription → paid DS V4 Flash tail (with Kilo/OR/Wafer/ZenMux).
 # Notes:       Model IDs use provider/model format (OpenRouter-style). Do not use /config
 #              custom provider UI for this host (use catalog row). Keys in PQC bundle only.

@@ -21,7 +21,7 @@ test('kilo-auto/free excluded from routing; openrouter/free allowed', () => {
   assert.equal(isGatewayRouterModel('openrouter/free'), false);
   assert.equal(gatewayModelAllowedForRouter('kilo', 'openrouter/free'), true);
   assert.equal(gatewayModelAllowedForRouter('kilo', 'kilo-auto/free'), false);
-  assert.equal(gatewayModelAllowedForRouter('cline', 'openrouter/free'), false);
+  assert.equal(gatewayModelAllowedForRouter('cline', 'openrouter/free'), true);
 });
 
 test('kilo free tier allowlist', () => {
@@ -36,13 +36,15 @@ test('kilo free tier allowlist', () => {
   assert.equal(isKiloFreeModel('deepseek/deepseek-v4-flash'), false);
 });
 
-test('cline free tier allowlist and paid deepseek', () => {
+test('cline free tier allowlist and paid zenmux parity', () => {
   assert.equal(isClineFreeModel('nvidia/nemotron-3-ultra-550b-a55b:free'), true);
   assert.equal(isClineFreeModel('minimax/minimax-m3'), true);
-  assert.equal(isClineFreeModel('openrouter/free'), false);
-  assert.equal(isClineFreeModel('deepseek/deepseek-v4-flash'), false);
-  assert.equal(gatewayModelAllowedForRouter('cline', 'deepseek/deepseek-v4-flash'), true);
-  assert.equal(gatewayModelAllowedForRouter('cline', 'qwen/qwen3-coder'), true);
+  assert.equal(isClineFreeModel('openrouter/free'), true);
+  assert.equal(isClineFreeModel('deepseek/deepseek-v4-flash'), true);
+  assert.equal(isClineFreeModel('deepseek/deepseek-v4-pro'), false);
+  assert.equal(gatewayModelAllowedForRouter('cline', 'deepseek/deepseek-v4-pro'), true);
+  assert.equal(gatewayModelAllowedForRouter('cline', 'qwen/qwen3.7-max'), true);
+  assert.equal(gatewayModelAllowedForRouter('cline', 'google/gemini-2.5-flash'), false);
   assert.equal(gatewayModelAllowedForRouter('cline', 'anthropic/claude-sonnet-4-6'), false);
 });
 

@@ -403,10 +403,9 @@ test('provider key save/reset lifecycle exposes configured source', async (t) =>
     autoRouterCandidates.includes('kilo-openrouter-free'),
     'auto-router should include Kilo openrouter/free'
   );
-  assert.equal(
+  assert.ok(
     autoRouterCandidates.includes('cline-openrouter-free'),
-    false,
-    'deprecated Cline openrouter/free must not appear in auto-router'
+    'auto-router should include Cline openrouter/free free tier'
   );
   assert.ok(
     autoRouterCandidates.includes('opencode-go-minimax-m3'),

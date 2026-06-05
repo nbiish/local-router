@@ -96,30 +96,55 @@ export const BASELINE_PROVIDER_PRICING: Record<string, ProviderPricingEntry> = {
     outputPricePerM: 0,
     label: 'Cline API xiaomi/mimo-v2.5 free tier'
   },
+  'cline-openrouter-free': {
+    inputPricePerM: 0,
+    outputPricePerM: 0,
+    label: 'Cline API openrouter/free free tier'
+  },
   'cline-deepseek-deepseek-v4-flash': {
+    inputPricePerM: 0,
+    outputPricePerM: 0,
+    label: 'Cline API deepseek/deepseek-v4-flash free tier'
+  },
+  'cline-deepseek-deepseek-v4-pro': {
     inputPricePerM: 0.5,
     outputPricePerM: 1,
-    label: 'Cline API deepseek/deepseek-v4-flash paid routing tail'
+    label: 'Cline API deepseek/deepseek-v4-pro paid'
   },
   'cline-deepseek-deepseek-chat': {
     inputPricePerM: 0.5,
     outputPricePerM: 1,
     label: 'Cline API deepseek/deepseek-chat paid'
   },
-  'cline-google-gemini-2.5-flash': {
+  'cline-z-ai-glm-5.1': {
     inputPricePerM: 0.5,
     outputPricePerM: 1,
-    label: 'Cline API google/gemini-2.5-flash paid'
+    label: 'Cline API z-ai/glm-5.1 paid'
+  },
+  'cline-qwen-qwen3.7-max': {
+    inputPricePerM: 1.25,
+    outputPricePerM: 3.75,
+    label: 'Cline API qwen/qwen3.7-max paid'
   },
   'cline-minimax-minimax-m2.7': {
     inputPricePerM: 0.5,
     outputPricePerM: 1,
     label: 'Cline API minimax/minimax-m2.7 paid'
   },
-  'cline-qwen-qwen3-coder': {
-    inputPricePerM: 0.5,
-    outputPricePerM: 1,
-    label: 'Cline API qwen/qwen3-coder paid'
+  'cline-stepfun-step-3.7-flash': {
+    inputPricePerM: 0.1,
+    outputPricePerM: 0.3,
+    label: 'Cline API stepfun/step-3.7-flash paid'
+  },
+  'cline-xiaomi-mimo-v2.5-pro': {
+    inputPricePerM: 0.44,
+    outputPricePerM: 0.88,
+    label: 'Cline API xiaomi/mimo-v2.5-pro paid'
+  },
+  'cline-moonshotai-kimi-k2.6': {
+    inputPricePerM: 0.6,
+    outputPricePerM: 2.5,
+    label: 'Cline API moonshotai/kimi-k2.6 paid'
   },
   'openrouter-free': {
     inputPricePerM: 0,
