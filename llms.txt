@@ -18,18 +18,19 @@ Local Router is a localhost proxy (port `11434`) with **Ollama-compatible** and 
 - **Ollama shim:** `local-router route set` → `ollama serve` starts real Ollama on `11435` and Local Router on `11434`
 - **Operator CLI:** `localrouter list`, `keys`, `router`, `verify`, `config --open`
 - **Thinking:** Proxy toggle default **OFF** (IDE passthrough); optional levels when enabled. Responses strip `reasoning_content` for VS Code safety; requests preserve it for multi-turn tools
-- **Tests:** `npm test` — **8** test files, **26** cases (21 in `npm test` + 5 routing unit tests; see [Current Test Coverage](#current-test-coverage))
-- **Canonical release:** `main` = `develop` @ **`38d9e73`** (2026-06-04) — see [System Snapshot](#system-snapshot--canonical-state-2026-06-04)
+- **Tests:** `npm test` — **8** test files, **28** cases (integration + routing unit tests; see [Current Test Coverage](#current-test-coverage))
+- **Canonical release:** `main` = `develop` @ **`5a58799`** (2026-06-04) — see [System Snapshot](#system-snapshot--canonical-state-2026-06-04)
 
 ## System Snapshot — Canonical State (2026-06-04)
 
-Use this section to resume work without re-deriving architecture. Remote: `https://github.com/nbiish/local-router.git` (`local-router` remote). **`main` and `develop` @ `38d9e73`** — routing tier split + curated `opencode-go` catalog (9 models).
+Use this section to resume work without re-deriving architecture. Remote: `https://github.com/nbiish/local-router.git` (`local-router` remote). **`main` and `develop` @ `5a58799`** — OpenCode Go vs Zen naming, fixed 16-step fallback, exhaustion tier order.
 
 ### Release lineage (recent)
 
 | Commit | Summary |
 |--------|---------|
-| `38d9e73` | **`opencode-go`** — rename `opencode` provider; trim 9 legacy Go models from catalog/router/fallback; legacy `opencode-*` → `opencode-go-*` aliases |
+| `5a58799` | **`opencode-go` routing** — rename `opencode-code` → `opencode-go` (subscription `/zen/go/v1`) vs `opencode-zen` (free/paid `/zen/v1`); **16-step fixed** `fallback-models` chain; paid order Wafer→ZenMux→OR→**Nebius**→Cline→Kilo; subscription order Go→Z.ai→Xiaomi; ~46 auto-router candidates with catalog-aware exhaustion bootstrap |
+| `38d9e73` | **`opencode-code`** — interim rename `opencode` provider; trim 9 legacy Go models; legacy `opencode-*` aliases (superseded by `5a58799` → use `opencode-go-*`) |
 | `fa18504` | **Routing tier split** — separate fallback vs auto-router defaults; paid order wafer→zenmux→OR→cline→kilo→ozen; `openrouter/free` x3 |
 | `acbb577` | **Init fix** — default fallback sort at module load must not call `findProviderModel` before `modelSourceConfig` exists |
 | `2b47b1e` | **Wraparound exhaustion** — free → subscription → paid bands; `buildWraparoundExecutionPlan()` revisits earlier models before advancing |
@@ -65,14 +66,14 @@ Clients (VS Code, Claude Code, Codex, Cline, scripts)
 
 ### Provider tier order (exhaustion sequence)
 
-Used by `stableSortModelIdsByRoutingExhaustion()` (`src/routing-exhaustion-order.ts`) on auto-router candidates and **all** fallback routes. Order: **free → subscription → paid**. Wraparound retries via `buildWraparoundExecutionPlan()` (`src/execution-plan.ts`) revisit earlier models before advancing so subscription quotas can recover (e.g. 5h windows).
+Used by `stableSortModelIdsByRoutingExhaustion()` (`src/routing-exhaustion-order.ts`) on **auto-router** candidates and user-defined fallback routes. Order: **free → subscription → paid**. System route **`fallback-models`** keeps the fixed 16-step list at bootstrap (no exhaustion re-sort). Wraparound retries via `buildWraparoundExecutionPlan()` (`src/execution-plan.ts`) revisit earlier models before advancing so subscription quotas can recover (e.g. 5h windows).
 
 **Free exhaustion bands (in order):**
 
 1. `ollama` — **3 free-tier `:cloud` tags only** in defaults (see below)
 2. `kilo` — **free** gateway: `openrouter/free`, Step 3.7 Flash, Nemotron Super, Nemotron Ultra 550B
 3. `cline` — **free** gateway: `openrouter/free`, Nemotron Ultra, MiniMax M3, MiMo V2.5
-4. **Other free** — `openrouter/free` on **openrouter-presets** (personal key), OpenCode Zen/Go `*-free`, other zero-price catalog models
+4. **Other free** — `openrouter/free` on **openrouter-presets** (personal key), OpenCode Zen `*-free` (e.g. `opencode-zen-minimax-m3-free`), other zero-price catalog models
 
 **Subscription exhaustion band:**
 
@@ -124,16 +125,32 @@ Router and fallback **skip** candidates when the provider has no API key (except
 ### Default auto-router (`auto-router-main`)
 
 - **Type:** `auto-local` — `minCodingScore` 0.66, `costQualityTradeoff` 7
-- **Source:** [`src/routing-defaults.ts`](src/routing-defaults.ts) (`DEFAULT_AUTO_ROUTER_CANDIDATES_TEXT`) — union of fallback free/subscription set plus `ROUTING_PREFERRED_PAID_CANDIDATES` (NVIDIA NIM, Modal, Nebius, Wafer, ZenMux, OpenRouter presets)
+- **Source:** [`src/routing-defaults.ts`](src/routing-defaults.ts) — `buildDefaultAutoRouterCandidateLines()` (~**46** curated models): fallback union + extra Go/Zen rows, gateway alternates, Wafer/Nebius/OR/ZenMux paid; **`resolvedDefaultAutoRouterCandidatesText()`** exhaustion-sorts at bootstrap using live catalog
 - **Selection:** `selectRouterCandidate()` picks the **first eligible** model in `stableSortModelIdsByRoutingExhaustion()` order (not highest Pareto score alone); `routerCandidateEligibility()` skips missing keys and gateway/Ollama blocks
 - **Execution:** `buildWraparoundExecutionPlan()` — before advancing to candidate *N+1*, revisits models *0…N* once each; then `proxyModelAttempt()` per step; system fallback on exhaustion
 - **Catalog mode:** Custom source must not leak `endpoint-models-cache` on `/v1/models`, `/api/tags`, or `GET /api/provider-models?catalog=active|all` (live upstream only when **Endpoint Models** toggle is on or `?live=true`)
 
 ### Default system fallback
 
-- **Route id:** `fallback-models` (bootstrapped); persisted installs may also use legacy id **`default`** — startup **merges** tier-default model IDs into system/legacy routes, then tier-sorts
-- **Source:** [`src/routing-defaults.ts`](src/routing-defaults.ts) (`DEFAULT_FALLBACK_ORDERED_IDS`, 16 models) — **fixed order** at bootstrap; broader auto-router superset is exhaustion-sorted separately
-- **Paid tail:** six models (see band 6 above); includes NIM + Modal in the free wave (positions 2–3)
+- **Route id:** `fallback-models` (bootstrapped); persisted installs may also use legacy id **`default`** — startup **merges** catalog-valid IDs into system/legacy routes but **preserves** the fixed order below (no exhaustion re-sort on `fallback-models`)
+- **Source:** [`src/routing-defaults.ts`](src/routing-defaults.ts) (`DEFAULT_FALLBACK_ORDERED_IDS`) — **16 models, fixed order** (auto-router uses a separate exhaustion-sorted superset)
+- **Fixed chain (presented IDs):**
+  1. `ollama-nemotron-3-ultra-cloud`
+  2. `nvidia-nim-minimax-m3`
+  3. `modal-glm-5.1-fp8`
+  4. `kilo-nvidia-nemotron-3-ultra-550b-a55b-free`
+  5. `cline-nvidia-nemotron-3-ultra-550b-a55b-free`
+  6. `opencode-zen-minimax-m3-free`
+  7. `openrouter-free`
+  8. `opencode-go-deepseek-v4-pro` (subscription)
+  9. `zai-code-pass-glm-5.1`
+  10. `xiaomi-mimo-mimo-v2.5-pro`
+  11. `wafer-ai-deepseek-v4-flash`
+  12. `zenmux-mimo-v2.5-pro` (`xiaomi/mimo-v2.5-pro` on ZenMux)
+  13. `openrouter-chain-of-draft` (`@preset/chain-of-draft`)
+  14. `nebius-nemotron-3-ultra-550b-a55b`
+  15. `cline-deepseek-deepseek-v4-flash`
+  16. `kilo-deepseek-deepseek-v4-flash`
 - **Stages:** wraparound plan with 3 primary attempts per stage; skip stages with `fallbackStagePreflight()` (no key, Ollama tier block, unknown model)
 
 ### Configuration on disk (`~/.config/local-router/`)
@@ -159,13 +176,14 @@ Keys: **`~/.config/pqc-secrets/secrets.bundle.json`** only (never in repo).
 ### Operator verification (after any change)
 
 ```bash
-cd /path/to/local-router    # on main or develop @ acbb577+
-npm run build && npm test
+cd /path/to/local-router    # on main or develop @ 5a58799+
+npm run build && npm test   # 28 cases
 local-router stop && local-router start
 localrouter verify          # expects PASS on :11434
 # Config UI: http://127.0.0.1:11434/config
-# Confirm auto-router: 3 Ollama :cloud + 6 Kilo/Cline free when keys present
-# Startup log: [router] Reordered auto-router-main candidates… / fallback-models chain…
+# fallback-models: 16-step chain (ollama → nim → modal → … → kilo DS V4 flash)
+# auto-router-main: ~46 candidates, exhaustion-sorted (Ollama first)
+curl -s http://127.0.0.1:11434/api/fallback-models | jq '.data[] | select(.routeId=="fallback-models") | .models'
 ```
 
 ### Iteration checklist (agents)
@@ -234,7 +252,7 @@ Use this table to know **which dropdown entry** and **which env var** match a se
 | [Modal](https://modal.com/) GLM endpoint | `modal` | `MODAL_API_KEY` | Modal GLM-5.1-FP8 endpoint | Single-model provider in catalog |
 | [OpenRouter](https://openrouter.ai/) presets you own | `openrouter-presets` | `OPENROUTER_API_KEY` | `https://openrouter.ai/api/v1` | Uses **preset slugs** (`@preset/...`), not raw OR model ids—confirm preset ownership |
 | [Xiaomi Mimo](https://www.mimo.ai/) plan | `xiaomi-mimo` | `XIAOMI_MIMO_API_KEY` | Mimo token plan URL | 1M-context Mimo models |
-| [OpenCode Code](https://opencode.ai/) (Zen/Go) | `opencode-go` | `OPENCODE_API_KEY` | `https://opencode.ai/zen/go/v1` | Curated 10-model Hermes set; shares key with Zen |
+| [OpenCode Go](https://opencode.ai/) subscription | `opencode-go` | `OPENCODE_API_KEY` | `https://opencode.ai/zen/go/v1` | Curated **9-model** Hermes subscription set; shares key with Zen |
 | [OpenCode Zen](https://opencode.ai/) subscription | `opencode-zen` | `OPENCODE_API_KEY` | `https://opencode.ai/zen/v1` | Curated subset in `providers.txt`; free-tier models (e.g. `minimax-m3-free`) |
 | [Z.AI](https://z.ai/) coding API | `zai` | `ZAI_API_KEY` | `https://api.z.ai/api/coding/paas/v4` | GLM-5.1 coding pass |
 | Local [Ollama](https://ollama.com/) Cloud models | `ollama` | `OLLAMA_API_KEY` | `http://127.0.0.1:11435/v1` | Always configured with default `local-router-ollama`; cloud free tier via `ollama signin` (no ollama.com API key required) |
@@ -547,7 +565,7 @@ Local Router automatically injects prompt caching parameters (such as `cache_con
 ├── CIP.md                             # Community Improvement Proposal process
 ├── README.md                          # Project README
 ├── llms.txt                           # This file — PRD anchor and project reference
-├── providers.txt                      # Source of truth for provider/model metadata (14 providers, 96 catalog rows incl. 8 Ollama :cloud, 6 gateway free)
+├── providers.txt                      # Source of truth for provider/model metadata (14 providers, 45 catalog rows incl. 8 Ollama :cloud, gateway free/paid)
 ├── ROUTER-RESEARCH.md                 # Model intelligence framework plan
 ├── .env.example                       # Environment variable template (no real keys)
 ├── tsconfig.json
@@ -559,6 +577,8 @@ Local Router automatically injects prompt caching parameters (such as `cache_con
 │   └── fvs-code.js                    # Compatibility alias for local-router
 ├── src/
 │   ├── index.ts                       # Express server, routing, CRUD, config UI, tier order, router/fallback defaults, catalog gate
+│   ├── routing-defaults.ts            # DEFAULT_FALLBACK_ORDERED_IDS (16 fixed), auto-router candidate builder
+│   ├── routing-exhaustion-order.ts    # Free → subscription → paid sort; subscription/paid sub-orders
 │   ├── types.ts                       # TypeScript interfaces (ProxyProvider, etc.)
 │   ├── reasoning.ts                   # Reasoning/thinking metadata handling + configurable thinking levels per provider
 │   ├── responses-stream.ts            # Responses API HTTP SSE + WebSocket stream translator
@@ -569,7 +589,6 @@ Local Router automatically injects prompt caching parameters (such as `cache_con
 │   ├── ollama-keys.ts                 # Placeholder vs real OLLAMA_API_KEY
 │   ├── ollama-backend.ts              # Auto-start ollama on :11435, filtered cloud pulls
 │   ├── gateway-provider-catalog.ts    # Cline/Kilo free allowlists, router-model exclusions, presented segments
-│   ├── routing-exhaustion-order.ts    # Free → subscription → paid stable sort for router/fallback
 │   ├── execution-plan.ts              # Wraparound retry plan (revisit earlier models before advancing)
 │   └── providers/
 │       ├── groq.ts                    # Groq provider
@@ -678,18 +697,18 @@ The ML-DSA-65 algorithm and `openssl pkeyutl` invocations are unchanged. Only th
 
 `providers.txt` is the factual source of truth for provider/model metadata. It is synced to `~/.config/providers.txt` and intended to be copied across projects. Runtime model overrides (via `/api/provider-models`) take precedence and immediately update `/v1/models`, `/api/tags`, and `/api/show`.
 
-### Active Providers (14 providers, 96 catalog rows in `providers.txt` as of 2026-06-04)
+### Active Providers (14 providers, **45** catalog rows in `providers.txt` as of 2026-06-04)
 | Provider | Models | Endpoint | Key Env |
 |---|---|---|---|
 | `wafer-serverless` | 5 | `https://pass.wafer.ai/v1` | `WAFER_SERVERLESS_API_KEY` |
 | `zenmux` | 19 | `https://zenmux.ai/api/v1` | `ZENMUX_API_KEY` |
-| `nebius` | 7 | Nebius Token Factory | `NEBIUS_API_KEY` |
+| `nebius` | 8 | Nebius Token Factory | `NEBIUS_API_KEY` |
 | `moonshot` | 5 | Moonshot/Kimi API | `MOONSHOT_API_KEY` |
 | `nvidia-nim` | 6 | NVIDIA NIM API | `NVIDIA_NIM_API_KEY` |
 | `modal` | 1 | Modal GLM endpoint | `MODAL_API_KEY` |
 | `openrouter-presets` | 8 | `https://openrouter.ai/api/v1` | `OPENROUTER_API_KEY` |
 | `xiaomi-mimo` | 2 | `https://token-plan-sgp.xiaomimimo.com/v1` | `XIAOMI_MIMO_API_KEY` |
-| `opencode-go` | 10 | `https://opencode.ai/zen/go/v1` | `OPENCODE_API_KEY` |
+| `opencode-go` | 9 | `https://opencode.ai/zen/go/v1` | `OPENCODE_API_KEY` |
 | `opencode-zen` | 8 | `https://opencode.ai/zen/v1` | `OPENCODE_API_KEY` |
 | `zai` | 1 | `https://api.z.ai/api/coding/paas/v4` | `ZAI_API_KEY` |
 | `ollama` | 8 (`:cloud`; **3** in default router/fallback) | `http://127.0.0.1:11435/v1` | `OLLAMA_API_KEY` |
@@ -703,7 +722,7 @@ The ML-DSA-65 algorithm and `openssl pkeyutl` invocations are unchanged. Only th
 **1-million-context models** (1,000,000-token windows):
 - `wafer-serverless/deepseek-v4-flash`, `wafer-serverless/deepseek-v4-pro`, `wafer-serverless/qwen3.7-max`
 - `zenmux/qwen/qwen3.7-max`, `zenmux/deepseek/deepseek-v4-pro`
-- `nebius/deepseek-ai/DeepSeek-V4-Pro`
+- `nebius/deepseek-ai/DeepSeek-V4-Pro`, `nebius/nvidia/Nemotron-3-Ultra-550b-a55b` (presented `nebius-nemotron-3-ultra-550b-a55b`)
 - `openrouter-presets/@preset/chain-of-draft`, `openrouter-presets/@preset/openrouter-personal-router`
 - `openrouter-presets/@preset/free-chain-of-draft`, `openrouter-presets/@preset/1-million-main`, `openrouter-presets/@preset/1-million-chain-of-draft`
 - `xiaomi-mimo/mimo-v2.5-pro`, `xiaomi-mimo/mimo-v2.5`
@@ -722,7 +741,7 @@ The ML-DSA-65 algorithm and `openssl pkeyutl` invocations are unchanged. Only th
 - OpenRouter presets: 1M context, 120K max output, tools + vision. Also `stepfun/step-3.7-flash`, `minimax/minimax-m3`, `qwen/qwen3.7-max`. All compositions must be confirmed with preset owner
 - **OpenCode Zen** (full subscription, `https://opencode.ai/zen/v1`): 42 models across Claude Opus/Sonnet/Haiku, Gemini, GPT-5.5/5.4/5.3/5.2/5.1/5, Grok, DeepSeek, GLM, MiniMax, Kimi, Qwen + 5 free-tier models. Curated 8 in providers.txt: `deepseek-v4-flash`, `gemini-3.5-flash`, `gpt-5.4`, `gpt-5.3-codex`, `claude-sonnet-4-6`, `minimax-m3-free`, `deepseek-v4-flash-free`, `glm-5.1`
 - **NVIDIA NIM Kimi K2.6** (added 2026-06-02): 256K context, 32K output, multimodal image input, tool calling, implicit prompt caching. Available as `nvidia-nim/moonshotai-kimi-k2.6` (presented as `nvidia-nim-kimi-k2.6`). Reference: `https://docs.api.nvidia.com/nim/reference/moonshotai-kimi-k2-6`
-- **OpenCode MiniMax M3 free tier** (added 2026-06-02): 512K context, 512K output, multimodal, tool calling, prompt caching, native reasoning stripped for VS Code. Available as `opencode-go/minimax-m3-free` (presented as `opencode-zen-minimax-m3-free`). Also via `opencode-zen/minimax-m3-free` (`opencode-zen-minimax-m3-free`)
+- **OpenCode MiniMax M3 free tier** (added 2026-06-02): 512K context, 512K output, multimodal, tool calling, prompt caching, native reasoning stripped for VS Code. **Only on Zen** (`opencode-zen/minimax-m3-free` → presented `opencode-zen-minimax-m3-free`); not on Go subscription catalog
 - **Z.ai**: `code-pass-glm-5.1` — coding-focused GLM-5.1, 200K context, 128K output
 - MiniMax M2.7: 204.8K context, 131K max output, tools YES, vision NO, reasoning YES (stripped for VS Code)
 
@@ -1498,3 +1517,16 @@ localrouter config --open            # http://127.0.0.1:11434/config
 3. ✅ **Next iteration** — Start from snapshot; configure `CLINE_API_KEY` / `KILO_API_KEY` in `/config` for gateway free models in router/fallback.
 
 **Canonical tip:** `main` = `develop` = **`acbb577`**. **Next iteration:** start from [System Snapshot](#system-snapshot--canonical-state-2026-06-04); use worktree + `AGENTS.md` merge policy.
+
+### 2026-06-04 — llms.txt release snapshot (`5a58799`)
+
+**Branch:** `docs/llms-5a58799-snapshot`
+
+**Tasks completed:**
+1. ✅ **System Snapshot** — Release lineage through `5a58799`; OpenCode **Go** (subscription `/zen/go/v1`, 9 models) vs **Zen** (free/paid `/zen/v1`); fixed **16-step** `fallback-models` chain documented end-to-end.
+2. ✅ **Routing PRD** — Paid order includes **Nebius** before Cline/Kilo; subscription order Go → Z.ai → Xiaomi; ~**46** auto-router candidates via `resolvedDefaultAutoRouterCandidatesText()`; legacy `opencode-code-*` / `opencode-*` aliases noted.
+3. ✅ **Accuracy pass** — 14 providers, 45 catalog rows, file map (`routing-defaults.ts`, `routing-exhaustion-order.ts`), test matrix **28** cases / 8 files.
+
+**Promotion:** `feat/routing-opencode-go-fallback` → `develop` @ `5a58799`; llms snapshot on `docs/llms-5a58799-snapshot` → merge to `develop` → `main`.
+
+**Canonical tip:** `main` = `develop` = **`5a58799`**. **Next iteration:** configure `CLINE_API_KEY` / `KILO_API_KEY` in `/config` for gateway free models; run `localrouter verify` after `npm test`.
