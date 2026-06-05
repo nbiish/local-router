@@ -41,7 +41,6 @@ export const KILO_FREE_MODEL_IDS: readonly string[] = [
   'nvidia/nemotron-3-super-120b-a12b:free',
   'nvidia/nemotron-3-ultra-550b-a55b:free',
   'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free',
-  'nvidia/nemotron-3.5-content-safety:free',
   'poolside/laguna-m.1:free',
   'poolside/laguna-xs.2:free'
 ] as const;
@@ -173,7 +172,6 @@ const GATEWAY_UPSTREAM_FRIENDLY_LABELS: Record<string, string> = {
   'openrouter/free': 'OpenRouter Free',
   'nvidia/nemotron-3-super-120b-a12b:free': 'Nemotron Super 120B',
   'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free': 'Nemotron Nano Omni',
-  'nvidia/nemotron-3.5-content-safety:free': 'Nemotron Content Safety',
   'poolside/laguna-m.1:free': 'Laguna M.1',
   'poolside/laguna-xs.2:free': 'Laguna XS.2'
 };

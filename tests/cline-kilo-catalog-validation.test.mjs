@@ -62,7 +62,7 @@ test('cline-kilo catalog validation report matches providers.txt', () => {
     false,
     'openrouter/free must not be in Cline provable free (chat 500 on Cline)'
   );
-  assert.equal(report.kilo.provableFree.length, 8, 'Kilo must list eight chat-proven free models');
+  assert.equal(report.kilo.provableFree.length, 7, 'Kilo must list seven chat-proven free models');
   assert.equal(
     report.kilo.provableFree.includes('openrouter/owl-alpha'),
     false,

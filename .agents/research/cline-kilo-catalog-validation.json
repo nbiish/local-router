@@ -179,7 +179,6 @@
     "provableFree": [
       "poolside/laguna-m.1:free",
       "stepfun/step-3.7-flash:free",
-      "nvidia/nemotron-3.5-content-safety:free",
       "nvidia/nemotron-3-ultra-550b-a55b:free",
       "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
       "poolside/laguna-xs.2:free",
@@ -229,19 +228,6 @@
       {
         "model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
         "row": "107",
-        "inCatalog": true,
-        "inUpstream": true,
-        "upstreamTier": "free",
-        "chat": {
-          "status": 200,
-          "ok": true,
-          "error": ""
-        },
-        "keep": true
-      },
-      {
-        "model": "nvidia/nemotron-3.5-content-safety:free",
-        "row": "108",
         "inCatalog": true,
         "inUpstream": true,
         "upstreamTier": "free",

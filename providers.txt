@@ -128,7 +128,6 @@
 # │105 │ kilo               │ nvidia/nemotron-3-super-120b-a12b:free │ kilo:nvidia-nemotron-3-super-120b-a12b:free │ 256,000 │ 65,536 │ YES │ NO │ NO │ YES* free │
 # │106 │ kilo               │ nvidia/nemotron-3-ultra-550b-a55b:free │ kilo:nvidia-nemotron-3-ultra-550b-a55b:free │1,000,000 │ 65,536 │ YES │ NO │ NO │ YES* free │
 # │107 │ kilo               │ nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free │ kilo:nemotron-3-nano-omni-reasoning:free │ 256,000 │ 65,536 │ YES │ YES │ NO │ YES* free │
-# │108 │ kilo               │ nvidia/nemotron-3.5-content-safety:free │ kilo:nemotron-3.5-content-safety:free │ 128,000 │ 8,192  │ YES │ NO │ NO │ YES* free │
 # │109 │ kilo               │ openrouter/free                     │ kilo:openrouter-free           │ 200,000  │ 32,768   │ YES   │ NO   │ NO    │ YES* free │
 # │110 │ kilo               │ poolside/laguna-m.1:free              │ kilo:laguna-m.1:free           │ 262,144  │ 32,768   │ YES   │ NO   │ NO    │ YES* free │
 # │111 │ kilo               │ poolside/laguna-xs.2:free           │ kilo:laguna-xs.2:free          │ 262,144  │ 32,768   │ YES   │ NO   │ NO    │ YES* free │

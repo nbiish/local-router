@@ -227,11 +227,6 @@ export const BASELINE_PROVIDER_PRICING: Record<string, ProviderPricingEntry> = {
     outputPricePerM: 0,
     label: 'Kilo Gateway nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free'
   },
-  'kilo-nvidia-nemotron-3.5-content-safety-free': {
-    inputPricePerM: 0,
-    outputPricePerM: 0,
-    label: 'Kilo Gateway nvidia/nemotron-3.5-content-safety:free'
-  },
   'kilo-poolside-laguna-m.1-free': {
     inputPricePerM: 0,
     outputPricePerM: 0,

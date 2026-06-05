@@ -26,6 +26,7 @@ function requireEnv(name) {
 function excludedUpstream(id) {
   const normalized = String(id || '').toLowerCase();
   if (KILO_ROUTER_IDS.has(normalized)) return true;
+  if (normalized === 'nvidia/nemotron-3.5-content-safety:free' || normalized === 'nvidia/nemotron-3.5-content-safety') return true;
   return EXCLUDED_PREFIXES.some((prefix) => normalized.startsWith(prefix))
     || normalized.includes('/gemini');
 }

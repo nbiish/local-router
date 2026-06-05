@@ -110,7 +110,6 @@ const CANDIDATE_DEFAULTS: Record<string, string> = {
   'kilo-xiaomi-mimo-v2.5-paid': 'coding=0.80, input=0.15, output=0.29, latency=900, notes=Kilo MiMo V2.5 paid',
   'kilo-moonshotai-kimi-k2.6-paid': 'coding=0.86, input=0.6, output=2.5, latency=850, notes=Kilo Kimi K2.6 paid',
   'kilo-nvidia-nemotron-3-nano-omni-30b-a3b-reasoning-free': 'coding=0.80, input=0, output=0, latency=850, notes=Kilo Nemotron 3 Nano Omni free',
-  'kilo-nvidia-nemotron-3.5-content-safety-free': 'coding=0.75, input=0, output=0, latency=900, notes=Kilo Nemotron 3.5 content safety free',
   'kilo-poolside-laguna-m.1-free': 'coding=0.78, input=0, output=0, latency=900, notes=Kilo Poolside Laguna M.1 free',
   'kilo-poolside-laguna-xs.2-free': 'coding=0.76, input=0, output=0, latency=950, notes=Kilo Poolside Laguna XS.2 free',
   'wafer-ai-minimax-m3': 'coding=0.90, input=0.33, output=1.32, latency=650, notes=Wafer MiniMax-M3 promo',
