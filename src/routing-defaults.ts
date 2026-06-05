@@ -11,13 +11,36 @@ import {
 
 export { FALLBACK_PAID_TAIL_IDS, DEEPSEEK_V4_FLASH_PAID_PRESENTED_IDS } from './routing-exhaustion-order';
 
+/** Curated Cline/Kilo free models for auto-router-main (not full catalog free tier). */
+export const AUTO_ROUTER_CLINE_FREE_PRESENTED_IDS: readonly string[] = [
+  'cline-nvidia-nemotron-3-ultra-550b-a55b-free',
+  'cline-minimax-minimax-m3-free'
+] as const;
+
+/** Kilo MiniMax M3 is paid upstream; free tier uses Nemotron Ultra + Step 3.7 Flash. */
+export const AUTO_ROUTER_KILO_FREE_PRESENTED_IDS: readonly string[] = [
+  'kilo-nvidia-nemotron-3-ultra-550b-a55b-free',
+  'kilo-stepfun-step-3.7-flash-free'
+] as const;
+
+export const AUTO_ROUTER_GATEWAY_FREE_PRESENTED_IDS: readonly string[] = [
+  ...AUTO_ROUTER_CLINE_FREE_PRESENTED_IDS,
+  ...AUTO_ROUTER_KILO_FREE_PRESENTED_IDS
+] as const;
+
+const AUTO_ROUTER_GATEWAY_FREE_SET = new Set<string>(AUTO_ROUTER_GATEWAY_FREE_PRESENTED_IDS);
+
+export function isAllowedAutoRouterGatewayFreeModel(presentedId: string): boolean {
+  return AUTO_ROUTER_GATEWAY_FREE_SET.has(String(presentedId || '').trim());
+}
+
 /** Fixed fallback chain (no exhaustion re-sort on bootstrap). */
 export const DEFAULT_FALLBACK_ORDERED_IDS: readonly string[] = [
   'ollama-nemotron-3-ultra-cloud',
   'nvidia-nim-minimax-m3',
   'modal-glm-5.1-fp8',
-  'kilo-nvidia-nemotron-3-ultra-550b-a55b-free',
-  'cline-nvidia-nemotron-3-ultra-550b-a55b-free',
+  'kilo-minimax-minimax-m3-paid',
+  'cline-minimax-minimax-m3-free',
   'opencode-zen-minimax-m3-free',
   'openrouter-free',
   'opencode-go-deepseek-v4-pro',
@@ -119,12 +142,7 @@ const FALLBACK_CANDIDATE_LINES = DEFAULT_FALLBACK_ORDERED_IDS.map((id) => candid
 const AUTO_ROUTER_EXTRA_CANDIDATE_IDS = [
   'ollama-minimax-m3-cloud',
   'ollama-deepseek-v4-flash-cloud',
-  'kilo-openrouter-free',
-  'kilo-stepfun-step-3.7-flash-free',
-  'kilo-nvidia-nemotron-3-super-120b-a12b-free',
-  'cline-minimax-minimax-m3-free',
-  'cline-xiaomi-mimo-v2.5-free',
-  'cline-deepseek-deepseek-v4-flash-free',
+  ...AUTO_ROUTER_GATEWAY_FREE_PRESENTED_IDS,
   'opencode-zen-deepseek-v4-flash-free',
   'opencode-go-minimax-m3',
   'opencode-go-kimi-k2.6',
@@ -164,11 +182,7 @@ const AUTO_ROUTER_EXTRA_CANDIDATE_IDS = [
   'kilo-stepfun-step-3.7-flash-paid',
   'kilo-xiaomi-mimo-v2.5-pro-paid',
   'kilo-xiaomi-mimo-v2.5-paid',
-  'kilo-moonshotai-kimi-k2.6-paid',
-  'kilo-nvidia-nemotron-3-nano-omni-30b-a3b-reasoning-free',
-  'kilo-nvidia-nemotron-3.5-content-safety-free',
-  'kilo-poolside-laguna-m.1-free',
-  'kilo-poolside-laguna-xs.2-free'
+  'kilo-moonshotai-kimi-k2.6-paid'
 ] as const;
 
 const AUTO_ROUTER_CANDIDATE_LINES = dedupeLines([

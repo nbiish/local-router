@@ -48,7 +48,7 @@ Canonical defaults live in [`src/routing-defaults.ts`](src/routing-defaults.ts) 
 
 Bootstrapped on first run when no fallback routes exist (`ensureDefaultFallback()`). Route id: `fallback-models`. Order is **fixed** (no exhaustion re-sort on bootstrap).
 
-1. `ollama-nemotron-3-ultra-cloud` → `nvidia-nim-minimax-m3` → `modal-glm-5.1-fp8` → `kilo-nvidia-nemotron-3-ultra-550b-a55b-free` → `cline-nvidia-nemotron-3-ultra-550b-a55b-free` → `opencode-zen-minimax-m3-free` → `openrouter-free`
+1. `ollama-nemotron-3-ultra-cloud` → `nvidia-nim-minimax-m3` → `modal-glm-5.1-fp8` → `kilo-minimax-minimax-m3-paid` → `cline-minimax-minimax-m3-free` → `opencode-zen-minimax-m3-free` → `openrouter-free`
 2. `opencode-go-deepseek-v4-pro` → `zai-code-pass-glm-5.1` → `xiaomi-mimo-mimo-v2.5-pro`
 3. `wafer-ai-deepseek-v4-flash` → `zenmux-mimo-v2.5-pro` → `openrouter-chain-of-draft` → `nebius-nemotron-3-ultra-550b-a55b` → `cline-deepseek-deepseek-v4-flash` → `kilo-deepseek-deepseek-v4-flash`
 

@@ -128,6 +128,7 @@ Router and fallback **skip** candidates when the provider has no API key (except
 
 - **Type:** `auto-local` — `minCodingScore` 0.66, `costQualityTradeoff` 7
 - **Source:** [`src/routing-defaults.ts`](src/routing-defaults.ts) — `buildDefaultAutoRouterCandidateLines()` (~**46** curated models): fallback union + extra Go/Zen rows, gateway alternates, Wafer/Nebius/OR/ZenMux paid; **`resolvedDefaultAutoRouterCandidatesText()`** exhaustion-sorts at bootstrap using live catalog
+- **Cline/Kilo free (auto-router only):** Nemotron Ultra + MiniMax M3 (Cline) + Step 3.7 Flash (Kilo) — not full catalog free tier (`AUTO_ROUTER_*_FREE_PRESENTED_IDS`)
 - **Selection:** `selectRouterCandidate()` picks the **first eligible** model in `stableSortModelIdsByRoutingExhaustion()` order (not highest Pareto score alone); `routerCandidateEligibility()` skips missing keys and gateway/Ollama blocks
 - **Execution:** `buildWraparoundExecutionPlan()` — before advancing to candidate *N+1*, revisits models *0…N* once each; then `proxyModelAttempt()` per step; system fallback on exhaustion
 - **Catalog mode:** Custom source must not leak `endpoint-models-cache` on `/v1/models`, `/api/tags`, or `GET /api/provider-models?catalog=active|all` (live upstream only when **Endpoint Models** toggle is on or `?live=true`)
@@ -140,8 +141,8 @@ Router and fallback **skip** candidates when the provider has no API key (except
   1. `ollama-nemotron-3-ultra-cloud`
   2. `nvidia-nim-minimax-m3`
   3. `modal-glm-5.1-fp8`
-  4. `kilo-nvidia-nemotron-3-ultra-550b-a55b-free`
-  5. `cline-nvidia-nemotron-3-ultra-550b-a55b-free`
+  4. `kilo-minimax-minimax-m3-paid` (Kilo gateway; paid upstream)
+  5. `cline-minimax-minimax-m3-free`
   6. `opencode-zen-minimax-m3-free`
   7. `openrouter-free`
   8. `opencode-go-deepseek-v4-pro` (subscription)
@@ -151,8 +152,8 @@ Router and fallback **skip** candidates when the provider has no API key (except
   12. `zenmux-mimo-v2.5-pro` (`xiaomi/mimo-v2.5-pro` on ZenMux)
   13. `openrouter-chain-of-draft` (`@preset/chain-of-draft`)
   14. `nebius-nemotron-3-ultra-550b-a55b`
-  15. `cline-deepseek-deepseek-v4-flash`
-  16. `kilo-deepseek-deepseek-v4-flash`
+  15. `cline-deepseek-deepseek-v4-flash-free`
+  16. `kilo-deepseek-deepseek-v4-flash-paid`
 - **Stages:** wraparound plan with 3 primary attempts per stage; skip stages with `fallbackStagePreflight()` (no key, Ollama tier block, unknown model)
 
 ### Configuration on disk (`~/.config/local-router/`)

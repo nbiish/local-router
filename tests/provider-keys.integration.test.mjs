@@ -376,8 +376,8 @@ test('provider key save/reset lifecycle exposes configured source', async (t) =>
     'ollama-nemotron-3-ultra-cloud',
     'nvidia-nim-minimax-m3',
     'modal-glm-5.1-fp8',
-    'kilo-nvidia-nemotron-3-ultra-550b-a55b-free',
-    'cline-nvidia-nemotron-3-ultra-550b-a55b-free',
+    'kilo-minimax-minimax-m3-paid',
+    'cline-minimax-minimax-m3-free',
     'opencode-zen-minimax-m3-free',
     'openrouter-free',
     'opencode-go-deepseek-v4-pro',
@@ -400,12 +400,30 @@ test('provider key save/reset lifecycle exposes configured source', async (t) =>
     'auto-router should include OpenRouter openrouter/free'
   );
   assert.ok(
-    autoRouterCandidates.includes('kilo-openrouter-free'),
-    'auto-router should include Kilo openrouter/free'
+    autoRouterCandidates.includes('cline-nvidia-nemotron-3-ultra-550b-a55b-free'),
+    'auto-router should include curated Cline Nemotron Ultra free'
   );
   assert.ok(
     autoRouterCandidates.includes('cline-minimax-minimax-m3-free'),
-    'auto-router should include Cline free-tier models'
+    'auto-router should include curated Cline MiniMax M3 free'
+  );
+  assert.ok(
+    autoRouterCandidates.includes('kilo-nvidia-nemotron-3-ultra-550b-a55b-free'),
+    'auto-router should include curated Kilo Nemotron Ultra free'
+  );
+  assert.ok(
+    autoRouterCandidates.includes('kilo-stepfun-step-3.7-flash-free'),
+    'auto-router should include curated Kilo Step 3.7 Flash free'
+  );
+  assert.equal(
+    autoRouterCandidates.includes('kilo-openrouter-free'),
+    false,
+    'auto-router should not include non-curated Kilo openrouter/free'
+  );
+  assert.equal(
+    autoRouterCandidates.includes('cline-deepseek-deepseek-v4-flash-free'),
+    false,
+    'auto-router should not include non-curated Cline DeepSeek V4 Flash free'
   );
   assert.ok(
     autoRouterCandidates.includes('opencode-go-minimax-m3'),

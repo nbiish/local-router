@@ -46,7 +46,8 @@ import {
   DEFAULT_FALLBACK_ORDERED_IDS,
   buildDefaultAutoRouterCandidateLines,
   buildDefaultFallbackModelIds,
-  buildDefaultFallbackModelsText
+  buildDefaultFallbackModelsText,
+  isAllowedAutoRouterGatewayFreeModel
 } from './routing-defaults';
 import {
   DEFAULT_OLLAMA_API_KEY,
@@ -2234,6 +2235,55 @@ function mergeMissingDefaultRouterCandidates(): void {
   }
 }
 
+function pruneDisallowedGatewayFreeRouting(): void {
+  let routerChanged = false;
+  const autoRouter = routerModelStore[DEFAULT_ROUTER_ID];
+  if (autoRouter?.candidates?.length) {
+    const before = autoRouter.candidates.length;
+    autoRouter.candidates = autoRouter.candidates.filter((candidate) => {
+      const modelId = String(candidate.model || '').trim();
+      if (!modelId.endsWith('-free')) return true;
+      if (!modelId.startsWith('cline-') && !modelId.startsWith('kilo-')) return true;
+      return isAllowedAutoRouterGatewayFreeModel(modelId);
+    });
+    if (autoRouter.candidates.length !== before) {
+      routerModelStore[DEFAULT_ROUTER_ID] = cloneRouterModel(autoRouter);
+      routerChanged = true;
+    }
+  }
+
+  if (routerChanged) {
+    try {
+      persistRouterModels();
+      console.log('[router] Pruned Cline/Kilo free models outside curated auto-router allowlist.');
+    } catch (error: any) {
+      console.error('Failed to persist pruned gateway free router candidates:', sanitizeDiagnosticText(String(error?.message || error)));
+    }
+  }
+}
+
+function migrateGatewayFallbackMiniMax(): void {
+  const replacements: Record<string, string> = {
+    'kilo-nvidia-nemotron-3-ultra-550b-a55b-free': 'kilo-minimax-minimax-m3-paid',
+    'cline-nvidia-nemotron-3-ultra-550b-a55b-free': 'cline-minimax-minimax-m3-free'
+  };
+  let fallbackChanged = false;
+  for (const route of Object.values(fallbackModelStore)) {
+    const nextModels = route.models.map((modelId) => replacements[modelId] ?? modelId);
+    if (nextModels.some((id, index) => id !== route.models[index])) {
+      route.models = nextModels;
+      fallbackChanged = true;
+    }
+  }
+  if (!fallbackChanged) return;
+  try {
+    persistFallbackModels();
+    console.log('[router] Migrated fallback gateway slots from Nemotron Ultra to MiniMax M3.');
+  } catch (error: any) {
+    console.error('Failed to persist gateway fallback MiniMax migration:', sanitizeDiagnosticText(String(error?.message || error)));
+  }
+}
+
 function pruneDisallowedOllamaCloudRouting(): void {
   const allowsPro = ollamaCloudRoutingAllowsPro();
   let routerChanged = false;
@@ -2444,7 +2494,9 @@ function migratePersistedRoutingConfig(): void {
 
   mergeMissingDefaultRouterCandidates();
   normalizeRoutingTierOrder();
+  migrateGatewayFallbackMiniMax();
   pruneDisallowedOllamaCloudRouting();
+  pruneDisallowedGatewayFreeRouting();
 
   if (fallbackChanged) {
     try {
@@ -2735,6 +2787,7 @@ function loadPqcSecrets(): void {
   if (process.env.LOCAL_ROUTER_SKIP_PQC_LOAD === 'true') {
     ensureDefaultOllamaApiKey(keyStore);
     pruneDisallowedOllamaCloudRouting();
+    pruneDisallowedGatewayFreeRouting();
     return;
   }
 
@@ -2743,6 +2796,7 @@ function loadPqcSecrets(): void {
     console.log('[PQC] pqc-secrets binary not found — skipping bundle load.');
     ensureDefaultOllamaApiKey(keyStore);
     pruneDisallowedOllamaCloudRouting();
+    pruneDisallowedGatewayFreeRouting();
     return;
   }
   try {
@@ -2799,12 +2853,14 @@ function loadPqcSecrets(): void {
     }
     ensureDefaultOllamaApiKey(keyStore);
     pruneDisallowedOllamaCloudRouting();
+    pruneDisallowedGatewayFreeRouting();
   } catch (err) {
     if (process.env.LOCAL_ROUTER_DEV === 'true') {
       console.log(`[PQC] No secrets bundle loaded:`, (err as Error).message);
     }
     ensureDefaultOllamaApiKey(keyStore);
     pruneDisallowedOllamaCloudRouting();
+    pruneDisallowedGatewayFreeRouting();
   }
 }
 
