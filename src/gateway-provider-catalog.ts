@@ -1,6 +1,6 @@
 /**
  * Billing tiers for OpenAI-compatible gateway providers (Cline, Kilo).
- * Curated from CLI free lists + API probes (2026-06-04).
+ * Curated from recommended-models API + chat probes (2026-06-04).
  */
 
 export type GatewayBillingTier = 'free' | 'api-paid' | 'subscription-only';
@@ -12,20 +12,28 @@ export const GATEWAY_ROUTER_UPSTREAM_IDS: readonly string[] = [
 
 const GATEWAY_ROUTER_SET = new Set<string>(GATEWAY_ROUTER_UPSTREAM_IDS);
 
-/**
- * Cline CLI free models (API-verified where noted).
- * DeepSeek V4 Flash is api-paid (fallback/auto paid tail after subscriptions).
- */
-export const CLINE_MODEL_TIERS: Record<string, GatewayBillingTier> = {
-  'nvidia/nemotron-3-ultra-550b-a55b:free': 'free',
-  'minimax/minimax-m3': 'free',
-  'xiaomi/mimo-v2.5': 'free',
-  'deepseek/deepseek-v4-flash': 'api-paid',
-  'deepseek/deepseek-chat': 'api-paid',
-  'google/gemini-2.5-flash': 'api-paid',
-  'minimax/minimax-m2.7': 'api-paid',
-  'qwen/qwen3-coder': 'api-paid'
-};
+/** Cline API free models (recommended-models + chat probes). */
+export const CLINE_FREE_MODEL_IDS: readonly string[] = [
+  'nvidia/nemotron-3-ultra-550b-a55b:free',
+  'minimax/minimax-m3',
+  'xiaomi/mimo-v2.5',
+  'openrouter/free',
+  'deepseek/deepseek-v4-flash'
+] as const;
+
+const CLINE_FREE_SET = new Set<string>(CLINE_FREE_MODEL_IDS);
+
+/** Paid Cline models curated in providers.txt (ZenMux-parity; no Anthropic/Gemini/OpenAI). */
+export const CLINE_PAID_ROUTING_IDS: readonly string[] = [
+  'deepseek/deepseek-v4-pro',
+  'deepseek/deepseek-chat',
+  'z-ai/glm-5.1',
+  'qwen/qwen3.7-max',
+  'minimax/minimax-m2.7',
+  'stepfun/step-3.7-flash',
+  'xiaomi/mimo-v2.5-pro',
+  'moonshotai/kimi-k2.6'
+] as const;
 
 /** Kilo Gateway free models (API-verified 2026-06); excludes kilo-auto/free router preset. */
 export const KILO_FREE_MODEL_IDS: readonly string[] = [
@@ -57,14 +65,6 @@ export const KILO_PAID_ROUTING_IDS: readonly string[] = [
   'moonshotai/kimi-k2.6'
 ] as const;
 
-export const CLINE_PAID_ROUTING_IDS: readonly string[] = [
-  'deepseek/deepseek-v4-flash',
-  'deepseek/deepseek-chat',
-  'google/gemini-2.5-flash',
-  'minimax/minimax-m2.7',
-  'qwen/qwen3-coder'
-] as const;
-
 const KILO_PAID_SET = new Set<string>(KILO_PAID_ROUTING_IDS);
 const CLINE_PAID_SET = new Set<string>(CLINE_PAID_ROUTING_IDS);
 
@@ -80,7 +80,9 @@ export const DEFAULT_KILO_FREE_ROUTING_IDS = [
 export const DEFAULT_CLINE_FREE_ROUTING_IDS = [
   'nvidia/nemotron-3-ultra-550b-a55b:free',
   'minimax/minimax-m3',
-  'xiaomi/mimo-v2.5'
+  'xiaomi/mimo-v2.5',
+  'openrouter/free',
+  'deepseek/deepseek-v4-flash'
 ] as const;
 
 export function normalizeGatewayUpstreamId(modelId: string): string {
@@ -92,7 +94,10 @@ export function isGatewayRouterModel(upstreamId: string): boolean {
 }
 
 export function clineModelTier(upstreamId: string): GatewayBillingTier | null {
-  return CLINE_MODEL_TIERS[normalizeGatewayUpstreamId(upstreamId)] ?? null;
+  const normalized = normalizeGatewayUpstreamId(upstreamId);
+  if (CLINE_FREE_SET.has(normalized)) return 'free';
+  if (CLINE_PAID_SET.has(normalized)) return 'api-paid';
+  return null;
 }
 
 export function kiloModelTier(upstreamId: string): GatewayBillingTier {
@@ -112,8 +117,7 @@ export function isKiloFreeModel(upstreamId: string): boolean {
 export function isClineFreeModel(upstreamId: string): boolean {
   const normalized = normalizeGatewayUpstreamId(upstreamId);
   if (isGatewayRouterModel(normalized)) return false;
-  if (CLINE_PAID_SET.has(normalized)) return false;
-  return clineModelTier(normalized) === 'free';
+  return CLINE_FREE_SET.has(normalized);
 }
 
 export function gatewayModelAllowedForRouter(
