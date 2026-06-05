@@ -1,6 +1,7 @@
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
+import { resolveGatewayPresentedLegacyId } from './gateway-provider-catalog';
 
 export type ProviderPricingEntry = {
   inputPricePerM: number;
@@ -86,57 +87,57 @@ export const BASELINE_PROVIDER_PRICING: Record<string, ProviderPricingEntry> = {
     outputPricePerM: 0,
     label: 'Cline API nvidia/nemotron-3-ultra-550b-a55b:free'
   },
-  'cline-minimax-minimax-m3': {
+  'cline-minimax-minimax-m3-free': {
     inputPricePerM: 0,
     outputPricePerM: 0,
     label: 'Cline API minimax/minimax-m3 free tier'
   },
-  'cline-xiaomi-mimo-v2.5': {
+  'cline-xiaomi-mimo-v2.5-free': {
     inputPricePerM: 0,
     outputPricePerM: 0,
     label: 'Cline API xiaomi/mimo-v2.5 free tier'
   },
-  'cline-deepseek-deepseek-v4-flash': {
+  'cline-deepseek-deepseek-v4-flash-free': {
     inputPricePerM: 0,
     outputPricePerM: 0,
     label: 'Cline API deepseek/deepseek-v4-flash free tier'
   },
-  'cline-deepseek-deepseek-v4-pro': {
+  'cline-deepseek-deepseek-v4-pro-paid': {
     inputPricePerM: 0.5,
     outputPricePerM: 1,
     label: 'Cline API deepseek/deepseek-v4-pro paid'
   },
-  'cline-deepseek-deepseek-chat': {
+  'cline-deepseek-deepseek-chat-paid': {
     inputPricePerM: 0.5,
     outputPricePerM: 1,
     label: 'Cline API deepseek/deepseek-chat paid'
   },
-  'cline-z-ai-glm-5.1': {
+  'cline-z-ai-glm-5.1-paid': {
     inputPricePerM: 0.5,
     outputPricePerM: 1,
     label: 'Cline API z-ai/glm-5.1 paid'
   },
-  'cline-qwen-qwen3.7-max': {
+  'cline-qwen-qwen3.7-max-paid': {
     inputPricePerM: 1.25,
     outputPricePerM: 3.75,
     label: 'Cline API qwen/qwen3.7-max paid'
   },
-  'cline-minimax-minimax-m2.7': {
+  'cline-minimax-minimax-m2.7-paid': {
     inputPricePerM: 0.5,
     outputPricePerM: 1,
     label: 'Cline API minimax/minimax-m2.7 paid'
   },
-  'cline-stepfun-step-3.7-flash': {
+  'cline-stepfun-step-3.7-flash-paid': {
     inputPricePerM: 0.1,
     outputPricePerM: 0.3,
     label: 'Cline API stepfun/step-3.7-flash paid'
   },
-  'cline-xiaomi-mimo-v2.5-pro': {
+  'cline-xiaomi-mimo-v2.5-pro-paid': {
     inputPricePerM: 0.44,
     outputPricePerM: 0.88,
     label: 'Cline API xiaomi/mimo-v2.5-pro paid'
   },
-  'cline-moonshotai-kimi-k2.6': {
+  'cline-moonshotai-kimi-k2.6-paid': {
     inputPricePerM: 0.6,
     outputPricePerM: 2.5,
     label: 'Cline API moonshotai/kimi-k2.6 paid'
@@ -166,57 +167,57 @@ export const BASELINE_PROVIDER_PRICING: Record<string, ProviderPricingEntry> = {
     outputPricePerM: 1,
     label: 'OpenRouter deepseek/deepseek-v4-flash'
   },
-  'kilo-deepseek-deepseek-v4-flash': {
+  'kilo-deepseek-deepseek-v4-flash-paid': {
     inputPricePerM: 0.5,
     outputPricePerM: 1,
     label: 'Kilo Gateway deepseek/deepseek-v4-flash'
   },
-  'kilo-deepseek-deepseek-v4-pro': {
+  'kilo-deepseek-deepseek-v4-pro-paid': {
     inputPricePerM: 0.5,
     outputPricePerM: 1,
     label: 'Kilo Gateway deepseek/deepseek-v4-pro paid'
   },
-  'kilo-deepseek-deepseek-chat': {
+  'kilo-deepseek-deepseek-chat-paid': {
     inputPricePerM: 0.5,
     outputPricePerM: 1,
     label: 'Kilo Gateway deepseek/deepseek-chat paid'
   },
-  'kilo-z-ai-glm-5.1': {
+  'kilo-z-ai-glm-5.1-paid': {
     inputPricePerM: 0.5,
     outputPricePerM: 1,
     label: 'Kilo Gateway z-ai/glm-5.1 paid'
   },
-  'kilo-qwen-qwen3.7-max': {
+  'kilo-qwen-qwen3.7-max-paid': {
     inputPricePerM: 1.25,
     outputPricePerM: 3.75,
     label: 'Kilo Gateway qwen/qwen3.7-max paid'
   },
-  'kilo-minimax-minimax-m3': {
+  'kilo-minimax-minimax-m3-paid': {
     inputPricePerM: 0.3,
     outputPricePerM: 1.2,
     label: 'Kilo Gateway minimax/minimax-m3 paid'
   },
-  'kilo-minimax-minimax-m2.7': {
+  'kilo-minimax-minimax-m2.7-paid': {
     inputPricePerM: 0.5,
     outputPricePerM: 1,
     label: 'Kilo Gateway minimax/minimax-m2.7 paid'
   },
-  'kilo-stepfun-step-3.7-flash': {
+  'kilo-stepfun-step-3.7-flash-paid': {
     inputPricePerM: 0.1,
     outputPricePerM: 0.3,
     label: 'Kilo Gateway stepfun/step-3.7-flash paid'
   },
-  'kilo-xiaomi-mimo-v2.5-pro': {
+  'kilo-xiaomi-mimo-v2.5-pro-paid': {
     inputPricePerM: 0.44,
     outputPricePerM: 0.88,
     label: 'Kilo Gateway xiaomi/mimo-v2.5-pro paid'
   },
-  'kilo-xiaomi-mimo-v2.5': {
+  'kilo-xiaomi-mimo-v2.5-paid': {
     inputPricePerM: 0.15,
     outputPricePerM: 0.29,
     label: 'Kilo Gateway xiaomi/mimo-v2.5 paid'
   },
-  'kilo-moonshotai-kimi-k2.6': {
+  'kilo-moonshotai-kimi-k2.6-paid': {
     inputPricePerM: 0.6,
     outputPricePerM: 2.5,
     label: 'Kilo Gateway moonshotai/kimi-k2.6 paid'
@@ -265,7 +266,7 @@ export function getProviderPricingStore(): Record<string, ProviderPricingEntry> 
 
 /** Baseline + persisted override (non-expired) for routing tier heuristics. */
 export function getProviderPricingEntry(modelId: string): ProviderPricingEntry | undefined {
-  const trimmed = String(modelId || '').trim();
+  const trimmed = resolveGatewayPresentedLegacyId(String(modelId || '').trim());
   if (!trimmed) return undefined;
 
   const override = providerPricingStore[trimmed];

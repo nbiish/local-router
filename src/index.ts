@@ -36,7 +36,10 @@ import {
 } from './ollama-cloud-catalog';
 import {
   gatewayModelAllowedForRouter,
-  gatewayPresentedModelSegment
+  gatewayModelCatalogDisplay,
+  gatewayPresentedModelId,
+  gatewayPresentedModelSegment,
+  resolveGatewayPresentedLegacyId
 } from './gateway-provider-catalog';
 import { normalizeGatewayChatCompletionBody } from './gateway-response';
 import {
@@ -344,26 +347,26 @@ const UPSTREAM_MODEL_ID_ALIASES: Record<string, string> = {
   'zenmux/deepseek/deepseek-v4-flash': 'zenmux-deepseek-v4-flash',
   'kilo/openrouter/free': 'kilo-openrouter-free',
   'kilo/nvidia/nemotron-3-ultra-550b-a55b:free': 'kilo-nvidia-nemotron-3-ultra-550b-a55b-free',
-  'kilo/deepseek/deepseek-v4-flash': 'kilo-deepseek-deepseek-v4-flash',
-  'cline/deepseek/deepseek-v4-flash': 'cline-deepseek-deepseek-v4-flash',
-  'cline/deepseek/deepseek-v4-pro': 'cline-deepseek-deepseek-v4-pro',
-  'cline/deepseek/deepseek-chat': 'cline-deepseek-deepseek-chat',
-  'cline/z-ai/glm-5.1': 'cline-z-ai-glm-5.1',
-  'cline/qwen/qwen3.7-max': 'cline-qwen-qwen3.7-max',
-  'cline/minimax/minimax-m2.7': 'cline-minimax-minimax-m2.7',
-  'cline/stepfun/step-3.7-flash': 'cline-stepfun-step-3.7-flash',
-  'cline/xiaomi/mimo-v2.5-pro': 'cline-xiaomi-mimo-v2.5-pro',
-  'cline/moonshotai/kimi-k2.6': 'cline-moonshotai-kimi-k2.6',
-  'kilo/deepseek/deepseek-v4-pro': 'kilo-deepseek-deepseek-v4-pro',
-  'kilo/deepseek/deepseek-chat': 'kilo-deepseek-deepseek-chat',
-  'kilo/z-ai/glm-5.1': 'kilo-z-ai-glm-5.1',
-  'kilo/qwen/qwen3.7-max': 'kilo-qwen-qwen3.7-max',
-  'kilo/minimax/minimax-m3': 'kilo-minimax-minimax-m3',
-  'kilo/minimax/minimax-m2.7': 'kilo-minimax-minimax-m2.7',
-  'kilo/stepfun/step-3.7-flash': 'kilo-stepfun-step-3.7-flash',
-  'kilo/xiaomi/mimo-v2.5-pro': 'kilo-xiaomi-mimo-v2.5-pro',
-  'kilo/xiaomi/mimo-v2.5': 'kilo-xiaomi-mimo-v2.5',
-  'kilo/moonshotai/kimi-k2.6': 'kilo-moonshotai-kimi-k2.6'
+  'kilo/deepseek/deepseek-v4-flash': 'kilo-deepseek-deepseek-v4-flash-paid',
+  'cline/deepseek/deepseek-v4-flash': 'cline-deepseek-deepseek-v4-flash-free',
+  'cline/deepseek/deepseek-v4-pro': 'cline-deepseek-deepseek-v4-pro-paid',
+  'cline/deepseek/deepseek-chat': 'cline-deepseek-deepseek-chat-paid',
+  'cline/z-ai/glm-5.1': 'cline-z-ai-glm-5.1-paid',
+  'cline/qwen/qwen3.7-max': 'cline-qwen-qwen3.7-max-paid',
+  'cline/minimax/minimax-m2.7': 'cline-minimax-minimax-m2.7-paid',
+  'cline/stepfun/step-3.7-flash': 'cline-stepfun-step-3.7-flash-paid',
+  'cline/xiaomi/mimo-v2.5-pro': 'cline-xiaomi-mimo-v2.5-pro-paid',
+  'cline/moonshotai/kimi-k2.6': 'cline-moonshotai-kimi-k2.6-paid',
+  'kilo/deepseek/deepseek-v4-pro': 'kilo-deepseek-deepseek-v4-pro-paid',
+  'kilo/deepseek/deepseek-chat': 'kilo-deepseek-deepseek-chat-paid',
+  'kilo/z-ai/glm-5.1': 'kilo-z-ai-glm-5.1-paid',
+  'kilo/qwen/qwen3.7-max': 'kilo-qwen-qwen3.7-max-paid',
+  'kilo/minimax/minimax-m3': 'kilo-minimax-minimax-m3-paid',
+  'kilo/minimax/minimax-m2.7': 'kilo-minimax-minimax-m2.7-paid',
+  'kilo/stepfun/step-3.7-flash': 'kilo-stepfun-step-3.7-flash-paid',
+  'kilo/xiaomi/mimo-v2.5-pro': 'kilo-xiaomi-mimo-v2.5-pro-paid',
+  'kilo/xiaomi/mimo-v2.5': 'kilo-xiaomi-mimo-v2.5-paid',
+  'kilo/moonshotai/kimi-k2.6': 'kilo-moonshotai-kimi-k2.6-paid'
 };
 
 function providerTierIndex(providerSlug: string): number {
@@ -975,13 +978,17 @@ function modelAliasSegment(modelName: string) {
 }
 
 function defaultPresentedModelName(providerName: string, modelName: string) {
-  const segment = providerName === 'kilo' || providerName === 'cline'
-    ? gatewayPresentedModelSegment(modelName)
-    : modelAliasSegment(modelName);
+  if (providerName === 'kilo' || providerName === 'cline') {
+    return gatewayPresentedModelId(providerName, modelName);
+  }
+  const segment = modelAliasSegment(modelName);
   return `${providerPresentationPrefix(providerName)}-${segment || 'model'}`;
 }
 
 function providerModelDisplay(providerName: string, modelName: string) {
+  if (providerName === 'kilo' || providerName === 'cline') {
+    return gatewayModelCatalogDisplay(providerName, modelName);
+  }
   return `${providerPresentationPrefix(providerName)}:${modelName}`;
 }
 
@@ -2138,7 +2145,7 @@ function ollamaTag(model: ProviderModel) {
 }
 
 function findProviderModel(modelName: string): ProviderModel | undefined {
-  const lookup = stripOllamaLatestSuffix(modelName.trim());
+  const lookup = resolveGatewayPresentedLegacyId(stripOllamaLatestSuffix(modelName.trim()));
   return activeProviderModelList().find((model) => providerModelAliases(model).has(lookup));
 }
 
@@ -4002,6 +4009,10 @@ app.get('/config', (req: Request, res: Response) => {
 
           listEl.innerHTML = models.map((model) => {
             const tags = [];
+            if (provider.name === 'cline' || provider.name === 'kilo') {
+              if (model.id.endsWith('-free')) tags.push('free');
+              else if (model.id.endsWith('-paid')) tags.push('paid');
+            }
             if (model.supportsTools) tags.push('tools');
             if (model.supportsImages) tags.push('vision');
             if (model.supportsCache) tags.push('cache');
@@ -4009,9 +4020,13 @@ app.get('/config', (req: Request, res: Response) => {
             const renderedTags = tags.length > 0
               ? tags.map((tag) => '<span class="tag">' + escapeHtml(tag) + '</span>').join('')
               : '<span class="tag">completion</span>';
+            const friendlyLabel = model.display && model.display !== model.id
+              ? '<div class="meta">Label: ' + escapeHtml(model.display) + '</div>'
+              : '';
 
             return '<div class="provider-model-item" data-model-id="' + escapeHtml(model.id) + '">' +
               '<h5>' + escapeHtml(model.id) + '</h5>' +
+              friendlyLabel +
               '<div class="meta">Upstream: ' + escapeHtml(model.model) + '</div>' +
               '<div class="meta">Context: ' + escapeHtml(model.contextLength) + ' | Output: ' + escapeHtml(model.outputTokens) + '</div>' +
               '<div class="meta">Source: ' + escapeHtml(provider.modelSource || provider.source || 'baseline') + '</div>' +

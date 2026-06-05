@@ -2,10 +2,12 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   gatewayModelAllowedForRouter,
+  gatewayPresentedModelId,
   gatewayPresentedModelSegment,
   isGatewayRouterModel,
   isKiloFreeModel,
-  isClineFreeModel
+  isClineFreeModel,
+  resolveGatewayPresentedLegacyId
 } from '../build/gateway-provider-catalog.js';
 
 test('gateway presented segments are unique for :free models', () => {
@@ -52,4 +54,15 @@ test('kilo gateway allows catalog models except meta-routers', () => {
   assert.equal(gatewayModelAllowedForRouter('kilo', 'deepseek/deepseek-v4-pro'), true);
   assert.equal(gatewayModelAllowedForRouter('kilo', 'anthropic/claude-opus-4.8'), true);
   assert.equal(gatewayModelAllowedForRouter('kilo', 'kilo-auto/free'), false);
+});
+
+test('gateway presented IDs include explicit tier suffixes', () => {
+  assert.equal(gatewayPresentedModelId('cline', 'minimax/minimax-m3'), 'cline-minimax-minimax-m3-free');
+  assert.equal(gatewayPresentedModelId('cline', 'deepseek/deepseek-v4-pro'), 'cline-deepseek-deepseek-v4-pro-paid');
+  assert.equal(gatewayPresentedModelId('kilo', 'deepseek/deepseek-v4-flash'), 'kilo-deepseek-deepseek-v4-flash-paid');
+  assert.equal(gatewayPresentedModelId('kilo', 'stepfun/step-3.7-flash:free'), 'kilo-stepfun-step-3.7-flash-free');
+  assert.equal(
+    resolveGatewayPresentedLegacyId('cline-minimax-minimax-m3'),
+    'cline-minimax-minimax-m3-free'
+  );
 });

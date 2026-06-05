@@ -26,8 +26,8 @@ export const FALLBACK_PAID_TAIL_IDS: readonly string[] = [
   'zenmux-mimo-v2.5-pro',
   'openrouter-chain-of-draft',
   'nebius-nemotron-3-ultra-550b-a55b',
-  'cline-deepseek-deepseek-v4-flash',
-  'kilo-deepseek-deepseek-v4-flash'
+  'cline-deepseek-deepseek-v4-flash-free',
+  'kilo-deepseek-deepseek-v4-flash-paid'
 ] as const;
 
 /** @deprecated Use FALLBACK_PAID_TAIL_IDS */

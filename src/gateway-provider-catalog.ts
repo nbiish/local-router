@@ -149,3 +149,115 @@ export function gatewayPresentedModelSegment(modelName: string): string {
     .replace(/-+/g, '-')
     .replace(/^-|-$/g, '');
 }
+
+const GATEWAY_PRESENTATION_PREFIXES: Record<string, string> = {
+  cline: 'cline',
+  kilo: 'kilo'
+};
+
+/** Human labels aligned with Cline/Kilo client naming where known. */
+const GATEWAY_UPSTREAM_FRIENDLY_LABELS: Record<string, string> = {
+  'nvidia/nemotron-3-ultra-550b-a55b:free': 'Nemotron Ultra 3',
+  'minimax/minimax-m3': 'MiniMax M3',
+  'xiaomi/mimo-v2.5': 'MiMo V2.5',
+  'deepseek/deepseek-v4-flash': 'DeepSeek V4 Flash',
+  'deepseek/deepseek-v4-pro': 'DeepSeek V4 Pro',
+  'deepseek/deepseek-chat': 'DeepSeek Chat',
+  'z-ai/glm-5.1': 'GLM 5.1',
+  'qwen/qwen3.7-max': 'Qwen 3.7 Max',
+  'minimax/minimax-m2.7': 'MiniMax M2.7',
+  'stepfun/step-3.7-flash': 'Step 3.7 Flash',
+  'stepfun/step-3.7-flash:free': 'Step 3.7 Flash',
+  'xiaomi/mimo-v2.5-pro': 'MiMo V2.5 Pro',
+  'moonshotai/kimi-k2.6': 'Kimi K2.6',
+  'openrouter/free': 'OpenRouter Free',
+  'nvidia/nemotron-3-super-120b-a12b:free': 'Nemotron Super 120B',
+  'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free': 'Nemotron Nano Omni',
+  'nvidia/nemotron-3.5-content-safety:free': 'Nemotron Content Safety',
+  'poolside/laguna-m.1:free': 'Laguna M.1',
+  'poolside/laguna-xs.2:free': 'Laguna XS.2'
+};
+
+function gatewayTierSuffix(tier: GatewayBillingTier | null): string {
+  if (tier === 'free') return 'free';
+  if (tier === 'api-paid') return 'paid';
+  return '';
+}
+
+function gatewayModelTierForProvider(providerName: string, upstreamId: string): GatewayBillingTier | null {
+  if (providerName === 'cline') return clineModelTier(upstreamId);
+  if (providerName === 'kilo') return kiloModelTier(upstreamId);
+  return null;
+}
+
+function segmentHasTierSuffix(segment: string, tier: GatewayBillingTier | null): boolean {
+  if (tier === 'free') {
+    return segment.endsWith('-free') || segment.includes('.free');
+  }
+  if (tier === 'api-paid') {
+    return segment.endsWith('-paid');
+  }
+  return false;
+}
+
+/** Local-router presented ID with explicit `-free` / `-paid` tier suffix for Cline/Kilo. */
+export function gatewayPresentedModelId(providerName: string, upstreamId: string): string {
+  const prefix = GATEWAY_PRESENTATION_PREFIXES[providerName];
+  if (!prefix) return '';
+  const normalized = normalizeGatewayUpstreamId(upstreamId);
+  const segment = gatewayPresentedModelSegment(normalized);
+  const tier = gatewayModelTierForProvider(providerName, normalized);
+  const suffix = gatewayTierSuffix(tier);
+  if (!segment) return `${prefix}-model`;
+  if (!suffix || segmentHasTierSuffix(segment, tier)) {
+    return `${prefix}-${segment}`;
+  }
+  return `${prefix}-${segment}-${suffix}`;
+}
+
+function formatGatewayFriendlyFallback(upstreamId: string): string {
+  const tail = upstreamId.split('/').filter(Boolean).pop() || upstreamId;
+  return tail
+    .replace(/:free$/i, '')
+    .split(/[-._]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
+}
+
+/** Config UI / catalog display: `cline:Nemotron Ultra 3 (free)`. */
+export function gatewayModelCatalogDisplay(providerName: string, upstreamId: string): string {
+  const normalized = normalizeGatewayUpstreamId(upstreamId);
+  const friendly = GATEWAY_UPSTREAM_FRIENDLY_LABELS[normalized]
+    ?? formatGatewayFriendlyFallback(normalized);
+  const tier = gatewayModelTierForProvider(providerName, normalized);
+  const tierLabel = tier === 'free' ? 'free' : tier === 'api-paid' ? 'paid' : 'catalog';
+  return `${providerName}:${friendly} (${tierLabel})`;
+}
+
+function buildGatewayPresentedLegacyAliases(providerName: string, upstreamIds: readonly string[]): Record<string, string> {
+  const out: Record<string, string> = {};
+  const prefix = GATEWAY_PRESENTATION_PREFIXES[providerName];
+  if (!prefix) return out;
+
+  for (const upstreamId of upstreamIds) {
+    const segment = gatewayPresentedModelSegment(upstreamId);
+    const legacyId = `${prefix}-${segment}`;
+    const nextId = gatewayPresentedModelId(providerName, upstreamId);
+    if (legacyId !== nextId) {
+      out[legacyId] = nextId;
+    }
+  }
+  return out;
+}
+
+/** Maps pre-tier-suffix presented IDs to current catalog IDs (router/fallback migration). */
+export const GATEWAY_PRESENTED_LEGACY_ALIASES: Readonly<Record<string, string>> = {
+  ...buildGatewayPresentedLegacyAliases('cline', [...CLINE_FREE_MODEL_IDS, ...CLINE_PAID_ROUTING_IDS]),
+  ...buildGatewayPresentedLegacyAliases('kilo', [...KILO_FREE_MODEL_IDS, ...KILO_PAID_ROUTING_IDS])
+};
+
+export function resolveGatewayPresentedLegacyId(modelId: string): string {
+  const trimmed = String(modelId || '').trim();
+  return GATEWAY_PRESENTED_LEGACY_ALIASES[trimmed] ?? trimmed;
+}

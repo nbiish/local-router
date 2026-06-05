@@ -10,8 +10,8 @@ import {
 
 test('free → subscription → paid ordering', () => {
   const catalog = new Map([
-    ['cline-minimax-minimax-m3', { provider: 'cline', model: 'minimax/minimax-m3' }],
-    ['kilo-stepfun-step-3.7-flash-free', { provider: 'kilo', model: 'stepfun/step-3.7-flash:free' }],
+    ['cline-minimax-minimax-m3-free', { provider: 'cline', model: 'minimax/minimax-m3' }],
+    ['kilo-stepfun-step-3.7-flash-paid-free', { provider: 'kilo', model: 'stepfun/step-3.7-flash:free' }],
     ['opencode-zen-minimax-m3-free', { provider: 'opencode-zen', model: 'minimax-m3-free' }],
     ['opencode-go-minimax-m3', { provider: 'opencode-go', model: 'minimax-m3' }]
   ]);
@@ -20,8 +20,8 @@ test('free → subscription → paid ordering', () => {
     'opencode-go-minimax-m3',
     'nvidia-nim-step-3.7-flash',
     'opencode-zen-minimax-m3-free',
-    'cline-minimax-minimax-m3',
-    'kilo-stepfun-step-3.7-flash-free',
+    'cline-minimax-minimax-m3-free',
+    'kilo-stepfun-step-3.7-flash-paid-free',
     'ollama-nemotron-3-ultra-cloud',
     'zai-code-pass-glm-5.1',
     'xiaomi-mimo-mimo-v2.5'
@@ -29,8 +29,8 @@ test('free → subscription → paid ordering', () => {
   const sorted = stableSortModelIdsByRoutingExhaustion(ids, (id) => catalog.get(id));
   assert.deepEqual(sorted, [
     'ollama-nemotron-3-ultra-cloud',
-    'kilo-stepfun-step-3.7-flash-free',
-    'cline-minimax-minimax-m3',
+    'kilo-stepfun-step-3.7-flash-paid-free',
+    'cline-minimax-minimax-m3-free',
     'opencode-zen-minimax-m3-free',
     'opencode-go-minimax-m3',
     'zai-code-pass-glm-5.1',
@@ -84,8 +84,8 @@ test('subscription sub-order: opencode-go → zai → xiaomi-mimo', () => {
 test('paid provider order: wafer → zenmux → openrouter → nebius → cline → kilo', () => {
   const catalog = new Map([
     ['nebius-nemotron-3-ultra-550b-a55b', { provider: 'nebius', model: 'nvidia/Nemotron-3-Ultra-550b-a55b' }],
-    ['kilo-deepseek-deepseek-v4-flash', { provider: 'kilo', model: 'deepseek/deepseek-v4-flash' }],
-    ['cline-deepseek-deepseek-v4-pro', { provider: 'cline', model: 'deepseek/deepseek-v4-pro' }],
+    ['kilo-deepseek-deepseek-v4-flash-paid', { provider: 'kilo', model: 'deepseek/deepseek-v4-flash' }],
+    ['cline-deepseek-deepseek-v4-pro-paid', { provider: 'cline', model: 'deepseek/deepseek-v4-pro' }],
     ['openrouter-chain-of-draft', { provider: 'openrouter-presets', model: '@preset/chain-of-draft' }],
     ['zenmux-mimo-v2.5-pro', { provider: 'zenmux', model: 'xiaomi/mimo-v2.5-pro' }],
     ['wafer-ai-deepseek-v4-flash', { provider: 'wafer-serverless', model: 'deepseek-v4-flash' }],
@@ -96,8 +96,8 @@ test('paid provider order: wafer → zenmux → openrouter → nebius → cline 
     [
       'nvidia-nim-step-3.7-flash',
       'nebius-nemotron-3-ultra-550b-a55b',
-      'kilo-deepseek-deepseek-v4-flash',
-      'cline-deepseek-deepseek-v4-pro',
+      'kilo-deepseek-deepseek-v4-flash-paid',
+      'cline-deepseek-deepseek-v4-pro-paid',
       'openrouter-chain-of-draft',
       'zenmux-mimo-v2.5-pro',
       'wafer-ai-deepseek-v4-flash',
@@ -111,8 +111,8 @@ test('paid provider order: wafer → zenmux → openrouter → nebius → cline 
     'zenmux-mimo-v2.5-pro',
     'openrouter-chain-of-draft',
     'nebius-nemotron-3-ultra-550b-a55b',
-    'cline-deepseek-deepseek-v4-pro',
-    'kilo-deepseek-deepseek-v4-flash',
+    'cline-deepseek-deepseek-v4-pro-paid',
+    'kilo-deepseek-deepseek-v4-flash-paid',
     'nvidia-nim-step-3.7-flash'
   ]);
   assert.deepEqual(ROUTING_PAID_PROVIDER_SUB_ORDER.slice(0, 6), [

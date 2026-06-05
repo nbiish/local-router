@@ -387,8 +387,8 @@ test('provider key save/reset lifecycle exposes configured source', async (t) =>
     'zenmux-mimo-v2.5-pro',
     'openrouter-chain-of-draft',
     'nebius-nemotron-3-ultra-550b-a55b',
-    'cline-deepseek-deepseek-v4-flash',
-    'kilo-deepseek-deepseek-v4-flash'
+    'cline-deepseek-deepseek-v4-flash-free',
+    'kilo-deepseek-deepseek-v4-flash-paid'
   ];
   assert.deepEqual(
     fallbackChain,
@@ -404,7 +404,7 @@ test('provider key save/reset lifecycle exposes configured source', async (t) =>
     'auto-router should include Kilo openrouter/free'
   );
   assert.ok(
-    autoRouterCandidates.includes('cline-minimax-minimax-m3'),
+    autoRouterCandidates.includes('cline-minimax-minimax-m3-free'),
     'auto-router should include Cline free-tier models'
   );
   assert.ok(
