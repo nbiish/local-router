@@ -39,4 +39,12 @@ test('cline free tier allowlist and paid deepseek', () => {
   assert.equal(isClineFreeModel('openrouter/free'), true);
   assert.equal(isClineFreeModel('deepseek/deepseek-v4-flash'), false);
   assert.equal(gatewayModelAllowedForRouter('cline', 'deepseek/deepseek-v4-flash'), true);
+  assert.equal(gatewayModelAllowedForRouter('cline', 'qwen/qwen3-coder'), true);
+  assert.equal(gatewayModelAllowedForRouter('cline', 'anthropic/claude-sonnet-4-6'), false);
+});
+
+test('kilo gateway allows catalog models except meta-routers', () => {
+  assert.equal(gatewayModelAllowedForRouter('kilo', 'deepseek/deepseek-v4-pro'), true);
+  assert.equal(gatewayModelAllowedForRouter('kilo', 'anthropic/claude-opus-4.8'), true);
+  assert.equal(gatewayModelAllowedForRouter('kilo', 'kilo-auto/free'), false);
 });

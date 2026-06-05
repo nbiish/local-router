@@ -68,7 +68,13 @@ const CANDIDATE_DEFAULTS: Record<string, string> = {
   'nebius-nemotron-3-ultra-550b-a55b': 'coding=0.86, input=0.5, output=1, latency=800, notes=Nebius Nemotron 3 Ultra 550B',
   'nebius-deepseek-v4-pro': 'coding=0.88, input=0.5, output=1, latency=800, notes=Nebius DeepSeek V4 Pro',
   'cline-deepseek-deepseek-v4-flash': 'coding=0.84, input=0.5, output=1, latency=800, notes=Cline DeepSeek V4 Flash paid',
+  'cline-deepseek-deepseek-chat': 'coding=0.82, input=0.5, output=1, latency=850, notes=Cline DeepSeek Chat paid',
+  'cline-google-gemini-2.5-flash': 'coding=0.83, input=0.5, output=1, latency=800, notes=Cline Gemini 2.5 Flash paid',
+  'cline-minimax-minimax-m2.7': 'coding=0.81, input=0.5, output=1, latency=850, notes=Cline MiniMax M2.7 paid',
+  'cline-qwen-qwen3-coder': 'coding=0.86, input=0.5, output=1, latency=800, notes=Cline Qwen3 Coder paid',
   'kilo-deepseek-deepseek-v4-flash': 'coding=0.84, input=0.5, output=1, latency=750, notes=Kilo DeepSeek V4 Flash paid',
+  'kilo-deepseek-deepseek-v4-pro': 'coding=0.88, input=0.5, output=1, latency=800, notes=Kilo DeepSeek V4 Pro paid',
+  'kilo-anthropic-claude-opus-4.8': 'coding=0.90, input=5, output=25, latency=1200, notes=Kilo Claude Opus 4.8 paid',
   'wafer-ai-minimax-m3': 'coding=0.90, input=0.33, output=1.32, latency=650, notes=Wafer MiniMax-M3 promo',
   'wafer-ai-deepseek-v4-pro': 'coding=0.90, input=0.5, output=1, latency=650, notes=Wafer DeepSeek V4 Pro',
   'wafer-ai-glm-5.1': 'coding=0.88, input=0.5, output=1, latency=700, notes=Wafer GLM-5.1',
@@ -125,7 +131,13 @@ const AUTO_ROUTER_EXTRA_CANDIDATE_IDS = [
   'openrouter-minimax-m3',
   'openrouter-qwen3.7-max',
   'openrouter-deepseek-v4-flash',
-  'opencode-zen-deepseek-v4-flash'
+  'opencode-zen-deepseek-v4-flash',
+  'cline-deepseek-deepseek-chat',
+  'cline-google-gemini-2.5-flash',
+  'cline-minimax-minimax-m2.7',
+  'cline-qwen-qwen3-coder',
+  'kilo-deepseek-deepseek-v4-pro',
+  'kilo-anthropic-claude-opus-4.8'
 ] as const;
 
 const AUTO_ROUTER_CANDIDATE_LINES = dedupeLines([

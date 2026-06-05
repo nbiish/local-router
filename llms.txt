@@ -110,17 +110,19 @@ Router and fallback **skip** candidates when the provider has no API key (except
 
 ### Cline & Kilo gateway providers
 
-**Modules:** `src/gateway-provider-catalog.ts` (free allowlists, router-model exclusions), `src/provider-pricing.ts` (zero-cost free entries).
+**Modules:** `src/gateway-provider-catalog.ts` (tier allowlists, router exclusions), `src/gateway-response.ts` (Cline `data` envelope unwrap), `src/provider-pricing.ts`.
 
-| Provider | Upstream | Key | Free presented IDs (router/fallback defaults) |
-|----------|----------|-----|--------------------------------------------------|
-| `cline` | `https://api.cline.bot/api/v1` | `CLINE_API_KEY` | Free: `cline-openrouter-free`, Nemotron Ultra, MiniMax M3, MiMo V2.5. Paid tail: `cline-deepseek-deepseek-v4-flash` |
-| `kilo` | `https://api.kilo.ai/api/gateway` | `KILO_API_KEY` | Free: `kilo-openrouter-free`, Step 3.7 Flash, Nemotron Super, Nemotron Ultra. Paid tail: `kilo-deepseek-deepseek-v4-flash` |
+| Provider | Upstream | Key | Catalog |
+|----------|----------|-----|---------|
+| `cline` | `https://api.cline.bot/api/v1` | `CLINE_API_KEY` | **5 free** + **5 paid** in `providers.txt` (Nemotron Ultra, MiniMax M3, MiMo V2.5, `openrouter/free`; paid: DS V4 Flash/Chat, Gemini 2.5 Flash, MiniMax M2.7, Qwen3 Coder) |
+| `kilo` | `https://api.kilo.ai/api/gateway` | `KILO_API_KEY` | **4 free** curated + **paid anchors**; **live `GET /models` merges ~340+** gateway models at startup when key is set |
 
 - **OpenCode Go** (`opencode-go`, `/zen/go/v1`) = subscription Hermes set (9 models in `providers.txt`). **OpenCode Zen** (`opencode-zen`, `/zen/v1`) = free + paid/overage; same `OPENCODE_API_KEY`.
 - **openrouter/free:** routed on `openrouter-presets`, `kilo`, and `cline` (three paths for extra free quota). **Excluded:** `kilo-auto/free` only.
+- **Direct chat:** Cline/Kilo failures return upstream errors (no silent cascade to `fallback-models`). Cline responses are unwrapped to standard OpenAI shape.
+- **Router:** Cline uses curated free + paid allowlist; Kilo allows any live-catalog model except `kilo-auto/free`.
 - **Configure in `/config`** on the built-in provider cards — not via **Add custom provider…** (Kilo base path is `/api/gateway`, not `/v1`).
-- **Client model IDs** use full presented segments above (not short aliases like `cline-minimax-m3`).
+- **Client model IDs** use full presented segments (e.g. `cline-nvidia-nemotron-3-ultra-550b-a55b-free`, `kilo-stepfun-step-3.7-flash-free`).
 
 ### Default auto-router (`auto-router-main`)
 
@@ -712,8 +714,8 @@ The ML-DSA-65 algorithm and `openssl pkeyutl` invocations are unchanged. Only th
 | `opencode-zen` | 8 | `https://opencode.ai/zen/v1` | `OPENCODE_API_KEY` |
 | `zai` | 1 | `https://api.z.ai/api/coding/paas/v4` | `ZAI_API_KEY` |
 | `ollama` | 8 (`:cloud`; **3** in default router/fallback) | `http://127.0.0.1:11435/v1` | `OLLAMA_API_KEY` |
-| `cline` | 5 (free + paid CLI catalog) | `https://api.cline.bot/api/v1` | `CLINE_API_KEY` |
-| `kilo` | 5 (free + paid gateway catalog) | `https://api.kilo.ai/api/gateway` | `KILO_API_KEY` |
+| `cline` | 10 curated (+ probes) | `https://api.cline.bot/api/v1` | `CLINE_API_KEY` |
+| `kilo` | 6 curated + **live sync** (~340+) | `https://api.kilo.ai/api/gateway` | `KILO_API_KEY` |
 
 **Ollama cloud tags in catalog:** 3 free-tier (`nemotron-3-ultra`, `minimax-m3`, `deepseek-v4-flash`) + 5 Pro-only (`deepseek-v4-pro`, `kimi-k2.6`, `glm-5.1`, `minimax-m2.7`, `qwen3.5`). See [Ollama Cloud routing](#ollama-cloud-routing-free-vs-pro).
 

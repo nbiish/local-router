@@ -101,6 +101,26 @@ export const BASELINE_PROVIDER_PRICING: Record<string, ProviderPricingEntry> = {
     outputPricePerM: 1,
     label: 'Cline API deepseek/deepseek-v4-flash paid routing tail'
   },
+  'cline-deepseek-deepseek-chat': {
+    inputPricePerM: 0.5,
+    outputPricePerM: 1,
+    label: 'Cline API deepseek/deepseek-chat paid'
+  },
+  'cline-google-gemini-2.5-flash': {
+    inputPricePerM: 0.5,
+    outputPricePerM: 1,
+    label: 'Cline API google/gemini-2.5-flash paid'
+  },
+  'cline-minimax-minimax-m2.7': {
+    inputPricePerM: 0.5,
+    outputPricePerM: 1,
+    label: 'Cline API minimax/minimax-m2.7 paid'
+  },
+  'cline-qwen-qwen3-coder': {
+    inputPricePerM: 0.5,
+    outputPricePerM: 1,
+    label: 'Cline API qwen/qwen3-coder paid'
+  },
   'openrouter-free': {
     inputPricePerM: 0,
     outputPricePerM: 0,
@@ -135,6 +155,16 @@ export const BASELINE_PROVIDER_PRICING: Record<string, ProviderPricingEntry> = {
     inputPricePerM: 0.5,
     outputPricePerM: 1,
     label: 'Kilo Gateway deepseek/deepseek-v4-flash'
+  },
+  'kilo-deepseek-deepseek-v4-pro': {
+    inputPricePerM: 0.5,
+    outputPricePerM: 1,
+    label: 'Kilo Gateway deepseek/deepseek-v4-pro paid'
+  },
+  'kilo-anthropic-claude-opus-4.8': {
+    inputPricePerM: 5,
+    outputPricePerM: 25,
+    label: 'Kilo Gateway anthropic/claude-opus-4.8 paid'
   }
 };
 
