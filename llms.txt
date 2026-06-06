@@ -19,16 +19,18 @@ Local Router is a localhost proxy (port `11434`) with **Ollama-compatible** and 
 - **Operator CLI:** `localrouter list`, `keys`, `router`, `verify`, `config --open`
 - **Thinking:** Proxy toggle default **OFF** (IDE passthrough); optional levels when enabled. Responses strip `reasoning_content` for VS Code safety; requests preserve it for multi-turn tools
 - **Tests:** `npm test` — **10** test files, **35** cases (integration + routing unit tests; see [Current Test Coverage](#current-test-coverage))
-- **Canonical release:** `main` = `develop` @ **`4918052`** (2026-06-05) — see [System Snapshot](#system-snapshot--canonical-state-2026-06-05)
+- **Canonical release:** `main` = `develop` @ **`953d309`** (2026-06-06) — see [System Snapshot](#system-snapshot--canonical-state-2026-06-06)
 
-## System Snapshot — Canonical State (2026-06-05)
+## System Snapshot — Canonical State (2026-06-06)
 
-Use this section to resume work without re-deriving architecture. Remote: `https://github.com/nbiish/local-router.git` (`local-router` remote). **`main` and `develop` @ `4918052`** — canonical model specifications validation, corrected MiniMax & Kimi metadata, auto-router context/output column exports.
+Use this section to resume work without re-deriving architecture. Remote: `https://github.com/nbiish/local-router.git` (`local-router` remote). **`main` and `develop` @ `953d309`** — chat-proven Cline/Kilo catalogs, tier-suffixed gateway IDs, MiniMax M3 fallback hops, curated gateway free auto-router, removed deprecated models, cleaned provider default columns, and model specs validation.
 
 ### Release lineage (recent)
 
 | Commit | Summary |
 |--------|---------|
+| `953d309` | **Remove provider default columns** — Removed the `Default` column from `providers.txt` provider summary table; removed `<span class="pill catalog">Catalog</span>` and default tool pills from `/config` UI; updated test column checks to 3 |
+| `ffba167` | **Remove deprecated models** — Removed Moonshot v1 family, MiniMax M2.5/M2.7 (NIM/ZenMux/Ollama/Cline/Kilo/Cline), Qwen 397B, Nous Hermes 405B, OpenCode Go GLM-5, and OpenCode Zen Claude Sonnet 4-6 from `providers.txt` and router defaults |
 | `4918052` | **Model Specs Validation & Audit** — corrected MiniMax M3 context (512K→1M), MiniMax M2.7 output (131K→196K), Kimi K2.6 output (32K→262K); added canonical `model-specs.json` & CI/CD validator script; enhanced router candidate score exports with context & output token capacity |
 | `d8a1c8e` | **Gateway routing curation** — fallback steps 4–5: **MiniMax M3** (Kilo paid / Cline free) replaces Nemotron Ultra; auto-router Cline/Kilo **free** limited to Nemotron Ultra + MiniMax M3 (Cline) + Step 3.7 Flash (Kilo); startup prune for non-curated gateway free rows |
 | `1085c21` | **Tier-suffixed presented IDs** — Cline/Kilo models use explicit `-free` / `-paid` local-router IDs + friendly config labels; legacy alias map for persisted routers |

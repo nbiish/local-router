@@ -32,7 +32,7 @@ function firstProviderSummary() {
       .map((part) => part.trim())
       .filter(Boolean);
 
-    if (columns.length !== 4) continue;
+    if (columns.length !== 3) continue;
 
     const [name, endpoint, keyEnvVar] = columns;
     if (!name || name.toLowerCase() === 'provider') continue;
