@@ -70,7 +70,7 @@ const CANDIDATE_DEFAULTS: Record<string, string> = {
   'opencode-go-minimax-m3': 'coding=0.85, input=0.3, output=1.2, latency=650, notes=OpenCode Go MiniMax M3 subscription',
   'opencode-go-kimi-k2.6': 'coding=0.86, input=0.6, output=2.5, latency=850, notes=OpenCode Go Kimi K2.6 subscription',
   'opencode-go-glm-5.1': 'coding=0.88, input=0.88, output=3.51, latency=750, notes=OpenCode Go GLM-5.1 subscription',
-  'opencode-go-glm-5': 'coding=0.85, input=0.5, output=1.5, latency=800, notes=OpenCode Go GLM-5 subscription',
+
   'opencode-go-deepseek-v4-pro': 'coding=0.91, input=0.5, output=1, latency=800, notes=OpenCode Go DeepSeek V4 Pro subscription',
   'opencode-go-deepseek-v4-flash': 'coding=0.87, input=0.5, output=1, latency=850, notes=OpenCode Go DeepSeek V4 Flash subscription',
   'opencode-go-qwen3.7-max': 'coding=0.85, input=1.25, output=3.75, latency=900, notes=OpenCode Go Qwen3.7 Max subscription',
@@ -94,7 +94,7 @@ const CANDIDATE_DEFAULTS: Record<string, string> = {
   'cline-deepseek-deepseek-chat-paid': 'coding=0.82, input=0.5, output=1, latency=850, notes=Cline DeepSeek Chat paid',
   'cline-z-ai-glm-5.1-paid': 'coding=0.88, input=0.5, output=1, latency=750, notes=Cline z-ai/glm-5.1 paid',
   'cline-qwen-qwen3.7-max-paid': 'coding=0.85, input=1.25, output=3.75, latency=900, notes=Cline qwen/qwen3.7-max paid',
-  'cline-minimax-minimax-m2.7-paid': 'coding=0.81, input=0.5, output=1, latency=850, notes=Cline MiniMax M2.7 paid',
+
   'cline-stepfun-step-3.7-flash-paid': 'coding=0.84, input=0.1, output=0.3, latency=700, notes=Cline Step 3.7 Flash paid',
   'cline-xiaomi-mimo-v2.5-pro-paid': 'coding=0.84, input=0.44, output=0.88, latency=700, notes=Cline MiMo V2.5 Pro paid',
   'cline-moonshotai-kimi-k2.6-paid': 'coding=0.86, input=0.6, output=2.5, latency=850, notes=Cline Kimi K2.6 paid',
@@ -104,7 +104,7 @@ const CANDIDATE_DEFAULTS: Record<string, string> = {
   'kilo-z-ai-glm-5.1-paid': 'coding=0.88, input=0.5, output=1, latency=750, notes=Kilo z-ai/glm-5.1 paid',
   'kilo-qwen-qwen3.7-max-paid': 'coding=0.85, input=1.25, output=3.75, latency=900, notes=Kilo qwen/qwen3.7-max paid',
   'kilo-minimax-minimax-m3-paid': 'coding=0.90, input=0.3, output=1.2, latency=700, notes=Kilo MiniMax M3 paid',
-  'kilo-minimax-minimax-m2.7-paid': 'coding=0.81, input=0.5, output=1, latency=850, notes=Kilo MiniMax M2.7 paid',
+
   'kilo-stepfun-step-3.7-flash-paid': 'coding=0.84, input=0.1, output=0.3, latency=700, notes=Kilo Step 3.7 Flash paid',
   'kilo-xiaomi-mimo-v2.5-pro-paid': 'coding=0.84, input=0.44, output=0.88, latency=700, notes=Kilo MiMo V2.5 Pro paid',
   'kilo-xiaomi-mimo-v2.5-paid': 'coding=0.80, input=0.15, output=0.29, latency=900, notes=Kilo MiMo V2.5 paid',
@@ -146,7 +146,7 @@ const AUTO_ROUTER_EXTRA_CANDIDATE_IDS = [
   'opencode-go-minimax-m3',
   'opencode-go-kimi-k2.6',
   'opencode-go-glm-5.1',
-  'opencode-go-glm-5',
+
   'opencode-go-deepseek-v4-flash',
   'opencode-go-qwen3.7-max',
   'opencode-go-mimo-v2.5-pro',
@@ -168,7 +168,7 @@ const AUTO_ROUTER_EXTRA_CANDIDATE_IDS = [
   'cline-deepseek-deepseek-chat-paid',
   'cline-z-ai-glm-5.1-paid',
   'cline-qwen-qwen3.7-max-paid',
-  'cline-minimax-minimax-m2.7-paid',
+
   'cline-stepfun-step-3.7-flash-paid',
   'cline-xiaomi-mimo-v2.5-pro-paid',
   'cline-moonshotai-kimi-k2.6-paid',
@@ -177,7 +177,7 @@ const AUTO_ROUTER_EXTRA_CANDIDATE_IDS = [
   'kilo-z-ai-glm-5.1-paid',
   'kilo-qwen-qwen3.7-max-paid',
   'kilo-minimax-minimax-m3-paid',
-  'kilo-minimax-minimax-m2.7-paid',
+
   'kilo-stepfun-step-3.7-flash-paid',
   'kilo-xiaomi-mimo-v2.5-pro-paid',
   'kilo-xiaomi-mimo-v2.5-paid',

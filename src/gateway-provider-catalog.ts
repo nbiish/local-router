@@ -28,7 +28,6 @@ export const CLINE_PAID_ROUTING_IDS: readonly string[] = [
   'deepseek/deepseek-chat',
   'z-ai/glm-5.1',
   'qwen/qwen3.7-max',
-  'minimax/minimax-m2.7',
   'stepfun/step-3.7-flash',
   'xiaomi/mimo-v2.5-pro',
   'moonshotai/kimi-k2.6'
@@ -55,7 +54,6 @@ export const KILO_PAID_ROUTING_IDS: readonly string[] = [
   'z-ai/glm-5.1',
   'qwen/qwen3.7-max',
   'minimax/minimax-m3',
-  'minimax/minimax-m2.7',
   'stepfun/step-3.7-flash',
   'xiaomi/mimo-v2.5-pro',
   'xiaomi/mimo-v2.5',
@@ -164,7 +162,6 @@ const GATEWAY_UPSTREAM_FRIENDLY_LABELS: Record<string, string> = {
   'deepseek/deepseek-chat': 'DeepSeek Chat',
   'z-ai/glm-5.1': 'GLM 5.1',
   'qwen/qwen3.7-max': 'Qwen 3.7 Max',
-  'minimax/minimax-m2.7': 'MiniMax M2.7',
   'stepfun/step-3.7-flash': 'Step 3.7 Flash',
   'stepfun/step-3.7-flash:free': 'Step 3.7 Flash',
   'xiaomi/mimo-v2.5-pro': 'MiMo V2.5 Pro',

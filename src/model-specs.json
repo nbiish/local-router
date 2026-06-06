@@ -35,22 +35,7 @@
       "reasoning": true,
       "source": "minimax.io, OpenRouter (May 2026)"
     },
-    "minimax-m2.7": {
-      "context": 204800,
-      "output": 196608,
-      "tools": true,
-      "vision": false,
-      "reasoning": true,
-      "source": "minimax.io, OpenRouter"
-    },
-    "minimax-m2.5": {
-      "context": 204800,
-      "output": 32000,
-      "tools": true,
-      "vision": false,
-      "reasoning": false,
-      "source": "NVIDIA NIM docs"
-    },
+
     "kimi-k2.6": {
       "context": 262144,
       "output": 262144,
@@ -67,14 +52,7 @@
       "reasoning": false,
       "source": "z.ai, deepinfra (April 2026)"
     },
-    "glm-5": {
-      "context": 128000,
-      "output": 8000,
-      "tools": true,
-      "vision": false,
-      "reasoning": false,
-      "source": "z.ai legacy"
-    },
+
     "qwen3.7-max": {
       "context": 1048576,
       "output": 65536,
@@ -186,30 +164,6 @@
       "vision": false,
       "reasoning": false,
       "source": "OpenRouter"
-    },
-    "moonshot-v1-8k": {
-      "context": 8192,
-      "output": 4096,
-      "tools": false,
-      "vision": false,
-      "reasoning": false,
-      "source": "Moonshot docs"
-    },
-    "moonshot-v1-32k": {
-      "context": 32768,
-      "output": 16384,
-      "tools": false,
-      "vision": false,
-      "reasoning": false,
-      "source": "Moonshot docs"
-    },
-    "moonshot-v1-128k": {
-      "context": 131072,
-      "output": 65536,
-      "tools": false,
-      "vision": false,
-      "reasoning": false,
-      "source": "Moonshot docs"
     }
   }
 }
