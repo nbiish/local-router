@@ -19,16 +19,17 @@ Local Router is a localhost proxy (port `11434`) with **Ollama-compatible** and 
 - **Operator CLI:** `localrouter list`, `keys`, `router`, `verify`, `config --open`
 - **Thinking:** Proxy toggle default **OFF** (IDE passthrough); optional levels when enabled. Responses strip `reasoning_content` for VS Code safety; requests preserve it for multi-turn tools
 - **Tests:** `npm test` — **10** test files, **35** cases (integration + routing unit tests; see [Current Test Coverage](#current-test-coverage))
-- **Canonical release:** `main` = `develop` @ **`d8a1c8e`** (2026-06-05) — see [System Snapshot](#system-snapshot--canonical-state-2026-06-05)
+- **Canonical release:** `main` = `develop` @ **`4918052`** (2026-06-05) — see [System Snapshot](#system-snapshot--canonical-state-2026-06-05)
 
 ## System Snapshot — Canonical State (2026-06-05)
 
-Use this section to resume work without re-deriving architecture. Remote: `https://github.com/nbiish/local-router.git` (`local-router` remote). **`main` and `develop` @ `d8a1c8e`** — chat-proven Cline/Kilo catalogs, tier-suffixed gateway IDs, MiniMax M3 fallback hops, curated gateway free auto-router.
+Use this section to resume work without re-deriving architecture. Remote: `https://github.com/nbiish/local-router.git` (`local-router` remote). **`main` and `develop` @ `4918052`** — canonical model specifications validation, corrected MiniMax & Kimi metadata, auto-router context/output column exports.
 
 ### Release lineage (recent)
 
 | Commit | Summary |
 |--------|---------|
+| `4918052` | **Model Specs Validation & Audit** — corrected MiniMax M3 context (512K→1M), MiniMax M2.7 output (131K→196K), Kimi K2.6 output (32K→262K); added canonical `model-specs.json` & CI/CD validator script; enhanced router candidate score exports with context & output token capacity |
 | `d8a1c8e` | **Gateway routing curation** — fallback steps 4–5: **MiniMax M3** (Kilo paid / Cline free) replaces Nemotron Ultra; auto-router Cline/Kilo **free** limited to Nemotron Ultra + MiniMax M3 (Cline) + Step 3.7 Flash (Kilo); startup prune for non-curated gateway free rows |
 | `1085c21` | **Tier-suffixed presented IDs** — Cline/Kilo models use explicit `-free` / `-paid` local-router IDs + friendly config labels; legacy alias map for persisted routers |
 | `cbf1099` | **Chat-proven catalogs** — `scripts/validate-cline-kilo-catalog.mjs` + JSON artifact; **12 Cline** + **19 Kilo** rows (every row live chat 200); removed `openrouter/owl-alpha` (Kilo) and Cline `openrouter/free` |
