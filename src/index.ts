@@ -611,9 +611,9 @@ function readCatalogProviderSummaries(): ProviderSummary[] {
         .map((part) => part.trim())
         .filter(Boolean);
 
-      if (columns.length !== 4) continue;
+      if (columns.length !== 3) continue;
 
-      const [name, endpoint, keyEnvVar, defaultTool] = columns;
+      const [name, endpoint, keyEnvVar] = columns;
       if (!name || !endpoint || !keyEnvVar) continue;
       if (name.toLowerCase() === 'provider') continue;
       if (!PROVIDER_KEY_ENV_PATTERN.test(keyEnvVar)) continue;
@@ -623,7 +623,7 @@ function readCatalogProviderSummaries(): ProviderSummary[] {
         name,
         endpoint,
         keyEnvVar,
-        defaultTool,
+        defaultTool: '',
         source: 'catalog'
       });
     }
@@ -3964,7 +3964,7 @@ app.get('/config', (req: Request, res: Response) => {
             const modelSummary = provider.modelCount + ' models (' + provider.modelSource + ')';
             const kindPill = provider.isCustom
               ? '<span class="pill custom">Custom</span>'
-              : '<span class="pill catalog">Catalog</span>';
+              : '';
             const capabilitySummary = (Array.isArray(provider.models) ? provider.models : [])
               .slice(0, 3)
               .map((model) => model.id + ' (' + (model.contextLength || 0) + ' ctx, ' + (model.outputTokens || 0) + ' out)')
@@ -3974,8 +3974,7 @@ app.get('/config', (req: Request, res: Response) => {
                 '<button class="button-secondary" data-delete-custom="' + escapeHtml(provider.name) + '">Delete provider</button>'
               : '';
             return '<section class="provider-card" data-provider="' + escapeHtml(provider.name) + '">' +
-              '<h4>' + escapeHtml(provider.displayName || provider.name) + ' ' + kindPill +
-              '<span class="pill">' + escapeHtml(provider.defaultTool) + '</span></h4>' +
+              '<h4>' + escapeHtml(provider.displayName || provider.name) + (kindPill ? ' ' + kindPill : '') + '</h4>' +
               '<div class="muted">ID: ' + escapeHtml(provider.name) + '</div>' +
               '<div class="muted">Endpoint: ' + escapeHtml(provider.endpoint) + '</div>' +
               '<div class="muted">Key Env Var: ' + escapeHtml(provider.keyEnvVar) + '</div>' +

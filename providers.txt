@@ -18,22 +18,22 @@
 # =============================================================================
 # PROVIDER SUMMARY TABLE
 # =============================================================================
-# │ Provider           │ Endpoint                              │ Key Env Var              │ Default │
-# │--------------------+---------------------------------------+--------------------------+---------│
-# │ wafer-serverless   │ https://pass.wafer.ai/v1              │ WAFER_SERVERLESS_API_KEY │ Hermes  │
-# │ zenmux             │ https://zenmux.ai/api/v1              │ ZENMUX_API_KEY           │ —       │
-# │ nebius             │ https://api.tokenfactory.nebius.com/v1│ NEBIUS_API_KEY           │ —       │
-# │ moonshot           │ https://api.moonshot.ai/v1            │ MOONSHOT_API_KEY         │ —       │
-# │ nvidia-nim         │ https://integrate.api.nvidia.com/v1   │ NVIDIA_NIM_API_KEY       │ —       │
-# │ modal              │ https://api.us-west-2.modal.direct/v1 │ MODAL_API_KEY            │ —       │
-# │ openrouter-presets │ https://openrouter.ai/api/v1          │ OPENROUTER_API_KEY       │ —       │
-# │ xiaomi-mimo        │ https://token-plan-sgp.xiaomimimo.com/v1│ XIAOMI_MIMO_API_KEY     │ —       │
-# │ opencode-go      │ https://opencode.ai/zen/go/v1          │ OPENCODE_API_KEY        │ Hermes  │
-# │ opencode-zen       │ https://opencode.ai/zen/v1             │ OPENCODE_API_KEY        │ —       │
-# │ zai                │ https://api.z.ai/api/coding/paas/v4    │ ZAI_API_KEY             │ —       │
-# │ ollama             │ http://127.0.0.1:11435/v1              │ OLLAMA_API_KEY          │ —       │
-# │ cline              │ https://api.cline.bot/api/v1          │ CLINE_API_KEY            │ —       │
-# │ kilo               │ https://api.kilo.ai/api/gateway       │ KILO_API_KEY             │ —       │
+# │ Provider           │ Endpoint                              │ Key Env Var              │
+# │--------------------+---------------------------------------+--------------------------│
+# │ wafer-serverless   │ https://pass.wafer.ai/v1              │ WAFER_SERVERLESS_API_KEY │
+# │ zenmux             │ https://zenmux.ai/api/v1              │ ZENMUX_API_KEY           │
+# │ nebius             │ https://api.tokenfactory.nebius.com/v1│ NEBIUS_API_KEY           │
+# │ moonshot           │ https://api.moonshot.ai/v1            │ MOONSHOT_API_KEY         │
+# │ nvidia-nim         │ https://integrate.api.nvidia.com/v1   │ NVIDIA_NIM_API_KEY       │
+# │ modal              │ https://api.us-west-2.modal.direct/v1 │ MODAL_API_KEY            │
+# │ openrouter-presets │ https://openrouter.ai/api/v1          │ OPENROUTER_API_KEY       │
+# │ xiaomi-mimo        │ https://token-plan-sgp.xiaomimimo.com/v1│ XIAOMI_MIMO_API_KEY     │
+# │ opencode-go      │ https://opencode.ai/zen/go/v1          │ OPENCODE_API_KEY        │
+# │ opencode-zen       │ https://opencode.ai/zen/v1             │ OPENCODE_API_KEY        │
+# │ zai                │ https://api.z.ai/api/coding/paas/v4    │ ZAI_API_KEY             │
+# │ ollama             │ http://127.0.0.1:11435/v1              │ OLLAMA_API_KEY          │
+# │ cline              │ https://api.cline.bot/api/v1          │ CLINE_API_KEY            │
+# │ kilo               │ https://api.kilo.ai/api/gateway       │ KILO_API_KEY             │
 
 # =============================================================================
 # MASTER MODEL SPECIFICATION
