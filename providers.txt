@@ -52,13 +52,10 @@
 # │12 │ nebius             │ deepseek-ai/DeepSeek-V4-Pro         │ nebs:deepseek-ai/DeepSeek-V4-Pro│1,000,000│ 384,000  │ YES   │ NO   │ YES   │ NO*       │
 # │13 │ nebius             │ nvidia/Nemotron-3-Nano-Omni         │ nebs:nvidia/Nemotron-3-Nano-Omni│ 256,000│ 65,536   │ YES   │ YES  │ NO    │ NO*       │
 # │14 │ nebius             │ zai-org/GLM-5.1                     │ nebs:zai-org/GLM-5.1         │ 200,000  │ 128,000  │ YES   │ NO   │ NO    │ NO*       │
-# │15 │ moonshot           │ moonshot-v1-8k                      │ mons:moonshot-v1-8k          │ 8,192    │ 4,096    │ NO    │ NO   │ NO    │ NO        │
-# │16 │ moonshot           │ moonshot-v1-32k                     │ mons:moonshot-v1-32k         │ 32,768   │ 16,384   │ NO    │ NO   │ NO    │ NO        │
-# │17 │ moonshot           │ moonshot-v1-128k                    │ mons:moonshot-v1-128k        │ 131,072  │ 65,536   │ NO    │ NO   │ NO    │ NO        │
+
 # │18 │ moonshot           │ kimi-k2.6                           │ mons:kimi-k2.6               │ 256,000  │ 262,144  │ YES   │ YES  │ YES   │ NO*       │
 # │19 │ nvidia-nim         │ nvidia/nemotron-3-nano-omni-30b-a3b-reasoning │ nvnm:nemotron-omni │ 256,000 │ 65,536   │ YES   │ YES  │ NO    │ NO*       │
-# │20 │ nvidia-nim         │ minimaxai/minimax-m2.5              │ nvnm:minimax-m2.5            │ 204,800  │ 32,000   │ YES   │ NO   │ NO    │ NO        │
-# │21 │ nvidia-nim         │ minimaxai/minimax-m2.7              │ nvnm:minimax-m2.7            │ 204,800  │ 196,608  │ YES   │ NO   │ NO    │ NO*       │
+
 # │22 │ modal              │ zai-org/GLM-5.1-FP8                 │ modl:GLM-5.1-FP8             │ 200,000  │ 128,000  │ YES   │ NO   │ NO    │ NO*       │
 # │23 │ openrouter-presets │ @preset/chain-of-draft              │ orps:chain-of-draft          │1,000,000 │ 128,000  │ YES   │ YES  │ YES   │ NO        │
 # │24 │ openrouter-presets │ @preset/openrouter-personal-router  │ orps:personal-router         │1,000,000 │ 128,000  │ YES   │ YES  │ YES   │ NO        │
@@ -67,8 +64,7 @@
 # │27 │ openrouter-presets │ @preset/1-million-chain-of-draft    │ orps:1-million-chain-draft   │1,000,000 │ 128,000  │ YES   │ YES  │ YES   │ NO        │
 # │28 │ openrouter-presets │ stepfun/step-3.7-flash              │ orps:step-3.7-flash          │ 256,000  │ 256,000  │ YES   │ YES  │ YES   │ YES       │
 # │29 │ zenmux             │ deepseek/deepseek-v4-pro            │ zenm:deepseek-v4-pro         │1,000,000 │ 384,000  │ YES   │ NO   │ YES   │ NO*       │
-# │30 │ zenmux             │ minimax/minimax-m2.7                 │ zenm:minimax-m2.7             │ 204,800  │ 196,608  │ YES   │ NO   │ NO    │ NO*       │
-# │31 │ zenmux             │ minimax/minimax-m2.7-highspeed       │ zenm:minimax-m2.7-hs          │ 204,800  │ 196,608  │ YES   │ NO   │ NO    │ NO*       │
+
 # │32 │ zenmux             │ stepfun/step-3.7-flash               │ zenm:step-3.7-flash           │ 256,000  │ 256,000  │ YES   │ YES  │ YES   │ YES       │
 # │33 │ zenmux             │ sapiens-ai/agnes-2.0-flash           │ zenm:agnes-2.0-flash          │ 256,000  │ 65,536   │ YES   │ YES  │ NO    │ YES       │
 # │34 │ zenmux             │ xiaomi/mimo-v2.5-pro                 │ zenm:mimo-v2.5-pro            │1,048,576 │ 131,072  │ YES   │ NO   │ YES   │ NO*       │
@@ -77,15 +73,14 @@
 # │37 │ xiaomi-mimo        │ mimo-v2.5                           │ mimo:mimo-v2.5               │1,000,000 │ 128,000  │ YES   │ YES  │ YES   │ NO        │
 # │40 │ opencode-go      │ kimi-k2.6                           │ opc:kimi-k2.6                 │ 256,000  │ 262,144  │ YES   │ YES  │ YES   │ NO*       │
 # │42 │ opencode-go      │ glm-5.1                             │ opc:glm-5.1                   │ 200,000  │ 128,000  │ YES   │ NO   │ YES   │ NO*       │
-# │43 │ opencode-go      │ glm-5                               │ opc:glm-5                     │ 128,000  │ 8,000    │ YES   │ NO   │ NO    │ NO        │
+
 # │44 │ opencode-go      │ deepseek-v4-pro                     │ opc:deepseek-v4-pro           │1,000,000 │ 384,000  │ YES   │ NO   │ YES   │ NO*       │
 # │45 │ opencode-go      │ deepseek-v4-flash                   │ opc:deepseek-v4-flash         │1,000,000 │ 384,000  │ YES   │ NO   │ YES   │ NO*       │
 # │46 │ opencode-go      │ qwen3.7-max                         │ opc:qwen3.7-max               │1,000,000 │ 65,536   │ YES   │ NO   │ YES   │ NO*       │
 # │51 │ opencode-go      │ mimo-v2.5-pro                       │ opc:mimo-v2.5-pro             │1,000,000 │ 128,000  │ YES   │ NO   │ YES   │ NO        │
 # │52 │ opencode-go      │ mimo-v2.5                           │ opc:mimo-v2.5                 │1,000,000 │ 128,000  │ YES   │ YES  │ YES   │ NO        │
 # │ 54 │ nebius             │ nvidia/Cosmos3-Super-Reasoner       │ nebs:Cosmos3-Super-Reasoner   │ 262,144  │ 65,536   │ YES   │ NO   │ NO    │ NO        │
-# │ 55 │ nebius             │ Qwen/Qwen3.5-397B-A17B              │ nebs:Qwen3.5-397B-A17B        │ 262,144  │ 65,536   │ YES   │ NO   │ NO    │ NO        │
-# │ 56 │ nebius             │ NousResearch/Hermes-4-405B           │ nebs:Hermes-4-405B            │ 131,072  │ 32,768   │ YES   │ NO   │ NO    │ NO        │
+
 # │ 57 │ zenmux             │ deepseek/deepseek-v4-flash          │ zenm:deepseek-v4-flash        │1,000,000 │ 131,072  │ YES   │ NO   │ YES   │ NO*       │
 # │ 59 │ zenmux             │ moonshotai/kimi-k2.6                │ zenm:kimi-k2.6                │ 262,144  │ 262,144  │ YES   │ YES  │ YES   │ NO*       │
 # │ 64 │ zai                │ code-pass-glm-5.1                   │ zai:code-pass-glm-5.1         │ 200,000  │ 128,000  │ YES   │ NO   │ YES   │ NO*       │
@@ -96,7 +91,7 @@
 # │ 69 │ nvidia-nim         │ minimaxai/minimax-m3                │ nvnm:minimax-m3               │1,000,000 │ 512,000  │ YES   │ YES  │ YES   │ YES*      │
 # │ 70 │ openrouter-presets │ qwen/qwen3.7-max                    │ orps:qwen3.7-max              │1,000,000 │ 65,536   │ YES   │ NO   │ YES   │ NO*       │
 # │ 71 │ opencode-zen       │ deepseek-v4-flash                   │ ozen:deepseek-v4-flash        │1,000,000 │ 384,000  │ YES   │ NO   │ YES   │ NO*       │
-# │ 75 │ opencode-zen       │ claude-sonnet-4-6                   │ ozen:claude-sonnet-4-6        │1,000,000 │ 65,535   │ YES   │ YES  │ YES   │ YES       │
+
 # │ 76 │ opencode-zen       │ minimax-m3-free                     │ ozen:minimax-m3-free          │1,000,000 │ 512,000  │ YES   │ YES  │ YES   │ YES*      │
 # │ 77 │ opencode-zen       │ deepseek-v4-flash-free              │ ozen:deepseek-v4-flash-free   │1,000,000 │ 384,000  │ YES   │ NO   │ YES   │ NO*       │
 # │ 78 │ opencode-zen       │ glm-5.1                             │ ozen:glm-5.1                  │ 200,000  │ 128,000  │ YES   │ NO   │ YES   │ NO*       │
@@ -110,7 +105,7 @@
 # │ 86 │ ollama             │ deepseek-v4-pro:cloud               │ ollama:deepseek-v4-pro:cloud   │1,000,000 │ 384,000  │ YES   │ NO   │ NO    │ YES* Pro  │
 # │ 87 │ ollama             │ kimi-k2.6:cloud                     │ ollama:kimi-k2.6:cloud         │ 256,000  │ 262,144  │ YES   │ YES  │ NO    │ YES* Pro  │
 # │ 88 │ ollama             │ glm-5.1:cloud                       │ ollama:glm-5.1:cloud           │ 200,000  │ 128,000  │ YES   │ NO   │ NO    │ YES* Pro  │
-# │ 89 │ ollama             │ minimax-m2.7:cloud                  │ ollama:minimax-m2.7:cloud      │ 204,800  │ 196,608  │ YES   │ NO   │ NO    │ YES* Pro  │
+
 # │ 90 │ ollama             │ qwen3.5:cloud                       │ ollama:qwen3.5:cloud           │ 256,000  │ 65,536   │ YES   │ YES  │ NO    │ YES* Pro  │
 # │ 91 │ cline              │ nvidia/nemotron-3-ultra-550b-a55b:free │ cline:nvidia-nemotron-3-ultra-550b-a55b:free │1,000,000 │ 65,536 │ YES │ NO │ NO │ YES* free │
 # │ 92 │ cline              │ minimax/minimax-m3                  │ cline:minimax-m3               │1,000,000 │ 512,000  │ YES   │ YES  │ YES   │ YES* free │
@@ -120,7 +115,7 @@
 # │ 97 │ cline              │ deepseek/deepseek-chat              │ cline:deepseek-chat            │ 128,000  │ 16,000   │ YES   │ NO   │ YES   │ NO* paid  │
 # │ 98 │ cline              │ z-ai/glm-5.1                        │ cline:glm-5.1                  │ 200,000  │ 128,000  │ YES   │ NO   │ YES   │ NO* paid  │
 # │ 99 │ cline              │ qwen/qwen3.7-max                    │ cline:qwen3.7-max              │1,000,000 │ 65,536   │ YES   │ NO   │ YES   │ NO* paid  │
-# │100 │ cline              │ minimax/minimax-m2.7                │ cline:minimax-m2.7             │ 204,800  │ 196,608  │ YES   │ NO   │ NO    │ NO* paid  │
+
 # │101 │ cline              │ stepfun/step-3.7-flash              │ cline:step-3.7-flash           │ 256,000  │ 256,000  │ YES   │ YES  │ YES   │ YES* paid │
 # │102 │ cline              │ xiaomi/mimo-v2.5-pro                │ cline:mimo-v2.5-pro            │1,048,576 │ 131,072  │ YES   │ NO   │ YES   │ NO* paid  │
 # │103 │ cline              │ moonshotai/kimi-k2.6                │ cline:kimi-k2.6                │ 262,144  │ 262,144  │ YES   │ YES  │ YES   │ NO* paid  │
@@ -139,7 +134,7 @@
 # │118 │ kilo               │ z-ai/glm-5.1                        │ kilo:glm-5.1                   │ 200,000  │ 128,000  │ YES   │ NO   │ YES   │ NO* paid  │
 # │119 │ kilo               │ qwen/qwen3.7-max                    │ kilo:qwen3.7-max               │1,000,000 │ 65,536   │ YES   │ NO   │ YES   │ NO* paid  │
 # │120 │ kilo               │ minimax/minimax-m3                  │ kilo:minimax-m3                │1,000,000 │ 512,000  │ YES   │ YES  │ YES   │ YES* paid │
-# │121 │ kilo               │ minimax/minimax-m2.7                │ kilo:minimax-m2.7              │ 204,800  │ 196,608  │ YES   │ NO   │ NO    │ NO* paid  │
+
 # │122 │ kilo               │ stepfun/step-3.7-flash              │ kilo:step-3.7-flash            │ 256,000  │ 256,000  │ YES   │ YES  │ YES   │ YES* paid │
 # │123 │ kilo               │ xiaomi/mimo-v2.5-pro                │ kilo:mimo-v2.5-pro             │1,048,576 │ 131,072  │ YES   │ NO   │ YES   │ NO* paid  │
 # │124 │ kilo               │ xiaomi/mimo-v2.5                    │ kilo:mimo-v2.5                 │1,048,576 │ 131,072  │ YES   │ YES  │ YES   │ NO* paid  │
@@ -217,10 +212,9 @@
 # Key env:     ZENMUX_API_KEY
 # Zed prefix:  zenm
 # Cross-tool:  All agents (openai_compatible). DeepAgents: full model list.
-# Models:      13 — deepseek-chat, deepseek/deepseek-v4-pro,
+# Models:      11 — deepseek-chat, deepseek/deepseek-v4-pro,
 #                     deepseek/deepseek-v4-flash, z-ai/glm-5.1,
 #                     qwen/qwen3.7-max, minimax/minimax-m3,
-#                     minimax/minimax-m2.7, minimax/minimax-m2.7-highspeed,
 #                     stepfun/step-3.7-flash, sapiens-ai/agnes-2.0-flash,
 #                     xiaomi/mimo-v2.5-pro, xiaomi/mimo-v2.5,
 #                     moonshotai/kimi-k2.6
@@ -235,11 +229,7 @@
 #              caching. Built on MiniMax Sparse Attention (MSA) —
 #              ~1/20 cost at long context vs previous generation.
 #              Pricing: $0.30/$1.20 per 1M tokens (intro 50% off).
-#              minimax/minimax-m2.7 is 204,800 context, 196,608 output,
-#              text-only with tool calling and native reasoning. MiniMax
-#              native reasoning is stripped for VS Code compatibility.
-#              minimax-minimax-m2.7-highspeed is a faster non-reasoning
-#              variant with same context/output specs.
+
 #              stepfun/step-3.7-flash is 256,000 context/output with
 #              tool calling, vision, prompt caching, and native reasoning.
 #              sapiens-ai/agnes-2.0-flash is 256,000 context, 65,536
@@ -256,17 +246,15 @@
 # Key env:     NEBIUS_API_KEY
 # Zed prefix:  nebs
 # Cross-tool:  All agents. DeepAgents: subset + temp=0.
-# Models:      7  —  moonshotai/Kimi-K2.6, deepseek-ai/DeepSeek-V4-Pro,
+# Models:      5  —  moonshotai/Kimi-K2.6, deepseek-ai/DeepSeek-V4-Pro,
 #                     nvidia/Nemotron-3-Nano-Omni, zai-org/GLM-5.1,
-#                     nvidia/Cosmos3-Super-Reasoner, Qwen/Qwen3.5-397B-A17B,
-#                     NousResearch/Hermes-4-405B
+#                     nvidia/Cosmos3-Super-Reasoner
 # Notes:       Nebius /v1/models rich metadata requires authentication.
 #              Context/output/capability values above are sourced from
 #              upstream model cards where public Nebius facts are unavailable.
 #              nvidia/Cosmos3-Super-Reasoner: 262,144 ctx, $0.10/$0.30 per 1M,
 #              reasoning model, very cost-effective.
-#              Qwen/Qwen3.5-397B-A17B: 262,144 ctx, MoE architecture.
-#              NousResearch/Hermes-4-405B: 131,072 ctx, tool calling, general purpose.
+
 #              Do not store Nebius API keys in providers.txt, .env, git,
 
 ## moonshot ________________________________________________________________
@@ -275,13 +263,12 @@
 # Key env:     MOONSHOT_API_KEY
 # Zed prefix:  mons
 # Cross-tool:  All agents
-# Models:      4  —  moonshot-v1-8k, moonshot-v1-32k, moonshot-v1-128k, kimi-k2.6
+# Models:      1  —  kimi-k2.6
 # Notes:       kimi-k2.6 is the flagship reasoning model. Moonshot's model
 #              docs list Kimi-K2.6 at 256K context with text/image/video/file
-#              multimodal input. The moonshot-v1 models are 8K/32K/128K.
+#              multimodal input.
 #              Kimi K2.6 supports implicit prompt caching (confirmed via
-#              ZenMux model docs and OpenRouter cache_read pricing). Moonshot
-#              v1 models do not advertise cache support.
+#              ZenMux model docs and OpenRouter cache_read pricing).
 
 ## nvidia-nim ______________________________________________________________
 # Tier:        NVIDIA NIM
@@ -289,16 +276,12 @@
 # Key env:     NVIDIA_NIM_API_KEY
 # Zed prefix:  nvnm
 # Cross-tool:  All agents. Hermes: custom provider.
-# Models:      6  —  nvidia/nemotron-3-nano-omni-30b-a3b-reasoning,
-#                     minimaxai/minimax-m2.5, minimaxai/minimax-m2.7,
+# Models:      4  —  nvidia/nemotron-3-nano-omni-30b-a3b-reasoning,
 #                     stepfun-ai/step-3.7-flash, minimaxai/minimax-m3,
 #                     moonshotai/kimi-k2.6
 # Notes:       IDs and context values are taken from NVIDIA NIM public API
 #              reference pages. Nemotron-3-Nano-Omni is multimodal
-#              (video/audio/image/text) with 256K context. MiniMax-M2.5 is
-#              text-only with 204,800-token context.
-#              MiniMax-M2.7 is the upgraded model with native reasoning
-#              (include_reasoning), stripped for VS Code compatibility.
+#              (video/audio/image/text) with 256K context.
 #              stepfun-ai/step-3.7-flash is the NVIDIA NIM-specific model
 #              ID for StepFun's step-3.7-flash (256K context/output,
 #              tool calling, vision, prompt caching, native reasoning).
@@ -366,7 +349,7 @@
 # Key env:     OPENCODE_API_KEY
 # Zed prefix:  opc
 # Cross-tool:  All agents (openai_compatible format)
-# Models:      9 — minimax-m3, kimi-k2.6, glm-5.1, glm-5, deepseek-v4-pro,
+# Models:      8 — minimax-m3, kimi-k2.6, glm-5.1, deepseek-v4-pro,
 #                     deepseek-v4-flash, qwen3.7-max, mimo-v2.5-pro, mimo-v2.5
 # Notes:       OpenCode Go subscription endpoint (shared OPENCODE_API_KEY with opencode-zen).
 #              Curated Hermes subscription set providing
@@ -376,8 +359,7 @@
 #              Model metadata is cross-referenced with provider model cards
 #              and existing providers.txt entries where available.
 #              DeepSeek models use transparent auto KV-caching.
-#              MiniMax M2.7 has native reasoning (include_reasoning); Local
-#              Router strips reasoning metadata for VS Code compatibility.
+
 #              Free-tier MiniMax M3 lives on opencode-zen only (ozen:minimax-m3-free).
 #              Distinct from opencode-zen (full Zen catalog for free/paid/overage).
 #              Do not store OpenCode API keys in providers.txt, .env, git,
@@ -389,27 +371,16 @@
 # Key env:     OPENCODE_API_KEY (shared with opencode-go / opencode-zen)
 # Zed prefix:  ozen
 # Cross-tool:  All agents (openai_compatible format)
-# Models:      39 — claude-opus-4-8, claude-opus-4-7, claude-opus-4-6,
-#                     claude-opus-4-5, claude-opus-4-1, claude-sonnet-4-6,
-#                     claude-sonnet-4-5, claude-sonnet-4, claude-haiku-4-5,
-#                     gemini-3.1-pro, gemini-3-flash,
-#                     gpt-5.5, gpt-5.5-pro, gpt-5.4-pro,
-#                     gpt-5.4-mini, gpt-5.4-nano,
-#                     gpt-5.3-codex-spark, gpt-5.2, gpt-5.2-codex,
-#                     gpt-5.1, gpt-5.1-codex, gpt-5.1-codex-max,
-#                     gpt-5.1-codex-mini, gpt-5, gpt-5-codex, gpt-5-nano,
-#                     deepseek-v4-flash, deepseek-v4-flash-free,
-#                     glm-5.1, glm-5, minimax-m2.7, minimax-m2.5,
-#                     minimax-m3-free, kimi-k2.6, kimi-k2.5,
-#                     qwen3.6-plus, qwen3.5-plus, qwen3.6-plus-free,
-#                     mimo-v2.5-free, nemotron-3-super-free,
-#                     grok-build-0.1, big-pickle
+# Models:      10 — claude-opus-4-8, claude-opus-4-7, deepseek-v4-flash,
+#                     deepseek-v4-flash-free, glm-5.1, minimax-m3-free,
+#                     kimi-k2.6, kimi-k2.5, mimo-v2.5-free,
+#                     nemotron-3-super-free
 # Notes:       OpenCode Zen provides a unified subscription to models
 #              from Anthropic, Google, OpenAI, xAI, DeepSeek, Z.AI,
 #              MiniMax, Moonshot, Qwen, Xiaomi, and NVIDIA.
 #              Free-tier models (suffixed -free) are available at zero
 #              cost: deepseek-v4-flash-free, minimax-m3-free,
-#              qwen3.6-plus-free, mimo-v2.5-free, nemotron-3-super-free.
+#              mimo-v2.5-free, nemotron-3-super-free.
 #              Uses the same OPENCODE_API_KEY as opencode Zen/Go.
 #              The Zen endpoint is distinct from Zen/Go — it includes
 #              closed-source providers (Claude, GPT, Gemini, Grok)
@@ -441,8 +412,8 @@
 # Key env:     OLLAMA_API_KEY  (default: local-router-ollama placeholder; optional real ollama.com key)
 # Zed prefix:  ollama
 # Cross-tool:  All Ollama-native clients via Local Router on :11434
-# Models:      8 catalog cloud tags (free: nemotron-3-ultra, minimax-m3, deepseek-v4-flash;
-#              Pro-only: deepseek-v4-pro, kimi-k2.6, glm-5.1, minimax-m2.7, qwen3.5)
+# Models:      7 catalog cloud tags (free: nemotron-3-ultra, minimax-m3, deepseek-v4-flash;
+#              Pro-only: deepseek-v4-pro, kimi-k2.6, glm-5.1, qwen3.5)
 # Routing:     Auto-router/fallback use only the 3 free tags (shared quota — no 8-model burn).
 #              Pro tags route when OLLAMA_API_KEY is a real ollama.com key (not placeholder).
 # Notes:       Local Router starts `ollama serve` on 11435 and pulls free-tier routing tags.
@@ -456,7 +427,7 @@
 # Key env:     CLINE_API_KEY
 # Zed prefix:  cline
 # Cross-tool:  Cline extension, CLI, any OpenAI-compatible client via Local Router
-# Models:      4 free + 8 paid — every row chat-proven on Cline (see validate-cline-kilo-catalog.mjs).
+# Models:      4 free + 7 paid — every row chat-proven on Cline (see validate-cline-kilo-catalog.mjs).
 #              Free = recommended-models API + chat 200. Paid = chat 200 only. openrouter/free is Kilo/OR only.
 #              Excludes Anthropic, Gemini, and OpenAI families (too expensive).
 # Discovery:   GET /ai/cline/recommended-models; custom mode = providers.txt only.
@@ -470,7 +441,7 @@
 # Key env:     KILO_API_KEY  (JWT from app.kilo.ai profile)
 # Zed prefix:  kilo
 # Cross-tool:  Kilo Code, Vercel AI SDK, OpenAI SDK, Local Router
-# Models:      8 free + 11 paid — every row chat-proven on Kilo (see validate-cline-kilo-catalog.mjs).
+# Models:      8 free + 10 paid — every row chat-proven on Kilo (see validate-cline-kilo-catalog.mjs).
 #              Free = GET /models zero pricing + chat 200. Paid = upstream paid tier + chat 200.
 #              Excludes Anthropic, Gemini, OpenAI, and kilo-auto/free router.
 # Discovery:   GET /models when using Endpoint Models toggle; custom mode = this curated list only.

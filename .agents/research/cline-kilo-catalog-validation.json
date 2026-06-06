@@ -121,18 +121,7 @@
         },
         "keep": true
       },
-      {
-        "model": "minimax/minimax-m2.7",
-        "row": "100",
-        "inCatalog": true,
-        "recommendedFree": false,
-        "chat": {
-          "status": 200,
-          "ok": true,
-          "error": ""
-        },
-        "keep": true
-      },
+
       {
         "model": "stepfun/step-3.7-flash",
         "row": "101",
@@ -179,11 +168,10 @@
     "provableFree": [
       "poolside/laguna-m.1:free",
       "stepfun/step-3.7-flash:free",
-      "nvidia/nemotron-3-ultra-550b-a55b:free",
-      "openrouter/owl-alpha",
       "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
       "poolside/laguna-xs.2:free",
       "nvidia/nemotron-3-super-120b-a12b:free",
+      "nvidia/nemotron-3-ultra-550b-a55b:free",
       "openrouter/free"
     ],
     "catalogResults": [
@@ -356,19 +344,7 @@
         },
         "keep": true
       },
-      {
-        "model": "minimax/minimax-m2.7",
-        "row": "121",
-        "inCatalog": true,
-        "inUpstream": true,
-        "upstreamTier": "paid",
-        "chat": {
-          "status": 200,
-          "ok": true,
-          "error": ""
-        },
-        "keep": true
-      },
+
       {
         "model": "stepfun/step-3.7-flash",
         "row": "122",
@@ -422,13 +398,7 @@
         "keep": true
       }
     ],
-    "missingFree": [
-      {
-        "model": "openrouter/owl-alpha",
-        "upstreamTier": "free",
-        "inCatalog": false
-      }
-    ],
+    "missingFree": [],
     "staleCatalog": []
   }
 }

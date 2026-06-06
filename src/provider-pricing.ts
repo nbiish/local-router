@@ -122,11 +122,7 @@ export const BASELINE_PROVIDER_PRICING: Record<string, ProviderPricingEntry> = {
     outputPricePerM: 3.75,
     label: 'Cline API qwen/qwen3.7-max paid'
   },
-  'cline-minimax-minimax-m2.7-paid': {
-    inputPricePerM: 0.5,
-    outputPricePerM: 1,
-    label: 'Cline API minimax/minimax-m2.7 paid'
-  },
+
   'cline-stepfun-step-3.7-flash-paid': {
     inputPricePerM: 0.1,
     outputPricePerM: 0.3,
@@ -197,11 +193,7 @@ export const BASELINE_PROVIDER_PRICING: Record<string, ProviderPricingEntry> = {
     outputPricePerM: 1.2,
     label: 'Kilo Gateway minimax/minimax-m3 paid'
   },
-  'kilo-minimax-minimax-m2.7-paid': {
-    inputPricePerM: 0.5,
-    outputPricePerM: 1,
-    label: 'Kilo Gateway minimax/minimax-m2.7 paid'
-  },
+
   'kilo-stepfun-step-3.7-flash-paid': {
     inputPricePerM: 0.1,
     outputPricePerM: 0.3,

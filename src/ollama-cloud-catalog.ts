@@ -10,8 +10,7 @@ export const OLLAMA_CLOUD_TAG_TIERS: Record<string, OllamaCloudBillingTier> = {
   'deepseek-v4-pro:cloud': 'pro-only',
   'kimi-k2.6:cloud': 'pro-only',
   'glm-5.1:cloud': 'pro-only',
-  'qwen3.5:cloud': 'pro-only',
-  'minimax-m2.7:cloud': 'pro-only'
+  'qwen3.5:cloud': 'pro-only'
 };
 
 /** Default Ollama router/fallback chain on free tier (shared quota — keep narrow). */
