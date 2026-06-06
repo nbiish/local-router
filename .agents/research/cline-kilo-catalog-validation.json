@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-05T14:32:28.534Z",
+  "generatedAt": "2026-06-06T01:21:11.156Z",
   "policy": {
     "excludedFamilies": [
       "anthropic/",
@@ -13,10 +13,10 @@
   "cline": {
     "endpoint": "https://api.cline.bot/api/v1",
     "recommendedFree": [
-      "nvidia/nemotron-3-ultra-550b-a55b",
+      "deepseek/deepseek-v4-flash",
       "minimax/minimax-m3",
-      "xiaomi/mimo-v2.5",
-      "deepseek/deepseek-v4-flash"
+      "nvidia/nemotron-3-ultra-550b-a55b",
+      "xiaomi/mimo-v2.5"
     ],
     "provableFree": [
       "nvidia/nemotron-3-ultra-550b-a55b:free",
@@ -180,6 +180,7 @@
       "poolside/laguna-m.1:free",
       "stepfun/step-3.7-flash:free",
       "nvidia/nemotron-3-ultra-550b-a55b:free",
+      "openrouter/owl-alpha",
       "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
       "poolside/laguna-xs.2:free",
       "nvidia/nemotron-3-super-120b-a12b:free",
@@ -421,7 +422,13 @@
         "keep": true
       }
     ],
-    "missingFree": [],
+    "missingFree": [
+      {
+        "model": "openrouter/owl-alpha",
+        "upstreamTier": "free",
+        "inCatalog": false
+      }
+    ],
     "staleCatalog": []
   }
 }

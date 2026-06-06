@@ -1,0 +1,215 @@
+{
+  "version": 1,
+  "updated": "2026-06-05",
+  "description": "Authoritative model specifications for CI/CD validation. Sources: provider API docs, OpenRouter metadata, model cards. Used by scripts/validate-model-specs.mts to detect metadata drift in providers.txt.",
+  "models": {
+    "deepseek-v4-pro": {
+      "context": 1048576,
+      "output": 384000,
+      "tools": true,
+      "vision": false,
+      "reasoning": true,
+      "source": "deepseek.com API docs (April 2026)"
+    },
+    "deepseek-v4-flash": {
+      "context": 1048576,
+      "output": 384000,
+      "tools": true,
+      "vision": false,
+      "reasoning": true,
+      "source": "deepseek.com API docs (April 2026)"
+    },
+    "deepseek-chat": {
+      "context": 128000,
+      "output": 16000,
+      "tools": true,
+      "vision": false,
+      "reasoning": false,
+      "source": "deepseek.com (legacy, deprecating July 2026)"
+    },
+    "minimax-m3": {
+      "context": 1048576,
+      "output": 512000,
+      "tools": true,
+      "vision": true,
+      "reasoning": true,
+      "source": "minimax.io, OpenRouter (May 2026)"
+    },
+    "minimax-m2.7": {
+      "context": 204800,
+      "output": 196608,
+      "tools": true,
+      "vision": false,
+      "reasoning": true,
+      "source": "minimax.io, OpenRouter"
+    },
+    "minimax-m2.5": {
+      "context": 204800,
+      "output": 32000,
+      "tools": true,
+      "vision": false,
+      "reasoning": false,
+      "source": "NVIDIA NIM docs"
+    },
+    "kimi-k2.6": {
+      "context": 262144,
+      "output": 262144,
+      "tools": true,
+      "vision": true,
+      "reasoning": true,
+      "source": "OpenRouter, Moonshot docs"
+    },
+    "glm-5.1": {
+      "context": 200000,
+      "output": 128000,
+      "tools": true,
+      "vision": false,
+      "reasoning": false,
+      "source": "z.ai, deepinfra (April 2026)"
+    },
+    "glm-5": {
+      "context": 128000,
+      "output": 8000,
+      "tools": true,
+      "vision": false,
+      "reasoning": false,
+      "source": "z.ai legacy"
+    },
+    "qwen3.7-max": {
+      "context": 1048576,
+      "output": 65536,
+      "tools": true,
+      "vision": false,
+      "reasoning": false,
+      "source": "OpenRouter, qwen.ai (May 2026)"
+    },
+    "qwen3.7-plus": {
+      "context": 1048576,
+      "output": 65536,
+      "tools": true,
+      "vision": true,
+      "reasoning": false,
+      "source": "OpenRouter"
+    },
+    "qwen3.5-397b": {
+      "context": 262144,
+      "output": 65536,
+      "tools": true,
+      "vision": false,
+      "reasoning": false,
+      "source": "Nebius"
+    },
+    "step-3.7-flash": {
+      "context": 256000,
+      "output": 256000,
+      "tools": true,
+      "vision": true,
+      "reasoning": true,
+      "source": "OpenRouter, NVIDIA NIM, StepFun"
+    },
+    "nemotron-3-ultra": {
+      "context": 1048576,
+      "output": 65536,
+      "tools": true,
+      "vision": false,
+      "reasoning": true,
+      "source": "NVIDIA, OpenRouter (June 2026)"
+    },
+    "nemotron-3-nano-omni": {
+      "context": 256000,
+      "output": 65536,
+      "tools": true,
+      "vision": true,
+      "reasoning": true,
+      "source": "NVIDIA NIM docs"
+    },
+    "nemotron-3-super": {
+      "context": 256000,
+      "output": 65536,
+      "tools": true,
+      "vision": false,
+      "reasoning": true,
+      "source": "NVIDIA"
+    },
+    "mimo-v2.5-pro": {
+      "context": 1048576,
+      "output": 131072,
+      "tools": true,
+      "vision": false,
+      "reasoning": false,
+      "source": "OpenRouter, Kilo"
+    },
+    "mimo-v2.5": {
+      "context": 1048576,
+      "output": 131072,
+      "tools": true,
+      "vision": true,
+      "reasoning": false,
+      "source": "OpenRouter"
+    },
+    "agnes-2.0-flash": {
+      "context": 256000,
+      "output": 65536,
+      "tools": true,
+      "vision": true,
+      "reasoning": true,
+      "source": "ZenMux API"
+    },
+    "cosmos3-super-reasoner": {
+      "context": 262144,
+      "output": 65536,
+      "tools": true,
+      "vision": false,
+      "reasoning": false,
+      "source": "Nebius, HuggingFace"
+    },
+    "hermes-4-405b": {
+      "context": 131072,
+      "output": 32768,
+      "tools": true,
+      "vision": false,
+      "reasoning": false,
+      "source": "NousResearch"
+    },
+    "laguna-m.1": {
+      "context": 262144,
+      "output": 32768,
+      "tools": true,
+      "vision": false,
+      "reasoning": false,
+      "source": "OpenRouter, Poolside"
+    },
+    "laguna-xs.2": {
+      "context": 262144,
+      "output": 32768,
+      "tools": true,
+      "vision": false,
+      "reasoning": false,
+      "source": "OpenRouter"
+    },
+    "moonshot-v1-8k": {
+      "context": 8192,
+      "output": 4096,
+      "tools": false,
+      "vision": false,
+      "reasoning": false,
+      "source": "Moonshot docs"
+    },
+    "moonshot-v1-32k": {
+      "context": 32768,
+      "output": 16384,
+      "tools": false,
+      "vision": false,
+      "reasoning": false,
+      "source": "Moonshot docs"
+    },
+    "moonshot-v1-128k": {
+      "context": 131072,
+      "output": 65536,
+      "tools": false,
+      "vision": false,
+      "reasoning": false,
+      "source": "Moonshot docs"
+    }
+  }
+}
