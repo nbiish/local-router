@@ -4474,7 +4474,6 @@ app.get('/config', (req: Request, res: Response) => {
                   '<div><label>coding</label><input type="number" value="' + (c.codingScore !== undefined ? c.codingScore : '') + '" min="0" max="1" step="0.01" placeholder="0-1" onchange="updateCandidateMeta(' + i + ', \\'codingScore\\', this.value)"></div>' +
                   '<div><label>input $</label><input type="number" value="' + (c.inputPrice !== undefined ? c.inputPrice : '') + '" min="0" step="0.01" placeholder="per 1M" onchange="updateCandidateMeta(' + i + ', \\'inputPrice\\', this.value)"></div>' +
                   '<div><label>output $</label><input type="number" value="' + (c.outputPrice !== undefined ? c.outputPrice : '') + '" min="0" step="0.01" placeholder="per 1M" onchange="updateCandidateMeta(' + i + ', \\'outputPrice\\', this.value)"></div>' +
-                  '<div><label>latency ms</label><input type="number" value="' + (c.latencyMs !== undefined ? c.latencyMs : '') + '" min="0" step="1" placeholder="ms" onchange="updateCandidateMeta(' + i + ', \\'latencyMs\\', this.value)"></div>' +
                 '</div>' +
               '</div>' +
               '<button class="remove-btn" title="Remove" onclick="removeCandidateFromRouter(' + i + ')">✕</button>' +
@@ -4490,7 +4489,6 @@ app.get('/config', (req: Request, res: Response) => {
             if (c.codingScore !== undefined) parts.push('coding=' + c.codingScore);
             if (c.inputPrice !== undefined) parts.push('input=' + c.inputPrice);
             if (c.outputPrice !== undefined) parts.push('output=' + c.outputPrice);
-            if (c.latencyMs !== undefined) parts.push('latency=' + c.latencyMs);
             return parts.join(', ');
           }).join('\\n');
         }
@@ -6307,9 +6305,6 @@ app.post('/api/router-models/:id/recompute', (req: Request, res: Response) => {
     if (typeof candidate.codingScore === 'number' && Math.abs(proposedCoding - candidate.codingScore) > 0.05) {
       changes.push(`coding: ${candidate.codingScore} → ${proposedCoding}`);
     }
-    if (typeof candidate.latencyMs === 'number' && proposedLatency && Math.abs(proposedLatency - candidate.latencyMs) > 200) {
-      changes.push(`latency: ${candidate.latencyMs}ms → ${proposedLatency}ms`);
-    }
     if (typeof candidate.codingScore !== 'number') {
       changes.push(`coding: (unset) → ${proposedCoding} (inferred)`);
     }
@@ -6319,13 +6314,13 @@ app.post('/api/router-models/:id/recompute', (req: Request, res: Response) => {
       currentCodingScore: candidate.codingScore,
       currentInputPrice: candidate.inputPrice,
       currentOutputPrice: candidate.outputPrice,
-      currentLatencyMs: candidate.latencyMs,
+      currentLatencyMs: null,
       sampleCount: stats.attempts,
       successRate: Number(successRate.toFixed(4)),
-      medianLatencyMs: medianLatency,
+      medianLatencyMs: null,
       toolCallAccuracy: toolAccuracy ? Number(toolAccuracy.toFixed(4)) : null,
       proposedCodingScore: proposedCoding,
-      proposedLatencyMs: proposedLatency,
+      proposedLatencyMs: null,
       tier: tier?.tier || null,
       tierDerankReasons: tier?.derankReasons || null,
       changes,
@@ -6985,14 +6980,14 @@ function providerModelsGroupedByProvider(models: ProviderModel[]) {
 
 ensureLocalRouterConfigDir();
 migrateLegacyConfigIfNeeded();
+loadCustomProviders();
+loadPersistedProviderModels();
+mergeBaselineProviderModelOverrides();
 loadPersistedFallbackModels();
 loadPersistedRouterModels();
 loadProviderPricingStore();
 loadPersistedSystemPrompt();
 loadPersistedThinkingConfig();
-loadCustomProviders();
-loadPersistedProviderModels();
-mergeBaselineProviderModelOverrides();
 loadModelSourceConfig();
 loadEndpointModelsCache();
 
@@ -7708,7 +7703,7 @@ function selectBanditCandidate(router: RouterModel, body: any): RouterDecision |
     reasons: entry.reasons,
     codingScore: Number(entry.codingScore.toFixed(4)),
     costEstimate: entry.cost === Number.MAX_SAFE_INTEGER ? null : entry.cost,
-    latencyMs: entry.latencyMs,
+    latencyMs: null,
     contextLength: entry.model?.contextLength || null,
     maxOutput: entry.model?.outputTokens || null,
     banditScore: entry.eligible ? Number(entry.banditScore.toFixed(4)) : null,
@@ -7812,7 +7807,8 @@ function selectRouterCandidate(router: RouterModel, body: any): RouterDecision |
 
   const allCosts = scored.map((entry) => entry.cost).filter((c) => c !== Number.MAX_SAFE_INTEGER);
   const maxCost = allCosts.length > 0 ? Math.max(...allCosts) : 1;
-  const maxLatency = Math.max(...scored.map((entry) => entry.latencyMs), 1);
+  const allContexts = scored.map((entry) => entry.model?.contextLength || 0).filter(Boolean);
+  const maxContext = allContexts.length > 0 ? Math.max(...allContexts) : 1;
 
   const scoredNormalized = scored.map((entry) => {
     if (!entry.eligible) {
@@ -7821,16 +7817,20 @@ function selectRouterCandidate(router: RouterModel, body: any): RouterDecision |
 
     const qualityWeight = router.type === 'auto-local' ? tradeOff / 10 : router.type === 'pareto-code' ? 1.0 : 1.0;
     const costWeight = router.type === 'auto-local' ? (10 - tradeOff) / 10 : router.type === 'pareto-code' ? 0.2 : 1.0;
-    const latencyWeight = router.type === 'auto-local' ? 0.1 : router.type === 'pareto-code' ? 0.1 : 0.3;
+    const contextWeight = router.type === 'auto-local' ? 0.1 : router.type === 'pareto-code' ? 0.1 : 0.3;
 
     const normalizedCoding = entry.codingScore;
     const normalizedCost = maxCost > 0 ? entry.cost / maxCost : 0;
-    const normalizedLatency = entry.latencyMs / maxLatency;
+    const normalizedContext = maxContext > 0 ? (entry.model?.contextLength || 0) / maxContext : 0;
     const indexPenalty = entry.index / Math.max(scored.length, 1);
+
+    const isFree = entry.cost === 0 || entry.candidate.model.includes('-free') || entry.candidate.model.includes('cloud') || entry.candidate.model.includes('openrouter-free');
+    const freeTerm = isFree ? 0.15 : 0.0;
 
     const score = (qualityWeight * normalizedCoding)
       - (costWeight * normalizedCost)
-      - (latencyWeight * normalizedLatency)
+      + (contextWeight * normalizedContext)
+      + freeTerm
       - (0.001 * indexPenalty);
 
     return { ...entry, score };
@@ -7842,7 +7842,7 @@ function selectRouterCandidate(router: RouterModel, body: any): RouterDecision |
     reasons: entry.reasons,
     codingScore: Number(entry.codingScore.toFixed(4)),
     costEstimate: entry.cost === Number.MAX_SAFE_INTEGER ? null : entry.cost,
-    latencyMs: entry.latencyMs,
+    latencyMs: null,
     contextLength: entry.model?.contextLength || null,
     maxOutput: entry.model?.outputTokens || null,
     score: Number.isFinite(entry.score) ? Number(entry.score.toFixed(4)) : null

@@ -25,6 +25,8 @@ Usage:
   localrouter router list [--json]
   localrouter router show <route-id> [--json]
   localrouter router check [--json]
+  localrouter router export [--json]
+  localrouter router import <file-path> [--json]
   localrouter verify [--json]          Headless smoke checks (server, keys, routers, catalog)
   localrouter config [--open]          Print or open http://127.0.0.1:11434/config
   localrouter route <set|unset|status|custom ...>
@@ -320,6 +322,74 @@ async function cmdRouterShow(routeId, options) {
   });
 }
 
+async function cmdRouterExport(options) {
+  const probeResult = await client.probe(options.host, options.port);
+  client.requireServer(probeResult);
+
+  const payload = await client.fetchJson('/api/router-models', {}, options.host, options.port);
+  const routers = payload.data || [];
+
+  if (options.json) {
+    emitJson(routers);
+  } else {
+    console.log(JSON.stringify(routers, null, 2));
+  }
+}
+
+async function cmdRouterImport(filePath, options) {
+  const probeResult = await client.probe(options.host, options.port);
+  client.requireServer(probeResult);
+
+  let rawContent;
+  if (!filePath || filePath === '-') {
+    rawContent = await new Promise((resolve, reject) => {
+      let data = '';
+      process.stdin.on('data', chunk => { data += chunk; });
+      process.stdin.on('end', () => resolve(data));
+      process.stdin.on('error', err => reject(err));
+    });
+  } else {
+    const absolutePath = path.resolve(filePath);
+    if (!fs.existsSync(absolutePath)) {
+      throw new Error(`File not found: ${filePath}`);
+    }
+    rawContent = fs.readFileSync(absolutePath, 'utf8');
+  }
+
+  let parsedJson;
+  try {
+    parsedJson = JSON.parse(rawContent);
+  } catch (err) {
+    throw new Error(`Invalid JSON: ${err.message}`);
+  }
+
+  const body = {
+    routers: Array.isArray(parsedJson) ? parsedJson : (parsedJson.routers || [parsedJson]),
+    overwrite: true
+  };
+
+  const result = await client.fetchJson('/api/router-models/import', {
+    method: 'POST',
+    body
+  }, options.host, options.port);
+
+  emitOrJson(options, result, (val) => {
+    console.log(`Import status: ${val.summary}`);
+    if (val.errors && val.errors.length > 0) {
+      console.log('Errors:');
+      for (const err of val.errors) {
+        console.log(`  - Index ${err.index}: ${err.error}`);
+      }
+    }
+    if (val.skipped && val.skipped.length > 0) {
+      console.log('Skipped:');
+      for (const skip of val.skipped) {
+        console.log(`  - ${skip.id}: ${skip.reason}`);
+      }
+    }
+  });
+}
+
 async function cmdRouterCheck(options) {
   const probeResult = await client.probe(options.host, options.port);
   client.requireServer(probeResult);
@@ -547,7 +617,15 @@ async function main() {
       if (sub === 'check') {
         return await cmdRouterCheck(options);
       }
-      throw new Error('Unknown router subcommand. Use: list | show | check');
+      if (sub === 'export') {
+        await cmdRouterExport(options);
+        return 0;
+      }
+      if (sub === 'import') {
+        await cmdRouterImport(args[1], options);
+        return 0;
+      }
+      throw new Error('Unknown router subcommand. Use: list | show | check | export | import');
     }
 
     if (command === 'verify') {

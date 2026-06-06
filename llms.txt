@@ -12,23 +12,24 @@ Local Router is a localhost proxy (port `11434`) with **Ollama-compatible** and 
 - **Keys:** `/config` UI → in-memory while running → **PQC bundle** `~/.config/pqc-secrets/secrets.bundle.json` on every save (ML-KEM-768 + AES-256-GCM). Never committed to git or `providers.txt`
 - **Catalog:** `providers.txt` (14 providers, **~105** presented models in custom mode) + runtime edits in `provider-models.json` + **custom providers** in `custom-providers.json`
 - **Custom providers:** `/config` → **Add custom provider…** or `POST /api/providers` (HTTPS `/v1` upstream; loopback HTTP allowed for dev)
-- **Auto-router:** `local-router/auto-router-main` — expanded curated set (`src/routing-defaults.ts`): free → subscription (`opencode-go` → Z.ai → Xiaomi) → paid (Wafer → ZenMux → OpenRouter → Nebius → Cline → Kilo + NIM/Modal/Zen extras); exhaustion-sorted at bootstrap
+- **Auto-router:** `local-router/auto-router-main` — expanded curated set (`src/routing-defaults.ts`): free → subscription (`opencode-go` → Z.ai → Xiaomi) → paid (Wafer → ZenMux → OpenRouter → Nebius → Cline → Kilo + NIM/Modal/Zen extras); exhaustion-sorted at bootstrap; routes based on coding ability, context length, and price (includes free-tier boost; latency metrics deprecated)
 - **System fallback:** `local-router/fallback-models` — **16** fixed steps (`DEFAULT_FALLBACK_ORDERED_IDS`): Ollama → NIM → Modal → Kilo/Cline free → OpenCode Zen free → OpenRouter free → Go/Z.ai/Xiaomi subscription → six paid anchors (no exhaustion re-sort on bootstrap)
 - **Ollama Cloud:** Shared quota — router/fallback/pull use **nemotron-3-ultra**, **minimax-m3**, **deepseek-v4-flash** only unless a real `ollama.com` API key is set (Pro tags gated). See [Ollama Cloud routing](#ollama-cloud-routing-free-vs-pro)
 - **Ollama shim:** `local-router route set` → `ollama serve` starts real Ollama on `11435` and Local Router on `11434`
-- **Operator CLI:** `localrouter list`, `keys`, `router`, `verify`, `config --open`
+- **Operator CLI:** `localrouter list`, `keys`, `router export|import|list|show|check`, `verify`, `config --open`
 - **Thinking:** Proxy toggle default **OFF** (IDE passthrough); optional levels when enabled. Responses strip `reasoning_content` for VS Code safety; requests preserve it for multi-turn tools
-- **Tests:** `npm test` — **10** test files, **35** cases (integration + routing unit tests; see [Current Test Coverage](#current-test-coverage))
-- **Canonical release:** `main` = `develop` @ **`953d309`** (2026-06-06) — see [System Snapshot](#system-snapshot--canonical-state-2026-06-06)
+- **Tests:** `npm test` — **10** test files, **36** cases (integration + routing unit tests; see [Current Test Coverage](#current-test-coverage))
+- **Canonical release:** `main` = `develop` @ **`8bb0a7c`** (2026-06-06) — see [System Snapshot](#system-snapshot--canonical-state-2026-06-06)
 
 ## System Snapshot — Canonical State (2026-06-06)
 
-Use this section to resume work without re-deriving architecture. Remote: `https://github.com/nbiish/local-router.git` (`local-router` remote). **`main` and `develop` @ `953d309`** — chat-proven Cline/Kilo catalogs, tier-suffixed gateway IDs, MiniMax M3 fallback hops, curated gateway free auto-router, removed deprecated models, cleaned provider default columns, and model specs validation.
+Use this section to resume work without re-deriving architecture. Remote: `https://github.com/nbiish/local-router.git` (`local-router` remote). **`main` and `develop` @ `0c1239d`** — deprecated legacy latency metrics from routing scoring in favor of context window and free-tier boosts, added CLI router export/import capabilities for CI/CD pipelines, fixed server startup loading order, chat-proven Cline/Kilo catalogs, tier-suffixed gateway IDs, MiniMax M3 fallback hops, curated gateway free auto-router, removed deprecated models, cleaned provider default columns, and model specs validation.
 
 ### Release lineage (recent)
 
 | Commit | Summary |
 |--------|---------|
+| `8bb0a7c` | **Latency Deprecation & Router CLI** — Deprecated legacy latency metrics from routing scoring in favor of context window and free-tier boosts ($+0.15$ boost); added `localrouter router export` and `localrouter router import <file>` subcommands for CI/CD pipelines; fixed startup bug where persistent routers with custom provider models were discarded on reload due to loading order |
 | `953d309` | **Remove provider default columns** — Removed the `Default` column from `providers.txt` provider summary table; removed `<span class="pill catalog">Catalog</span>` and default tool pills from `/config` UI; updated test column checks to 3 |
 | `ffba167` | **Remove deprecated models** — Removed Moonshot v1 family, MiniMax M2.5/M2.7 (NIM/ZenMux/Ollama/Cline/Kilo/Cline), Qwen 397B, Nous Hermes 405B, OpenCode Go GLM-5, and OpenCode Zen Claude Sonnet 4-6 from `providers.txt` and router defaults |
 | `4918052` | **Model Specs Validation & Audit** — corrected MiniMax M3 context (512K→1M), MiniMax M2.7 output (131K→196K), Kimi K2.6 output (32K→262K); added canonical `model-specs.json` & CI/CD validator script; enhanced router candidate score exports with context & output token capacity |
@@ -493,9 +494,10 @@ Per `AGENTS.md`: create a git worktree for every task. One task = one branch = o
 - **Headless / scripting:** every query command accepts `--json`; exit `2` when server not running; env `LOCAL_ROUTER_HOST`, `LOCAL_ROUTER_PORT`
 - **Catalog listing:** `localrouter list --custom` (providers.txt + runtime edits), `localrouter list --all` (custom ∪ endpoint cache), default follows active server catalog. Server: `GET /api/provider-models?catalog=custom|all|active`
 - **Provider keys:** `localrouter keys list|set|unset` — set via `--stdin`, `--env VAR`, or piped stdin; persists through server `POST/DELETE /api/keys` → PQC bundle
-- **Router inspection:** `localrouter router list|show|check` — candidate counts, key-aware readiness via `/api/routing/availability`
+- **Router inspection & backup:** `localrouter router list|show|check` (candidate counts, key-aware readiness via `/api/routing/availability`) and `localrouter router export [--json]` / `localrouter router import <file-path> [--json]` (backup routing setups and restore them inside CI/CD pipelines)
 - **Verification:** `localrouter verify` — headless smoke (version, custom/all catalogs, router check); `localrouter config [--open]` → `http://127.0.0.1:11434/config`
 - **Planned at `/config`:** LiteLLM-inspired proxy admin (test chat, model matrix, provider health) per [BerriAI/litellm](https://github.com/BerriAI/litellm) — UI/TUI embedded in config surface, not a separate port
+- **Thinking:** Proxy toggle default **OFF** (IDE passthrough); optional levels when enabled. Responses strip `reasoning_content` for VS Code safety; requests preserve it for multi-turn tools
 
 ### Ollama Intercept Architecture
 
@@ -1218,7 +1220,7 @@ Documented in [Operator Guide → Custom providers](#custom-providers-for-other-
 
 ### General Continuation
 - Exercise live router model through `/config`, refresh VS Code picker, verify selection in Copilot Chat
-- Add import endpoints for router CSV/JSON backups after export format settles
+- ✅ **Router backup/restore CLI** — added CLI import/export subcommands and POST /api/router-models/import
 - Add integration coverage for CLI route controls and `bandit-local` router type
 - Add integration/UI coverage for one-model-at-a-time provider model manager workflows
 - Decide whether runtime model overrides should gain a gitignored local bootstrap file (not plaintext keys)

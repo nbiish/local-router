@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { once } from 'node:events';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync, unlinkSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -1655,3 +1655,70 @@ test('shared OPENCODE_API_KEY applies to opencode-go and opencode-zen', async (t
     assert.equal(entry.configuredSource, 'none');
   }
 });
+
+test('router export and import via CLI', async (t) => {
+  if (skipReason) {
+    t.skip(skipReason);
+    return;
+  }
+
+  const cliPath = fileURLToPath(new URL('../bin/localrouter.js', import.meta.url));
+  const cliEnv = {
+    ...process.env,
+    LOCAL_ROUTER_HOST: '127.0.0.1',
+    LOCAL_ROUTER_PORT: port
+  };
+
+  // 1. Test CLI export
+  const exportRes = spawnSync(process.execPath, [cliPath, 'router', 'export', '--json'], {
+    encoding: 'utf8',
+    env: cliEnv
+  });
+  assert.equal(exportRes.status, 0, exportRes.stderr || exportRes.stdout);
+  const exportedRouters = JSON.parse(exportRes.stdout);
+  assert.ok(Array.isArray(exportedRouters));
+  assert.ok(exportedRouters.length > 0);
+
+  // Find auto-router-main
+  const targetRouter = exportedRouters.find((r) => r.routeId === 'auto-router-main' || r.id === 'local-router/auto-router-main');
+  assert.ok(targetRouter);
+
+  // 2. Modify exported router id and candidates to import it as a new router
+  const importedRouterId = 'imported-test-router';
+  const importedRouter = {
+    ...targetRouter,
+    id: importedRouterId,
+    routeId: importedRouterId,
+    candidatesText: 'wafer-serverless/GLM-5.1'
+  };
+
+  const tempFile = join(tmpdir(), 'imported-test-router.json');
+  writeFileSync(tempFile, JSON.stringify([importedRouter]));
+
+  // 3. Test CLI import
+  const importRes = spawnSync(process.execPath, [cliPath, 'router', 'import', tempFile, '--json'], {
+    encoding: 'utf8',
+    env: cliEnv
+  });
+  assert.equal(importRes.status, 0, importRes.stderr || importRes.stdout);
+  const importPayload = JSON.parse(importRes.stdout);
+  assert.equal(importPayload.success, true);
+  assert.ok(importPayload.imported.includes(`local-router/${importedRouterId}`));
+
+  // 4. Verify via GET /api/router-models
+  const routerList = await requestJson('/api/router-models');
+  assert.equal(routerList.response.status, 200);
+  const found = routerList.body?.data?.find((r) => r.routeId === importedRouterId);
+  assert.ok(found);
+
+  // Cleanup
+  try {
+    unlinkSync(tempFile);
+  } catch (err) {}
+  await requestJson('/api/router-models', {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id: importedRouterId })
+  });
+});
+
