@@ -7644,8 +7644,8 @@ function routerCandidateEligibility(router: RouterModel, candidate: RouterCandid
   if (resolved) {
     if (features.requiresTools && !resolved.supportsTools) rejectionReasons.push('tools_required');
     if (features.requiresImages && !resolved.supportsImages) rejectionReasons.push('vision_required');
-    if (features.approxInputTokens + features.requestedOutputTokens > resolved.contextLength) rejectionReasons.push('context_exceeded');
-    if (features.requestedOutputTokens > resolved.outputTokens) rejectionReasons.push('output_exceeded');
+    if (features.approxInputTokens + features.requestedOutputTokens > resolved.contextLength) rejectionReasons.push(`context_exceeded(need=${features.approxInputTokens + features.requestedOutputTokens},limit=${resolved.contextLength})`);
+    if (features.requestedOutputTokens > resolved.outputTokens) rejectionReasons.push(`output_exceeded(need=${features.requestedOutputTokens},limit=${resolved.outputTokens})`);
   }
 
   const codingScore = resolved ? inferredCodingScore(resolved, candidate) : (candidate.codingScore || 0);
@@ -7716,6 +7716,8 @@ function selectBanditCandidate(router: RouterModel, body: any): RouterDecision |
     codingScore: Number(entry.codingScore.toFixed(4)),
     costEstimate: entry.cost === Number.MAX_SAFE_INTEGER ? null : entry.cost,
     latencyMs: entry.latencyMs,
+    contextLength: entry.model?.contextLength || null,
+    maxOutput: entry.model?.outputTokens || null,
     banditScore: entry.eligible ? Number(entry.banditScore.toFixed(4)) : null,
     uncertainty: entry.eligible ? Number(entry.uncertainty.toFixed(4)) : null,
     sampleCount: entry.eligible ? (banditState[entry.candidate.model]?.sampleCount || 0) : null,
@@ -7848,6 +7850,8 @@ function selectRouterCandidate(router: RouterModel, body: any): RouterDecision |
     codingScore: Number(entry.codingScore.toFixed(4)),
     costEstimate: entry.cost === Number.MAX_SAFE_INTEGER ? null : entry.cost,
     latencyMs: entry.latencyMs,
+    contextLength: entry.model?.contextLength || null,
+    maxOutput: entry.model?.outputTokens || null,
     score: Number.isFinite(entry.score) ? Number(entry.score.toFixed(4)) : null
   }));
 

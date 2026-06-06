@@ -728,16 +728,17 @@ The ML-DSA-65 algorithm and `openssl pkeyutl` invocations are unchanged. Only th
 
 ### Key Model Metadata
 
-**1-million-context models** (1,000,000-token windows):
+**1-million-context models** (1,000,000-token or 1,048,576-token windows):
 - `wafer-serverless/deepseek-v4-flash`, `wafer-serverless/deepseek-v4-pro`, `wafer-serverless/qwen3.7-max`
 - `zenmux/qwen/qwen3.7-max`, `zenmux/deepseek/deepseek-v4-pro`
 - `nebius/deepseek-ai/DeepSeek-V4-Pro`, `nebius/nvidia/Nemotron-3-Ultra-550b-a55b` (presented `nebius-nemotron-3-ultra-550b-a55b`)
 - `openrouter-presets/@preset/chain-of-draft`, `openrouter-presets/@preset/openrouter-personal-router`
 - `openrouter-presets/@preset/free-chain-of-draft`, `openrouter-presets/@preset/1-million-main`, `openrouter-presets/@preset/1-million-chain-of-draft`
 - `xiaomi-mimo/mimo-v2.5-pro`, `xiaomi-mimo/mimo-v2.5`
+- `minimax/minimax-m3` (across all providers including ZenMux, OpenRouter, NVIDIA NIM, OpenCode, Ollama, etc.)
 
 **Notable model specs:**
-- **MiniMax M3** (released May 31, 2026): 512K context, 512K output, multimodal (text/image/video/file), native reasoning, tools, prompt caching. Built on MiniMax Sparse Attention (MSA) — ~1/20 cost at long context vs previous generation. Pricing: $0.30/$1.20 per 1M tokens (intro 50% off). Available via: zenmux, openrouter-presets, opencode-go, nvidia-nim, opencode-zen (free tier: `minimax-m3-free`)
+- **MiniMax M3** (released May 31, 2026): 1M context, 512K output, multimodal (text/image/video/file), native reasoning, tools, prompt caching. Built on MiniMax Sparse Attention (MSA) — ~1/20 cost at long context vs previous generation. Pricing: $0.30/$1.20 per 1M tokens (intro 50% off). Available via: zenmux, openrouter-presets, opencode-go, nvidia-nim, opencode-zen (free tier: `minimax-m3-free`)
 - **Step-3.7-flash** (StepFun): 256K context, 256K output, tools+vision+cache+reasoning. Available via: zenmux, openrouter-presets, nvidia-nim
 - **Qwen3.7-max**: 1M context, 64K output. Available via: wafer-serverless, zenmux, opencode-go, openrouter-presets
 - **GLM-5.1** (Z.AI): 200K context, 128K output. Available via: opencode-go, opencode-zen, zai (`code-pass-glm-5.1`), modal (FP8), wafer-serverless
@@ -749,10 +750,10 @@ The ML-DSA-65 algorithm and `openssl pkeyutl` invocations are unchanged. Only th
 - Xiaomi Mimo: `mimo-v2.5-pro` and `mimo-v2.5` — both 1M context, tool calling; mimo-v2.5 has vision
 - OpenRouter presets: 1M context, 120K max output, tools + vision. Also `stepfun/step-3.7-flash`, `minimax/minimax-m3`, `qwen/qwen3.7-max`. All compositions must be confirmed with preset owner
 - **OpenCode Zen** (full subscription, `https://opencode.ai/zen/v1`): 42 models across Claude Opus/Sonnet/Haiku, Gemini, GPT-5.5/5.4/5.3/5.2/5.1/5, Grok, DeepSeek, GLM, MiniMax, Kimi, Qwen + 5 free-tier models. Curated 8 in providers.txt: `deepseek-v4-flash`, `gemini-3.5-flash`, `gpt-5.4`, `gpt-5.3-codex`, `claude-sonnet-4-6`, `minimax-m3-free`, `deepseek-v4-flash-free`, `glm-5.1`
-- **NVIDIA NIM Kimi K2.6** (added 2026-06-02): 256K context, 32K output, multimodal image input, tool calling, implicit prompt caching. Available as `nvidia-nim/moonshotai-kimi-k2.6` (presented as `nvidia-nim-kimi-k2.6`). Reference: `https://docs.api.nvidia.com/nim/reference/moonshotai-kimi-k2-6`
-- **OpenCode MiniMax M3 free tier** (added 2026-06-02): 512K context, 512K output, multimodal, tool calling, prompt caching, native reasoning stripped for VS Code. **Only on Zen** (`opencode-zen/minimax-m3-free` → presented `opencode-zen-minimax-m3-free`); not on Go subscription catalog
+- **NVIDIA NIM Kimi K2.6** (added 2026-06-02): 256K context, 262K output, multimodal image input, tool calling, implicit prompt caching. Available as `nvidia-nim/moonshotai-kimi-k2.6` (presented as `nvidia-nim-kimi-k2.6`). Reference: `https://docs.api.nvidia.com/nim/reference/moonshotai-kimi-k2-6`
+- **OpenCode MiniMax M3 free tier** (added 2026-06-02): 1M context, 512K output, multimodal, tool calling, prompt caching, native reasoning stripped for VS Code. **Only on Zen** (`opencode-zen/minimax-m3-free` → presented `opencode-zen-minimax-m3-free`); not on Go subscription catalog
 - **Z.ai**: `code-pass-glm-5.1` — coding-focused GLM-5.1, 200K context, 128K output
-- MiniMax M2.7: 204.8K context, 131K max output, tools YES, vision NO, reasoning YES (stripped for VS Code)
+- MiniMax M2.7: 204.8K context, 196K max output, tools YES, vision NO, reasoning YES (stripped for VS Code)
 
 ### Prompt Caching by Provider
 

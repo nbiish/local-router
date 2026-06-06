@@ -12,6 +12,7 @@
     "test": "npm run test:integration",
     "test:integration": "npm run build && node --test --test-concurrency=1 tests/ollama-cloud.test.mjs tests/ollama-cloud-catalog.test.mjs tests/gateway-provider-catalog.test.mjs tests/gateway-response.test.mjs tests/routing-exhaustion-order.test.mjs tests/cline-kilo-catalog-validation.test.mjs tests/execution-plan.test.mjs tests/*.integration.test.mjs",
     "validate:cline-kilo": "node scripts/validate-cline-kilo-catalog.mjs",
+    "validate:model-specs": "node --import tsx scripts/validate-model-specs.mts",
     "start": "node build/index.js",
     "dev": "tsx watch src/index.ts",
     "dev:once": "tsx src/index.ts",
