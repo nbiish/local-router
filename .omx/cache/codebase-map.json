@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "worktreeRoot": "/Volumes/1tb-sandisk/code-external/fvs-code",
+  "gitDir": "/Volumes/1tb-sandisk/code-external/fvs-code/.git",
+  "indexMtimeMs": 1780697543345.5098,
+  "indexSize": 13237,
+  "map": "  src/: execution-plan, gateway-provider-catalog, gateway-response, ollama-backend, ollama-cloud-catalog, ollama-cloud, ollama-keys, provider-pricing, reasoning\n  src/providers/: groq, ollama, openrouter\n  scripts/: probe-cline-kilo, validate-cline-kilo-catalog\n  bin/: fvs-code, localrouter-client, local-router, localrouter\n  tests/: cline-kilo-catalog-validation.test, custom-providers.integration.test, execution-plan.test, gateway-provider-catalog.test, gateway-response.test, ollama-cloud-catalog.test, ollama-cloud.test, provider-keys.integration.test, responses-http-stream.integration.test, responses-websocket-anthropic.integration.test",
+  "createdAt": "2026-06-05T22:24:49.603Z"
+}
