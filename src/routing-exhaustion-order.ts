@@ -46,7 +46,8 @@ export const SUBSCRIPTION_PROVIDERS = [
 export const SUBSCRIPTION_PROVIDER_SUB_ORDER = [
   'opencode-go',
   'zai',
-  'xiaomi-mimo'
+  'xiaomi-mimo',
+  'commandcode'
 ] as const;
 
 /** API-paid provider try order after subscription exhaustion band. */
