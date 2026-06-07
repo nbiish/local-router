@@ -34,6 +34,7 @@
 # │ ollama             │ http://127.0.0.1:11435/v1              │ OLLAMA_API_KEY          │
 # │ cline              │ https://api.cline.bot/api/v1          │ CLINE_API_KEY            │
 # │ kilo               │ https://api.kilo.ai/api/gateway       │ KILO_API_KEY             │
+# │ commandcode        │ https://api.commandcode.ai/alpha/generate│ COMMANDCODE_API_KEY    │
 
 # =============================================================================
 # MASTER MODEL SPECIFICATION
@@ -88,6 +89,7 @@
 # │ 66 │ zenmux             │ minimax/minimax-m3                  │ zenm:minimax-m3               │1,000,000 │ 512,000  │ YES   │ YES  │ YES   │ YES*      │
 # │ 67 │ openrouter-presets │ minimax/minimax-m3                  │ orps:minimax-m3               │1,048,576 │ 512,000  │ YES   │ YES  │ YES   │ YES*  paid│
 # │ 68 │ opencode-go      │ minimax-m3                          │ opc:minimax-m3                │1,000,000 │ 512,000  │ YES   │ YES  │ YES   │ YES*      │
+# │ 72 │ commandcode        │ deepseek-v4-pro                     │ cmdc:deepseek-v4-pro          │1,000,000 │ 384,000  │ YES   │ NO   │ YES   │ NO*  sub  │
 # │ 69 │ nvidia-nim         │ minimaxai/minimax-m3                │ nvnm:minimax-m3               │1,000,000 │ 512,000  │ YES   │ YES  │ YES   │ YES*      │
 # │ 70 │ openrouter-presets │ qwen/qwen3.7-max                    │ orps:qwen3.7-max              │1,000,000 │ 65,536   │ YES   │ NO   │ YES   │ NO*       │
 # │ 71 │ opencode-zen       │ deepseek-v4-flash                   │ ozen:deepseek-v4-flash        │1,000,000 │ 384,000  │ YES   │ NO   │ YES   │ NO*       │
@@ -406,6 +408,19 @@
 #              Do not store Xiaomi Mimo keys in providers.txt, .env, git,
 #              shell history, logs, or tool output.
 
+## commandcode _____________________________________________________________
+# Tier:        CommandCode (subscription) — taste-1 harness over open models
+# Endpoint:    https://api.commandcode.ai/alpha/generate  (POST only)
+# Key env:     COMMANDCODE_API_KEY  (PQC-encrypted secrets bundle only)
+# Cross-tool:  Local Router (OpenAI-compatible adapter)
+# Models:      1  —  deepseek-v4-pro
+# Notes:       Custom non-OpenAI path (/alpha/generate, not /v1/chat/completions).
+#              API requires cmd CLI v0.18.10+ for full auth; key validated
+#              via /alpha/whoami and /alpha/generate routes.
+#              Pricing: 4× deal on deepseek-v4-pro (see commandcode.ai/deals).
+#              NEVER store the API key in providers.txt, .env, git, shell
+#              history, logs, or tool output. Use ~/.config/pqc-secrets/.
+
 ## ollama ___________________________________________________________________
 # Tier:        Ollama Cloud (free tier via ollama.com account)
 # Endpoint:    http://127.0.0.1:11435/v1  (Local Router auto-starts real Ollama here)
@@ -462,6 +477,7 @@
 # │ modal              │ YES    │ NO         │ YES custom│ YES  │ YES   │ YES │ YES   │ YES   │ YES   │ YES       │
 # │ openrouter-presets │ YES    │ YES        │ YES custom│ YES  │ YES   │ YES │ YES   │ YES   │ YES   │ YES       │
 # │ xiaomi-mimo        │ YES    │ NO         │ YES custom│ YES  │ YES   │ YES │ YES   │ YES   │ YES   │ YES       │
+# │ commandcode        │ YES    │ NO         │ NO        │ NO   │ NO    │ NO  │ NO    │ NO    │ NO    │ NO        │
 # │ opencode-go      │ YES    │ YES        │ YES custom│ YES  │ YES   │ YES │ YES   │ YES   │ YES   │ YES       │
 # │ cline              │ YES    │ YES        │ YES custom│ YES  │ YES   │ YES │ YES   │ YES   │ YES   │ YES       │
 # │ kilo               │ YES    │ YES        │ YES custom│ YES  │ YES   │ YES │ YES   │ YES   │ YES   │ YES       │

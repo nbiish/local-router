@@ -43,10 +43,12 @@ export const DEFAULT_FALLBACK_ORDERED_IDS: readonly string[] = [
   'cline-minimax-minimax-m3-free',
   'opencode-zen-minimax-m3-free',
   'openrouter-free',
+  'kilo-stepfun-step-3.7-flash-free',
   'opencode-go-deepseek-v4-pro',
   'zai-code-pass-glm-5.1',
   'xiaomi-mimo-mimo-v2.5-pro',
-  ...FALLBACK_PAID_TAIL_IDS
+  ...FALLBACK_PAID_TAIL_IDS,
+  'commandcode-deepseek-v4-pro'
 ] as const;
 
 const CANDIDATE_DEFAULTS: Record<string, string> = {
@@ -79,6 +81,7 @@ const CANDIDATE_DEFAULTS: Record<string, string> = {
   'zai-code-pass-glm-5.1': 'coding=0.88, input=0.88, output=3.51, latency=750, notes=Z.ai Code Pass GLM-5.1 subscription',
   'xiaomi-mimo-mimo-v2.5-pro': 'coding=0.80, input=0.44, output=0.88, latency=1000, notes=Xiaomi MiMo V2.5 Pro subscription',
   'xiaomi-mimo-mimo-v2.5': 'coding=0.76, input=0.15, output=0.29, latency=1100, notes=Xiaomi MiMo V2.5 subscription',
+  'commandcode-deepseek-v4-pro': 'coding=0.89, input=0.5, output=1, latency=800, notes=CommandCode DeepSeek V4 Pro subscription',
   'wafer-ai-deepseek-v4-flash': 'coding=0.87, input=0.5, output=1, latency=600, notes=Wafer DeepSeek V4 Flash',
   'zenmux-mimo-v2.5-pro': 'coding=0.84, input=0.44, output=0.88, latency=700, notes=ZenMux xiaomi/mimo-v2.5-pro paid tail',
   'zenmux-minimax-m3': 'coding=0.90, input=0.3, output=1.2, latency=700, notes=ZenMux MiniMax M3',

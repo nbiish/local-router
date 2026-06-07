@@ -380,6 +380,7 @@ test('provider key save/reset lifecycle exposes configured source', async (t) =>
     'cline-minimax-minimax-m3-free',
     'opencode-zen-minimax-m3-free',
     'openrouter-free',
+    'kilo-stepfun-step-3.7-flash-free',
     'opencode-go-deepseek-v4-pro',
     'zai-code-pass-glm-5.1',
     'xiaomi-mimo-mimo-v2.5-pro',
@@ -388,12 +389,13 @@ test('provider key save/reset lifecycle exposes configured source', async (t) =>
     'openrouter-chain-of-draft',
     'nebius-nemotron-3-ultra-550b-a55b',
     'cline-deepseek-deepseek-v4-flash-free',
-    'kilo-deepseek-deepseek-v4-flash-paid'
+    'kilo-deepseek-deepseek-v4-flash-paid',
+    'commandcode-deepseek-v4-pro'
   ];
   assert.deepEqual(
     fallbackChain,
     expectedFallbackChain,
-    `fallback-models should match the fixed 16-step chain; got: ${fallbackChain.join(', ')}`
+    `fallback-models should match the fixed 18-step chain; got: ${fallbackChain.join(', ')}`
   );
   assert.ok(
     autoRouterCandidates.includes('openrouter-free'),

@@ -97,11 +97,14 @@ type ProviderModelParseResult =
 type FallbackModel = {
   id: string;
   models: string[];
+  disabledModels?: string[];
 };
 
 type FallbackModelParseResult =
   | { ok: true; model: FallbackModel }
   | { ok: false; error: string };
+
+export type { FallbackModel, FallbackModelParseResult };
 
 type RouterType = 'priority' | 'pareto-code' | 'auto-local' | 'bandit-local';
 
@@ -119,6 +122,7 @@ type RouterCandidate = {
   outputPrice?: number;
   latencyMs?: number;
   notes?: string;
+  enabled?: boolean;
 };
 
 type RouterModel = {
@@ -1156,7 +1160,7 @@ function parseSingleProviderModel(providerName: string, payload: any): ProviderM
   return parseProviderModels(providerName, { models: [payload] });
 }
 
-function parseFallbackModel(payload: any): FallbackModelParseResult {
+export function parseFallbackModel(payload: any): FallbackModelParseResult {
   const rawId = typeof payload?.id === 'string' ? payload.id.trim() : '';
   const id = normalizeFallbackRouteId(rawId);
   if (!id) {
@@ -1176,7 +1180,7 @@ function parseFallbackModel(payload: any): FallbackModelParseResult {
   const entries = Array.isArray(rawModels)
     ? rawModels
     : typeof rawModels === 'string'
-      ? rawModels.split(/[,\s]+/)
+      ? rawModels.split(/[\n,;]+/).map((line) => line.trim()).filter((line) => line.length > 0)
       : [];
 
   if (entries.length === 0) {
@@ -1185,32 +1189,78 @@ function parseFallbackModel(payload: any): FallbackModelParseResult {
 
   const seen = new Set<string>();
   const models: string[] = [];
+  const disabledSeen = new Set<string>();
+  const disabledModels: string[] = [];
+  const disabledDirectiveRegex = /^(.*?)\s+(!enabled|disabled)$/i;
 
   for (const entry of entries) {
-    const modelName = typeof entry === 'string' ? entry.trim() : '';
-    if (!modelName || modelName.startsWith('#')) continue;
+    if (entry === null || entry === undefined) continue;
+    let modelName = '';
+    let isDisabled = false;
+    if (typeof entry === 'string') {
+      const trimmed = entry.trim();
+      if (!trimmed || trimmed.startsWith('#')) continue;
+      const directiveMatch = trimmed.match(disabledDirectiveRegex);
+      if (directiveMatch) {
+        modelName = directiveMatch[1].trim();
+        isDisabled = true;
+      } else {
+        modelName = trimmed;
+      }
+    } else if (entry && typeof entry === 'object' && typeof entry.model === 'string') {
+      modelName = entry.model.trim();
+      isDisabled = entry.enabled === false;
+    }
+    if (!modelName) continue;
     if (modelName.length > 512) {
       return { ok: false, error: `Fallback model entry is too long: ${modelName.slice(0, 64)}` };
     }
     if (!/^[A-Za-z0-9@._:\/+-]+$/.test(modelName)) {
       return { ok: false, error: `Fallback model entry contains unsupported characters: ${modelName}` };
     }
-    if (seen.has(modelName)) continue;
+    if (seen.has(modelName)) {
+      if (isDisabled && !disabledSeen.has(modelName)) {
+        disabledSeen.add(modelName);
+        disabledModels.push(modelName);
+      }
+      continue;
+    }
     seen.add(modelName);
     models.push(modelName);
+    if (isDisabled) {
+      disabledSeen.add(modelName);
+      disabledModels.push(modelName);
+    }
   }
 
   if (models.length < 2) {
     return { ok: false, error: 'Fallback route requires at least two unique model entries.' };
   }
 
-  return {
-    ok: true,
-    model: {
-      id,
-      models
+  const rawDisabled = payload?.disabledModels;
+  if (Array.isArray(rawDisabled)) {
+    for (const entry of rawDisabled) {
+      if (typeof entry !== 'string') continue;
+      const trimmed = entry.trim();
+      if (!trimmed || !seen.has(trimmed) || disabledSeen.has(trimmed)) continue;
+      disabledSeen.add(trimmed);
+      disabledModels.push(trimmed);
     }
-  };
+  } else if (typeof rawDisabled === 'string') {
+    for (const entry of rawDisabled.split(/[,\s]+/)) {
+      const trimmed = entry.trim();
+      if (!trimmed || !seen.has(trimmed) || disabledSeen.has(trimmed)) continue;
+      disabledSeen.add(trimmed);
+      disabledModels.push(trimmed);
+    }
+  }
+
+  const model: FallbackModel = { id, models };
+  if (disabledModels.length > 0) {
+    model.disabledModels = disabledModels;
+  }
+
+  return { ok: true, model };
 }
 
 function normalizeRouterRouteId(value: string) {
@@ -1256,7 +1306,7 @@ function parseRouterCandidateLine(line: string): RouterCandidate | null {
   const [modelPart, ...metadataParts] = trimmed.split(',').map((part) => part.trim());
   if (!modelPart) return null;
 
-  const candidate: RouterCandidate = { model: modelPart };
+  const candidate: RouterCandidate = { model: modelPart, enabled: true };
   for (const part of metadataParts) {
     const [rawKey, ...rawValueParts] = part.split('=');
     const key = rawKey.trim().toLowerCase();
@@ -1272,6 +1322,9 @@ function parseRouterCandidateLine(line: string): RouterCandidate | null {
       candidate.latencyMs = parseBoundedNumber(value, 0, Number.MAX_SAFE_INTEGER);
     } else if (key === 'notes') {
       candidate.notes = sanitizeDiagnosticText(value, 120);
+    } else if (key === 'enabled') {
+      const lowerValue = value.toLowerCase();
+      candidate.enabled = lowerValue !== 'false' && lowerValue !== '0' && lowerValue !== 'no';
     }
   }
 
@@ -1308,7 +1361,8 @@ function parseRouterModel(payload: any): RouterModelParseResult {
             inputPrice: parseBoundedNumber(entry.inputPrice, 0, Number.MAX_SAFE_INTEGER),
             outputPrice: parseBoundedNumber(entry.outputPrice, 0, Number.MAX_SAFE_INTEGER),
             latencyMs: parseBoundedNumber(entry.latencyMs, 0, Number.MAX_SAFE_INTEGER),
-            notes: typeof entry.notes === 'string' ? sanitizeDiagnosticText(entry.notes, 120) : undefined
+            notes: typeof entry.notes === 'string' ? sanitizeDiagnosticText(entry.notes, 120) : undefined,
+            enabled: entry.enabled !== false
           }
         : null;
     if (!candidate || !candidate.model) continue;
@@ -1405,11 +1459,15 @@ function isLocalRouterProviderName(providerName: string | undefined) {
   return providerName === FALLBACK_PROVIDER_NAME || FALLBACK_PROVIDER_LEGACY_NAMES.includes(providerName || '');
 }
 
-function cloneFallbackModel(model: FallbackModel): FallbackModel {
-  return {
+export function cloneFallbackModel(model: FallbackModel): FallbackModel {
+  const cloned: FallbackModel = {
     id: model.id,
     models: [...model.models]
   };
+  if (Array.isArray(model.disabledModels) && model.disabledModels.length > 0) {
+    cloned.disabledModels = [...new Set(model.disabledModels.filter((entry) => typeof entry === 'string' && entry.length > 0))];
+  }
+  return cloned;
 }
 
 function cloneRouterModel(model: RouterModel): RouterModel {
@@ -2762,8 +2820,19 @@ function configureVSCodeModelPicker(hostUrl: string) {
 
 // ── PQC Secrets Persistence ────────────────────────────────────────────────
 
+function getPqcConfigDir(): string {
+  return process.env.PQC_CONFIG_DIR || path.join(os.homedir(), '.config', 'pqc-secrets');
+}
+
+function getPqcBundlePath(): string {
+  return path.join(getPqcConfigDir(), 'secrets.bundle.json');
+}
+
+function getPqcPubkeyPath(): string {
+  return path.join(getPqcConfigDir(), 'recipient.pub');
+}
+
 function getPqcBinPath(): string {
-  // Resolve bin/pqc-secrets relative to this project
   const candidates = [
     path.resolve(__dirname, '..', 'bin', 'pqc-secrets'),
     path.resolve(process.cwd(), 'bin', 'pqc-secrets'),
@@ -2777,6 +2846,37 @@ function getPqcBinPath(): string {
   return '';
 }
 
+function ensurePqcKeypair(bin: string): boolean {
+  const pubkeyPath = getPqcPubkeyPath();
+  if (fs.existsSync(pubkeyPath)) return true;
+  try {
+    execFileSync(bin, ['keygen'], {
+      encoding: 'utf8',
+      timeout: 10000,
+      stdio: 'pipe',
+    });
+    console.log(`[PQC] Generated new ML-KEM-768 keypair at ${getPqcConfigDir()}/`);
+    return true;
+  } catch (err) {
+    console.error(`[PQC] Failed to generate keypair:`, (err as Error).message);
+    return false;
+  }
+}
+
+function loadKeysFromEnvironment(): number {
+  const allSummaries = allProviderSummaries();
+  let count = 0;
+  for (const summary of allSummaries) {
+    if (keyStore[summary.name]) continue;
+    const envValue = process.env[summary.keyEnvVar];
+    if (envValue) {
+      keyStore[summary.name] = envValue;
+      count++;
+    }
+  }
+  return count;
+}
+
 function loadPqcSecrets(): void {
   if (process.env.LOCAL_ROUTER_SKIP_PQC_LOAD === 'true') {
     ensureDefaultOllamaApiKey(keyStore);
@@ -2787,12 +2887,37 @@ function loadPqcSecrets(): void {
 
   const bin = getPqcBinPath();
   if (!bin) {
-    console.log('[PQC] pqc-secrets binary not found — skipping bundle load.');
+    console.log(`[PQC] pqc-secrets binary not found — install at bin/pqc-secrets or run 'uv tool install' to enable bundle loading.`);
+    console.log(`[PQC] Falling back to environment variables and process.env for provider keys.`);
+    const envCount = loadKeysFromEnvironment();
+    if (envCount > 0) {
+      console.log(`[PQC] Loaded ${envCount} provider key(s) from environment.`);
+    }
     ensureDefaultOllamaApiKey(keyStore);
     pruneDisallowedOllamaCloudRouting();
     pruneDisallowedGatewayFreeRouting();
+    reportMissingProviders();
     return;
   }
+
+  const bundlePath = getPqcBundlePath();
+  const bundleExists = fs.existsSync(bundlePath);
+
+  if (!bundleExists) {
+    console.log(`[PQC] No secrets bundle found at ${bundlePath}.`);
+    console.log(`[PQC] To create one: run 'bin/pqc-secrets keygen' then 'bin/pqc-secrets pack' (pipe KEY=VAL lines via stdin).`);
+    console.log(`[PQC] Falling back to environment variables for provider keys.`);
+    const envCount = loadKeysFromEnvironment();
+    if (envCount > 0) {
+      console.log(`[PQC] Loaded ${envCount} provider key(s) from environment.`);
+    }
+    ensureDefaultOllamaApiKey(keyStore);
+    pruneDisallowedOllamaCloudRouting();
+    pruneDisallowedGatewayFreeRouting();
+    reportMissingProviders();
+    return;
+  }
+
   try {
     const output = execFileSync(bin, ['export'], {
       encoding: 'utf8',
@@ -2818,43 +2943,38 @@ function loadPqcSecrets(): void {
       }
     }
     if (loadedProviders.length > 0) {
-      console.log(`[PQC] Loaded ${loadedProviders.length} provider key(s): ${loadedProviders.join(', ')}`);
+      console.log(`[PQC] Loaded ${loadedProviders.length} provider key(s) from bundle: ${loadedProviders.join(', ')}`);
     }
     if (skippedEnvVars.length > 0) {
       console.log(`[PQC] Env vars not mapped to providers: ${skippedEnvVars.join(', ')}`);
     }
-    // Also load any provider keys already set in environment (env, secrets-load, etc.)
-    const allSummaries = allProviderSummaries();
-    const envLoaded: string[] = [];
-    for (const summary of allSummaries) {
-      if (keyStore[summary.name]) continue; // already loaded from PQC bundle
-      const envValue = process.env[summary.keyEnvVar];
-      if (envValue) {
-        keyStore[summary.name] = envValue;
-        envLoaded.push(summary.name);
-      }
-    }
-    if (envLoaded.length > 0) {
-      console.log(`[PQC] Loaded ${envLoaded.length} provider key(s) from environment: ${envLoaded.join(', ')}`);
-    }
-    // Report providers still missing keys
-    const missing = allSummaries.filter((s) => !keyStore[s.name]).map((s) => s.name);
-    if (missing.length > 0) {
-      const missingWithoutOllama = missing.filter((name) => name !== 'ollama');
-      if (missingWithoutOllama.length > 0) {
-        console.log(`[PQC] Providers without keys: ${missingWithoutOllama.join(', ')}`);
-      }
+    const envCount = loadKeysFromEnvironment();
+    if (envCount > 0) {
+      console.log(`[PQC] Loaded ${envCount} additional provider key(s) from environment.`);
     }
     ensureDefaultOllamaApiKey(keyStore);
     pruneDisallowedOllamaCloudRouting();
     pruneDisallowedGatewayFreeRouting();
+    reportMissingProviders();
   } catch (err) {
-    if (process.env.LOCAL_ROUTER_DEV === 'true') {
-      console.log(`[PQC] No secrets bundle loaded:`, (err as Error).message);
-    }
+    console.log(`[PQC] Failed to load bundle:`, (err as Error).message);
+    console.log(`[PQC] Falling back to environment variables.`);
+    loadKeysFromEnvironment();
     ensureDefaultOllamaApiKey(keyStore);
     pruneDisallowedOllamaCloudRouting();
     pruneDisallowedGatewayFreeRouting();
+    reportMissingProviders();
+  }
+}
+
+function reportMissingProviders(): void {
+  const allSummaries = allProviderSummaries();
+  const missing = allSummaries.filter((s) => !keyStore[s.name]).map((s) => s.name);
+  if (missing.length > 0) {
+    const missingWithoutOllama = missing.filter((name) => name !== 'ollama');
+    if (missingWithoutOllama.length > 0) {
+      console.log(`[PQC] Providers without keys: ${missingWithoutOllama.join(', ')}`);
+    }
   }
 }
 
@@ -2885,7 +3005,10 @@ function clearProviderKeyForProvider(providerName: string): void {
 
 function persistPqcSecrets(): void {
   const bin = getPqcBinPath();
-  if (!bin) return;
+  if (!bin) {
+    console.warn(`[PQC] pqc-secrets binary not found — key changes will not persist across restarts. Install bin/pqc-secrets to enable.`);
+    return;
+  }
   try {
     const lines: string[] = [];
     const packedEnvVars = new Set<string>();
@@ -2899,6 +3022,10 @@ function persistPqcSecrets(): void {
       }
     }
     if (lines.length === 0) return;
+    if (!ensurePqcKeypair(bin)) {
+      console.error(`[PQC] Cannot persist: no keypair at ${getPqcPubkeyPath()}. Run 'bin/pqc-secrets keygen' manually.`);
+      return;
+    }
     execFileSync(bin, ['pack'], {
       input: lines.join('\n') + '\n',
       encoding: 'utf8',
@@ -2906,7 +3033,7 @@ function persistPqcSecrets(): void {
       env: { ...process.env, PATH: process.env.PATH || '/usr/local/bin:/usr/bin:/bin' }
     });
     if (process.env.LOCAL_ROUTER_DEV === 'true') {
-      console.log(`[PQC] Persisted ${lines.length} keys to secrets bundle.`);
+      console.log(`[PQC] Persisted ${lines.length} key(s) to ${getPqcBundlePath()}.`);
     }
   } catch (err) {
     console.error('[PQC] Failed to persist secrets:', (err as Error).message);
@@ -3129,6 +3256,9 @@ app.get('/config', (req: Request, res: Response) => {
         .router-candidate-item { padding: 10px 12px; border-top: 1px solid var(--border); background: var(--surface-raised); display: flex; align-items: center; gap: 10px; }
         .router-candidate-item:first-child { border-top: 0; }
         .router-candidate-item.dragging { opacity: 0.5; background: var(--primary-soft); }
+        .router-candidate-item.router-candidate-disabled { opacity: 0.5; background: var(--surface-soft); }
+        .router-candidate-item.router-candidate-disabled .candidate-model { text-decoration: line-through; color: var(--muted); }
+        .router-candidate-item .candidate-toggle { width: 18px; height: 18px; cursor: pointer; margin: 0; flex-shrink: 0; }
         .router-candidate-item .drag-handle { cursor: grab; color: var(--muted); font-size: 18px; user-select: none; padding: 0 4px; }
         .router-candidate-item .drag-handle:active { cursor: grabbing; }
         .router-candidate-item .candidate-info { flex: 1; min-width: 0; }
@@ -3478,8 +3608,16 @@ app.get('/config', (req: Request, res: Response) => {
             <input id="fallbackRouteId" type="text" placeholder="fallback-models">
           </div>
           <div class="form-group">
-            <label for="fallbackModelsText">Fallback Model Chain</label>
-            <textarea id="fallbackModelsText" placeholder="wafer-ai-deepseek-v4-pro&#10;openrouter-chain-of-draft&#10;moonshot-kimi-k2.6"></textarea>
+            <label>Add Model to Chain</label>
+            <div class="dropdown-search-container">
+              <input id="fallbackModelSearch" type="text" placeholder="Search models..." autocomplete="off" oninput="filterFallbackModelDropdown()" onfocus="openFallbackModelDropdown()">
+              <div id="fallbackModelDropdown" class="dropdown-search-menu"></div>
+            </div>
+            <button style="margin-top:8px;" onclick="addSelectedFallbackCandidate()">Add to Chain</button>
+          </div>
+          <div class="form-group">
+            <label for="fallbackModelsText">Fallback Model Chain (advanced — synced with order list)</label>
+            <textarea id="fallbackModelsText" style="min-height:80px;" placeholder="wafer-ai-deepseek-v4-pro&#10;openrouter-chain-of-draft&#10;moonshot-kimi-k2.6 disabled" oninput="applyFallbackTextareaToStore()"></textarea>
           </div>
         </div>
         <div class="button-row">
@@ -3487,6 +3625,12 @@ app.get('/config', (req: Request, res: Response) => {
           <button class="button-secondary" onclick="applyFallbackDefaults()">Reset Fallback Defaults</button>
           <button class="button-secondary" onclick="clearFallbackRouteForm()">Clear Fallback Form</button>
           <button class="button-secondary" onclick="configureVSCodePicker()">Refresh VS Code Model Picker</button>
+        </div>
+        <div style="margin-top:14px;">
+          <label>Fallback Order (drag to reorder · click toggle to enable/disable a model)</label>
+          <div id="fallbackCandidateList" class="router-candidate-list">
+            <div class="router-candidate-empty">No candidates added yet. Search and add models above.</div>
+          </div>
         </div>
         <div id="fallbackRouteList" class="fallback-route-list">
           <div class="fallback-route-empty">Loading fallback routes...</div>
@@ -3567,10 +3711,6 @@ app.get('/config', (req: Request, res: Response) => {
               <input id="routerFallbackGroupToggle" type="checkbox" onchange="toggleFallbackGroupMode(this.checked)">
               Add candidate as fallback group (same model across providers chains as fallback)
             </label>
-            <label style="margin-top:14px;">Candidate Order (drag to reorder)</label>
-            <div id="routerCandidateList" class="router-candidate-list">
-              <div class="router-candidate-empty">No candidates added yet. Search and add models above.</div>
-            </div>
           </div>
           <div id="tab-advanced" class="router-tab-content" style="display:none;">
             <textarea id="routerCandidatesText" placeholder="wafer-ai-deepseek-v4-pro, coding=0.86, input=1, output=2, latency=1200&#10;openrouter-chain-of-draft, coding=0.80&#10;mimo-mimo-v2.5-pro, coding=0.45"></textarea>
@@ -3593,6 +3733,13 @@ app.get('/config', (req: Request, res: Response) => {
         <input type="file" id="routerImportFile" accept=".json" style="display:none;" onchange="handleRouterImportFile(event)">
         <div id="routerRouteList" class="fallback-route-list">
           <div class="fallback-route-empty">Loading router models...</div>
+        </div>
+        <div style="margin-top:18px;">
+          <label style="font-weight:500;">Candidate Order (drag to reorder · click toggle to enable/disable a model)</label>
+          <p class="muted" style="margin:4px 0 8px; font-size:12px;">Order is saved with the route. Active reordering changes the persisted chain above.</p>
+          <div id="routerCandidateList" class="router-candidate-list">
+            <div class="router-candidate-empty">No candidates added yet. Search and add models above.</div>
+          </div>
         </div>
       </div>
       <div class="card">
@@ -3756,6 +3903,7 @@ app.get('/config', (req: Request, res: Response) => {
         const DEFAULT_ROUTER_CANDIDATES_TEXT = ${JSON.stringify(resolvedDefaultAutoRouterCandidatesText())};
         const DEFAULT_FALLBACK_MODELS_TEXT = ${JSON.stringify(DEFAULT_FALLBACK_MODELS_TEXT)};
         let routerCandidateStore = [];
+        let fallbackCandidateStore = [];
         let allModelsCache = [];
         let modelAvailabilityCache = {};
         let selectedDropdownIndex = -1;
@@ -4186,6 +4334,8 @@ app.get('/config', (req: Request, res: Response) => {
           document.getElementById('fallbackRouteId').value = '';
           document.getElementById('fallbackRouteId').disabled = false;
           document.getElementById('fallbackModelsText').value = '';
+          fallbackCandidateStore = [];
+          renderFallbackCandidateList();
         }
 
         function applyFallbackDefaults() {
@@ -4193,6 +4343,7 @@ app.get('/config', (req: Request, res: Response) => {
           document.getElementById('fallbackRouteId').value = 'fallback-models';
           document.getElementById('fallbackRouteId').disabled = false;
           document.getElementById('fallbackModelsText').value = DEFAULT_FALLBACK_MODELS_TEXT;
+          applyFallbackTextareaToStore();
         }
 
         function availabilityBadgeHtml(modelId) {
@@ -4250,7 +4401,13 @@ app.get('/config', (req: Request, res: Response) => {
               activeFallbackRouteId = route.id;
               document.getElementById('fallbackRouteId').value = route.id;
               document.getElementById('fallbackRouteId').disabled = true;
-              document.getElementById('fallbackModelsText').value = Array.isArray(route.models) ? route.models.join('\\\\n') : '';
+              const disabled = new Set(Array.isArray(route.disabledModels) ? route.disabledModels : []);
+              const models = Array.isArray(route.models) ? route.models : [];
+              fallbackCandidateStore = models.map(function(modelId) {
+                return { model: modelId, enabled: !disabled.has(modelId) };
+              });
+              renderFallbackCandidateList();
+              syncFallbackCandidatesToTextarea();
             });
           });
 
@@ -4268,10 +4425,22 @@ app.get('/config', (req: Request, res: Response) => {
           const modelIds = fallbackRoutes.flatMap((route) => Array.isArray(route.models) ? route.models : []);
           await refreshModelAvailability(modelIds);
           renderFallbackRoutes();
+          if (activeFallbackRouteId) {
+            const active = fallbackRoutes.find((entry) => entry.id === activeFallbackRouteId);
+            if (active) {
+              const disabled = new Set(Array.isArray(active.disabledModels) ? active.disabledModels : []);
+              fallbackCandidateStore = (Array.isArray(active.models) ? active.models : []).map(function(modelId) {
+                return { model: modelId, enabled: !disabled.has(modelId) };
+              });
+              renderFallbackCandidateList();
+              syncFallbackCandidatesToTextarea();
+            }
+          }
         }
 
         async function saveFallbackRoute() {
           const id = document.getElementById('fallbackRouteId').value.trim();
+          syncFallbackCandidatesToTextarea();
           const modelsText = document.getElementById('fallbackModelsText').value.trim();
 
           if (!id || !modelsText) {
@@ -4388,7 +4557,7 @@ app.get('/config', (req: Request, res: Response) => {
         }
 
         function addSingleCandidate(model) {
-          routerCandidateStore.push({ model: model });
+          routerCandidateStore.push({ model: model, enabled: true });
           renderCandidateList();
           syncCandidatesToTextarea();
         }
@@ -4401,11 +4570,11 @@ app.get('/config', (req: Request, res: Response) => {
             return m !== model && extractBaseModel(m) === baseModel;
           });
 
-          routerCandidateStore.push({ model: model });
+          routerCandidateStore.push({ model: model, enabled: true });
           if (existing.length > 0) {
             existing.forEach(function(m) {
               if (!routerCandidateStore.some(function(c) { return c.model === m; })) {
-                routerCandidateStore.push({ model: m, fallbackOf: model });
+                routerCandidateStore.push({ model: m, fallbackOf: model, enabled: true });
               }
             });
           }
@@ -4453,6 +4622,13 @@ app.get('/config', (req: Request, res: Response) => {
           syncCandidatesToTextarea();
         }
 
+        function toggleCandidate(index, enabled) {
+          if (index < 0 || index >= routerCandidateStore.length) return;
+          routerCandidateStore[index].enabled = enabled;
+          renderCandidateList();
+          syncCandidatesToTextarea();
+        }
+
         function renderCandidateList() {
           var listEl = document.getElementById('routerCandidateList');
           if (!listEl) return;
@@ -4466,14 +4642,17 @@ app.get('/config', (req: Request, res: Response) => {
             var badge = provider ? '<span class="provider-badge">' + escapeHtml(provider) + '</span>' : '';
             var fallbackTag = c.fallbackOf ? '<span class="provider-badge" style="background:var(--warning-bg);color:var(--warning-text);">fallback</span>' : '';
             var statusBadge = availabilityBadgeHtml(c.model);
-            return '<div class="router-candidate-item" draggable="true" data-candidate-index="' + i + '" ondragstart="candidateDragStart(event)" ondragover="candidateDragOver(event)" ondrop="candidateDrop(event)" ondragend="candidateDragEnd(event)">' +
+            var isEnabled = c.enabled !== false;
+            var disabledClass = !isEnabled ? ' router-candidate-disabled' : '';
+            return '<div class="router-candidate-item' + disabledClass + '" draggable="true" data-candidate-index="' + i + '" ondragstart="candidateDragStart(event)" ondragover="candidateDragOver(event)" ondrop="candidateDrop(event)" ondragend="candidateDragEnd(event)">' +
               '<span class="drag-handle" title="Drag to reorder">☰</span>' +
+              '<input type="checkbox" class="candidate-toggle" ' + (isEnabled ? 'checked' : '') + ' onchange="toggleCandidate(' + i + ', this.checked)" title="' + (isEnabled ? 'Enabled' : 'Disabled') + '">' +
               '<div class="candidate-info">' +
                 '<span class="candidate-model">' + escapeHtml(c.model) + '</span>' + badge + fallbackTag + statusBadge +
                 '<div class="metadata-row">' +
-                  '<div><label>coding</label><input type="number" value="' + (c.codingScore !== undefined ? c.codingScore : '') + '" min="0" max="1" step="0.01" placeholder="0-1" onchange="updateCandidateMeta(' + i + ', \\'codingScore\\', this.value)"></div>' +
-                  '<div><label>input $</label><input type="number" value="' + (c.inputPrice !== undefined ? c.inputPrice : '') + '" min="0" step="0.01" placeholder="per 1M" onchange="updateCandidateMeta(' + i + ', \\'inputPrice\\', this.value)"></div>' +
-                  '<div><label>output $</label><input type="number" value="' + (c.outputPrice !== undefined ? c.outputPrice : '') + '" min="0" step="0.01" placeholder="per 1M" onchange="updateCandidateMeta(' + i + ', \\'outputPrice\\', this.value)"></div>' +
+                  '<div><label>coding</label><input type="number" value="' + (c.codingScore !== undefined ? c.codingScore : '') + '" min="0" max="1" step="0.01" placeholder="0-1" onchange="updateCandidateMeta(' + i + ', ' + "'codingScore'" + ', this.value)"></div>' +
+                  '<div><label>input $</label><input type="number" value="' + (c.inputPrice !== undefined ? c.inputPrice : '') + '" min="0" step="0.01" placeholder="per 1M" onchange="updateCandidateMeta(' + i + ', ' + "'inputPrice'" + ', this.value)"></div>' +
+                  '<div><label>output $</label><input type="number" value="' + (c.outputPrice !== undefined ? c.outputPrice : '') + '" min="0" step="0.01" placeholder="per 1M" onchange="updateCandidateMeta(' + i + ', ' + "'outputPrice'" + ', this.value)"></div>' +
                 '</div>' +
               '</div>' +
               '<button class="remove-btn" title="Remove" onclick="removeCandidateFromRouter(' + i + ')">✕</button>' +
@@ -4489,6 +4668,7 @@ app.get('/config', (req: Request, res: Response) => {
             if (c.codingScore !== undefined) parts.push('coding=' + c.codingScore);
             if (c.inputPrice !== undefined) parts.push('input=' + c.inputPrice);
             if (c.outputPrice !== undefined) parts.push('output=' + c.outputPrice);
+            if (c.enabled === false) parts.push('enabled=false');
             return parts.join(', ');
           }).join('\\n');
         }
@@ -4500,7 +4680,7 @@ app.get('/config', (req: Request, res: Response) => {
             var trimmed = line.trim();
             if (!trimmed || trimmed.startsWith('#')) return null;
             var parts = trimmed.split(',').map(function(p) { return p.trim(); });
-            var candidate = { model: parts[0] };
+            var candidate = { model: parts[0], enabled: true };
             for (var i = 1; i < parts.length; i++) {
               var kv = parts[i].split('=');
               var key = kv[0].trim().toLowerCase();
@@ -4509,6 +4689,10 @@ app.get('/config', (req: Request, res: Response) => {
               else if (key === 'input' || key === 'input_price') candidate.inputPrice = parseFloat(val) || undefined;
               else if (key === 'output' || key === 'output_price') candidate.outputPrice = parseFloat(val) || undefined;
               else if (key === 'latency' || key === 'latency_ms') candidate.latencyMs = parseFloat(val) || undefined;
+              else if (key === 'enabled') {
+                var lowerVal = val.toLowerCase();
+                candidate.enabled = lowerVal !== 'false' && lowerVal !== '0' && lowerVal !== 'no';
+              }
             }
             return candidate;
           }).filter(Boolean);
@@ -4537,10 +4721,20 @@ app.get('/config', (req: Request, res: Response) => {
 
         // ── Drag and Drop ──
         var dragSourceIndex = -1;
+        var dragSourceList = 'router';
+
+        function resolveDragList(itemEl) {
+          var list = itemEl && itemEl.closest ? itemEl.closest('.router-candidate-list') : null;
+          if (list && list.id === 'fallbackCandidateList') return 'fallback';
+          return 'router';
+        }
 
         function candidateDragStart(e) {
-          dragSourceIndex = parseInt(e.target.closest('[data-candidate-index]').getAttribute('data-candidate-index'), 10);
-          e.target.closest('.router-candidate-item').classList.add('dragging');
+          var itemEl = e.target.closest('[data-candidate-index]');
+          if (!itemEl) return;
+          dragSourceIndex = parseInt(itemEl.getAttribute('data-candidate-index'), 10);
+          dragSourceList = resolveDragList(itemEl);
+          itemEl.classList.add('dragging');
           e.dataTransfer.effectAllowed = 'move';
         }
 
@@ -4554,18 +4748,148 @@ app.get('/config', (req: Request, res: Response) => {
           var targetEl = e.target.closest('[data-candidate-index]');
           if (!targetEl || dragSourceIndex < 0) return;
           var targetIndex = parseInt(targetEl.getAttribute('data-candidate-index'), 10);
+          var targetList = resolveDragList(targetEl);
+          if (targetList !== dragSourceList) { dragSourceIndex = -1; return; }
           if (targetIndex === dragSourceIndex) return;
-          var moved = routerCandidateStore.splice(dragSourceIndex, 1)[0];
-          routerCandidateStore.splice(targetIndex, 0, moved);
-          renderCandidateList();
-          syncCandidatesToTextarea();
+          if (dragSourceList === 'fallback') {
+            var movedFb = fallbackCandidateStore.splice(dragSourceIndex, 1)[0];
+            fallbackCandidateStore.splice(targetIndex, 0, movedFb);
+            renderFallbackCandidateList();
+            syncFallbackCandidatesToTextarea();
+          } else {
+            var moved = routerCandidateStore.splice(dragSourceIndex, 1)[0];
+            routerCandidateStore.splice(targetIndex, 0, moved);
+            renderCandidateList();
+            syncCandidatesToTextarea();
+          }
           dragSourceIndex = -1;
+          dragSourceList = 'router';
         }
 
         function candidateDragEnd(e) {
           var items = document.querySelectorAll('.router-candidate-item.dragging');
           items.forEach(function(el) { el.classList.remove('dragging'); });
           dragSourceIndex = -1;
+          dragSourceList = 'router';
+        }
+
+        function parseFallbackTextareaToStore(text) {
+          if (!text) return [];
+          return text.split(/\\r?\\n|;/).map(function(line) {
+            var trimmed = line.trim();
+            if (!trimmed || trimmed.startsWith('#')) return null;
+            var directiveMatch = trimmed.match(/^(.*?)\s+(!enabled|disabled)$/i);
+            var modelName;
+            var enabled = true;
+            if (directiveMatch) {
+              modelName = directiveMatch[1].trim();
+              enabled = false;
+            } else {
+              modelName = trimmed;
+            }
+            return { model: modelName, enabled: enabled };
+          }).filter(function(entry) { return entry && entry.model; });
+        }
+
+        function applyFallbackTextareaToStore() {
+          var text = document.getElementById('fallbackModelsText').value;
+          fallbackCandidateStore = parseFallbackTextareaToStore(text);
+          renderFallbackCandidateList();
+        }
+
+        function addFallbackCandidate(model) {
+          var trimmed = String(model || '').trim();
+          if (!trimmed) return;
+          if (fallbackCandidateStore.some(function(c) { return c.model === trimmed; })) return;
+          fallbackCandidateStore.push({ model: trimmed, enabled: true });
+          renderFallbackCandidateList();
+          syncFallbackCandidatesToTextarea();
+        }
+
+        function removeFallbackCandidate(index) {
+          if (index < 0 || index >= fallbackCandidateStore.length) return;
+          fallbackCandidateStore.splice(index, 1);
+          renderFallbackCandidateList();
+          syncFallbackCandidatesToTextarea();
+        }
+
+        function toggleFallbackCandidate(index, enabled) {
+          if (index < 0 || index >= fallbackCandidateStore.length) return;
+          fallbackCandidateStore[index].enabled = Boolean(enabled);
+          renderFallbackCandidateList();
+          syncFallbackCandidatesToTextarea();
+        }
+
+        function renderFallbackCandidateList() {
+          var listEl = document.getElementById('fallbackCandidateList');
+          if (!listEl) return;
+          if (fallbackCandidateStore.length === 0) {
+            listEl.innerHTML = '<div class="router-candidate-empty">No candidates added yet. Search and add models above.</div>';
+            return;
+          }
+          listEl.innerHTML = fallbackCandidateStore.map(function(c, i) {
+            var modelParts = c.model.split('-');
+            var provider = modelParts.length > 1 ? modelParts.slice(0, modelParts.length > 2 ? modelParts.length - 2 : 1).join('-') : '';
+            var badge = provider ? '<span class="provider-badge">' + escapeHtml(provider) + '</span>' : '';
+            var statusBadge = availabilityBadgeHtml(c.model);
+            var isEnabled = c.enabled !== false;
+            var disabledClass = !isEnabled ? ' router-candidate-disabled' : '';
+            return '<div class="router-candidate-item' + disabledClass + '" draggable="true" data-candidate-index="' + i + '" ondragstart="candidateDragStart(event)" ondragover="candidateDragOver(event)" ondrop="candidateDrop(event)" ondragend="candidateDragEnd(event)">' +
+              '<span class="drag-handle" title="Drag to reorder">☰</span>' +
+              '<input type="checkbox" class="candidate-toggle" ' + (isEnabled ? 'checked' : '') + ' onchange="toggleFallbackCandidate(' + i + ', this.checked)" title="' + (isEnabled ? 'Enabled — will be tried' : 'Disabled — skipped at execution') + '">' +
+              '<div class="candidate-info">' +
+                '<span class="candidate-model">' + escapeHtml(c.model) + '</span>' + badge + statusBadge +
+              '</div>' +
+              '<button class="remove-btn" title="Remove" onclick="removeFallbackCandidate(' + i + ')">✕</button>' +
+            '</div>';
+          }).join('');
+        }
+
+        function syncFallbackCandidatesToTextarea() {
+          var textarea = document.getElementById('fallbackModelsText');
+          if (!textarea) return;
+          textarea.value = fallbackCandidateStore.map(function(c) {
+            return c.enabled === false ? (c.model + ' disabled') : c.model;
+          }).join('\\n');
+        }
+
+        function filterFallbackModelDropdown() {
+          var searchEl = document.getElementById('fallbackModelSearch');
+          var dd = document.getElementById('fallbackModelDropdown');
+          if (!searchEl || !dd) return;
+          var search = (searchEl.value || '').toLowerCase();
+          var filtered = allModelsCache;
+          if (search) {
+            filtered = allModelsCache.filter(function(m) { return m.toLowerCase().indexOf(search) !== -1; });
+          }
+          if (filtered.length === 0) {
+            dd.innerHTML = '<div class="dropdown-search-item muted">No models match "' + escapeHtml(search) + '"</div>';
+          } else {
+            dd.innerHTML = filtered.slice(0, 50).map(function(m) {
+              var parts = m.split('-');
+              var provider = parts.length > 1 ? parts.slice(0, parts.length > 2 ? parts.length - 2 : 1).join('-') : '';
+              var badge = provider ? '<span class="provider-badge">' + escapeHtml(provider) + '</span>' : '';
+              return '<div class="dropdown-search-item" data-model="' + escapeHtml(m) + '" onmousedown="addFallbackCandidate(&apos;' + escapeHtml(m).replace(/'/g, '&apos;') + '&apos;)">' +
+                '<span>' + escapeHtml(m) + '</span>' + badge +
+              '</div>';
+            }).join('');
+          }
+          dd.style.display = 'block';
+        }
+
+        function openFallbackModelDropdown() {
+          filterFallbackModelDropdown();
+        }
+
+        function addSelectedFallbackCandidate() {
+          var searchEl = document.getElementById('fallbackModelSearch');
+          var model = (searchEl && searchEl.value || '').trim();
+          if (!model) return;
+          addFallbackCandidate(model);
+          if (searchEl) {
+            searchEl.value = '';
+            searchEl.focus();
+          }
         }
 
         // ── Click-outside closes dropdown ──
@@ -5396,15 +5720,40 @@ app.get('/config', (req: Request, res: Response) => {
           }
         }
 
+        function showUiError(context, err) {
+          const msg = '[' + context + '] ' + (err && err.message ? err.message : String(err));
+          console.error(msg, err);
+          const listEl = document.getElementById('providerModelList');
+          if (listEl && context === 'loadProviderConfigs') {
+            listEl.innerHTML = '<div class="provider-model-empty" style="color: var(--danger-text);">Error: ' + msg + '</div>';
+          }
+          const fbListEl = document.getElementById('fallbackRouteList');
+          if (fbListEl && context === 'loadFallbackRoutes') {
+            fbListEl.innerHTML = '<div class="fallback-route-empty" style="color: var(--danger-text);">Error: ' + msg + '</div>';
+          }
+          const rListEl = document.getElementById('routerRouteList');
+          if (rListEl && context === 'loadRouterRoutes') {
+            rListEl.innerHTML = '<div class="fallback-route-empty" style="color: var(--danger-text);">Error: ' + msg + '</div>';
+          }
+        }
+
+        async function safeInit(name, fn) {
+          try {
+            await fn();
+          } catch (err) {
+            showUiError(name, err);
+          }
+        }
+
         initializeThemeScale();
-        loadProviderConfigs();
-        loadFallbackRoutes();
-        loadRouterRoutes();
-        buildModelDropdown();
-        applyRouterDefaults();
-        updateRouterTypeHelp();
-        loadCatalog();
-        loadProviderPricingPanel();
+        safeInit('loadProviderConfigs', loadProviderConfigs);
+        safeInit('loadFallbackRoutes', loadFallbackRoutes);
+        safeInit('loadRouterRoutes', loadRouterRoutes);
+        try { buildModelDropdown(); } catch (err) { showUiError('buildModelDropdown', err); }
+        try { applyRouterDefaults(); } catch (err) { showUiError('applyRouterDefaults', err); }
+        try { updateRouterTypeHelp(); } catch (err) { showUiError('updateRouterTypeHelp', err); }
+        safeInit('loadCatalog', loadCatalog);
+        safeInit('loadProviderPricingPanel', loadProviderPricingPanel);
         loadSessionsPanel();
         loadSystemPrompt();
         loadThinkingConfig();
@@ -5949,12 +6298,15 @@ app.delete('/api/providers/:id', (req: Request, res: Response) => {
 
 app.get('/api/fallback-models', (req: Request, res: Response) => {
   const data = Object.values(fallbackModelStore)
-    .map((model) => ({
-      ...model,
-      id: fallbackPresentedModelId(model),
-      routeId: normalizeFallbackRouteId(model.id),
-      display: fallbackModelPresentation(model).display
-    }))
+    .map((model) => {
+      const cloned = cloneFallbackModel(model);
+      return {
+        ...cloned,
+        id: fallbackPresentedModelId(model),
+        routeId: normalizeFallbackRouteId(model.id),
+        display: fallbackModelPresentation(model).display
+      };
+    })
     .sort((a, b) => a.id.localeCompare(b.id));
 
   return res.json({ object: 'list', data });
@@ -6565,10 +6917,7 @@ app.post('/api/fallback-models', (req: Request, res: Response) => {
   const previousModel = fallbackModelStore[parsed.model.id]
     ? cloneFallbackModel(fallbackModelStore[parsed.model.id])
     : null;
-  fallbackModelStore[parsed.model.id] = {
-    id: parsed.model.id,
-    models: [...parsed.model.models]
-  };
+  fallbackModelStore[parsed.model.id] = cloneFallbackModel(parsed.model);
 
   try {
     persistFallbackModels();
@@ -6588,7 +6937,7 @@ app.post('/api/fallback-models', (req: Request, res: Response) => {
     success: true,
     persisted: true,
     model: {
-      ...fallbackModelStore[parsed.model.id],
+      ...cloneFallbackModel(fallbackModelStore[parsed.model.id]),
       id: fallbackPresentedModelId(parsed.model),
       routeId: parsed.model.id,
       display: fallbackModelPresentation(parsed.model).display
@@ -7605,6 +7954,9 @@ function routerCandidateEligibility(router: RouterModel, candidate: RouterCandid
   const features = requestFeatureSummary(body);
   const rejectionReasons: string[] = [];
 
+  if (candidate.enabled === false) {
+    rejectionReasons.push('candidate_disabled');
+  }
   if (!target || isLocalRouterProviderName(target.providerName)) {
     rejectionReasons.push('unresolved');
   }
@@ -8314,8 +8666,21 @@ async function sendSuccessfulProxyResponse(
   }
 }
 
-function fallbackExecutionPlan(models: string[]) {
-  return buildWraparoundExecutionPlan(models, FALLBACK_PRIMARY_ATTEMPTS);
+export function isFallbackStageEnabled(fallbackRoute: FallbackModel, modelName: string): boolean {
+  if (!fallbackRoute.disabledModels || fallbackRoute.disabledModels.length === 0) return true;
+  return !fallbackRoute.disabledModels.includes(modelName);
+}
+
+export function activeFallbackModels(fallbackRoute: FallbackModel): string[] {
+  if (!fallbackRoute.disabledModels || fallbackRoute.disabledModels.length === 0) {
+    return [...fallbackRoute.models];
+  }
+  const disabled = new Set(fallbackRoute.disabledModels);
+  return fallbackRoute.models.filter((model) => !disabled.has(model));
+}
+
+export function fallbackExecutionPlan(fallbackRoute: FallbackModel) {
+  return buildWraparoundExecutionPlan(activeFallbackModels(fallbackRoute), FALLBACK_PRIMARY_ATTEMPTS);
 }
 
 async function handleChatCompletion(req: Request, res: Response, bodyOverrides?: any, options?: { outputFormat?: CompletionOutputFormat }) {
@@ -8700,7 +9065,7 @@ async function executeFallbackRoute(
   requestStartedAt: number,
   res: Response
 ) {
-  const plan = fallbackExecutionPlan(fallbackRoute.models);
+  const plan = fallbackExecutionPlan(fallbackRoute);
     const attemptLog: Array<Record<string, unknown>> = [];
     let lastFailure: AttemptFailure | null = null;
 
