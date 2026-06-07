@@ -43,6 +43,7 @@ export const DEFAULT_FALLBACK_ORDERED_IDS: readonly string[] = [
   'cline-minimax-minimax-m3-free',
   'opencode-zen-minimax-m3-free',
   'openrouter-free',
+  'kilo-stepfun-step-3.7-flash-free',
   'opencode-go-deepseek-v4-pro',
   'zai-code-pass-glm-5.1',
   'xiaomi-mimo-mimo-v2.5-pro',
