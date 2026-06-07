@@ -5723,15 +5723,40 @@ app.get('/config', (req: Request, res: Response) => {
           }
         }
 
+        function showUiError(context, err) {
+          const msg = '[' + context + '] ' + (err && err.message ? err.message : String(err));
+          console.error(msg, err);
+          const listEl = document.getElementById('providerModelList');
+          if (listEl && context === 'loadProviderConfigs') {
+            listEl.innerHTML = '<div class="provider-model-empty" style="color: var(--danger-text);">Error: ' + msg + '</div>';
+          }
+          const fbListEl = document.getElementById('fallbackRouteList');
+          if (fbListEl && context === 'loadFallbackRoutes') {
+            fbListEl.innerHTML = '<div class="fallback-route-empty" style="color: var(--danger-text);">Error: ' + msg + '</div>';
+          }
+          const rListEl = document.getElementById('routerRouteList');
+          if (rListEl && context === 'loadRouterRoutes') {
+            rListEl.innerHTML = '<div class="fallback-route-empty" style="color: var(--danger-text);">Error: ' + msg + '</div>';
+          }
+        }
+
+        async function safeInit(name, fn) {
+          try {
+            await fn();
+          } catch (err) {
+            showUiError(name, err);
+          }
+        }
+
         initializeThemeScale();
-        loadProviderConfigs();
-        loadFallbackRoutes();
-        loadRouterRoutes();
-        buildModelDropdown();
-        applyRouterDefaults();
-        updateRouterTypeHelp();
-        loadCatalog();
-        loadProviderPricingPanel();
+        safeInit('loadProviderConfigs', loadProviderConfigs);
+        safeInit('loadFallbackRoutes', loadFallbackRoutes);
+        safeInit('loadRouterRoutes', loadRouterRoutes);
+        try { buildModelDropdown(); } catch (err) { showUiError('buildModelDropdown', err); }
+        try { applyRouterDefaults(); } catch (err) { showUiError('applyRouterDefaults', err); }
+        try { updateRouterTypeHelp(); } catch (err) { showUiError('updateRouterTypeHelp', err); }
+        safeInit('loadCatalog', loadCatalog);
+        safeInit('loadProviderPricingPanel', loadProviderPricingPanel);
         loadSessionsPanel();
         loadSystemPrompt();
         loadThinkingConfig();
