@@ -2820,8 +2820,19 @@ function configureVSCodeModelPicker(hostUrl: string) {
 
 // ── PQC Secrets Persistence ────────────────────────────────────────────────
 
+function getPqcConfigDir(): string {
+  return process.env.PQC_CONFIG_DIR || path.join(os.homedir(), '.config', 'pqc-secrets');
+}
+
+function getPqcBundlePath(): string {
+  return path.join(getPqcConfigDir(), 'secrets.bundle.json');
+}
+
+function getPqcPubkeyPath(): string {
+  return path.join(getPqcConfigDir(), 'recipient.pub');
+}
+
 function getPqcBinPath(): string {
-  // Resolve bin/pqc-secrets relative to this project
   const candidates = [
     path.resolve(__dirname, '..', 'bin', 'pqc-secrets'),
     path.resolve(process.cwd(), 'bin', 'pqc-secrets'),
@@ -2835,6 +2846,37 @@ function getPqcBinPath(): string {
   return '';
 }
 
+function ensurePqcKeypair(bin: string): boolean {
+  const pubkeyPath = getPqcPubkeyPath();
+  if (fs.existsSync(pubkeyPath)) return true;
+  try {
+    execFileSync(bin, ['keygen'], {
+      encoding: 'utf8',
+      timeout: 10000,
+      stdio: 'pipe',
+    });
+    console.log(`[PQC] Generated new ML-KEM-768 keypair at ${getPqcConfigDir()}/`);
+    return true;
+  } catch (err) {
+    console.error(`[PQC] Failed to generate keypair:`, (err as Error).message);
+    return false;
+  }
+}
+
+function loadKeysFromEnvironment(): number {
+  const allSummaries = allProviderSummaries();
+  let count = 0;
+  for (const summary of allSummaries) {
+    if (keyStore[summary.name]) continue;
+    const envValue = process.env[summary.keyEnvVar];
+    if (envValue) {
+      keyStore[summary.name] = envValue;
+      count++;
+    }
+  }
+  return count;
+}
+
 function loadPqcSecrets(): void {
   if (process.env.LOCAL_ROUTER_SKIP_PQC_LOAD === 'true') {
     ensureDefaultOllamaApiKey(keyStore);
@@ -2845,12 +2887,37 @@ function loadPqcSecrets(): void {
 
   const bin = getPqcBinPath();
   if (!bin) {
-    console.log('[PQC] pqc-secrets binary not found — skipping bundle load.');
+    console.log(`[PQC] pqc-secrets binary not found — install at bin/pqc-secrets or run 'uv tool install' to enable bundle loading.`);
+    console.log(`[PQC] Falling back to environment variables and process.env for provider keys.`);
+    const envCount = loadKeysFromEnvironment();
+    if (envCount > 0) {
+      console.log(`[PQC] Loaded ${envCount} provider key(s) from environment.`);
+    }
     ensureDefaultOllamaApiKey(keyStore);
     pruneDisallowedOllamaCloudRouting();
     pruneDisallowedGatewayFreeRouting();
+    reportMissingProviders();
     return;
   }
+
+  const bundlePath = getPqcBundlePath();
+  const bundleExists = fs.existsSync(bundlePath);
+
+  if (!bundleExists) {
+    console.log(`[PQC] No secrets bundle found at ${bundlePath}.`);
+    console.log(`[PQC] To create one: run 'bin/pqc-secrets keygen' then 'bin/pqc-secrets pack' (pipe KEY=VAL lines via stdin).`);
+    console.log(`[PQC] Falling back to environment variables for provider keys.`);
+    const envCount = loadKeysFromEnvironment();
+    if (envCount > 0) {
+      console.log(`[PQC] Loaded ${envCount} provider key(s) from environment.`);
+    }
+    ensureDefaultOllamaApiKey(keyStore);
+    pruneDisallowedOllamaCloudRouting();
+    pruneDisallowedGatewayFreeRouting();
+    reportMissingProviders();
+    return;
+  }
+
   try {
     const output = execFileSync(bin, ['export'], {
       encoding: 'utf8',
@@ -2876,43 +2943,38 @@ function loadPqcSecrets(): void {
       }
     }
     if (loadedProviders.length > 0) {
-      console.log(`[PQC] Loaded ${loadedProviders.length} provider key(s): ${loadedProviders.join(', ')}`);
+      console.log(`[PQC] Loaded ${loadedProviders.length} provider key(s) from bundle: ${loadedProviders.join(', ')}`);
     }
     if (skippedEnvVars.length > 0) {
       console.log(`[PQC] Env vars not mapped to providers: ${skippedEnvVars.join(', ')}`);
     }
-    // Also load any provider keys already set in environment (env, secrets-load, etc.)
-    const allSummaries = allProviderSummaries();
-    const envLoaded: string[] = [];
-    for (const summary of allSummaries) {
-      if (keyStore[summary.name]) continue; // already loaded from PQC bundle
-      const envValue = process.env[summary.keyEnvVar];
-      if (envValue) {
-        keyStore[summary.name] = envValue;
-        envLoaded.push(summary.name);
-      }
-    }
-    if (envLoaded.length > 0) {
-      console.log(`[PQC] Loaded ${envLoaded.length} provider key(s) from environment: ${envLoaded.join(', ')}`);
-    }
-    // Report providers still missing keys
-    const missing = allSummaries.filter((s) => !keyStore[s.name]).map((s) => s.name);
-    if (missing.length > 0) {
-      const missingWithoutOllama = missing.filter((name) => name !== 'ollama');
-      if (missingWithoutOllama.length > 0) {
-        console.log(`[PQC] Providers without keys: ${missingWithoutOllama.join(', ')}`);
-      }
+    const envCount = loadKeysFromEnvironment();
+    if (envCount > 0) {
+      console.log(`[PQC] Loaded ${envCount} additional provider key(s) from environment.`);
     }
     ensureDefaultOllamaApiKey(keyStore);
     pruneDisallowedOllamaCloudRouting();
     pruneDisallowedGatewayFreeRouting();
+    reportMissingProviders();
   } catch (err) {
-    if (process.env.LOCAL_ROUTER_DEV === 'true') {
-      console.log(`[PQC] No secrets bundle loaded:`, (err as Error).message);
-    }
+    console.log(`[PQC] Failed to load bundle:`, (err as Error).message);
+    console.log(`[PQC] Falling back to environment variables.`);
+    loadKeysFromEnvironment();
     ensureDefaultOllamaApiKey(keyStore);
     pruneDisallowedOllamaCloudRouting();
     pruneDisallowedGatewayFreeRouting();
+    reportMissingProviders();
+  }
+}
+
+function reportMissingProviders(): void {
+  const allSummaries = allProviderSummaries();
+  const missing = allSummaries.filter((s) => !keyStore[s.name]).map((s) => s.name);
+  if (missing.length > 0) {
+    const missingWithoutOllama = missing.filter((name) => name !== 'ollama');
+    if (missingWithoutOllama.length > 0) {
+      console.log(`[PQC] Providers without keys: ${missingWithoutOllama.join(', ')}`);
+    }
   }
 }
 
@@ -2943,7 +3005,10 @@ function clearProviderKeyForProvider(providerName: string): void {
 
 function persistPqcSecrets(): void {
   const bin = getPqcBinPath();
-  if (!bin) return;
+  if (!bin) {
+    console.warn(`[PQC] pqc-secrets binary not found — key changes will not persist across restarts. Install bin/pqc-secrets to enable.`);
+    return;
+  }
   try {
     const lines: string[] = [];
     const packedEnvVars = new Set<string>();
@@ -2957,6 +3022,10 @@ function persistPqcSecrets(): void {
       }
     }
     if (lines.length === 0) return;
+    if (!ensurePqcKeypair(bin)) {
+      console.error(`[PQC] Cannot persist: no keypair at ${getPqcPubkeyPath()}. Run 'bin/pqc-secrets keygen' manually.`);
+      return;
+    }
     execFileSync(bin, ['pack'], {
       input: lines.join('\n') + '\n',
       encoding: 'utf8',
@@ -2964,7 +3033,7 @@ function persistPqcSecrets(): void {
       env: { ...process.env, PATH: process.env.PATH || '/usr/local/bin:/usr/bin:/bin' }
     });
     if (process.env.LOCAL_ROUTER_DEV === 'true') {
-      console.log(`[PQC] Persisted ${lines.length} keys to secrets bundle.`);
+      console.log(`[PQC] Persisted ${lines.length} key(s) to ${getPqcBundlePath()}.`);
     }
   } catch (err) {
     console.error('[PQC] Failed to persist secrets:', (err as Error).message);
