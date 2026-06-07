@@ -4492,9 +4492,9 @@ app.get('/config', (req: Request, res: Response) => {
               '<div class="candidate-info">' +
                 '<span class="candidate-model">' + escapeHtml(c.model) + '</span>' + badge + fallbackTag + statusBadge +
                 '<div class="metadata-row">' +
-                  '<div><label>coding</label><input type="number" value="' + (c.codingScore !== undefined ? c.codingScore : '') + '" min="0" max="1" step="0.01" placeholder="0-1" onchange="updateCandidateMeta(' + i + ', \\'codingScore\\', this.value)"></div>' +
-                  '<div><label>input $</label><input type="number" value="' + (c.inputPrice !== undefined ? c.inputPrice : '') + '" min="0" step="0.01" placeholder="per 1M" onchange="updateCandidateMeta(' + i + ', \\'inputPrice\\', this.value)"></div>' +
-                  '<div><label>output $</label><input type="number" value="' + (c.outputPrice !== undefined ? c.outputPrice : '') + '" min="0" step="0.01" placeholder="per 1M" onchange="updateCandidateMeta(' + i + ', \\'outputPrice\\', this.value)"></div>' +
+                  '<div><label>coding</label><input type="number" value="' + (c.codingScore !== undefined ? c.codingScore : '') + '" min="0" max="1" step="0.01" placeholder="0-1" onchange="updateCandidateMeta(' + i + ', ' + "'codingScore'" + ', this.value)"></div>' +
+                  '<div><label>input $</label><input type="number" value="' + (c.inputPrice !== undefined ? c.inputPrice : '') + '" min="0" step="0.01" placeholder="per 1M" onchange="updateCandidateMeta(' + i + ', ' + "'inputPrice'" + ', this.value)"></div>' +
+                  '<div><label>output $</label><input type="number" value="' + (c.outputPrice !== undefined ? c.outputPrice : '') + '" min="0" step="0.01" placeholder="per 1M" onchange="updateCandidateMeta(' + i + ', ' + "'outputPrice'" + ', this.value)"></div>' +
                 '</div>' +
               '</div>' +
               '<button class="remove-btn" title="Remove" onclick="removeCandidateFromRouter(' + i + ')">✕</button>' +
