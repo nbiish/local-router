@@ -4578,9 +4578,6 @@ app.get('/config', (req: Request, res: Response) => {
               }
             });
           }
-              }
-            });
-          }
           renderCandidateList();
           syncCandidatesToTextarea();
         }
@@ -4872,7 +4869,7 @@ app.get('/config', (req: Request, res: Response) => {
               var parts = m.split('-');
               var provider = parts.length > 1 ? parts.slice(0, parts.length > 2 ? parts.length - 2 : 1).join('-') : '';
               var badge = provider ? '<span class="provider-badge">' + escapeHtml(provider) + '</span>' : '';
-              return '<div class="dropdown-search-item" data-model="' + escapeHtml(m) + '" onmousedown="addFallbackCandidate(\'' + escapeHtml(m).replace(/'/g, "\\'") + '\')">' +
+              return '<div class="dropdown-search-item" data-model="' + escapeHtml(m) + '" onmousedown="addFallbackCandidate(&apos;' + escapeHtml(m).replace(/'/g, '&apos;') + '&apos;)">' +
                 '<span>' + escapeHtml(m) + '</span>' + badge +
               '</div>';
             }).join('');
