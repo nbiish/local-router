@@ -119,6 +119,7 @@ type RouterCandidate = {
   outputPrice?: number;
   latencyMs?: number;
   notes?: string;
+  enabled?: boolean;
 };
 
 type RouterModel = {
@@ -1256,7 +1257,7 @@ function parseRouterCandidateLine(line: string): RouterCandidate | null {
   const [modelPart, ...metadataParts] = trimmed.split(',').map((part) => part.trim());
   if (!modelPart) return null;
 
-  const candidate: RouterCandidate = { model: modelPart };
+  const candidate: RouterCandidate = { model: modelPart, enabled: true };
   for (const part of metadataParts) {
     const [rawKey, ...rawValueParts] = part.split('=');
     const key = rawKey.trim().toLowerCase();
@@ -1272,6 +1273,9 @@ function parseRouterCandidateLine(line: string): RouterCandidate | null {
       candidate.latencyMs = parseBoundedNumber(value, 0, Number.MAX_SAFE_INTEGER);
     } else if (key === 'notes') {
       candidate.notes = sanitizeDiagnosticText(value, 120);
+    } else if (key === 'enabled') {
+      const lowerValue = value.toLowerCase();
+      candidate.enabled = lowerValue !== 'false' && lowerValue !== '0' && lowerValue !== 'no';
     }
   }
 
@@ -1308,7 +1312,8 @@ function parseRouterModel(payload: any): RouterModelParseResult {
             inputPrice: parseBoundedNumber(entry.inputPrice, 0, Number.MAX_SAFE_INTEGER),
             outputPrice: parseBoundedNumber(entry.outputPrice, 0, Number.MAX_SAFE_INTEGER),
             latencyMs: parseBoundedNumber(entry.latencyMs, 0, Number.MAX_SAFE_INTEGER),
-            notes: typeof entry.notes === 'string' ? sanitizeDiagnosticText(entry.notes, 120) : undefined
+            notes: typeof entry.notes === 'string' ? sanitizeDiagnosticText(entry.notes, 120) : undefined,
+            enabled: entry.enabled !== false
           }
         : null;
     if (!candidate || !candidate.model) continue;
@@ -3129,6 +3134,9 @@ app.get('/config', (req: Request, res: Response) => {
         .router-candidate-item { padding: 10px 12px; border-top: 1px solid var(--border); background: var(--surface-raised); display: flex; align-items: center; gap: 10px; }
         .router-candidate-item:first-child { border-top: 0; }
         .router-candidate-item.dragging { opacity: 0.5; background: var(--primary-soft); }
+        .router-candidate-item.router-candidate-disabled { opacity: 0.5; background: var(--surface-soft); }
+        .router-candidate-item.router-candidate-disabled .candidate-model { text-decoration: line-through; color: var(--muted); }
+        .router-candidate-item .candidate-toggle { width: 18px; height: 18px; cursor: pointer; margin: 0; flex-shrink: 0; }
         .router-candidate-item .drag-handle { cursor: grab; color: var(--muted); font-size: 18px; user-select: none; padding: 0 4px; }
         .router-candidate-item .drag-handle:active { cursor: grabbing; }
         .router-candidate-item .candidate-info { flex: 1; min-width: 0; }
@@ -4388,7 +4396,7 @@ app.get('/config', (req: Request, res: Response) => {
         }
 
         function addSingleCandidate(model) {
-          routerCandidateStore.push({ model: model });
+          routerCandidateStore.push({ model: model, enabled: true });
           renderCandidateList();
           syncCandidatesToTextarea();
         }
@@ -4401,11 +4409,14 @@ app.get('/config', (req: Request, res: Response) => {
             return m !== model && extractBaseModel(m) === baseModel;
           });
 
-          routerCandidateStore.push({ model: model });
+          routerCandidateStore.push({ model: model, enabled: true });
           if (existing.length > 0) {
             existing.forEach(function(m) {
               if (!routerCandidateStore.some(function(c) { return c.model === m; })) {
-                routerCandidateStore.push({ model: m, fallbackOf: model });
+                routerCandidateStore.push({ model: m, fallbackOf: model, enabled: true });
+              }
+            });
+          }
               }
             });
           }
@@ -4453,6 +4464,13 @@ app.get('/config', (req: Request, res: Response) => {
           syncCandidatesToTextarea();
         }
 
+        function toggleCandidate(index, enabled) {
+          if (index < 0 || index >= routerCandidateStore.length) return;
+          routerCandidateStore[index].enabled = enabled;
+          renderCandidateList();
+          syncCandidatesToTextarea();
+        }
+
         function renderCandidateList() {
           var listEl = document.getElementById('routerCandidateList');
           if (!listEl) return;
@@ -4466,8 +4484,11 @@ app.get('/config', (req: Request, res: Response) => {
             var badge = provider ? '<span class="provider-badge">' + escapeHtml(provider) + '</span>' : '';
             var fallbackTag = c.fallbackOf ? '<span class="provider-badge" style="background:var(--warning-bg);color:var(--warning-text);">fallback</span>' : '';
             var statusBadge = availabilityBadgeHtml(c.model);
-            return '<div class="router-candidate-item" draggable="true" data-candidate-index="' + i + '" ondragstart="candidateDragStart(event)" ondragover="candidateDragOver(event)" ondrop="candidateDrop(event)" ondragend="candidateDragEnd(event)">' +
+            var isEnabled = c.enabled !== false;
+            var disabledClass = !isEnabled ? ' router-candidate-disabled' : '';
+            return '<div class="router-candidate-item' + disabledClass + '" draggable="true" data-candidate-index="' + i + '" ondragstart="candidateDragStart(event)" ondragover="candidateDragOver(event)" ondrop="candidateDrop(event)" ondragend="candidateDragEnd(event)">' +
               '<span class="drag-handle" title="Drag to reorder">☰</span>' +
+              '<input type="checkbox" class="candidate-toggle" ' + (isEnabled ? 'checked' : '') + ' onchange="toggleCandidate(' + i + ', this.checked)" title="' + (isEnabled ? 'Enabled' : 'Disabled') + '">' +
               '<div class="candidate-info">' +
                 '<span class="candidate-model">' + escapeHtml(c.model) + '</span>' + badge + fallbackTag + statusBadge +
                 '<div class="metadata-row">' +
@@ -4489,6 +4510,7 @@ app.get('/config', (req: Request, res: Response) => {
             if (c.codingScore !== undefined) parts.push('coding=' + c.codingScore);
             if (c.inputPrice !== undefined) parts.push('input=' + c.inputPrice);
             if (c.outputPrice !== undefined) parts.push('output=' + c.outputPrice);
+            if (c.enabled === false) parts.push('enabled=false');
             return parts.join(', ');
           }).join('\\n');
         }
@@ -4500,7 +4522,7 @@ app.get('/config', (req: Request, res: Response) => {
             var trimmed = line.trim();
             if (!trimmed || trimmed.startsWith('#')) return null;
             var parts = trimmed.split(',').map(function(p) { return p.trim(); });
-            var candidate = { model: parts[0] };
+            var candidate = { model: parts[0], enabled: true };
             for (var i = 1; i < parts.length; i++) {
               var kv = parts[i].split('=');
               var key = kv[0].trim().toLowerCase();
@@ -4509,6 +4531,10 @@ app.get('/config', (req: Request, res: Response) => {
               else if (key === 'input' || key === 'input_price') candidate.inputPrice = parseFloat(val) || undefined;
               else if (key === 'output' || key === 'output_price') candidate.outputPrice = parseFloat(val) || undefined;
               else if (key === 'latency' || key === 'latency_ms') candidate.latencyMs = parseFloat(val) || undefined;
+              else if (key === 'enabled') {
+                var lowerVal = val.toLowerCase();
+                candidate.enabled = lowerVal !== 'false' && lowerVal !== '0' && lowerVal !== 'no';
+              }
             }
             return candidate;
           }).filter(Boolean);
@@ -7605,6 +7631,9 @@ function routerCandidateEligibility(router: RouterModel, candidate: RouterCandid
   const features = requestFeatureSummary(body);
   const rejectionReasons: string[] = [];
 
+  if (candidate.enabled === false) {
+    rejectionReasons.push('candidate_disabled');
+  }
   if (!target || isLocalRouterProviderName(target.providerName)) {
     rejectionReasons.push('unresolved');
   }
