@@ -389,12 +389,13 @@ test('provider key save/reset lifecycle exposes configured source', async (t) =>
     'openrouter-chain-of-draft',
     'nebius-nemotron-3-ultra-550b-a55b',
     'cline-deepseek-deepseek-v4-flash-free',
-    'kilo-deepseek-deepseek-v4-flash-paid'
+    'kilo-deepseek-deepseek-v4-flash-paid',
+    'commandcode-deepseek-v4-pro'
   ];
   assert.deepEqual(
     fallbackChain,
     expectedFallbackChain,
-    `fallback-models should match the fixed 17-step chain; got: ${fallbackChain.join(', ')}`
+    `fallback-models should match the fixed 18-step chain; got: ${fallbackChain.join(', ')}`
   );
   assert.ok(
     autoRouterCandidates.includes('openrouter-free'),
