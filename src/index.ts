@@ -4341,7 +4341,6 @@ app.get('/config', (req: Request, res: Response) => {
               syncFallbackCandidatesToTextarea();
             });
           });
-          });
 
           listEl.querySelectorAll('button[data-delete-fallback]').forEach((button) => {
             button.addEventListener('click', () => {
