@@ -7,6 +7,13 @@ export function renderLayout(
     defaultFallbackModelsText: string;
   }
 ): string {
+  function jsString(s: string): string {
+    return JSON.stringify(s).replace(/[\u2028\u2029]/g, c => c === '\u2028' ? '\\u2028' : '\\u2029');
+  }
+  const defaultRouterIdJs = jsString(params.defaultRouterId);
+  const defaultRouterCandidatesTextJs = jsString(params.defaultRouterCandidatesText);
+  const defaultFallbackModelsTextJs = jsString(params.defaultFallbackModelsText);
+
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -532,29 +539,27 @@ export function renderLayout(
       <div id="message" style="margin-top:0; margin-bottom:20px; display:none; padding:10px 14px; border-radius:4px; font-weight:bold;"></div>
       ${bodyHtml}
     </main>
-  </div>
-  <script>
     // Server-side parameters
     const params = {
-      defaultRouterId: \${JSON.stringify(params.defaultRouterId)},
-      defaultRouterCandidatesText: \${JSON.stringify(params.defaultRouterCandidatesText)},
-      defaultFallbackModelsText: \${JSON.stringify(params.defaultFallbackModelsText)}
+      defaultRouterId: ${defaultRouterIdJs},
+      defaultRouterCandidatesText: ${defaultRouterCandidatesTextJs},
+      defaultFallbackModelsText: ${defaultFallbackModelsTextJs}
     };
-    const DEFAULT_ROUTER_ID = params.defaultRouterId;
-    const DEFAULT_ROUTER_CANDIDATES_TEXT = params.defaultRouterCandidatesText;
-    const DEFAULT_FALLBACK_MODELS_TEXT = params.defaultFallbackModelsText;
-
+    const DEFAULT_ROUTER_ID = ${defaultRouterIdJs};
+    const DEFAULT_ROUTER_CANDIDATES_TEXT = ${defaultRouterCandidatesTextJs};
+    const DEFAULT_FALLBACK_MODELS_TEXT = ${defaultFallbackModelsTextJs};
 
         let providerConfigs = [];
         let fallbackRoutes = [];
         let routerRoutes = [];
+
         let diagnosticsEnabled = false;
         let activeModelEditId = '';
         let activeFallbackRouteId = '';
         let activeRouterRouteId = '';
-        const DEFAULT_ROUTER_ID = ${JSON.stringify(params.defaultRouterId)};
-        const DEFAULT_ROUTER_CANDIDATES_TEXT = ${JSON.stringify(params.defaultRouterCandidatesText)};
-        const DEFAULT_FALLBACK_MODELS_TEXT = ${JSON.stringify(params.defaultFallbackModelsText)};
+        const DEFAULT_ROUTER_ID = ${defaultRouterIdJs};
+        const DEFAULT_ROUTER_CANDIDATES_TEXT = ${defaultRouterCandidatesTextJs};
+        const DEFAULT_FALLBACK_MODELS_TEXT = ${defaultFallbackModelsTextJs};
         let routerCandidateStore = [];
         let fallbackCandidateStore = [];
         let allModelsCache = [];
