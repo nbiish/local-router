@@ -1180,6 +1180,53 @@ Coverage includes:
 
 ## Next Steps / Roadmap
 
+### Config UI Modularization — 🔲 planned
+
+**Problem:** `src/index.ts` is 10,043 lines. The `/config` route alone is ~2,847 lines of inline HTML/JS (lines 3052–5898), plus ~598 lines of API routes (lines 5903–6500). This makes the file hard to navigate, diff, and maintain.
+
+**Goal:** Split the config UI into logical subpages served as static HTML files or route-specific modules, keeping `index.ts` focused on server logic and routing.
+
+**Proposed split:**
+
+| Subpage | Current Lines | Content |
+|---|---|---|
+| `/config` (main) | 3052–3200 | Navigation shell, global state, error handling |
+| `/config/providers` | 4053–4370 | Provider selection, model list, key management |
+| `/config/fallback` | 4371–4631 | Fallback routes, candidate list, drag-reorder, toggle |
+| `/config/routers` | 4632–4963 | Auto-router candidates, fallback candidates, toggle |
+| `/config/router-routes` | 4964–5354 | Router route management, dry-run, execution plan |
+| `/config/thinking` | 5355–5898 | Provider thinking grid, thinking level config |
+| `/config/pricing` | (inline) | Model pricing overrides |
+| `/config/diagnostics` | (inline) | Provider diagnostics, session viewer |
+
+**Approach options:**
+
+1. **Static HTML files** — Each subpage is a standalone `.html` file in `src/ui/` loaded by Express. Navigation via `<iframe>` or HTMX partials. Simplest to implement.
+2. **Route modules** — Each subpage is a TypeScript module exporting a render function. Express routes in `src/routes/config-*.ts`. More type-safe but requires shared state threading.
+3. **SPA with client-side routing** — Single HTML shell with `#/providers`, `#/fallback`, etc. All JS bundled. Most modern but adds build complexity.
+
+**Recommended:** Option 2 (route modules) — preserves the current server-rendered pattern, keeps each section testable, and avoids adding a frontend build step.
+
+**File structure:**
+```
+src/
+├── index.ts                    # Server core, routing, ~5000 lines (down from 10043)
+├── routes/
+│   ├── config-main.ts          # /config shell + navigation
+│   ├── config-providers.ts     # Provider model management
+│   ├── config-fallback.ts      # Fallback route builder
+│   ├── config-routers.ts       # Auto-router candidate management
+│   ├── config-thinking.ts      # Thinking level grid
+│   └── config-api.ts           # API routes (/api/keys, /api/provider-models, etc.)
+├── ui/
+│   ├── layout.ts               # Shared HTML layout, nav, CSS
+│   └── components.ts           # Shared JS (toggle, drag-reorder, toast)
+```
+
+**Dependencies:** Each config subroute needs access to `keyStore`, `providerSummaries`, `fallbackModels`, `routerModels` — these are currently module-level variables in `index.ts`. Refactoring them into a shared `ConfigState` object is a prerequisite.
+
+**Estimated effort:** 3–5 worktree sessions. Each subpage can be extracted independently once `ConfigState` is factored out.
+
 ### Router Improvements (prioritized, from ROUTER.md)
 
 ✅ **Completed:**
