@@ -1,0 +1,27 @@
+# template-literal-js-escaping skill
+
+Qwen skill for safe template literal escaping in JavaScript.
+
+## Purpose
+
+- Avoid injection and quoting bugs in generated JS/TS strings.
+
+## Ownership
+
+- Local-router client team.
+
+## Local Contracts
+
+- Escape user-provided content before embedding in HTML/JS templates.
+
+## Work Guidance
+
+- Reuse this skill when modifying `src/ui/pages/*` or client scripts.
+
+## Verification
+
+- Run UI tests and inspect rendered output for escaped content.
+
+## Child DOX Index
+
+No child DOX files are required.

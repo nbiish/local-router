@@ -1,0 +1,27 @@
+# .github
+
+CI workflows for continuous improvement and validation.
+
+## Purpose
+
+- `cip-daily.yml`, `crx-validate.yml` run model/catalog checks.
+
+## Ownership
+
+- Maintained by local-router CI team.
+
+## Local Contracts
+
+- Workflows must not leak secrets; use PQC secrets binding.
+
+## Work Guidance
+
+- Run `npm run lint`/`npm test` in workflows.
+
+## Verification
+
+- Verify CI green after workflow edits.
+
+## Child DOX Index
+
+No child DOX files are required.

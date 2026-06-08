@@ -1,0 +1,36 @@
+# src
+
+TypeScript implementation of the local-router proxy.
+
+## Purpose
+
+- Express server entry point and route wiring.
+- Provider implementations (Ollama, OpenRouter, Groq).
+- Routing decision logic: auto-router, fallback chains, router candidates.
+- Config UI HTML renderers and API route registration.
+- Streaming, reasoning, sessions, diagnostics, pricing, and PQC secrets loading.
+
+## Ownership
+
+- Maintained by the local-router team.
+- `src/index.ts` is the primary system-of-record for router behavior and side effects.
+
+## Local Contracts
+
+- Use only FIPS 203/204/205 algorithms for secrets operations.
+- No secrets in source code; provider keys loaded via environment or PQC bundle.
+- All output formats (`openai`, `ollama_chat`, `ollama_generate`, `openai_responses`) must stay backward compatible.
+
+## Work Guidance
+
+- Prefer extending existing router abstractions over introducing new provider adapters.
+- UI pages must render only via `renderLayout` and avoid external assets.
+- Model IDs and routing order must remain deterministic when possible.
+
+## Verification
+
+- Run `npm test` and targeted `node --test` suites for routing, fallback, responses streams.
+
+## Child DOX Index
+
+No child DOX files are required; all guidance is contained here.

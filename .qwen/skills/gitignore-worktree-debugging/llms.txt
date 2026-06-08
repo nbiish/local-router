@@ -1,0 +1,27 @@
+# gitignore-worktree-debugging skill
+
+Qwen skill for worktree debugging and gitignore hygiene.
+
+## Purpose
+
+- Troubleshoot `.gitignore` and worktree contamination issues.
+
+## Ownership
+
+- Local-router operations.
+
+## Local Contracts
+
+- Do not commit worktree artifacts into the main repository.
+
+## Work Guidance
+
+- Use when worktrees show unexpected files or gitignore gaps.
+
+## Verification
+
+- Run `git status` clean after applying fixes.
+
+## Child DOX Index
+
+No child DOX files are required.

@@ -1,0 +1,34 @@
+# scripts
+
+CI/CD, research, validation, and Continuous Improvement (CIP) scripts.
+
+## Purpose
+
+- Daily CIP research (`cip-daily-research.mts`).
+- CRX aggregation and validation (`crx-aggregate.mts`, `crx-validate.mts`).
+- Model spec validation (`validate-model-specs.mts`).
+- Provider catalog probes (`probe-cline-kilo.mjs`, `validate-cline-kilo-catalog.mjs`).
+- CIP apply (`cip-apply-findings.mts`).
+
+## Ownership
+
+- Maintained by local-router team.
+- Scripts operate on data manifests and source-of-truth files under `data/` and `src/model-specs.json`.
+
+## Local Contracts
+
+- Prefer ESM with `.mts`; `.mjs` allowed for Node-only scripts.
+- No secrets in script output; redact API keys in research artifacts.
+
+## Work Guidance
+
+- Run scripts from repo root.
+- Treat `data/` outputs as input for `src/` routing decisions.
+
+## Verification
+
+- Validate generated CSV/JSON before committing data artifacts.
+
+## Child DOX Index
+
+No child DOX files are required.

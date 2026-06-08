@@ -1,0 +1,29 @@
+# pqc-secrets skill
+
+Agent skill for PQC-backed API key storage and loading.
+
+## Purpose
+
+- Wrap `pqc-secrets` CLI for keygen, pack, export, and load.
+- Keep API keys out of `.env` and source code.
+
+## Ownership
+
+- Local-router PQC secrets integration.
+
+## Local Contracts
+
+- Keys stored via ML-KEM-768 + AES-256-GCM.
+- Private key never leaves OS keystore.
+
+## Work Guidance
+
+- Use `pqc-secrets export` or `secrets-load` to populate environment.
+
+## Verification
+
+- Verify PQC bundle loads with expected provider keys on startup.
+
+## Child DOX Index
+
+No child DOX files are required.

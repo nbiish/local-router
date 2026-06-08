@@ -1,0 +1,27 @@
+# pqc-secrets-node-integration skill
+
+Qwen skill for integrating PQC secrets with Node applications.
+
+## Purpose
+
+- Document how Node apps load PQC-backed secrets without touching disk.
+
+## Ownership
+
+- Local-router PQC integration team.
+
+## Local Contracts
+
+- Secrets loaded in-memory only; never written to `.env`.
+
+## Work Guidance
+
+- Use existing `loadKeysFromEnvironment`/`loadPqcSecrets` paths in `src/`.
+
+## Verification
+
+- Ensure provider keys resolve at startup without logging material.
+
+## Child DOX Index
+
+No child DOX files are required.
