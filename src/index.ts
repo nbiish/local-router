@@ -41,7 +41,6 @@ import {
   gatewayPresentedModelSegment,
   resolveGatewayPresentedLegacyId
 } from './gateway-provider-catalog';
-import { renderConfigPage } from './ui/config-page';
 import { registerConfigApiRoutes } from './routes/config-api';
 import { normalizeGatewayChatCompletionBody } from './gateway-response';
 import {
@@ -3050,15 +3049,6 @@ app.get('/', (req: Request, res: Response) => {
   res.type('text/plain').send('Ollama is running');
 });
 
-// Serve the Web UI for key management
-app.get('/config', (req: Request, res: Response) => {
-  const html = renderConfigPage({
-    defaultRouterId: DEFAULT_ROUTER_ID,
-    defaultRouterCandidatesText: resolvedDefaultAutoRouterCandidatesText(),
-    defaultFallbackModelsText: DEFAULT_FALLBACK_MODELS_TEXT
-  });
-  res.send(html);
-});
 
 app.get('/ui', (req: Request, res: Response) => {
   res.redirect('/config');

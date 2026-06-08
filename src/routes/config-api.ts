@@ -3,6 +3,12 @@ import fs from 'fs';
 import path from 'path';
 import { ThinkingLevel } from '../reasoning';
 import { ProxyProvider } from '../types';
+import { renderProvidersPage } from '../ui/pages/providers';
+import { renderFallbackPage } from '../ui/pages/fallback';
+import { renderRoutersPage } from '../ui/pages/routers';
+import { renderThinkingPage } from '../ui/pages/thinking';
+import { renderPricingPage } from '../ui/pages/pricing';
+import { renderDiagnosticsPage } from '../ui/pages/diagnostics';
 import {
   ProviderSummary,
   CustomProviderRecord,
@@ -199,6 +205,64 @@ export function registerConfigApiRoutes(app: express.Express, deps: ConfigApiDep
     validateFallbackReferences,
     validateRouterReferences
   } = deps;
+
+  app.get('/config', (req: Request, res: Response) => {
+    res.redirect('/config/providers');
+  });
+
+  app.get('/config/providers', (req: Request, res: Response) => {
+    const html = renderProvidersPage({
+      defaultRouterId: DEFAULT_ROUTER_ID,
+      defaultRouterCandidatesText: resolvedDefaultAutoRouterCandidatesText(),
+      defaultFallbackModelsText: DEFAULT_FALLBACK_MODELS_TEXT
+    });
+    res.send(html);
+  });
+
+  app.get('/config/fallback', (req: Request, res: Response) => {
+    const html = renderFallbackPage({
+      defaultRouterId: DEFAULT_ROUTER_ID,
+      defaultRouterCandidatesText: resolvedDefaultAutoRouterCandidatesText(),
+      defaultFallbackModelsText: DEFAULT_FALLBACK_MODELS_TEXT
+    });
+    res.send(html);
+  });
+
+  app.get('/config/routers', (req: Request, res: Response) => {
+    const html = renderRoutersPage({
+      defaultRouterId: DEFAULT_ROUTER_ID,
+      defaultRouterCandidatesText: resolvedDefaultAutoRouterCandidatesText(),
+      defaultFallbackModelsText: DEFAULT_FALLBACK_MODELS_TEXT
+    });
+    res.send(html);
+  });
+
+  app.get('/config/thinking', (req: Request, res: Response) => {
+    const html = renderThinkingPage({
+      defaultRouterId: DEFAULT_ROUTER_ID,
+      defaultRouterCandidatesText: resolvedDefaultAutoRouterCandidatesText(),
+      defaultFallbackModelsText: DEFAULT_FALLBACK_MODELS_TEXT
+    });
+    res.send(html);
+  });
+
+  app.get('/config/pricing', (req: Request, res: Response) => {
+    const html = renderPricingPage({
+      defaultRouterId: DEFAULT_ROUTER_ID,
+      defaultRouterCandidatesText: resolvedDefaultAutoRouterCandidatesText(),
+      defaultFallbackModelsText: DEFAULT_FALLBACK_MODELS_TEXT
+    });
+    res.send(html);
+  });
+
+  app.get('/config/diagnostics', (req: Request, res: Response) => {
+    const html = renderDiagnosticsPage({
+      defaultRouterId: DEFAULT_ROUTER_ID,
+      defaultRouterCandidatesText: resolvedDefaultAutoRouterCandidatesText(),
+      defaultFallbackModelsText: DEFAULT_FALLBACK_MODELS_TEXT
+    });
+    res.send(html);
+  });
 
 app.post('/api/keys', (req: Request, res: Response) => {
   const { provider, apiKey, groq, openrouter } = req.body;
