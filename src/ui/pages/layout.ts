@@ -539,6 +539,7 @@ export function renderLayout(
       <div id="message" style="margin-top:0; margin-bottom:20px; display:none; padding:10px 14px; border-radius:4px; font-weight:bold;"></div>
       ${bodyHtml}
     </main>
+    <script>
     // Server-side parameters
     const params = {
       defaultRouterId: ${defaultRouterIdJs},
@@ -549,17 +550,201 @@ export function renderLayout(
     const DEFAULT_ROUTER_CANDIDATES_TEXT = ${defaultRouterCandidatesTextJs};
     const DEFAULT_FALLBACK_MODELS_TEXT = ${defaultFallbackModelsTextJs};
 
+        const THEME_STORAGE_KEY = 'local-router-config-color-scheme-scale';
+        const LEGACY_THEME_STORAGE_KEY = 'fvs-code-config-color-scheme-scale';
+        const THEME_PRESETS = [
+          {
+            name: 'Light',
+            bg: [244, 247, 251],
+            surface: [255, 255, 255],
+            surfaceSoft: [249, 251, 254],
+            surfaceRaised: [255, 255, 255],
+            text: [28, 36, 48],
+            muted: [91, 101, 116],
+            border: [214, 224, 236],
+            borderStrong: [196, 209, 225],
+            primary: [0, 103, 179],
+            primaryHover: [0, 79, 140],
+            primaryText: [255, 255, 255],
+            primarySoft: [231, 242, 255],
+            secondaryBg: [244, 247, 250],
+            secondaryHover: [232, 238, 246],
+            successBg: [231, 248, 238],
+            successText: [31, 122, 61],
+            warningBg: [255, 243, 221],
+            warningText: [138, 91, 0],
+            dangerText: [180, 35, 24],
+            logBg: [15, 23, 42],
+            logText: [209, 213, 219],
+            shadow: [15, 23, 42, 0.12],
+            focusRing: [0, 122, 204, 0.18]
+          },
+          {
+            name: 'Balanced',
+            bg: [226, 232, 240],
+            surface: [245, 248, 252],
+            surfaceSoft: [235, 240, 247],
+            surfaceRaised: [250, 252, 255],
+            text: [30, 41, 59],
+            muted: [82, 96, 117],
+            border: [187, 199, 216],
+            borderStrong: [161, 176, 198],
+            primary: [9, 88, 154],
+            primaryHover: [7, 70, 125],
+            primaryText: [255, 255, 255],
+            primarySoft: [219, 237, 255],
+            secondaryBg: [232, 238, 246],
+            secondaryHover: [220, 229, 240],
+            successBg: [218, 244, 229],
+            successText: [25, 106, 54],
+            warningBg: [255, 238, 207],
+            warningText: [128, 78, 0],
+            dangerText: [166, 35, 31],
+            logBg: [18, 27, 44],
+            logText: [218, 224, 234],
+            shadow: [15, 23, 42, 0.16],
+            focusRing: [15, 112, 191, 0.22]
+          },
+          {
+            name: 'Dark',
+            bg: [15, 20, 29],
+            surface: [24, 31, 43],
+            surfaceSoft: [29, 38, 52],
+            surfaceRaised: [32, 42, 57],
+            text: [238, 242, 247],
+            muted: [177, 187, 201],
+            border: [61, 74, 94],
+            borderStrong: [82, 98, 122],
+            primary: [98, 178, 255],
+            primaryHover: [133, 197, 255],
+            primaryText: [8, 19, 33],
+            primarySoft: [25, 63, 102],
+            secondaryBg: [38, 49, 66],
+            secondaryHover: [49, 63, 83],
+            successBg: [20, 66, 44],
+            successText: [124, 222, 162],
+            warningBg: [92, 62, 18],
+            warningText: [255, 206, 124],
+            dangerText: [255, 137, 127],
+            logBg: [8, 12, 20],
+            logText: [225, 232, 242],
+            shadow: [0, 0, 0, 0.32],
+            focusRing: [98, 178, 255, 0.26]
+          }
+        ];
+
+        function clampThemeScale(rawValue) {
+          const value = Number.parseInt(String(rawValue), 10);
+          if (!Number.isFinite(value)) return 0;
+          return Math.max(0, Math.min(100, value));
+        }
+
+        function mixNumber(start, end, amount) {
+          return Math.round(start + (end - start) * amount);
+        }
+
+        function mixColor(start, end, amount) {
+          return start.map((channel, index) => {
+            const next = end[index];
+            return index === 3
+              ? Number((channel + (next - channel) * amount).toFixed(3))
+              : mixNumber(channel, next, amount);
+          });
+        }
+
+        function themeAtScale(scale) {
+          const clamped = clampThemeScale(scale);
+          const lowerIndex = clamped <= 50 ? 0 : 1;
+          const upperIndex = clamped <= 50 ? 1 : 2;
+          const amount = clamped <= 50 ? clamped / 50 : (clamped - 50) / 50;
+          const lower = THEME_PRESETS[lowerIndex];
+          const upper = THEME_PRESETS[upperIndex];
+          const theme = { name: clamped < 34 ? 'Light' : clamped < 67 ? 'Balanced' : 'Dark' };
+
+          for (const key of Object.keys(lower)) {
+            if (key === 'name') continue;
+            theme[key] = mixColor(lower[key], upper[key], amount);
+          }
+          return theme;
+        }
+
+        function cssColor(channels) {
+          if (channels.length === 4) return 'rgba(' + channels.join(', ') + ')';
+          return 'rgb(' + channels.join(', ') + ')';
+        }
+
+        function setThemeVariable(name, channels) {
+          document.documentElement.style.setProperty(name, cssColor(channels));
+        }
+
+        function applyThemeScale(scale, persist) {
+          const clamped = clampThemeScale(scale);
+          const theme = themeAtScale(clamped);
+          const mapping = {
+            '--app-bg': theme.bg,
+            '--surface': theme.surface,
+            '--surface-soft': theme.surfaceSoft,
+            '--surface-raised': theme.surfaceRaised,
+            '--text': theme.text,
+            '--muted': theme.muted,
+            '--border': theme.border,
+            '--border-strong': theme.borderStrong,
+            '--primary': theme.primary,
+            '--primary-hover': theme.primaryHover,
+            '--primary-text': theme.primaryText,
+            '--primary-soft': theme.primarySoft,
+            '--secondary-bg': theme.secondaryBg,
+            '--secondary-hover': theme.secondaryHover,
+            '--success-bg': theme.successBg,
+            '--success-text': theme.successText,
+            '--warning-bg': theme.warningBg,
+            '--warning-text': theme.warningText,
+            '--danger-text': theme.dangerText,
+            '--log-bg': theme.logBg,
+            '--log-text': theme.logText,
+            '--shadow': theme.shadow,
+            '--focus-ring': theme.focusRing
+          };
+
+          for (const [name, channels] of Object.entries(mapping)) {
+            setThemeVariable(name, channels);
+          }
+
+          document.documentElement.style.colorScheme = clamped >= 67 ? 'dark' : 'light';
+          document.documentElement.dataset.themeScale = String(clamped);
+
+          const input = document.getElementById('colorSchemeScale');
+          const value = document.getElementById('colorSchemeValue');
+          if (input) input.value = String(clamped);
+          if (value) value.innerText = theme.name + ' - ' + clamped + '%';
+
+          if (persist) {
+            localStorage.setItem(THEME_STORAGE_KEY, String(clamped));
+          }
+        }
+
+        function setThemeScale(value) {
+          applyThemeScale(value, true);
+        }
+
+        function initializeThemeScale() {
+          const stored = localStorage.getItem(THEME_STORAGE_KEY) || localStorage.getItem(LEGACY_THEME_STORAGE_KEY);
+          applyThemeScale(stored === null ? 0 : stored, false);
+        }
+
+        initializeThemeScale();
+      </script>
+      <script>
         let providerConfigs = [];
         let fallbackRoutes = [];
         let routerRoutes = [];
-
         let diagnosticsEnabled = false;
         let activeModelEditId = '';
         let activeFallbackRouteId = '';
         let activeRouterRouteId = '';
-        const DEFAULT_ROUTER_ID = ${defaultRouterIdJs};
-        const DEFAULT_ROUTER_CANDIDATES_TEXT = ${defaultRouterCandidatesTextJs};
-        const DEFAULT_FALLBACK_MODELS_TEXT = ${defaultFallbackModelsTextJs};
+        const DEFAULT_ROUTER_ID = ${JSON.stringify(params.defaultRouterId)};
+        const DEFAULT_ROUTER_CANDIDATES_TEXT = ${JSON.stringify(params.defaultRouterCandidatesText)};
+        const DEFAULT_FALLBACK_MODELS_TEXT = ${JSON.stringify(params.defaultFallbackModelsText)};
         let routerCandidateStore = [];
         let fallbackCandidateStore = [];
         let allModelsCache = [];
@@ -709,8 +894,6 @@ export function renderLayout(
         }
 
         function renderProviderSelection() {
-          const selectEl = document.getElementById('providerSelect');
-          if (!selectEl) return;
           const selectEl = document.getElementById('providerSelect');
           const envVarEl = document.getElementById('providerEnvVar');
           const providerGridEl = document.getElementById('providerGrid');
@@ -1032,14 +1215,14 @@ export function renderLayout(
           const countEl = document.getElementById('fallbackCount');
           const listEl = document.getElementById('fallbackRouteList');
           const routes = Array.isArray(fallbackRoutes) ? fallbackRoutes : [];
-          if (countEl) if (countEl) countEl.innerText = routes.length + ' fallback route' + (routes.length === 1 ? '' : 's');
+          countEl.innerText = routes.length + ' fallback route' + (routes.length === 1 ? '' : 's');
 
           if (routes.length === 0) {
-            if (listEl) listEl.innerHTML = '<div class="fallback-route-empty">No fallback routes configured yet.</div>';
+            listEl.innerHTML = '<div class="fallback-route-empty">No fallback routes configured yet.</div>';
             return;
           }
 
-          if (listEl) if (listEl) listEl.innerHTML = routes.map((route) => {
+          listEl.innerHTML = routes.map((route) => {
             const models = Array.isArray(route.models) ? route.models : [];
             const chainHtml = models.map((modelId) => escapeHtml(modelId) + availabilityBadgeHtml(modelId)).join(' → ');
             return '<div class="fallback-route-item" data-fallback-route="' + escapeHtml(route.id) + '">' +
@@ -1079,8 +1262,6 @@ export function renderLayout(
         }
 
         async function loadFallbackRoutes() {
-          const listEl = document.getElementById('fallbackRouteList');
-          if (!listEl) return;
           const res = await fetch('/api/fallback-models');
           const payload = await res.json().catch(() => ({}));
           fallbackRoutes = Array.isArray(payload?.data) ? payload.data : [];
@@ -1630,7 +1811,7 @@ export function renderLayout(
           countEl.innerText = routes.length + ' router model' + (routes.length === 1 ? '' : 's');
 
           if (routes.length === 0) {
-            if (listEl) listEl.innerHTML = '<div class="fallback-route-empty">No router models configured yet.</div>';
+            listEl.innerHTML = '<div class="fallback-route-empty">No router models configured yet.</div>';
             return;
           }
 
@@ -1686,8 +1867,6 @@ export function renderLayout(
         }
 
         async function loadRouterRoutes() {
-          const listEl = document.getElementById('routerRouteList');
-          if (!listEl) return;
           const res = await fetch('/api/router-models');
           const payload = await res.json().catch(() => ({}));
           routerRoutes = Array.isArray(payload?.data) ? payload.data : [];
@@ -1889,8 +2068,6 @@ export function renderLayout(
         }
 
         async function refreshDiagnostics() {
-          const logEl = document.getElementById('diagnosticsLog');
-          if (!logEl) return;
           const statusEl = document.getElementById('diagnosticsStatus');
           const toggleEl = document.getElementById('diagnosticsToggle');
           const logEl = document.getElementById('diagnosticsLog');
@@ -1951,12 +2128,11 @@ export function renderLayout(
         let systemPromptDefault = '';
         let thinkingConfig = { global: 'none', default: 'none', providers: [] };
         async function loadSystemPrompt() {
-          const toggleEl = document.getElementById('systemPromptToggle');
-          if (!toggleEl) return;
           try {
             const res = await fetch('/api/system-prompt');
             if (!res.ok) throw new Error('HTTP ' + res.status);
             const data = await res.json();
+            const toggleEl = document.getElementById('systemPromptToggle');
             const fieldsEl = document.getElementById('systemPromptFields');
             const textEl = document.getElementById('systemPromptText');
             const statusEl = document.getElementById('systemPromptStatus');
@@ -1972,12 +2148,11 @@ export function renderLayout(
           }
         }
         async function loadThinkingConfig() {
-          const toggleEl = document.getElementById('thinkingProxyToggle');
-          if (!toggleEl) return;
           try {
             const res = await fetch('/api/thinking-level');
             if (!res.ok) throw new Error('HTTP ' + res.status);
             thinkingConfig = await res.json();
+            const toggleEl = document.getElementById('thinkingProxyToggle');
             const fieldsEl = document.getElementById('thinkingConfigFields');
             const levelSelect = document.getElementById('thinkingLevelSelect');
             if (toggleEl) toggleEl.checked = Boolean(thinkingConfig.enabled);
@@ -2282,9 +2457,9 @@ export function renderLayout(
             }, {});
 
             const providerNames = Object.keys(grouped).sort();
-            if (countEl) countEl.innerText = data.length + ' models across ' + providerNames.length + ' providers';
+            countEl.innerText = data.length + ' models across ' + providerNames.length + ' providers';
 
-            if (catalogEl) catalogEl.innerHTML = providerNames.map((provider) => {
+            catalogEl.innerHTML = providerNames.map((provider) => {
               const models = grouped[provider]
                 .map((model) => '<li><strong>' + escapeHtml(model.id) + '</strong><br><span class="muted">' + escapeHtml(model.display_name || '') + '</span><br><span class="muted">Context: ' + escapeHtml(model.context_length || '') + ' | Output: ' + escapeHtml(model.max_output_tokens || '') + '</span></li>')
                 .join('');
@@ -2295,20 +2470,20 @@ export function renderLayout(
               '</section>';
             }).join('');
           } catch (error) {
-            if (countEl) countEl.innerText = 'Unable to load catalog';
-            if (catalogEl) catalogEl.innerHTML = '<div class="muted">The provider catalog could not be loaded from /v1/models.</div>';
+            countEl.innerText = 'Unable to load catalog';
+            catalogEl.innerHTML = '<div class="muted">The provider catalog could not be loaded from /v1/models.</div>';
           }
         }
 
         let modelSource = 'custom';
 
         async function loadModelSource() {
-          const customRadio = document.getElementById('modelSourceCustom');
-          if (!customRadio) return;
           try {
             const res = await fetch('/api/model-source');
             const data = await res.json();
             modelSource = data.source || 'custom';
+            
+            const customRadio = document.getElementById('modelSourceCustom');
             const endpointsRadio = document.getElementById('modelSourceEndpoints');
             const refreshBtn = document.getElementById('refreshEndpointsBtn');
             
@@ -2435,12 +2610,12 @@ export function renderLayout(
             var data = await res.json().catch(function() { return {}; });
             var models = data.models && typeof data.models === 'object' ? data.models : {};
             var keys = Object.keys(models).sort();
-            if (countEl) countEl.innerText = keys.length + ' pricing override' + (keys.length === 1 ? '' : 's');
+            countEl.innerText = keys.length + ' pricing override' + (keys.length === 1 ? '' : 's');
             if (!keys.length) {
-              if (listEl) listEl.innerHTML = '<div class="fallback-route-empty">No pricing overrides configured.</div>';
+              listEl.innerHTML = '<div class="fallback-route-empty">No pricing overrides configured.</div>';
               return;
             }
-            if (listEl) listEl.innerHTML = keys.map(function(modelId) {
+            listEl.innerHTML = keys.map(function(modelId) {
               var entry = models[modelId] || {};
               var until = entry.validUntil ? ' until ' + escapeHtml(entry.validUntil) : '';
               return '<div class="fallback-route-item">' +
@@ -2464,7 +2639,7 @@ export function renderLayout(
               });
             });
           } catch (e) {
-            if (countEl) countEl.innerText = 'Error';
+            countEl.innerText = 'Error';
             listEl.innerHTML = '<div class="fallback-route-empty">Failed to load pricing: ' + escapeHtml(String(e.message || e)) + '</div>';
           }
         }
@@ -2512,12 +2687,12 @@ export function renderLayout(
             var res = await fetch('/api/sessions');
             var data = await res.json();
             var sessions = Array.isArray(data.sessions) ? data.sessions : [];
-            if (countEl) countEl.innerText = sessions.length + ' session' + (sessions.length === 1 ? '' : 's');
+            countEl.innerText = sessions.length + ' session' + (sessions.length === 1 ? '' : 's');
             if (!sessions.length) {
-              if (listEl) listEl.innerHTML = '<div class="fallback-route-empty">No recent sessions. CLI agents will appear here when they connect with X-Local-Router-Client header.</div>';
+              listEl.innerHTML = '<div class="fallback-route-empty">No recent sessions. CLI agents will appear here when they connect with X-Local-Router-Client header.</div>';
               return;
             }
-            if (listEl) listEl.innerHTML = sessions.map(function(s) {
+            listEl.innerHTML = sessions.map(function(s) {
               var models = Object.keys(s.modelUsage || {}).map(function(m) {
                 return m + ' (' + s.modelUsage[m] + ')';
               }).join(', ');
@@ -2536,7 +2711,7 @@ export function renderLayout(
             }).join('');
           } catch (e) {
             countEl.innerText = 'Error';
-            if (listEl) listEl.innerHTML = '<div class="fallback-route-empty">Failed to load sessions: ' + escapeHtml(String(e.message || e)) + '</div>';
+            listEl.innerHTML = '<div class="fallback-route-empty">Failed to load sessions: ' + escapeHtml(String(e.message || e)) + '</div>';
           }
         }
 
@@ -2558,8 +2733,8 @@ export function renderLayout(
           }
         }
         refreshDiagnostics();
-      
-  </script>
+
+  </script>  </script>
 </body>
 </html>`;
 }
