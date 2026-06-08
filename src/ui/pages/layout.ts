@@ -1027,14 +1027,14 @@ export function renderLayout(
           const countEl = document.getElementById('fallbackCount');
           const listEl = document.getElementById('fallbackRouteList');
           const routes = Array.isArray(fallbackRoutes) ? fallbackRoutes : [];
-          countEl.innerText = routes.length + ' fallback route' + (routes.length === 1 ? '' : 's');
+          if (countEl) if (countEl) countEl.innerText = routes.length + ' fallback route' + (routes.length === 1 ? '' : 's');
 
           if (routes.length === 0) {
-            listEl.innerHTML = '<div class="fallback-route-empty">No fallback routes configured yet.</div>';
+            if (listEl) listEl.innerHTML = '<div class="fallback-route-empty">No fallback routes configured yet.</div>';
             return;
           }
 
-          listEl.innerHTML = routes.map((route) => {
+          if (listEl) if (listEl) listEl.innerHTML = routes.map((route) => {
             const models = Array.isArray(route.models) ? route.models : [];
             const chainHtml = models.map((modelId) => escapeHtml(modelId) + availabilityBadgeHtml(modelId)).join(' → ');
             return '<div class="fallback-route-item" data-fallback-route="' + escapeHtml(route.id) + '">' +
@@ -1625,7 +1625,7 @@ export function renderLayout(
           countEl.innerText = routes.length + ' router model' + (routes.length === 1 ? '' : 's');
 
           if (routes.length === 0) {
-            listEl.innerHTML = '<div class="fallback-route-empty">No router models configured yet.</div>';
+            if (listEl) listEl.innerHTML = '<div class="fallback-route-empty">No router models configured yet.</div>';
             return;
           }
 
@@ -1952,7 +1952,6 @@ export function renderLayout(
             const res = await fetch('/api/system-prompt');
             if (!res.ok) throw new Error('HTTP ' + res.status);
             const data = await res.json();
-            const toggleEl = document.getElementById('systemPromptToggle');
             const fieldsEl = document.getElementById('systemPromptFields');
             const textEl = document.getElementById('systemPromptText');
             const statusEl = document.getElementById('systemPromptStatus');
@@ -1974,7 +1973,6 @@ export function renderLayout(
             const res = await fetch('/api/thinking-level');
             if (!res.ok) throw new Error('HTTP ' + res.status);
             thinkingConfig = await res.json();
-            const toggleEl = document.getElementById('thinkingProxyToggle');
             const fieldsEl = document.getElementById('thinkingConfigFields');
             const levelSelect = document.getElementById('thinkingLevelSelect');
             if (toggleEl) toggleEl.checked = Boolean(thinkingConfig.enabled);
@@ -2255,8 +2253,6 @@ export function renderLayout(
 
         async function loadCatalog() {
           const catalogEl = document.getElementById('catalog');
-          if (!catalogEl) return;
-          const catalogEl = document.getElementById('catalog');
           const countEl = document.getElementById('catalogCount');
 
           try {
@@ -2281,9 +2277,9 @@ export function renderLayout(
             }, {});
 
             const providerNames = Object.keys(grouped).sort();
-            countEl.innerText = data.length + ' models across ' + providerNames.length + ' providers';
+            if (countEl) countEl.innerText = data.length + ' models across ' + providerNames.length + ' providers';
 
-            catalogEl.innerHTML = providerNames.map((provider) => {
+            if (catalogEl) catalogEl.innerHTML = providerNames.map((provider) => {
               const models = grouped[provider]
                 .map((model) => '<li><strong>' + escapeHtml(model.id) + '</strong><br><span class="muted">' + escapeHtml(model.display_name || '') + '</span><br><span class="muted">Context: ' + escapeHtml(model.context_length || '') + ' | Output: ' + escapeHtml(model.max_output_tokens || '') + '</span></li>')
                 .join('');
@@ -2294,8 +2290,8 @@ export function renderLayout(
               '</section>';
             }).join('');
           } catch (error) {
-            countEl.innerText = 'Unable to load catalog';
-            catalogEl.innerHTML = '<div class="muted">The provider catalog could not be loaded from /v1/models.</div>';
+            if (countEl) countEl.innerText = 'Unable to load catalog';
+            if (catalogEl) catalogEl.innerHTML = '<div class="muted">The provider catalog could not be loaded from /v1/models.</div>';
           }
         }
 
@@ -2308,8 +2304,6 @@ export function renderLayout(
             const res = await fetch('/api/model-source');
             const data = await res.json();
             modelSource = data.source || 'custom';
-            
-            const customRadio = document.getElementById('modelSourceCustom');
             const endpointsRadio = document.getElementById('modelSourceEndpoints');
             const refreshBtn = document.getElementById('refreshEndpointsBtn');
             
@@ -2436,12 +2430,12 @@ export function renderLayout(
             var data = await res.json().catch(function() { return {}; });
             var models = data.models && typeof data.models === 'object' ? data.models : {};
             var keys = Object.keys(models).sort();
-            countEl.innerText = keys.length + ' pricing override' + (keys.length === 1 ? '' : 's');
+            if (countEl) countEl.innerText = keys.length + ' pricing override' + (keys.length === 1 ? '' : 's');
             if (!keys.length) {
-              listEl.innerHTML = '<div class="fallback-route-empty">No pricing overrides configured.</div>';
+              if (listEl) listEl.innerHTML = '<div class="fallback-route-empty">No pricing overrides configured.</div>';
               return;
             }
-            listEl.innerHTML = keys.map(function(modelId) {
+            if (listEl) listEl.innerHTML = keys.map(function(modelId) {
               var entry = models[modelId] || {};
               var until = entry.validUntil ? ' until ' + escapeHtml(entry.validUntil) : '';
               return '<div class="fallback-route-item">' +
@@ -2465,7 +2459,7 @@ export function renderLayout(
               });
             });
           } catch (e) {
-            countEl.innerText = 'Error';
+            if (countEl) countEl.innerText = 'Error';
             listEl.innerHTML = '<div class="fallback-route-empty">Failed to load pricing: ' + escapeHtml(String(e.message || e)) + '</div>';
           }
         }
@@ -2513,12 +2507,12 @@ export function renderLayout(
             var res = await fetch('/api/sessions');
             var data = await res.json();
             var sessions = Array.isArray(data.sessions) ? data.sessions : [];
-            countEl.innerText = sessions.length + ' session' + (sessions.length === 1 ? '' : 's');
+            if (countEl) countEl.innerText = sessions.length + ' session' + (sessions.length === 1 ? '' : 's');
             if (!sessions.length) {
-              listEl.innerHTML = '<div class="fallback-route-empty">No recent sessions. CLI agents will appear here when they connect with X-Local-Router-Client header.</div>';
+              if (listEl) listEl.innerHTML = '<div class="fallback-route-empty">No recent sessions. CLI agents will appear here when they connect with X-Local-Router-Client header.</div>';
               return;
             }
-            listEl.innerHTML = sessions.map(function(s) {
+            if (listEl) listEl.innerHTML = sessions.map(function(s) {
               var models = Object.keys(s.modelUsage || {}).map(function(m) {
                 return m + ' (' + s.modelUsage[m] + ')';
               }).join(', ');
@@ -2537,7 +2531,7 @@ export function renderLayout(
             }).join('');
           } catch (e) {
             countEl.innerText = 'Error';
-            listEl.innerHTML = '<div class="fallback-route-empty">Failed to load sessions: ' + escapeHtml(String(e.message || e)) + '</div>';
+            if (listEl) listEl.innerHTML = '<div class="fallback-route-empty">Failed to load sessions: ' + escapeHtml(String(e.message || e)) + '</div>';
           }
         }
 
