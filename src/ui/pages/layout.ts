@@ -1,15 +1,20 @@
-export function renderConfigPage(params: {
-  defaultRouterId: string;
-  defaultRouterCandidatesText: string;
-  defaultFallbackModelsText: string;
-}): string {
-  return `
-    <!DOCTYPE html>
-    <html lang="en">
-    <head>
-      <meta charset="UTF-8">
-      <title>Local Router Config</title>
-      <style>
+export function renderLayout(
+  title: string,
+  bodyHtml: string,
+  params: {
+    defaultRouterId: string;
+    defaultRouterCandidatesText: string;
+    defaultFallbackModelsText: string;
+  }
+): string {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>${title} | Local Router</title>
+  <style>
+
+
         :root {
           color-scheme: light;
           --app-bg: rgb(244, 247, 251);
@@ -228,8 +233,89 @@ export function renderConfigPage(params: {
           .theme-panel, .provider-picker { grid-template-columns: 1fr; }
           .catalog-meta { align-items: flex-start; flex-direction: column; }
         }
-      </style>
-      <script>
+      
+        body {
+          margin: 0;
+          padding: 0;
+          height: 100vh;
+          overflow: hidden;
+          background: var(--app-bg);
+          color: var(--text);
+          font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        }
+        .layout-container {
+          display: flex;
+          height: 100vh;
+          width: 100vw;
+        }
+        .sidebar {
+          width: 240px;
+          background: var(--surface);
+          border-right: 1px solid var(--border);
+          display: flex;
+          flex-direction: column;
+          flex-shrink: 0;
+        }
+        .sidebar-header {
+          padding: 20px;
+          border-bottom: 1px solid var(--border);
+        }
+        .sidebar-header h2 {
+          margin: 0 0 4px;
+          font-size: 18px;
+        }
+        .sidebar-nav {
+          padding: 15px 10px;
+          flex: 1;
+          display: flex;
+          flex-direction: column;
+          gap: 6px;
+          overflow-y: auto;
+        }
+        .nav-link {
+          display: block;
+          padding: 10px 14px;
+          border-radius: 6px;
+          color: var(--text);
+          text-decoration: none;
+          font-size: 14px;
+          font-weight: 500;
+          transition: background-color 120ms ease;
+        }
+        .nav-link:hover {
+          background: var(--secondary-hover);
+        }
+        .nav-link.active {
+          background: var(--primary);
+          color: var(--primary-text);
+        }
+        .sidebar-footer {
+          padding: 15px 20px;
+          border-top: 1px solid var(--border);
+        }
+        .theme-panel-compact {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          gap: 10px;
+          font-size: 13px;
+        }
+        .theme-panel-compact label {
+          margin-bottom: 0;
+        }
+        .theme-panel-compact select {
+          width: auto;
+          padding: 4px 8px;
+        }
+        .main-content {
+          flex: 1;
+          padding: 30px 40px;
+          overflow-y: auto;
+        }
+
+  </style>
+  <script>
+
         const THEME_STORAGE_KEY = 'local-router-config-color-scheme-scale';
         const LEGACY_THEME_STORAGE_KEY = 'fvs-code-config-color-scheme-scale';
         const THEME_PRESETS = [
@@ -413,438 +499,52 @@ export function renderConfigPage(params: {
         }
 
         initializeThemeScale();
-      </script>
-    </head>
-    <body>
-      <div class="card">
-        <div class="theme-panel">
-          <div>
-            <div class="theme-title">
-              <label id="colorSchemeLabel" for="colorSchemeScale">Color Scheme</label>
-              <span id="colorSchemeValue" class="theme-value">Light - 0%</span>
-            </div>
-            <p class="muted">Adjusts contrast, surfaces, borders, and accent colors across the configuration UI.</p>
-          </div>
-          <div class="theme-slider">
-            <input id="colorSchemeScale" type="range" min="0" max="100" step="1" value="0" aria-labelledby="colorSchemeLabel" oninput="setThemeScale(this.value)" onchange="setThemeScale(this.value)">
-            <div class="theme-scale-labels" aria-hidden="true">
-              <span>Light</span>
-              <span>Balanced</span>
-              <span>Dark</span>
-            </div>
-          </div>
-        </div>
-        <h2>Local Router Secure Key Configuration</h2>
-        <p class="muted">API keys are held in memory while the server runs and persisted to your PQC-encrypted secrets bundle (<code>~/.config/pqc-secrets/</code>) whenever you save from this UI.</p>
-        <details class="endpoint-help">
-          <summary>Proxy vs upstream endpoints</summary>
-          <p class="muted">Clients talk to Local Router at <code>http://127.0.0.1:11434</code>. Custom vendors must expose an OpenAI-compatible HTTPS API.</p>
-          <table>
-            <thead><tr><th>Local Router (clients)</th><th>Role</th></tr></thead>
-            <tbody>
-              <tr><td><code>POST /v1/chat/completions</code></td><td>Primary inference</td></tr>
-              <tr><td><code>GET /v1/models</code>, <code>GET /api/tags</code></td><td>Discovery</td></tr>
-              <tr><td><code>POST /api/chat</code>, <code>POST /api/generate</code></td><td>Ollama-compat (translated)</td></tr>
-              <tr><td><code>POST /v1/responses</code>, <code>POST /v1/messages</code></td><td>Codex / Anthropic shims</td></tr>
-            </tbody>
-          </table>
-          <p class="muted" style="margin-top:8px;">Upstream base URL must be HTTPS and end with <code>/v1</code>. Local Router calls <code>POST {base}/chat/completions</code> and optionally <code>GET {base}/models</code>. Model id: <code>{providerSlug}/{alias}</code>.</p>
-        </details>
-        <div class="provider-picker">
-          <div class="form-group">
-            <label for="providerSelect">Provider</label>
-            <select id="providerSelect"></select>
-          </div>
-          <div class="form-group">
-            <label>Provider Key Env Var</label>
-            <input id="providerEnvVar" type="text" disabled>
-          </div>
-        </div>
-        <div id="customProviderPanel" class="custom-provider-panel" style="display:none;">
-          <h3 id="customProviderPanelTitle">Add custom provider</h3>
-          <p class="muted">Register an OpenAI-compatible upstream. Keys are not stored in <code>custom-providers.json</code> — only metadata.</p>
-          <input type="hidden" id="customProviderEditMode" value="">
-          <div class="provider-picker">
-            <div class="form-group">
-              <label for="customProviderSlug">Provider ID (slug)</label>
-              <input id="customProviderSlug" type="text" placeholder="my-vendor" pattern="[a-z0-9]([a-z0-9-]*[a-z0-9])?">
-            </div>
-            <div class="form-group">
-              <label for="customProviderDisplayName">Display name</label>
-              <input id="customProviderDisplayName" type="text" placeholder="My Vendor">
-            </div>
-          </div>
-          <div class="provider-picker">
-            <div class="form-group">
-              <label for="customProviderKeyEnv">Key env var</label>
-              <input id="customProviderKeyEnv" type="text" placeholder="MY_VENDOR_API_KEY">
-            </div>
-            <div class="form-group">
-              <label for="customProviderEndpoint">Upstream base URL</label>
-              <input id="customProviderEndpoint" type="url" placeholder="https://api.example.com/v1">
-            </div>
-          </div>
-          <div class="form-group">
-            <label for="customProviderDefaultTool">Default tool label</label>
-            <input id="customProviderDefaultTool" type="text" value="OpenAI Compatible">
-          </div>
-          <div class="button-row">
-            <button type="button" onclick="saveCustomProvider()">Save custom provider</button>
-            <button type="button" class="button-secondary" onclick="cancelCustomProviderPanel()">Cancel</button>
-          </div>
-        </div>
-        <div id="providerKeySection">
-          <div class="form-group">
-            <label>API Key</label>
-            <input type="password" id="providerKey" placeholder="Enter provider API key">
-          </div>
-          <div class="button-row">
-            <button onclick="saveProviderKey()">Save Selected Provider Key</button>
-          </div>
-        </div>
-        <div class="form-group" style="margin-top:18px;">
-          <label>Provider Model Manager (one model at a time)</label>
-          <p class="muted">Defaults from providers.txt remain available. Add, update, or delete single models per provider in-memory without removing the provider itself.</p>
-          <div class="provider-picker">
-            <div class="form-group">
-              <label for="modelUpstream">Upstream Model ID</label>
-              <input id="modelUpstream" type="text" placeholder="@preset/chain-of-draft">
-            </div>
-            <div class="form-group">
-              <label for="modelPresented">Presented Model Name (alias)</label>
-              <input id="modelPresented" type="text" placeholder="openrouter-chain-of-draft">
-            </div>
-          </div>
-          <div class="provider-picker">
-            <div class="form-group">
-              <label for="modelContextLength">Context Length</label>
-              <input id="modelContextLength" type="number" min="1" step="1" value="64000">
-            </div>
-            <div class="form-group">
-              <label for="modelOutputTokens">Max Output Tokens</label>
-              <input id="modelOutputTokens" type="number" min="1" step="1" value="4096">
-            </div>
-          </div>
-          <div class="model-flag-grid">
-            <label class="flag-toggle"><input id="modelSupportsTools" type="checkbox" checked>Tools</label>
-            <label class="flag-toggle"><input id="modelSupportsImages" type="checkbox">Vision</label>
-            <label class="flag-toggle"><input id="modelSupportsCache" type="checkbox">Cache</label>
-            <label class="flag-toggle"><input id="modelSupportsReasoning" type="checkbox">Reasoning</label>
-          </div>
-        </div>
-        <div class="button-row">
-          <button onclick="saveProviderModel()">Add / Update Selected Provider Model</button>
-          <button class="button-secondary" onclick="clearProviderModelForm()">Clear Model Form</button>
-          <button class="button-secondary" onclick="resetSelectedProviderModels()">Reset Selected Provider Models</button>
-          <button class="button-secondary" onclick="configureVSCodePicker()">Refresh VS Code Model Picker</button>
-        </div>
-        <div class="form-group" style="margin-top:16px;">
-          <label>Selected Provider Models</label>
-          <div id="providerModelList" class="provider-model-list">
-            <div class="provider-model-empty">Loading selected provider models...</div>
-          </div>
-        </div>
-        <div id="message"></div>
+      
+  </script>
+</head>
+<body>
+  <div class="layout-container">
+    <aside class="sidebar">
+      <div class="sidebar-header">
+        <h2>Local Router</h2>
+        <div class="muted">v0.6.4</div>
       </div>
-      <div class="card">
-        <div class="catalog-meta">
-          <div>
-            <h2>Fallback Model Routes</h2>
-            <p class="muted">Create a presented fallback model from existing model IDs. The route appears in /v1/models, /api/tags, /api/show, and VS Code picker refreshes.</p>
-            <p class="muted">The <strong>fallback-models</strong> route is the system safety net: when a direct model or router fails (or has no eligible candidates), Local Router cascades to this chain automatically.</p>
-          </div>
-          <div class="muted" id="fallbackCount">Loading fallback routes...</div>
-        </div>
-        <div class="provider-picker">
-          <div class="form-group">
-            <label for="fallbackRouteId">Presented Fallback Model Name</label>
-            <input id="fallbackRouteId" type="text" placeholder="fallback-models">
-          </div>
-          <div class="form-group">
-            <label>Add Model to Chain</label>
-            <div class="dropdown-search-container">
-              <input id="fallbackModelSearch" type="text" placeholder="Search models..." autocomplete="off" oninput="filterFallbackModelDropdown()" onfocus="openFallbackModelDropdown()">
-              <div id="fallbackModelDropdown" class="dropdown-search-menu"></div>
-            </div>
-            <button style="margin-top:8px;" onclick="addSelectedFallbackCandidate()">Add to Chain</button>
-          </div>
-          <div class="form-group">
-            <label for="fallbackModelsText">Fallback Model Chain (advanced — synced with order list)</label>
-            <textarea id="fallbackModelsText" style="min-height:80px;" placeholder="wafer-ai-deepseek-v4-pro&#10;openrouter-chain-of-draft&#10;moonshot-kimi-k2.6 disabled" oninput="applyFallbackTextareaToStore()"></textarea>
-          </div>
-        </div>
-        <div class="button-row">
-          <button onclick="saveFallbackRoute()">Add / Update Fallback Route</button>
-          <button class="button-secondary" onclick="applyFallbackDefaults()">Reset Fallback Defaults</button>
-          <button class="button-secondary" onclick="clearFallbackRouteForm()">Clear Fallback Form</button>
-          <button class="button-secondary" onclick="configureVSCodePicker()">Refresh VS Code Model Picker</button>
-        </div>
-        <div style="margin-top:14px;">
-          <label>Fallback Order (drag to reorder · click toggle to enable/disable a model)</label>
-          <div id="fallbackCandidateList" class="router-candidate-list">
-            <div class="router-candidate-empty">No candidates added yet. Search and add models above.</div>
-          </div>
-        </div>
-        <div id="fallbackRouteList" class="fallback-route-list">
-          <div class="fallback-route-empty">Loading fallback routes...</div>
-        </div>
-      </div>
-      <div class="card">
-        <div class="routing-info-box">
-          <h4>How routing works</h4>
-          <ul>
-            <li><strong>Direct model</strong> — one provider call (e.g. <code>zenmux-deepseek-v4-pro</code>). On failure, cascades to the system fallback chain.</li>
-            <li><strong>Router model</strong> (<code>local-router/&lt;name&gt;</code>) — scores and filters your candidate list, then tries models in router order. On exhaustion or zero eligible candidates, cascades to system fallback.</li>
-            <li><strong>Fallback route</strong> (<code>local-router/&lt;chain&gt;</code>) — ordered retry chain with backoff. Use <code>local-router/fallback-models</code> as the system safety net.</li>
-          </ul>
-          <p class="muted" style="margin:10px 0 0;">Recommended out-of-box model: <code>local-router/auto-router-main</code> (legacy alias: <code>auto-local-main</code>). Configure provider keys above — candidates light up when ready.</p>
-        </div>
-        <div class="catalog-meta">
-          <div>
-            <h2>Router Models</h2>
-            <p class="muted">Create a local router model from explicit candidate model IDs. Routers appear as local-router/&lt;name&gt; and only select from the candidates listed here.</p>
-          </div>
-          <div class="muted" id="routerCount">Loading router models...</div>
-        </div>
-        <div class="provider-picker">
-          <div class="form-group">
-            <label for="routerRouteId">Presented Router Model Name</label>
-            <input id="routerRouteId" type="text" placeholder="auto-router-main">
-          </div>
-          <div class="form-group">
-            <label for="routerType">Router Type</label>
-            <select id="routerType" onchange="toggleBanditFields()">
-              <option value="auto-local">auto-local — smart balance (recommended)</option>
-              <option value="pareto-code">pareto-code — coding-first</option>
-              <option value="priority">priority — manual order</option>
-              <option value="bandit-local">bandit-local — learns from usage</option>
-            </select>
-            <div id="routerTypeHelp" class="muted"></div>
-          </div>
-        </div>
-        <div class="provider-picker">
-          <div class="form-group">
-            <label for="routerMinCodingScore">Min Coding Score (0-1)</label>
-            <input id="routerMinCodingScore" type="number" min="0" max="1" step="0.01" value="0.66">
-          </div>
-          <div class="form-group">
-            <label for="routerCostQualityTradeoff">Cost/Quality Tradeoff (0-10)</label>
-            <input id="routerCostQualityTradeoff" type="number" min="0" max="10" step="1" value="7">
-          </div>
-          <div class="form-group" id="banditExplorationGroup" style="display:none;">
-            <label for="routerExplorationBudget">Exploration Budget (0-1)</label>
-            <input id="routerExplorationBudget" type="number" min="0" max="1" step="0.01" value="0.05">
-            <p class="muted">Controls how much the bandit explores new candidates. Higher = more exploration. 0.05 is a safe default.</p>
-          </div>
-        </div>
-        <label class="flag-toggle" style="margin-bottom:8px;">
-          <input id="routerEnableAutoTiers" type="checkbox">
-          Enable Auto Tiers — automatically derank underperforming candidates (requires 50+ samples)
-        </label>
-        <div class="form-group">
-          <label>Candidate Models</label>
-          <div class="router-tabs">
-            <button id="tab-visual-btn" class="router-tab-btn active" onclick="switchToBuilderTab()">Visual Builder</button>
-            <button id="tab-advanced-btn" class="router-tab-btn" onclick="switchToAdvancedTab()">Advanced (Text)</button>
-          </div>
-          <div id="tab-visual" class="router-tab-content">
-            <div class="provider-picker" style="margin:0; gap:10px;">
-              <div class="form-group" style="margin:0;">
-                <label for="routerModelSearch">Add Model</label>
-                <div class="dropdown-search-container">
-                  <input id="routerModelSearch" type="text" placeholder="Search models..." autocomplete="off" oninput="filterModelDropdown()" onfocus="openModelDropdown()">
-                  <div id="routerModelDropdown" class="dropdown-search-menu"></div>
-                </div>
-              </div>
-              <div class="form-group" style="margin:0; align-self:end;">
-                <button onclick="addSelectedCandidate()">Add to Candidates</button>
-              </div>
-            </div>
-            <label class="flag-toggle" style="margin-top:10px;">
-              <input id="routerFallbackGroupToggle" type="checkbox" onchange="toggleFallbackGroupMode(this.checked)">
-              Add candidate as fallback group (same model across providers chains as fallback)
-            </label>
-          </div>
-          <div id="tab-advanced" class="router-tab-content" style="display:none;">
-            <textarea id="routerCandidatesText" placeholder="wafer-ai-deepseek-v4-pro, coding=0.86, input=1, output=2, latency=1200&#10;openrouter-chain-of-draft, coding=0.80&#10;mimo-mimo-v2.5-pro, coding=0.45"></textarea>
-          </div>
-        </div>
-        <div class="button-row" style="margin-top:14px;">
-          <button onclick="saveRouterRoute()">Add / Update Router Model</button>
-          <button class="button-secondary" onclick="clearRouterRouteForm()">Reset Router Defaults</button>
-          <button class="button-secondary" onclick="configureVSCodePicker()">Refresh VS Code Model Picker</button>
-          <a class="button-secondary" href="/api/router-candidates.csv" style="display:inline-block; text-decoration:none; padding:10px 15px; border-radius:4px;">Export Candidates CSV</a>
-          <a class="button-secondary" href="/api/router-events.csv" style="display:inline-block; text-decoration:none; padding:10px 15px; border-radius:4px;">Export Events CSV</a>
-          <button class="button-secondary" onclick="recomputeRouter()">Recompute from Telemetry</button>
-          <button class="button-secondary" onclick="importRouterBackup()">Import Backup</button>
-        </div>
-        <div id="recomputeResults" style="margin-top:12px; display:none;">
-          <h4>Recompute Results</h4>
-          <div id="recomputeSummary" class="muted"></div>
-          <div id="recomputeProposals" style="margin-top:8px;"></div>
-        </div>
-        <input type="file" id="routerImportFile" accept=".json" style="display:none;" onchange="handleRouterImportFile(event)">
-        <div id="routerRouteList" class="fallback-route-list">
-          <div class="fallback-route-empty">Loading router models...</div>
-        </div>
-        <div style="margin-top:18px;">
-          <label style="font-weight:500;">Candidate Order (drag to reorder · click toggle to enable/disable a model)</label>
-          <p class="muted" style="margin:4px 0 8px; font-size:12px;">Order is saved with the route. Active reordering changes the persisted chain above.</p>
-          <div id="routerCandidateList" class="router-candidate-list">
-            <div class="router-candidate-empty">No candidates added yet. Search and add models above.</div>
-          </div>
-        </div>
-      </div>
-      <div class="card">
-        <div class="catalog-meta">
-          <div>
-            <h2>Available Providers & Models</h2>
-            <p class="muted" id="catalogDescription">This list is generated from providers.txt and powers both the OpenAI-compatible and Ollama-compatible endpoints.</p>
-            <div style="margin-top: 12px; display: flex; align-items: center; gap: 16px; flex-wrap: wrap;">
-              <span class="flag-toggle">
-                <input type="radio" id="modelSourceCustom" name="modelSource" value="custom" onchange="setModelSource('custom')" checked>
-                <label for="modelSourceCustom" style="font-weight: 500; margin-bottom: 0; cursor: pointer;">Custom Models (providers.txt / edits)</label>
-              </span>
-              <span class="flag-toggle">
-                <input type="radio" id="modelSourceEndpoints" name="modelSource" value="endpoints" onchange="setModelSource('endpoints')">
-                <label for="modelSourceEndpoints" style="font-weight: 500; margin-bottom: 0; cursor: pointer;">Endpoint Models (query upstream)</label>
-              </span>
-              <button id="refreshEndpointsBtn" class="button-secondary" onclick="refreshEndpointModels()" style="padding: 4px 10px; font-size: 13px; display: none;">🔄 Refresh Endpoints</button>
-            </div>
-          </div>
-          <div class="muted" id="catalogCount">Loading catalog...</div>
-        </div>
-        <div id="catalog" class="catalog"></div>
-      </div>
-      <div class="card">
-        <div class="catalog-meta">
-          <div>
-            <h2>Model Pricing Overrides</h2>
-            <p class="muted">USD per 1M tokens for router cost scoring. Saved to <code>~/.config/local-router/provider-pricing.json</code>. Use for limited-time promos (ZenMux matched rates, Wafer MiniMax-M3 weekly pricing, etc.).</p>
-          </div>
-          <div class="muted" id="pricingCount">Loading pricing...</div>
-        </div>
-        <div class="form-group" style="display:grid; grid-template-columns: 1fr 1fr; gap: 12px;">
-          <div>
-            <label for="pricingModelId">Presented model ID</label>
-            <input id="pricingModelId" type="text" placeholder="zenmux-qwen3.7-max">
-          </div>
-          <div>
-            <label for="pricingValidUntil">Valid until (YYYY-MM-DD, optional)</label>
-            <input id="pricingValidUntil" type="text" placeholder="2026-06-11">
-          </div>
-          <div>
-            <label for="pricingInput">Input $ / 1M tokens</label>
-            <input id="pricingInput" type="number" min="0" step="0.01" placeholder="1.25">
-          </div>
-          <div>
-            <label for="pricingOutput">Output $ / 1M tokens</label>
-            <input id="pricingOutput" type="number" min="0" step="0.01" placeholder="3.75">
-          </div>
-          <div style="grid-column: 1 / -1;">
-            <label for="pricingLabel">Label / notes</label>
-            <input id="pricingLabel" type="text" placeholder="ZenMux Qwen3.7-Max — 50% off OpenRouter match">
-          </div>
-        </div>
-        <div style="margin-top: 12px; display: flex; gap: 8px; flex-wrap: wrap;">
-          <button onclick="saveProviderPricingEntry()">Save Pricing Override</button>
-          <button class="button-secondary" onclick="clearProviderPricingForm()">Clear Form</button>
-        </div>
-        <div id="pricingList" class="fallback-route-list" style="margin-top: 16px;">Loading pricing overrides...</div>
-      </div>
-      <div class="card">
-        <div class="catalog-meta">
-          <div>
-            <h2>Provider Key Configs</h2>
-            <p class="muted">Select one of the providers from providers.txt, then save the API key in-memory for that backend.</p>
-          </div>
-          <div class="muted" id="providerCount">Loading providers...</div>
-        </div>
-        <div id="providerGrid" class="provider-grid"></div>
-      </div>
-      <div class="card">
-        <div class="catalog-meta">
-          <div>
-            <h2>Diagnostics</h2>
-            <p class="muted">Redacted request/response summaries for troubleshooting. API keys, authorization headers, and full payload content are excluded.</p>
-          </div>
-          <div class="muted" id="diagnosticsStatus">Loading diagnostics...</div>
-        </div>
-        <div class="diagnostics-controls">
-          <button id="diagnosticsToggle" class="button-secondary" onclick="toggleDiagnostics()">Enable Diagnostics</button>
-          <button class="button-secondary" onclick="refreshDiagnostics()">Refresh Diagnostics</button>
-          <button class="button-secondary" onclick="clearDiagnostics()">Clear Diagnostics</button>
-        </div>
-        <pre id="diagnosticsLog" class="diagnostics-log">Loading diagnostics...</pre>
-      </div>
-      <div class="card">
-        <div class="catalog-meta">
-          <div>
-            <h2>System Prompt</h2>
-            <p class="muted">Inject a custom system prompt before every LLM request. Default: Chain of Draft (concise step-by-step reasoning).</p>
-          </div>
-          <div class="muted" id="systemPromptStatus">Loading...</div>
-        </div>
-        <div style="margin-top:12px;">
-          <label style="display:inline-flex;align-items:center;gap:8px;font-weight:bold;cursor:pointer;">
-            <input type="checkbox" id="systemPromptToggle" onchange="toggleSystemPrompt()"> Enable custom system prompt
-          </label>
-        </div>
-        <div id="systemPromptFields" style="margin-top:12px; display:none;">
-          <div class="form-group">
-            <label for="systemPromptText">Prompt text</label>
-            <textarea id="systemPromptText" rows="6" placeholder="Enter your system prompt..."></textarea>
-          </div>
-          <div class="button-row">
-            <button onclick="saveSystemPrompt()">Save</button>
-            <button class="button-secondary" onclick="resetSystemPromptToDefault()">Reset to Default (CoD)</button>
-          </div>
-        </div>
-      </div>
-      <div class="card">
-        <div class="catalog-meta">
-          <div>
-            <h2>Thinking / Reasoning</h2>
-            <p class="muted">Optional proxy overrides. When off, IDE/CLI/script thinking settings pass through unchanged.</p>
-          </div>
-          <div class="muted" id="thinkingLevelStatus">Loading...</div>
-        </div>
-        <div style="margin-top:12px;">
-          <label style="display:inline-flex;align-items:center;gap:8px;font-weight:bold;cursor:pointer;">
-            <input type="checkbox" id="thinkingProxyToggle" onchange="toggleThinkingProxy()"> Enable Local Router thinking overrides
-          </label>
-        </div>
-        <div id="thinkingConfigFields" style="margin-top:12px; display:none;">
-        <div class="form-group">
-          <label for="thinkingLevelSelect">Global Thinking Level</label>
-          <select id="thinkingLevelSelect" onchange="saveThinkingLevel()">
-            <option value="none">none — disable reasoning (VS Code safe)</option>
-            <option value="low">low — minimal reasoning</option>
-            <option value="medium">medium — balanced reasoning</option>
-            <option value="high">high — extended reasoning</option>
-            <option value="xhigh">xhigh — maximum reasoning</option>
+      <nav class="sidebar-nav">
+        <a href="/config/providers" class="nav-link">Providers &amp; Models</a>
+        <a href="/config/fallback" class="nav-link">Fallback Routes</a>
+        <a href="/config/routers" class="nav-link">Auto Router Models</a>
+        <a href="/config/thinking" class="nav-link">Prompt &amp; Thinking</a>
+        <a href="/config/pricing" class="nav-link">Pricing Overrides</a>
+        <a href="/config/diagnostics" class="nav-link">Diagnostics &amp; Sessions</a>
+      </nav>
+      <div class="sidebar-footer">
+        <div class="theme-panel-compact">
+          <label for="themeSelect">Theme</label>
+          <select id="themeSelect" onchange="setTheme(this.value)">
+            <option value="light">Light</option>
+            <option value="dark">Dark</option>
+            <option value="system">System</option>
           </select>
         </div>
-        <div class="form-group" id="providerThinkingLevels" style="margin-top:14px;">
-          <label>Per-Provider Thinking Levels</label>
-          <p class="muted">Override the global level for specific providers. Cleared overrides fall back to global.</p>
-          <div id="providerThinkingGrid" style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:8px;"></div>
-        </div>
-        </div>
       </div>
-      <div class="card">
-        <div class="catalog-meta">
-          <div>
-            <h2>Recent Sessions</h2>
-            <p class="muted">Track CLI agent sessions by endpoint. Rate sessions thumbs up/down to inform Continuous Improvement (CIP) routing decisions.</p>
-          </div>
-          <div class="muted" id="sessionCount">Loading sessions...</div>
-        </div>
-        <div id="sessionList" class="fallback-route-list">
-          <div class="fallback-route-empty">Loading sessions...</div>
-        </div>
-      </div>
-      <script>
+    </aside>
+    <main class="main-content">
+      <div id="message" style="margin-top:0; margin-bottom:20px; display:none; padding:10px 14px; border-radius:4px; font-weight:bold;"></div>
+      ${bodyHtml}
+    </main>
+  </div>
+  <script>
+    // Server-side parameters
+    const params = {
+      defaultRouterId: \${JSON.stringify(params.defaultRouterId)},
+      defaultRouterCandidatesText: \${JSON.stringify(params.defaultRouterCandidatesText)},
+      defaultFallbackModelsText: \${JSON.stringify(params.defaultFallbackModelsText)}
+    };
+    const DEFAULT_ROUTER_ID = params.defaultRouterId;
+    const DEFAULT_ROUTER_CANDIDATES_TEXT = params.defaultRouterCandidatesText;
+    const DEFAULT_FALLBACK_MODELS_TEXT = params.defaultFallbackModelsText;
+
+
         let providerConfigs = [];
         let fallbackRoutes = [];
         let routerRoutes = [];
@@ -1004,6 +704,8 @@ export function renderConfigPage(params: {
         }
 
         function renderProviderSelection() {
+          const selectEl = document.getElementById('providerSelect');
+          if (!selectEl) return;
           const selectEl = document.getElementById('providerSelect');
           const envVarEl = document.getElementById('providerEnvVar');
           const providerGridEl = document.getElementById('providerGrid');
@@ -1372,6 +1074,8 @@ export function renderConfigPage(params: {
         }
 
         async function loadFallbackRoutes() {
+          const listEl = document.getElementById('fallbackRouteList');
+          if (!listEl) return;
           const res = await fetch('/api/fallback-models');
           const payload = await res.json().catch(() => ({}));
           fallbackRoutes = Array.isArray(payload?.data) ? payload.data : [];
@@ -1977,6 +1681,8 @@ export function renderConfigPage(params: {
         }
 
         async function loadRouterRoutes() {
+          const listEl = document.getElementById('routerRouteList');
+          if (!listEl) return;
           const res = await fetch('/api/router-models');
           const payload = await res.json().catch(() => ({}));
           routerRoutes = Array.isArray(payload?.data) ? payload.data : [];
@@ -2178,6 +1884,8 @@ export function renderConfigPage(params: {
         }
 
         async function refreshDiagnostics() {
+          const logEl = document.getElementById('diagnosticsLog');
+          if (!logEl) return;
           const statusEl = document.getElementById('diagnosticsStatus');
           const toggleEl = document.getElementById('diagnosticsToggle');
           const logEl = document.getElementById('diagnosticsLog');
@@ -2238,6 +1946,8 @@ export function renderConfigPage(params: {
         let systemPromptDefault = '';
         let thinkingConfig = { global: 'none', default: 'none', providers: [] };
         async function loadSystemPrompt() {
+          const toggleEl = document.getElementById('systemPromptToggle');
+          if (!toggleEl) return;
           try {
             const res = await fetch('/api/system-prompt');
             if (!res.ok) throw new Error('HTTP ' + res.status);
@@ -2258,6 +1968,8 @@ export function renderConfigPage(params: {
           }
         }
         async function loadThinkingConfig() {
+          const toggleEl = document.getElementById('thinkingProxyToggle');
+          if (!toggleEl) return;
           try {
             const res = await fetch('/api/thinking-level');
             if (!res.ok) throw new Error('HTTP ' + res.status);
@@ -2543,6 +2255,8 @@ export function renderConfigPage(params: {
 
         async function loadCatalog() {
           const catalogEl = document.getElementById('catalog');
+          if (!catalogEl) return;
+          const catalogEl = document.getElementById('catalog');
           const countEl = document.getElementById('catalogCount');
 
           try {
@@ -2588,6 +2302,8 @@ export function renderConfigPage(params: {
         let modelSource = 'custom';
 
         async function loadModelSource() {
+          const customRadio = document.getElementById('modelSourceCustom');
+          if (!customRadio) return;
           try {
             const res = await fetch('/api/model-source');
             const data = await res.json();
@@ -2843,8 +2559,8 @@ export function renderConfigPage(params: {
           }
         }
         refreshDiagnostics();
-      </script>
-    </body>
-    </html>
-`;
+      
+  </script>
+</body>
+</html>`;
 }
