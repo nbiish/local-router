@@ -1,0 +1,30 @@
+# tests
+
+Test suite for local-router behavior, providers, routing, and API compliance.
+
+## Purpose
+
+- Verify router selection, fallback execution, disabled models, gateway responses, responses API streams, websocket behavior, provider keys, catalog validation.
+
+## Ownership
+
+- Maintained by local-router team.
+- Tests must reflect production behavior in `src/`.
+
+## Local Contracts
+
+- Keep test files MJS.
+- Import from `../build/index.js` to test compiled output.
+
+## Work Guidance
+
+- Add tests before changing routing behavior.
+- Keep tests deterministic; avoid time-based flakiness.
+
+## Verification
+
+- Run `npm test` or `node --test`.
+
+## Child DOX Index
+
+No child DOX files are required.

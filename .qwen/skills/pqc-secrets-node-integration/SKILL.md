@@ -11,8 +11,7 @@ Integrate ML-KEM-768 + AES-256-GCM API key persistence into a Node.js/Express se
 
 ## Architecture
 
-```
-macOS Keychain              ~/.config/pqc-secrets/
+System Keychain / File        ~/.config/pqc-secrets/
 (ML-KEM-768 private key)    secrets.bundle.json (AES-256-GCM encrypted)
         │                           │
         ▼                           ▼
@@ -20,7 +19,6 @@ macOS Keychain              ~/.config/pqc-secrets/
         │
         ▼
   Node.js server: loadPqcSecrets() / persistPqcSecrets()
-```
 
 ## Step 1: Create the Python UV Script
 
@@ -42,9 +40,9 @@ Create `scripts/pqc_secrets.py` with inline dependency metadata:
 **Encaps return order:** `encaps(pk)` returns `(shared_secret, ciphertext)` — shared_secret is 32 bytes (the AES key), ciphertext is 1088 bytes (the wrapped key to store). Do NOT swap these — decaps will fail with "Expected 1088 bytes and obtained 32".
 
 **Key commands to implement:**
-- `keygen` — generate keypair, store private key in macOS Keychain via `security add-generic-password`
+- `keygen` — generate keypair, store private key in system keychain (macOS Keychain, Linux Secret Service) or fall back to an encrypted local file
 - `pack` — read `KEY=VALUE` lines from stdin, encaps shared_secret via ML-KEM-768, encrypt with AES-256-GCM, write `secrets.bundle.json`
-- `export` — decaps via Keychain, decrypt, output `export KEY=VALUE` lines
+- `export` — decaps via keychain or local file, decrypt, output `export KEY=VALUE` lines
 - `verify` — same as export but only print key names, no values
 
 **Bundle format:**

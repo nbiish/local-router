@@ -1,0 +1,31 @@
+# bin
+
+CLI entry points and launcher scripts for local-router and PQC secrets.
+
+## Purpose
+
+- `bin/local-router.js` — primary start/stop/status CLI.
+- `bin/localrouter.js` — legacy router script.
+- `bin/pqc-secrets` — PQC secrets wrapper.
+- `bin/fvs-code.js`, `bin/lib/localrouter-client.js` — launcher/client utilities.
+
+## Ownership
+
+- Maintained by local-router team.
+
+## Local Contracts
+
+- Node CLI scripts; keep them POSIX-portable.
+
+## Work Guidance
+
+- Use for user-facing start, stop, status, route-set commands.
+- PQC secrets binary must never log key material.
+
+## Verification
+
+- Smoke test `bin/local-router.js status` after deploy.
+
+## Child DOX Index
+
+No child DOX files are required.

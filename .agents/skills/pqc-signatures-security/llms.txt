@@ -1,0 +1,29 @@
+# pqc-signatures-security skill
+
+Agent skill for PQC signature operations and security boundaries.
+
+## Purpose
+
+- ML-DSA-65/87 and SLH-DSA-SHA2-128s signing and verification.
+- Audit rules for banned algorithms and secrets.
+
+## Ownership
+
+- Local-router security team.
+
+## Local Contracts
+
+- No classical crypto for secrets operations.
+- Fail closed on any detected secret in logs or task files.
+
+## Work Guidance
+
+- Apply to all identity/signing and key lifecycle events.
+
+## Verification
+
+- Run audit checks before merging feature branches.
+
+## Child DOX Index
+
+No child DOX files are required.

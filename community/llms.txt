@@ -1,0 +1,27 @@
+# community
+
+Public-facing community docs and contribution material.
+
+## Purpose
+
+- Contribution guidance and aggregation reports.
+
+## Ownership
+
+- Community-facing content.
+
+## Local Contracts
+
+- Community docs must not contain secrets or internal implementation details not suitable for public disclosure.
+
+## Work Guidance
+
+- Keep tone operator-friendly; link back to root docs.
+
+## Verification
+
+- Review before publishing externally.
+
+## Child DOX Index
+
+No child DOX files are required.

@@ -1,0 +1,32 @@
+# .agents
+
+Operator task files, agent skills, and research artifacts.
+
+## Purpose
+
+- Task planning and execution records (Chain-of-Draft format).
+- Agent skills for PQC secrets and signatures.
+- Research JSON snapshots for catalog and model data.
+
+## Ownership
+
+- Maintained by operators using the local-router agent workflow.
+
+## Local Contracts
+
+- Task files must not contain secrets or keys.
+- Chain-of-Draft requires each reasoning step to be ≤5 words.
+
+## Work Guidance
+
+- Follow `AGENTS.md` for task lifecycle and worktree rules.
+- Read `llms.txt` before any edit.
+
+## Verification
+
+- Confirm `.agents/tasks/TASK.<date>.md` exists for active work.
+
+## Child DOX Index
+
+- [skills/pqc-secrets/llms.txt](skills/pqc-secrets/llms.txt) — PQC secrets skill.
+- [skills/pqc-signatures-security/llms.txt](skills/pqc-signatures-security/llms.txt) — PQC signatures skill.
