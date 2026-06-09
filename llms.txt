@@ -214,11 +214,152 @@ The catalog contains 15 active providers with ~105 presented models as of 2026-0
 - **OpenCode MiniMax M3 free tier:** 1M context, 512K output. Mapped only under `opencode-zen/minimax-m3-free`.
 - **Z.ai:** `code-pass-glm-5.1` (presented model for coding GLM-5.1).
 
-#### Prompt Caching Specs by Provider
-- **DeepSeek:** Disk-based KV cache, automatic, priced at ~1/10-1/50 cost. Uses `prompt_cache_hit_tokens`.
-- **ZenMux:** Explicit `cache_control: {"type": "ephemeral"}` with up to 4 breakpoints.
-- **Wafer Serverless / Moonshot K2.6 / Xiaomi Mimo / OpenRouter:** Automatic pass-through caching.
-- **Nebius / NIM / Modal / Z.ai:** No support.
+#### Prompt Caching by Provider — Read/Write Mechanics & Cost Impact
+Local Router must maximize cache hits across every failover and auto-route hop. The rules below govern how `src/index.ts` (or the eventual caching module) should inject cache directives, preserve prefixes across provider transitions, and interpret cache metrics in upstream responses.
+
+##### OpenAI (`openrouter-presets`, plus any direct OpenAI candidate)
+- **Mode:** Automatic — no code changes required to enable.
+- **Minimum tokens:** 1,024 tokens in the prompt prefix; first 1,024 tokens must be identical across requests. After the first 1,024, cache hits occur every 128 additional identical tokens.
+- **Cache duration (in-memory):** Cached prefixes remain active for 5–10 minutes of inactivity, up to a maximum of 1 hour. Only held in volatile GPU memory. Default for gpt-4.1 and older models.
+- **Cache duration (extended):** 24 hours for gpt-5.5, gpt-5.5-pro, gpt-5.4, gpt-5.3-codex, gpt-5.2, gpt-5.1-family, gpt-5, gpt-5-codex, gpt-4.1. Achieved via `prompt_cache_retention: "24h"`. Extended caching offloads KV tensors to GPU-local storage.
+- **Cost:** Cached input tokens billed at ~50% of standard input price. Zero write premium. No additional fees for the caching feature itself.
+- **Routing:** Requests are routed to a machine based on a hash of the initial prefix (first ~256 tokens). Optional `prompt_cache_key` parameter can influence routing for traffic sharing long common prefixes.
+- **Latency impact:** Up to 80% reduction in time-to-first-token on cache hits.
+- **Observability:** `usage.prompt_tokens_details.cached_tokens` and `cache_write_tokens` returned in every response. OpenRouter additionally returns `cached_tokens`, `cache_write_tokens`, `audio_tokens`, and `reasoning_tokens` in the last SSE chunk.
+- **Implementation guidance for Local Router:**
+  - Do not mutate the prompt prefix between turns. Place system prompts, tool definitions, and static context first; user queries last.
+  - Preserve the full `messages` array (including prior assistant turns) across failover hops so the next provider can hit the same prefix.
+  - When falling back from one OpenAI-compatible provider to another, note that the cache is provider-specific (not shared). The new provider starts cold, but the prefix is identical.
+
+##### Anthropic Claude (`cline`, plus any direct Anthropic candidate via OpenRouter or Bedrock)
+- **Mode:** Explicit — requires `cache_control` breakpoints on content blocks.
+- **Minimum tokens:**
+  - Claude Sonnet 4.6: 2,048 tokens per cacheable block.
+  - Claude Opus 4.6/4.7/4.8: 4,096 tokens per cacheable block.
+  - Claude Sonnet 4.5 and older: 1,024 tokens.
+  - Claude Haiku 3/3.5/4.5: 1,024 tokens.
+- **Cache structure:** The entire prompt prefix is cacheable: `tools` + `system` + `messages` (in that order), up to and including the block marked with `cache_control`.
+- **TTL options:**
+  - 5 minutes (default, since early 2026): write cost = 1.25x base input price; cache reads = 0.1x base input price.
+  - 1 hour: write cost = 2x base input price; cache reads = 0.1x base input price.
+  - Cache refreshes on each use at no additional cost.
+- **Cost:** Cache reads are ~90% off base input price. Writes carry a 25–100% premium depending on TTL.
+- **Two usage modes:**
+  - **Automatic caching:** Add `cache_control: {"type": "ephemeral"}` at the top level of the request. The system applies the breakpoint to the last cacheable block and advances it as conversations grow. Best for multi-turn.
+  - **Explicit breakpoints:** Place `cache_control: { type: "ephemeral", ttl: "5m" | "1h" }` directly on individual content blocks (system prompt, tool definitions, specific messages) for fine-grained control.
+- **Isolation:** As of February 2026, caches are isolated per Workspace (not per Organization) on the Claude API and Azure AI Foundry. Amazon Bedrock and Google Vertex AI retain organization-level isolation.
+- **ZDR eligibility:** Prompt caching is eligible for Zero Data Retention; cached data is not stored after the response is returned.
+- **Implementation guidance for Local Router:**
+  - Add `cache_control: {"type": "ephemeral"}` to the last system message and any large tool-definition blocks before forwarding to Anthropic-compatible endpoints.
+  - When a failover hops from one Anthropic-backed provider to another, the new provider starts cold. Preserve the full messages array; the new provider will rebuild the cache on the next request.
+  - Do not insert dynamic content (timestamps, user IDs) into cached blocks — it breaks prefix matching.
+
+##### Google Gemini (`openrouter-presets` Gemini routes, plus any direct Gemini candidate)
+- **Mode:** Two tiers — implicit (automatic) and explicit (manual).
+- **Minimum tokens for implicit caching:**
+  - Gemini 3.5 Flash: 1,024 tokens.
+  - Gemini 3 Pro Preview: 4,096 tokens.
+  - Gemini 2.5 Flash: 1,024 tokens.
+  - Gemini 2.5 Pro: 4,096 tokens.
+- **Minimum tokens for explicit caching:** 32,768 tokens.
+- **Implicit caching:** Enabled by default on Gemini 2.5 and newer. Cost savings are passed through automatically if a cache hit occurs — no code changes needed. No cost-saving guarantee.
+- **Explicit caching:** Create a `cachedContent` resource first (POST to `/v1beta/cachedContents`), then reference it by name in subsequent requests. Supports TTL control (default 1 hour if unset). Cached content can be text, images, audio, video, or PDFs.
+- **Cost:** Cached reads are ~75% cheaper than fresh input for explicit caching. Implicit caching cost reduction depends on the provider (OpenRouter passes through Google's savings).
+- **Observability:** `usage_metadata.cached_content_token_count` in the response.
+- **OpenRouter-specific Gemini caching:** OpenRouter enables Gemini prompt caching when provider sticky routing activates. Sticky routing tracks per-account, per-model, per-conversation by hashing the first system (or developer) message and the first non-system message. Conversations sharing the same opening messages stick to the same provider.
+- **Implementation guidance for Local Router:**
+  - For direct Gemini calls, create a `cachedContent` resource on the first turn of a multi-turn conversation and reference it on subsequent turns.
+  - For OpenRouter-routed Gemini calls, rely on provider sticky routing. Ensure the `messages` array is preserved verbatim across failover hops so the sticky hash remains stable.
+  - Do not edit or reorder the system message once a cache is warm.
+
+##### DeepSeek (`wafer-serverless`, `zenmux`, plus direct DeepSeek API)
+- **Mode:** Automatic disk-based prefix caching. Enabled by default for all users. No code changes required.
+- **Minimum tokens:** No explicit minimum published; cache builds from every request and matches on complete prefix units.
+- **Cache mechanics:**
+  - Each request constructs a disk cache at the end of the user input and at the end of the model output positions.
+  - Common prefix detection: when multiple requests share a prefix, that prefix is extracted as an independent cache unit.
+  - Fixed token-interval extraction in long inputs/outputs prevents very long prefixes from never being cached.
+  - Cache is "best effort" — not 100% guaranteed.
+  - Cache lifetime: typically hours to days after last use. Automatic cleanup.
+- **Cost:** Cache reads are ~1/10 to 1/50 of miss price. No separate write premium — first-time tokens bill at miss price, identical prefixes on later requests bill at hit price. For deepseek-v4-flash: cache read $0.0028/M vs miss $0.14/M (50x cheaper). For deepseek-v4-pro: cache read $0.0145/M vs miss $1.74/M (~120x cheaper).
+- **Observability:** `usage.prompt_cache_hit_tokens` and `usage.prompt_cache_miss_tokens` in every response.
+- **Implementation guidance for Local Router:**
+  - DeepSeek caching is fully automatic — no request modification needed.
+  - Across failover hops, preserve the full `messages` array so the next provider (if also DeepSeek-backed) can reuse the same prefix.
+  - Note: the legacy aliases `deepseek-chat` and `deepseek-reasoner` are scheduled for deprecation on 2026-07-24 and route to V4 Flash today. Use `deepseek-v4-flash` and `deepseek-v4-pro` IDs for new integrations.
+
+##### OpenRouter (`openrouter-presets`)
+- **Mode:** Provider sticky routing + pass-through of each upstream provider's caching mechanism.
+- **Mechanism:**
+  - After a request that uses prompt caching, OpenRouter remembers which provider served the request.
+  - Subsequent requests for the same model are routed to the same provider, keeping caches warm.
+  - Sticky routing activates only when the provider's cache read pricing is cheaper than regular prompt pricing.
+  - If the sticky provider becomes unavailable, OpenRouter falls back to the next-best provider automatically.
+  - Sticky routing is bypassed when `provider.order` is manually specified in the request.
+- **Granularity:** Tracked at account level, per model, per conversation. Conversations are identified by hashing the first system (or developer) message and the first non-system message.
+- **Cost:** Varies by upstream provider (see individual provider entries above). OpenRouter returns detailed usage in the last SSE chunk for streaming, or in the full response for non-streaming.
+- **Usage fields (OpenRouter-specific):** `prompt_tokens_details.cached_tokens`, `prompt_tokens_details.cache_write_tokens`, `prompt_tokens_details.audio_tokens`, `cost`, `cost_details.upstream_inference_cost` (BYOK only). Note: `usage: { include: true }` and `stream_options: { include_usage: true }` are deprecated — full usage details are now always included automatically.
+- **Implementation guidance for Local Router:**
+  - When routing through OpenRouter, do not override `provider.order` unless explicitly requested by the user — doing so breaks sticky routing.
+  - Preserve message ordering and content across auto-router and fallback hops. Even a single character change in the first 1,024 tokens causes a cache miss.
+  - Surface `cached_tokens` in router telemetry (`router-events.csv`) to track cache hit rates per model.
+
+##### Moonshot / Kimi (`moonshot`, plus any Kimi route via OpenRouter or Groq)
+- **Mode:** Explicit context caching via `context_id` mechanism. Kimi API supports context caching through a dedicated context ID lifecycle.
+- **Mechanism:**
+  - First request: send the full prompt without a context ID. The provider returns a `context_id` in the response.
+  - Subsequent requests: send the same `context_id` in the request body to reference the cached prefix.
+  - The context cache stores pre-computed KV pairs for repeated prompt prefixes, reducing both latency and billed tokens.
+- **Cost:** Context caching reduces input costs by ~75% for cached tokens on the official Moonshot API. On Groq (Kimi K2-Instruct), cached input tokens are 50% discounted.
+- **Context window:** Kimi K2.5/K2.6 support 256K context. The cache covers the full prefix within that window.
+- **Observability:** Token usage can be checked via the Token Calculation API (`/api/estimate`).
+- **Invalidation rules:** Invalidate the `context_id` when the system prompt changes, tool definitions/schema change, model changes, or the provider returns "unknown/expired context_id".
+- **Implementation guidance for Local Router:**
+  - Store `context_id` per session in `sessions.json` alongside the provider key, model, and expiry timestamp.
+  - Reuse `context_id` only when the prompt prefix is identical (system + tools schema + static prelude). If any part of the prefix changes, omit the `context_id` and let the provider build a new cache.
+  - On provider failover, the `context_id` is provider-specific and cannot be reused by a different provider. Start fresh on the new provider but preserve the messages array for that provider's own cache.
+
+##### Groq (Kimi K2-Instruct route, GPT-OSS models via `openrouter-presets` or direct)
+- **Mode:** Automatic prefix matching — no code changes required.
+- **Minimum tokens:** No explicit minimum published; prefix matching works across all request sizes, but cache hits require sufficient shared prefix length.
+- **Cache mechanics:**
+  - Prefix Matching: The system identifies matching prefixes from recently processed requests stored in volatile memory (in-RAM only).
+  - Cache Hit: Cached computation is reused. Cached input tokens receive 50% discount. Latency is significantly reduced.
+  - Cache Miss: Prompt processed normally; prefix cached for potential future matches.
+  - Automatic Expiration: All cached data expires after 2 hours of inactivity.
+- **Supported models (as of June 2026):**
+  - `moonshotai/kimi-k2-instruct`: $1.00/M uncached, $0.50/M cached, $3.00/M output.
+  - `openai/gpt-oss-20b`: $0.075/M uncached, $0.0375/M cached.
+  - `openai/gpt-oss-120b`: $0.15/M uncached, $0.075/M cached.
+- **Rate limits:** Cached tokens do not count toward rate limits (they are subtracted from limits after processing, so parallel large requests can still hit limits).
+- **Implementation guidance for Local Router:**
+  - Groq caching is fully automatic — no request modification needed.
+  - Place static content (system prompts, tool definitions, few-shot examples) at the beginning of the prompt and dynamic content (user queries, timestamps) at the end to maximize prefix match length.
+  - Preserve the full messages array across failover hops within the same Groq provider. Note: failover to a non-Groq provider loses the cache.
+
+##### NVIDIA NIM (`nvidia-nim`)
+- **Mode:** No prompt caching (KV cache reuse across requests). NIM's caching infrastructure (`/opt/nim/.cache` or `NIM_CACHE_PATH`) is for model weight storage between container restarts, not for prefix caching across inference requests.
+- **Implementation guidance for Local Router:**
+  - Do not inject cache directives for NIM — the provider does not support prompt caching.
+  - NIM's model weight cache is a deployment optimization (faster container startup), not a per-request KV cache. It requires persistent volume mounts (`-v ~/.cache/nim:/opt/nim/.cache`) in Kubernetes or Docker.
+  - When failover reaches NIM, the model cold-starts with a full prefill.
+
+##### Providers Without Prompt Caching Support
+- **Nebius:** No prompt caching support. Full prefill on every request.
+- **Modal:** No prompt caching support. Full prefill on every request.
+- **Z.ai:** No prompt caching support. Full prefill on every request.
+- **Xiaomi Mimo:** No documented prompt caching support.
+- **Wafer Serverless:** No documented prompt caching support (passes through to upstream; caching depends on upstream provider, typically DeepSeek which handles it automatically).
+- **Ollama local (`ollama` provider, port 11435):** No prompt caching across requests. Each request to the local Ollama backend processes from scratch.
+- **CommandCode:** No documented prompt caching support.
+
+##### Cross-Provider Failover Caching Contract
+When Local Router fails over from provider A to provider B:
+1. **Prefix preservation:** The full `messages` array (system + all prior turns) MUST be forwarded unchanged so provider B can apply its own caching logic from an identical prefix.
+2. **Cache isolation:** No cache state transfers between providers. Provider B starts cold, but the identical prefix means its own cache will rebuild on the first request and hit on the second.
+3. **Telemetry continuity:** Record `cached_tokens`, `cache_write_tokens`, and `error_type` in `router-events.csv` for every request regardless of provider. This enables cache hit rate analysis across the full fallback chain.
+4. **Cost tracking:** Surface provider-specific usage fields (`prompt_cache_hit_tokens`, `cached_tokens`, `cache_write_tokens`) in a normalized form in telemetry so operators can compare effective costs across providers.
+5. **Tool definitions:** Tool definitions are part of the cacheable prefix for OpenAI and Anthropic. Do not reorder, rename, or restructure tool definitions between turns — even a single character change invalidates the cache.
 
 ### Ollama Intercept Shim Contracts
 `local-router route set` installs a shim at `~/.local/bin/ollama` (first in PATH) that intercepts `ollama serve`:
