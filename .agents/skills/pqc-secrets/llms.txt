@@ -14,7 +14,7 @@ Agent skill for PQC-backed API key storage and loading.
 ## Local Contracts
 
 - Keys stored via ML-KEM-768 + AES-256-GCM.
-- Private key never leaves OS keystore.
+- Private key stored in system-agnostic private.key.enc file.
 
 ## Work Guidance
 

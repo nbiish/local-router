@@ -1,9 +1,9 @@
-# PQC System Agnostic Storage
+# PQC System Agnostic Docs Update
 
-- Support non-dot config directory.
-- Default PQC_USE_KEYCHAIN to false.
-- Fully system agnostic file store.
-- Verified decapsulation export.
-- Clean merge checkpoint.
+- Removed OS-locked keychain references.
+- Added file-based decryption contracts.
+- Primary config directory updated to ~/config/pqc-secrets.
+- System agnostic flow documented.
+- Verified and clean.
 
 ####
