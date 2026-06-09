@@ -2822,7 +2822,10 @@ function configureVSCodeModelPicker(hostUrl: string) {
 // ── PQC Secrets Persistence ────────────────────────────────────────────────
 
 function getPqcConfigDir(): string {
-  return process.env.PQC_CONFIG_DIR || path.join(os.homedir(), '.config', 'pqc-secrets');
+  if (process.env.PQC_CONFIG_DIR) return process.env.PQC_CONFIG_DIR;
+  const noDot = path.join(os.homedir(), 'config', 'pqc-secrets');
+  if (fs.existsSync(noDot)) return noDot;
+  return path.join(os.homedir(), '.config', 'pqc-secrets');
 }
 
 function getPqcBundlePath(): string {
@@ -2855,6 +2858,12 @@ function ensurePqcKeypair(bin: string): boolean {
       encoding: 'utf8',
       timeout: 10000,
       stdio: 'pipe',
+      env: {
+        ...process.env,
+        PQC_CONFIG_DIR: getPqcConfigDir(),
+        PQC_USE_KEYCHAIN: process.env.PQC_USE_KEYCHAIN || 'false',
+        PATH: process.env.PATH || '/usr/local/bin:/usr/bin:/bin'
+      }
     });
     console.log(`[PQC] Generated new ML-KEM-768 keypair at ${getPqcConfigDir()}/`);
     return true;
@@ -2923,7 +2932,12 @@ function loadPqcSecrets(): void {
     const output = execFileSync(bin, ['export'], {
       encoding: 'utf8',
       timeout: 10000,
-      env: { ...process.env, PATH: process.env.PATH || '/usr/local/bin:/usr/bin:/bin' }
+      env: {
+        ...process.env,
+        PQC_CONFIG_DIR: getPqcConfigDir(),
+        PQC_USE_KEYCHAIN: process.env.PQC_USE_KEYCHAIN || 'false',
+        PATH: process.env.PATH || '/usr/local/bin:/usr/bin:/bin'
+      }
     });
     const loadedProviders: string[] = [];
     const skippedEnvVars: string[] = [];
@@ -3031,7 +3045,12 @@ function persistPqcSecrets(): void {
       input: lines.join('\n') + '\n',
       encoding: 'utf8',
       timeout: 10000,
-      env: { ...process.env, PATH: process.env.PATH || '/usr/local/bin:/usr/bin:/bin' }
+      env: {
+        ...process.env,
+        PQC_CONFIG_DIR: getPqcConfigDir(),
+        PQC_USE_KEYCHAIN: process.env.PQC_USE_KEYCHAIN || 'false',
+        PATH: process.env.PATH || '/usr/local/bin:/usr/bin:/bin'
+      }
     });
     if (process.env.LOCAL_ROUTER_DEV === 'true') {
       console.log(`[PQC] Persisted ${lines.length} key(s) to ${getPqcBundlePath()}.`);
