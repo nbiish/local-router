@@ -1,10 +1,8 @@
-# Auto Router Model Fixes
+# Fallback Model Preselection Fixes
 
-- Found broken HTML subpages.
-- Mismatched divs closed main-content.
-- Fixed tags in layout.
-- Exported key routing functions.
-- Auto-selected default routes onload.
-- Added disabled model test.
+- Prefixed route IDs required.
+- Corrected search checks.
+- Preselection is verified.
+- Visual builder populates correctly.
 
 ####

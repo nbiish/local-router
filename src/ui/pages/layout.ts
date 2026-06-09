@@ -1268,8 +1268,8 @@ export function renderLayout(
           const modelIds = fallbackRoutes.flatMap((route) => Array.isArray(route.models) ? route.models : []);
           await refreshModelAvailability(modelIds);
           renderFallbackRoutes();
-          if (!activeFallbackRouteId && fallbackRoutes.some((r) => r.id === 'fallback-models')) {
-            activeFallbackRouteId = 'fallback-models';
+          if (!activeFallbackRouteId && fallbackRoutes.some((r) => r.id === 'local-router/fallback-models')) {
+            activeFallbackRouteId = 'local-router/fallback-models';
           }
           if (activeFallbackRouteId) {
             const active = fallbackRoutes.find((entry) => entry.id === activeFallbackRouteId);
@@ -1891,8 +1891,8 @@ export function renderLayout(
           ));
           await refreshModelAvailability(modelIds);
           renderRouterRoutes();
-          if (!activeRouterRouteId && routerRoutes.some((r) => r.id === 'auto-router-main')) {
-            activeRouterRouteId = 'auto-router-main';
+          if (!activeRouterRouteId && routerRoutes.some((r) => r.id === 'local-router/auto-router-main')) {
+            activeRouterRouteId = 'local-router/auto-router-main';
           }
           if (activeRouterRouteId) {
             const active = routerRoutes.find((entry) => entry.id === activeRouterRouteId);
