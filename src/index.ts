@@ -10,7 +10,7 @@ import { execFileSync } from 'child_process';
 import { WebSocket, WebSocketServer } from 'ws';
 import { ProxyProvider } from './types';
 import { sanitizeProviderRequestBody, stripReasoningMetadata, ThinkingLevel, DEFAULT_THINKING_LEVEL } from './reasoning';
-import { loadSessions, loadFeedback, recordRequest, getSessions, getSessionById, recordFeedback } from './sessions';
+import { loadSessions, loadFeedback, recordRequest, getSessions, getSessionById, recordFeedback, saveSessions } from './sessions';
 import { computeTiers } from './tiers';
 import { buildWraparoundExecutionPlan } from './execution-plan';
 import { stableSortModelIdsByRoutingExhaustion } from './routing-exhaustion-order';
@@ -156,7 +156,7 @@ type ModelTarget = {
 };
 
 type AttemptFailure = {
-  errorType: 'unknown_model' | 'provider_not_found' | 'provider_config' | 'upstream_http' | 'proxy_runtime';
+  errorType: 'unknown_model' | 'provider_not_found' | 'provider_config' | 'upstream_http' | 'upstream_http_quota' | 'upstream_http_payment_required' | 'upstream_http_auth' | 'upstream_http_rate_limit' | 'upstream_http_unavailable' | 'upstream_http_invalid_request' | 'proxy_runtime';
   providerName?: string;
   actualModel?: string;
   status?: number;
@@ -3890,7 +3890,9 @@ function fallbackStagePreflight(modelName: string): AttemptFailure | null {
 function isImmediateRouterSkipError(errorType: AttemptFailure['errorType']) {
   return errorType === 'provider_config'
     || errorType === 'provider_not_found'
-    || errorType === 'unknown_model';
+    || errorType === 'unknown_model'
+    || errorType === 'upstream_http_auth'
+    || errorType === 'upstream_http_invalid_request';
 }
 
 function inferredCodingScore(model: ProviderModel, candidate: RouterCandidate) {
@@ -4454,6 +4456,110 @@ function appendRouterEvent(event: Record<string, unknown>) {
   fs.chmodSync(ROUTER_EVENTS_PATH, 0o600);
 }
 
+export function classifyHttpFailure(status: number, bodyText: string): AttemptFailure['errorType'] {
+  if (status === 401 || status === 403) return 'upstream_http_auth';
+  if (status === 402 || status === 429) return 'upstream_http_quota';
+  if (status === 402) return 'upstream_http_payment_required';
+  if (status === 413 || status === 429) return 'upstream_http_rate_limit';
+  if (status >= 500 && status < 600) return 'upstream_http_unavailable';
+  if (status === 400 || status === 422) return 'upstream_http_invalid_request';
+
+  const lower = String(bodyText || '').toLowerCase();
+  if (/invalid[_\s-]?api[_\s-]?key|unauthorized|auth|credentials|access[_\s-]?denied|token[_\s-]?invalid|expired[_\s-]?key/.test(lower)) return 'upstream_http_auth';
+  if (/quota|limit|rate[_\s-]?limit|usage[_\s-]?limit|billing|balance|insufficient/.test(lower)) return 'upstream_http_quota';
+  if (/payment|overdue|past[_\s-]?due|invoice|subscription[_\s-]?expired/.test(lower)) return 'upstream_http_payment_required';
+  if (/unavailable|maintenance|downtime|temporarily[_\s-]?unavailable|service[_\s-]?unavailable/.test(lower)) return 'upstream_http_unavailable';
+  if (/invalid[_\s-]?request|bad[_\s-]?request|validation/.test(lower)) return 'upstream_http_invalid_request';
+
+  return 'upstream_http';
+}
+
+export function normalizeHttpFailure(error: AttemptFailure): AttemptFailure {
+  if (error.errorType !== 'upstream_http') return error;
+  const status = typeof error.status === 'number' ? error.status : 500;
+  const classified = classifyHttpFailure(status, error.responseText || '');
+  if (classified !== 'upstream_http') {
+    return { ...error, errorType: classified };
+  }
+  return error;
+}
+
+export function isClassifiedFailoverError(errorType: string): boolean {
+  return errorType === 'upstream_http_quota' || errorType === 'upstream_http_payment_required' || errorType === 'upstream_http_auth' || errorType === 'upstream_http_rate_limit' || errorType === 'upstream_http_unavailable' || errorType === 'upstream_http_invalid_request';
+}
+
+export type ContentClassification = 'generated' | 'streaming' | 'instant_error';
+
+export function classifyResponseContent(
+  responseBody: string,
+  isStreamResponse: boolean,
+  httpStatus: number
+): ContentClassification {
+  if (httpStatus >= 400) return 'instant_error';
+
+  if (isStreamResponse) {
+    const chunks = responseBody.split(/\n\n/).filter((c: string) => c.trim().length > 0);
+    if (chunks.length > 1) return 'streaming';
+    const single = String(responseBody || '').toLowerCase();
+    if (/"error"/.test(single) || /quota|rate.limit|balance|insufficient|invalid.api.key|unauthorized|expired|billing/.test(single)) return 'instant_error';
+    return 'streaming';
+  }
+
+  try {
+    const parsed = JSON.parse(responseBody);
+    if (parsed?.error) return 'instant_error';
+    if (Array.isArray(parsed?.choices) && parsed.choices.length > 0) return 'generated';
+  } catch {
+    // not valid JSON — likely streaming SSE fragments
+  }
+
+  return 'generated';
+}
+
+export function isContentFailoverTrigger(classification: ContentClassification): boolean {
+  return classification === 'instant_error';
+}
+
+function classifyStreamChunkAsError(chunk: string): boolean {
+  if (!chunk) return false;
+  try {
+    const data = chunk.replace(/^data:\s*/, '').trim();
+    if (data === '[DONE]') return false;
+    const parsed = JSON.parse(data);
+    if (parsed?.error) return true;
+  } catch {
+    // not JSON — likely content delta
+  }
+  return false;
+}
+
+async function failoverPreserveSessionContext(presentedModel: string, targetModel: string): Promise<void> {
+  try {
+    const session = getSessionById(presentedModel);
+    if (!session) return;
+    session.modelUsage[targetModel] = (session.modelUsage[targetModel] || 0) + 1;
+    session.lastActivity = new Date().toISOString();
+    session.totalRequests += 1;
+    saveSessions();
+  } catch {
+    // best-effort continuity
+  }
+}
+
+export function buildFailoverPreservedBody(body: any, preservedModel: string): any {
+  const messages = Array.isArray(body?.messages) ? [...body.messages] : [];
+  const systemEvent = {
+    event: 'local_router.failover',
+    data: {
+      from: body.model,
+      to: preservedModel,
+      timestamp: new Date().toISOString()
+    }
+  };
+  const prepared = { ...body, model: preservedModel, messages: [...messages, { role: 'system', content: JSON.stringify(systemEvent) }] };
+  return prepared;
+}
+
 function injectPromptCaching(body: any, providerName: string): any {
   const isCachingSupported = ['zenmux', 'opencode-go', 'opencode-zen', 'xiaomi-mimo', 'wafer-serverless', 'openrouter', 'openrouter-presets'].includes(providerName);
   if (!isCachingSupported) return body;
@@ -4613,17 +4719,58 @@ async function proxyModelAttempt(
           upstreamErrorPreview: sanitizeDiagnosticText(responseText, 260)
         }
       });
-      return {
-        ok: false,
-        error: {
-          errorType: 'upstream_http',
-          providerName: target.providerName,
-          actualModel: target.actualModel,
-          status: response.status,
-          message: `Provider error (${response.status})`,
-          responseText
-        }
+      const rawError: AttemptFailure = {
+        errorType: 'upstream_http',
+        providerName: target.providerName,
+        actualModel: target.actualModel,
+        status: response.status,
+        message: `Provider error (${response.status})`,
+        responseText
       };
+      return { ok: false, error: normalizeHttpFailure(rawError) };
+    }
+
+    // Classify 200 responses that contain error payloads (some providers return 200 with error JSON)
+    const contentType = response.headers.get('content-type') || '';
+    const isJsonResponse = contentType.includes('application/json');
+    const isStreamRequest = Boolean(stream);
+
+    if (!isStreamRequest && isJsonResponse) {
+      const responseClone = response.clone();
+      try {
+        const responseBodyText = await responseClone.text();
+        const contentClass = classifyResponseContent(responseBodyText, false, response.status);
+        if (isContentFailoverTrigger(contentClass)) {
+          pushDiagnostic({
+            event: 'proxy_response',
+            route: requestRoute,
+            provider: target.providerName,
+            presentedModel: presentedModelName,
+            actualModel: target.actualModel,
+            stream,
+            status: response.status,
+            durationMs: Date.now() - attemptStartedAt,
+            data: {
+              ok: false,
+              targetModel: targetModelName,
+              fallback: fallbackData || null,
+              contentClassification: contentClass,
+              upstreamErrorPreview: sanitizeDiagnosticText(responseBodyText, 260)
+            }
+          });
+          const bodyError: AttemptFailure = {
+            errorType: 'upstream_http',
+            providerName: target.providerName,
+            actualModel: target.actualModel,
+            status: response.status,
+            message: `Provider returned error in 200 response body`,
+            responseText: responseBodyText
+          };
+          return { ok: false, error: normalizeHttpFailure(bodyError) };
+        }
+      } catch {
+        // classification failed — proceed with original response
+      }
     }
 
     return {
@@ -5154,157 +5301,163 @@ async function executeFallbackRoute(
   res: Response
 ) {
   const plan = fallbackExecutionPlan(fallbackRoute);
-    const attemptLog: Array<Record<string, unknown>> = [];
-    let lastFailure: AttemptFailure | null = null;
+  const attemptLog: Array<Record<string, unknown>> = [];
+  let lastFailure: AttemptFailure | null = null;
 
-    for (let stageIndex = 0; stageIndex < plan.length; stageIndex += 1) {
-      const stage = plan[stageIndex];
-      const preflightFailure = fallbackStagePreflight(stage.model);
-      if (preflightFailure) {
-        lastFailure = preflightFailure;
-        attemptLog.push({
-          fallbackRoute: fallbackRoute.id,
-          stage: stage.stage,
-          targetModel: stage.model,
-          attempt: 0,
-          stageAttempts: stage.attempts,
-          provider: preflightFailure.providerName || null,
-          actualModel: preflightFailure.actualModel || null,
-          status: preflightFailure.status || null,
-          errorType: preflightFailure.errorType,
-          errorMessage: sanitizeDiagnosticText(preflightFailure.message, 220),
-          skipped: true
-        });
-        continue;
-      }
-
-      for (let attempt = 1; attempt <= stage.attempts; attempt += 1) {
-        const fallbackData = {
-          route: fallbackRoute.id,
-          stage: stage.stage,
-          stageIndex: stageIndex + 1,
-          stageAttempts: stage.attempts,
-          attempt,
-          targetModel: stage.model,
-          totalStages: plan.length,
-          primaryStage: stage.primary
-        };
-
-        const result = await proxyModelAttempt(
-          body,
-          requestRoute,
-          outputFormat,
-          presentedModel,
-          stage.model,
-          Boolean(stream),
-          requestStartedAt,
-          fallbackData
-        );
-
-        if (result.ok) {
-          recordProxyTelemetry({
-            routeKind: 'fallback',
-            routerId: fallbackRoute.id,
-            presentedModel,
-            selectedModel: stage.model,
-            status: result.value.response.status,
-            durationMs: Date.now() - requestStartedAt,
-            stream: Boolean(stream),
-            body,
-            rewardSignal: 1,
-            toolCallsValid: Array.isArray(body?.tools) && body.tools.length > 0
-          });
-          return sendSuccessfulProxyResponse(
-            res,
-            presentedModel,
-            Boolean(stream),
-            requestRoute,
-            requestStartedAt,
-            outputFormat,
-            result.value,
-            {
-              fallback: {
-                route: fallbackRoute.id,
-                usedTargetModel: stage.model,
-                stage: stage.stage,
-                attempt,
-                stageAttempts: stage.attempts,
-                totalFailedAttemptsBeforeSuccess: attemptLog.length
-              }
-            }
-          );
-        }
-
-        lastFailure = result.error;
-        const entry: Record<string, unknown> = {
-          fallbackRoute: fallbackRoute.id,
-          stage: stage.stage,
-          targetModel: stage.model,
-          attempt,
-          stageAttempts: stage.attempts,
-          provider: result.error.providerName || null,
-          actualModel: result.error.actualModel || null,
-          status: result.error.status || null,
-          errorType: result.error.errorType,
-          errorMessage: sanitizeDiagnosticText(result.error.message, 220),
-          providerErrorPreview: sanitizeDiagnosticText(result.error.responseText || '', 280)
-        };
-
-        if (attempt < stage.attempts) {
-          const waitSeconds = fallbackRetryDelaySeconds(attempt);
-          entry.waitBeforeRetrySeconds = waitSeconds;
-          pushDiagnostic({
-            event: 'proxy_error',
-            route: requestRoute,
-            provider: result.error.providerName,
-            presentedModel,
-            actualModel: result.error.actualModel,
-            stream: Boolean(stream),
-            status: result.error.status || 500,
-            durationMs: Date.now() - requestStartedAt,
-            data: {
-              fallback: fallbackData,
-              waitBeforeRetrySeconds: waitSeconds,
-              errorType: result.error.errorType,
-              errorMessage: sanitizeDiagnosticText(result.error.message, 220),
-              providerErrorPreview: sanitizeDiagnosticText(result.error.responseText || '', 180)
-            }
-          });
-          attemptLog.push(entry);
-          await waitMs(waitSeconds * 1000);
-        } else {
-          attemptLog.push(entry);
-        }
-      }
+  for (let stageIndex = 0; stageIndex < plan.length; stageIndex += 1) {
+    const stage = plan[stageIndex];
+    const preflightFailure = fallbackStagePreflight(stage.model);
+    if (preflightFailure) {
+      lastFailure = preflightFailure;
+      attemptLog.push({
+        fallbackRoute: fallbackRoute.id,
+        stage: stage.stage,
+        targetModel: stage.model,
+        attempt: 0,
+        stageAttempts: stage.attempts,
+        provider: preflightFailure.providerName || null,
+        actualModel: preflightFailure.actualModel || null,
+        status: preflightFailure.status || null,
+        errorType: preflightFailure.errorType,
+        errorMessage: sanitizeDiagnosticText(preflightFailure.message, 220),
+        skipped: true
+      });
+      continue;
     }
 
-    const terminalFailure = lastFailure as AttemptFailure | null;
+    await failoverPreserveSessionContext(presentedModel, stage.model);
+    const preservedBody = buildFailoverPreservedBody(body, stage.model);
 
-    pushDiagnostic({
-      event: 'proxy_error',
-      route: requestRoute,
-      provider: terminalFailure?.providerName,
-      presentedModel,
-      actualModel: terminalFailure?.actualModel,
-      stream: Boolean(stream),
-      status: terminalFailure?.status || 502,
-      durationMs: Date.now() - requestStartedAt,
-      data: {
+    for (let attempt = 1; attempt <= stage.attempts; attempt += 1) {
+      const fallbackData = {
+        route: fallbackRoute.id,
+        stage: stage.stage,
+        stageIndex: stageIndex + 1,
+        stageAttempts: stage.attempts,
+        attempt,
+        targetModel: stage.model,
+        totalStages: plan.length,
+        primaryStage: stage.primary,
+        failoverErrorType: isClassifiedFailoverError(lastFailure?.errorType || '') ? (lastFailure as AttemptFailure).errorType : undefined
+      };
+
+      const result = await proxyModelAttempt(
+        preservedBody,
+        requestRoute,
+        outputFormat,
+        presentedModel,
+        stage.model,
+        Boolean(stream),
+        requestStartedAt,
+        fallbackData
+      );
+
+      if (result.ok) {
+        recordProxyTelemetry({
+          routeKind: 'fallback',
+          routerId: fallbackRoute.id,
+          presentedModel,
+          selectedModel: stage.model,
+          status: result.value.response.status,
+          durationMs: Date.now() - requestStartedAt,
+          stream: Boolean(stream),
+          body,
+          rewardSignal: 1,
+          toolCallsValid: Array.isArray(body?.tools) && body.tools.length > 0
+        });
+        return sendSuccessfulProxyResponse(
+          res,
+          presentedModel,
+          Boolean(stream),
+          requestRoute,
+          requestStartedAt,
+          outputFormat,
+          result.value,
+          {
+            fallback: {
+              route: fallbackRoute.id,
+              usedTargetModel: stage.model,
+              stage: stage.stage,
+              attempt,
+              stageAttempts: stage.attempts,
+              totalFailedAttemptsBeforeSuccess: attemptLog.length
+            }
+          }
+        );
+      }
+
+      lastFailure = result.error;
+      const entry: Record<string, unknown> = {
         fallbackRoute: fallbackRoute.id,
-        exhausted: true,
-        attempts: attemptLog.length
-      }
-    });
+        stage: stage.stage,
+        targetModel: stage.model,
+        attempt,
+        stageAttempts: stage.attempts,
+        provider: result.error.providerName || null,
+        actualModel: result.error.actualModel || null,
+        status: result.error.status || null,
+        errorType: result.error.errorType,
+        errorMessage: sanitizeDiagnosticText(result.error.message, 220),
+        providerErrorPreview: sanitizeDiagnosticText(result.error.responseText || '', 280)
+      };
 
-    const status = terminalFailure?.status || 502;
-    return res.status(status).json({
-      error: `Fallback model "${fallbackRoute.id}" exhausted all configured targets.`,
-      fallback: {
-        id: fallbackRoute.id,
-        configuredTargets: fallbackRoute.models,
-        attempts: attemptLog
+      if (attempt < stage.attempts) {
+        const waitSeconds = fallbackRetryDelaySeconds(attempt);
+        entry.waitBeforeRetrySeconds = waitSeconds;
+        pushDiagnostic({
+          event: 'proxy_error',
+          route: requestRoute,
+          provider: result.error.providerName,
+          presentedModel,
+          actualModel: result.error.actualModel,
+          stream: Boolean(stream),
+          status: result.error.status || 500,
+          durationMs: Date.now() - requestStartedAt,
+          data: {
+            fallback: fallbackData,
+            waitBeforeRetrySeconds: waitSeconds,
+            errorType: result.error.errorType,
+            errorMessage: sanitizeDiagnosticText(result.error.message, 220),
+            providerErrorPreview: sanitizeDiagnosticText(result.error.responseText || '', 180)
+          }
+        });
+        attemptLog.push(entry);
+        await waitMs(waitSeconds * 1000);
+      } else {
+        attemptLog.push(entry);
       }
-    });
+    }
+  }
+
+  const terminalFailure = lastFailure as AttemptFailure | null;
+
+  pushDiagnostic({
+    event: 'proxy_error',
+    route: requestRoute,
+    provider: terminalFailure?.providerName,
+    presentedModel,
+    actualModel: terminalFailure?.actualModel,
+    stream: Boolean(stream),
+    status: terminalFailure?.status || 502,
+    durationMs: Date.now() - requestStartedAt,
+    data: {
+      fallbackRoute: fallbackRoute.id,
+      exhausted: true,
+      attempts: attemptLog.length
+    }
+  });
+
+  const status = terminalFailure?.status || 502;
+  return res.status(status).json({
+    error: `Fallback model "${fallbackRoute.id}" exhausted all configured targets.`,
+    fallback: {
+      id: fallbackRoute.id,
+      configuredTargets: fallbackRoute.models,
+      terminalErrorType: terminalFailure?.errorType || null,
+      terminalErrorMessage: terminalFailure?.message || null,
+      attempts: attemptLog
+    }
+  });
 }
 
 app.post('/v1/chat/completions', async (req: Request, res: Response) => {
