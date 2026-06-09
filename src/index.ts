@@ -2445,6 +2445,10 @@ function normalizeRoutingTierOrder(): void {
     }
   }
 
+  const routerSettingsForFallback = loadRouterSettings();
+  const hasUserCustomizedFallback = typeof routerSettingsForFallback.fallbackModelsText === 'string' && routerSettingsForFallback.fallbackModelsText.trim().length > 0;
+
+
   let systemFallbackChanged = false;
   let otherFallbackChanged = false;
   const defaultFallbackIds = resolvedDefaultFallbackModels();
@@ -2456,7 +2460,7 @@ function normalizeRoutingTierOrder(): void {
     );
 
     let nextModels: string[];
-    if (isSystemFallback) {
+    if (isSystemFallback && !hasUserCustomizedFallback) {
       const catalogValid = (modelId: string) => Boolean(findProviderModel(modelId));
       const preferred = DEFAULT_FALLBACK_ORDERED_IDS.filter(catalogValid);
       const preferredSet = new Set(preferred);
@@ -2471,6 +2475,16 @@ function normalizeRoutingTierOrder(): void {
         extras.push(trimmed);
       }
       nextModels = [...preferred, ...extras];
+    } else if (isSystemFallback && hasUserCustomizedFallback) {
+      const deduped: string[] = [];
+      const seen = new Set<string>();
+      for (const modelId of route.models) {
+        const trimmed = String(modelId || '').trim();
+        if (!trimmed || seen.has(trimmed) || !findProviderModel(trimmed)) continue;
+        seen.add(trimmed);
+        deduped.push(trimmed);
+      }
+      nextModels = deduped;
     } else {
       const deduped: string[] = [];
       const seenModels = new Set<string>();
