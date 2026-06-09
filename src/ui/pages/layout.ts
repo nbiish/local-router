@@ -1509,6 +1509,7 @@ export function renderLayout(
               '<button class="remove-btn" title="Remove" onclick="removeCandidateFromRouter(' + i + ')">✕</button>' +
             '</div>';
           }).join('');
+          liveUpdateRouterRouteItem();
         }
 
         function syncCandidatesToTextarea() {
@@ -1694,6 +1695,7 @@ export function renderLayout(
               '<button class="remove-btn" title="Remove" onclick="removeFallbackCandidate(' + i + ')">✕</button>' +
             '</div>';
           }).join('');
+          liveUpdateFallbackRouteItem();
         }
 
         function syncFallbackCandidatesToTextarea() {
@@ -1771,8 +1773,58 @@ export function renderLayout(
           var groupEl = document.getElementById('banditExplorationGroup');
           if (groupEl) groupEl.style.display = isBandit ? '' : 'none';
           updateRouterTypeHelp();
+          liveUpdateRouterRouteItem();
         }
 
+        function liveUpdateRouterRouteItem() {
+          if (!activeRouterRouteId) return;
+          var routeItemEl = document.querySelector('.fallback-route-item[data-router-route="' + activeRouterRouteId + '"]');
+          if (!routeItemEl) return;
+
+          var candidates = routerCandidateStore || [];
+          var models = candidates.map(function(c) { return c.model; }).filter(Boolean);
+          var modelsHtml = models.map(function(modelId) {
+            return escapeHtml(modelId) + availabilityBadgeHtml(modelId);
+          }).join(' | ');
+
+          var metaDivs = routeItemEl.querySelectorAll('.meta');
+          metaDivs.forEach(function(div) {
+            if (div.textContent.startsWith('Candidates:')) {
+              div.innerHTML = 'Candidates: ' + modelsHtml;
+            } else if (div.textContent.startsWith('Displayed as:')) {
+              var typeEl = document.getElementById('routerType');
+              var type = typeEl ? typeEl.value : 'auto-local';
+              var displayString = activeRouterRouteId + ': ' + (type === 'priority' ? 'priority' : type === 'pareto-code' ? 'pareto-code' : type === 'bandit-local' ? 'bandit-local' : 'auto-local') + ' router over ' + models.join(' | ');
+              div.innerHTML = 'Displayed as: ' + escapeHtml(displayString);
+            } else if (div.textContent.startsWith('Type:')) {
+              var typeEl = document.getElementById('routerType');
+              var type = typeEl ? typeEl.value : 'auto-local';
+              div.innerHTML = 'Type: ' + escapeHtml(type);
+            }
+          });
+        }
+
+        function liveUpdateFallbackRouteItem() {
+          if (!activeFallbackRouteId) return;
+          var routeItemEl = document.querySelector('.fallback-route-item[data-fallback-route="' + activeFallbackRouteId + '"]');
+          if (!routeItemEl) return;
+
+          var candidates = fallbackCandidateStore || [];
+          var models = candidates.map(function(c) { return c.model; }).filter(Boolean);
+          var chainHtml = models.map(function(modelId) {
+            return escapeHtml(modelId) + availabilityBadgeHtml(modelId);
+          }).join(' → ');
+
+          var metaDivs = routeItemEl.querySelectorAll('.meta');
+          metaDivs.forEach(function(div) {
+            if (div.textContent.startsWith('Chain:')) {
+              div.innerHTML = 'Chain: ' + chainHtml;
+            } else if (div.textContent.startsWith('Displayed as:')) {
+              var displayString = activeFallbackRouteId + ': ' + models.join(' -> ');
+              div.innerHTML = 'Displayed as: ' + escapeHtml(displayString);
+            }
+          });
+        }
         function updateRouterTypeHelp() {
           var typeEl = document.getElementById('routerType');
           if (!typeEl) return;
