@@ -6,6 +6,7 @@ export function renderPricingPage(params: {
   defaultFallbackModelsText: string;
 }): string {
   const body = `
+      <div class="card">
         <div class="catalog-meta">
           <div>
             <h2>Model Pricing Overrides</h2>
@@ -41,7 +42,6 @@ export function renderPricingPage(params: {
         </div>
         <div id="pricingList" class="fallback-route-list" style="margin-top: 16px;">Loading pricing overrides...</div>
       </div>
-      <div class="card">
 `;
   return renderLayout('Pricing Overrides', body, params);
 }

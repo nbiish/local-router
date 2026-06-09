@@ -137,7 +137,6 @@ export function renderProvidersPage(params: {
         <div id="message"></div>
       </div>
       <div class="card">
-      <div class="card">
         <div class="catalog-meta">
           <div>
             <h2>Provider Key Configs</h2>
@@ -147,7 +146,6 @@ export function renderProvidersPage(params: {
         </div>
         <div id="providerGrid" class="provider-grid"></div>
       </div>
-      <div class="card">
       <div class="card">
         <div class="catalog-meta">
           <div>
@@ -169,7 +167,6 @@ export function renderProvidersPage(params: {
         </div>
         <div id="catalog" class="catalog"></div>
       </div>
-      <div class="card">
 `;
   return renderLayout('Providers & Models', body, params);
 }

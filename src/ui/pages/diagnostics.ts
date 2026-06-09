@@ -6,6 +6,7 @@ export function renderDiagnosticsPage(params: {
   defaultFallbackModelsText: string;
 }): string {
   const body = `
+      <div class="card">
         <div class="catalog-meta">
           <div>
             <h2>Diagnostics</h2>
@@ -20,6 +21,7 @@ export function renderDiagnosticsPage(params: {
         </div>
         <pre id="diagnosticsLog" class="diagnostics-log">Loading diagnostics...</pre>
       </div>
+      <div class="card">
         <div class="catalog-meta">
           <div>
             <h2>Recent Sessions</h2>
@@ -31,7 +33,6 @@ export function renderDiagnosticsPage(params: {
           <div class="fallback-route-empty">Loading sessions...</div>
         </div>
       </div>
-      <script>
 `;
   return renderLayout('Diagnostics & Sessions', body, params);
 }

@@ -6,6 +6,7 @@ export function renderFallbackPage(params: {
   defaultFallbackModelsText: string;
 }): string {
   const body = `
+      <div class="card">
         <div class="catalog-meta">
           <div>
             <h2>Fallback Model Routes</h2>
@@ -58,7 +59,7 @@ export function renderFallbackPage(params: {
           </ul>
           <p class="muted" style="margin:10px 0 0;">Recommended out-of-box model: <code>local-router/auto-router-main</code> (legacy alias: <code>auto-local-main</code>). Configure provider keys above — candidates light up when ready.</p>
         </div>
-        <div class="catalog-meta">
+      </div>
 `;
   return renderLayout('Fallback Routes', body, params);
 }

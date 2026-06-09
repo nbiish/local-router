@@ -61,7 +61,6 @@ export function renderThinkingPage(params: {
         </div>
         </div>
       </div>
-      <div class="card">
 `;
   return renderLayout('Prompt & Thinking Level', body, params);
 }

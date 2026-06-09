@@ -1,12 +1,8 @@
-# Task: Translate llms.txt.backup into DOX Schema
+# Fallback Model Preselection Fixes
 
-- Create worktree off develop. (Done)
-- Read llms.txt.backup content.
-- Read existing llms.txt DOX.
-- Map backup sections to DOX.
-- Merge DOX rules and PRD.
-- Write translated llms.txt.
-- Verify file consistency.
-- Merge branch back to develop.
+- Prefixed route IDs required.
+- Corrected search checks.
+- Preselection is verified.
+- Visual builder populates correctly.
 
 ####
