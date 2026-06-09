@@ -281,7 +281,7 @@ Local Router must maximize cache hits across every failover and auto-route hop. 
   - Fixed token-interval extraction in long inputs/outputs prevents very long prefixes from never being cached.
   - Cache is "best effort" — not 100% guaranteed.
   - Cache lifetime: typically hours to days after last use. Automatic cleanup.
-- **Cost:** Cache reads are ~1/10 to 1/50 of miss price. No separate write premium — first-time tokens bill at miss price, identical prefixes on later requests bill at hit price. For deepseek-v4-flash: cache read $0.0028/M vs miss $0.14/M (50x cheaper). For deepseek-v4-pro: cache read $0.0145/M vs miss $1.74/M (~120x cheaper).
+- **Cost:** Cache reads are ~1/10 to 1/50 of miss price. No separate write premium — first-time tokens bill at miss price, identical prefixes on later requests bill at hit price. For deepseek-v4-flash: cache read $0.0028/M vs miss $0.14/M (50x cheaper). For deepseek-v4-pro (standard list pricing as of June 2026): cache read $0.0145/M vs miss $1.74/M (~120x cheaper). Note: the 75% limited-time V4 Pro discount expired May 31, 2026 — current list pricing applies.
 - **Observability:** `usage.prompt_cache_hit_tokens` and `usage.prompt_cache_miss_tokens` in every response.
 - **Implementation guidance for Local Router:**
   - DeepSeek caching is fully automatic — no request modification needed.
