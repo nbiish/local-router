@@ -596,6 +596,48 @@ curl -s http://127.0.0.1:11434/api/fallback-models | jq '.data[] | select(.route
 - **2026-06-04:** Integrated Cline + Kilo gateway free-tier candidates into default auto-router.
 - **2026-06-04:** Created `stableSortModelIdsByRoutingExhaustion()` tier sorting and wraparound retries.
 - **2026-06-05:** Curated Cline (12) and Kilo (19) catalogs with chat-proven tags. Tier-suffixed gateway names.
+- **2026-06-09:** Implemented content-aware failover: `classifyHttpFailure()` (auth/quota/payment/unavailable/invalid-request), `classifyResponseContent()` (generated/streaming/instant_error), `classifyStreamChunkAsError()`. Wired content classifier into `proxyModelAttempt` to detect 200-OK-with-error-body responses. Added `failoverPreserveSessionContext()` / `buildFailoverPreservedBody()` for session continuity across failover hops. Updated `executeFallbackRoute` with `failoverErrorType` tracking. Fixed test stall in `responses-http-stream.integration.test.mjs` (missing `LOCAL_ROUTER_SKIP_OLLAMA_ENSURE`). Added `fallback-content-classifier.test.mjs` (14 test cases). Made telemetry CSV writes best-effort (never crash requests over config dir permissions).
+- **2026-06-09:** Wrote comprehensive prompt caching specs in `llms.txt` — all 15 providers verified against official docs (June 2026). Documented read/write mechanics, minimum tokens, TTL options, pricing multipliers, observability fields, and cross-provider failover caching contract. Fixed DeepSeek V4 Pro pricing (75% limited-time discount expired May 31, 2026 — now at standard list pricing).
+
+---
+
+## Roadmap / Next Steps
+
+### Immediate Priority: Wafer AI ZDR Enhancement Toggle
+Wafer AI provides a **ZDR (Zero Delay Reduction) inference enhancement** for specific models via the `Wafer-ZDR: required` HTTP header. This header signals the Wafer inference backend to enable extra spatial/fast inference optimizations for those models.
+
+**ZDR-eligible Wafer AI models:**
+- `GLM-5.1`
+- `Kimi-K2.6`
+
+**Implementation plan:**
+1. **Provider toggle:** Add a per-provider ZDR toggle in the `/config` UI under the Wafer AI provider card. The toggle state persists to a new `wafer-config.json` (or extends `thinking-config.json`) via the config API.
+2. **Header injection:** When ZDR is enabled for Wafer AI, `src/index.ts` must inject `Wafer-ZDR: required` as a request header on every upstream call to `https://pass.wafer.ai/v1/chat/completions` — but **only** when the presented model is one of the two ZDR-eligible models (`GLM-5.1`, `Kimi-K2.6`).
+3. **Non-ZDR models:** Models not in the ZDR-eligible list must not receive the header, even if the toggle is on.
+4. **Config persistence:** The toggle state should be persisted and loaded on startup alongside other provider configs.
+5. **Diagnostics:** Log `[Wafer] ZDR enabled for <model>` in startup/diagnostic output when the header is active.
+
+**Request shape (ZDR enabled for eligible model):**
+```
+curl -sS "https://pass.wafer.ai/v1/chat/completions" \
+  -H "Authorization: Bearer <YOUR_API_KEY>" \
+  -H "Wafer-ZDR: required" \
+  -H "Content-Type: application/json" \
+  -d '{ "model": "GLM-5.1", "messages": [...], "max_tokens": 64, "thinking": {"type": "disabled"} }'
+```
+
+**Architecture notes:**
+- The ZDR header is provider-scoped (Wafer AI only) but model-gated (GLM-5.1 and Kimi-K2.6 only).
+- The toggle should live in the Wafer AI provider config section, not in global settings.
+- The toggle should default to **ON** (enabled) since ZDR is a free performance enhancement.
+- This should be the **only** provider with a ZDR toggle — do not generalize to other providers unless they document a similar mechanism.
+
+### Future Items
+- **Config UI Modularization:** Extract the inline HTML/JS config routes (~3400 lines) from `src/index.ts` into TS route modules (`src/routes/config-*.ts`), mapping shared memory to a consolidated `ConfigState` object.
+- **Scoring Normalization:** Normalize scoring to `[0,1]` and map weights derived dynamically from `costQualityTradeoff`.
+- **Complexity Vectors:** Add `codeDensity`, `languageCount`, `multiTurnDepth`, and `instructionLength` to auto-router scoring logic.
+- **Bandit Management:** Implement UCB state export/import endpoints for backup/restore.
+- **ZenMux explicit caching:** ZenMux supports `cache_control: {"type": "ephemeral"}` with up to 4 breakpoints. Wire cache directives into ZenMux requests when the provider is routed through the auto-router or fallback chain.
 
 ---
 
