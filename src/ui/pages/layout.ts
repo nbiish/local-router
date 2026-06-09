@@ -1224,7 +1224,16 @@ export function renderLayout(
 
           listEl.innerHTML = routes.map((route) => {
             const models = Array.isArray(route.models) ? route.models : [];
-            const chainHtml = models.map((modelId) => escapeHtml(modelId) + availabilityBadgeHtml(modelId)).join(' → ');
+            const disabled = new Set(Array.isArray(route.disabledModels) ? route.disabledModels : []);
+            const chainHtml = models.map((modelId) => {
+              const isEnabled = !disabled.has(modelId);
+              var badge = availabilityBadgeHtml(modelId);
+              if (!isEnabled) {
+                badge = '<span class="candidate-status disabled" style="background:#ea4335;color:white;opacity:0.6;">Disabled</span>';
+              }
+              var style = !isEnabled ? ' style="text-decoration: line-through; opacity: 0.6;"' : '';
+              return '<span' + style + '>' + escapeHtml(modelId) + '</span>' + badge;
+            }).join(' → ');
             return '<div class="fallback-route-item" data-fallback-route="' + escapeHtml(route.id) + '">' +
               '<h4>' + escapeHtml(route.id) + '</h4>' +
               '<div class="meta">Chain: ' + chainHtml + '</div>' +
@@ -1780,13 +1789,18 @@ export function renderLayout(
           if (!activeRouterRouteId) return;
           var routeItemEl = document.querySelector('.fallback-route-item[data-router-route="' + activeRouterRouteId + '"]');
           if (!routeItemEl) return;
-
           var candidates = routerCandidateStore || [];
           var models = candidates.map(function(c) { return c.model; }).filter(Boolean);
-          var modelsHtml = models.map(function(modelId) {
-            return escapeHtml(modelId) + availabilityBadgeHtml(modelId);
+          var modelsHtml = candidates.map(function(c) {
+            var modelId = c.model;
+            var isEnabled = c.enabled !== false;
+            var badge = availabilityBadgeHtml(modelId);
+            if (!isEnabled) {
+              badge = '<span class="candidate-status disabled" style="background:#ea4335;color:white;opacity:0.6;">Disabled</span>';
+            }
+            var style = !isEnabled ? ' style="text-decoration: line-through; opacity: 0.6;"' : '';
+            return '<span' + style + '>' + escapeHtml(modelId) + '</span>' + badge;
           }).join(' | ');
-
           var metaDivs = routeItemEl.querySelectorAll('.meta');
           metaDivs.forEach(function(div) {
             if (div.textContent.startsWith('Candidates:')) {
@@ -1803,18 +1817,22 @@ export function renderLayout(
             }
           });
         }
-
         function liveUpdateFallbackRouteItem() {
           if (!activeFallbackRouteId) return;
           var routeItemEl = document.querySelector('.fallback-route-item[data-fallback-route="' + activeFallbackRouteId + '"]');
           if (!routeItemEl) return;
-
           var candidates = fallbackCandidateStore || [];
           var models = candidates.map(function(c) { return c.model; }).filter(Boolean);
-          var chainHtml = models.map(function(modelId) {
-            return escapeHtml(modelId) + availabilityBadgeHtml(modelId);
+          var chainHtml = candidates.map(function(c) {
+            var modelId = c.model;
+            var isEnabled = c.enabled !== false;
+            var badge = availabilityBadgeHtml(modelId);
+            if (!isEnabled) {
+              badge = '<span class="candidate-status disabled" style="background:#ea4335;color:white;opacity:0.6;">Disabled</span>';
+            }
+            var style = !isEnabled ? ' style="text-decoration: line-through; opacity: 0.6;"' : '';
+            return '<span' + style + '>' + escapeHtml(modelId) + '</span>' + badge;
           }).join(' → ');
-
           var metaDivs = routeItemEl.querySelectorAll('.meta');
           metaDivs.forEach(function(div) {
             if (div.textContent.startsWith('Chain:')) {
@@ -1882,8 +1900,16 @@ export function renderLayout(
 
           listEl.innerHTML = routes.map((route) => {
             const candidates = Array.isArray(route.candidates) ? route.candidates : [];
-            const models = candidates.map((candidate) => candidate.model || candidate).filter(Boolean);
-            const modelsHtml = models.map((modelId) => escapeHtml(modelId) + availabilityBadgeHtml(modelId)).join(' | ');
+            const modelsHtml = candidates.map((candidate) => {
+              const modelId = candidate.model || candidate;
+              const isEnabled = candidate.enabled !== false;
+              var badge = availabilityBadgeHtml(modelId);
+              if (!isEnabled) {
+                badge = '<span class="candidate-status disabled" style="background:#ea4335;color:white;opacity:0.6;">Disabled</span>';
+              }
+              var style = !isEnabled ? ' style="text-decoration: line-through; opacity: 0.6;"' : '';
+              return '<span' + style + '>' + escapeHtml(modelId) + '</span>' + badge;
+            }).join(' | ');
             return '<div class="fallback-route-item" data-router-route="' + escapeHtml(route.id) + '">' +
               '<h4>' + escapeHtml(route.id) + '</h4>' +
               '<div class="meta">Type: ' + escapeHtml(route.type || 'priority') + '</div>' +

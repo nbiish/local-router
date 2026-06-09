@@ -1,9 +1,9 @@
-# Live Update Route Items Fixes
+# Disabled Candidates Styling Sync
 
-- Added live updates to DOM elements.
-- Syncs fallback routes chain view.
-- Syncs auto-router candidates list view.
-- Preselection is verified.
-- Visual builder populates correctly.
+- Syncs visual builder check to bottom list.
+- Crosses out disabled candidate name.
+- Red badge denotes disabled candidate.
+- Real-time updates working for both.
+- Tested and verified.
 
 ####
