@@ -37,6 +37,10 @@ export function renderFallbackPage(params: {
           <button onclick="saveFallbackRoute()">Add / Update Fallback Route</button>
           <button class="button-secondary" onclick="applyFallbackDefaults()">Reset Fallback Defaults</button>
           <button class="button-secondary" onclick="clearFallbackRouteForm()">Clear Fallback Form</button>
+          <button class="button-secondary" onclick="exportFallbackSettings()">Export Fallback Settings</button>
+          <button class="button-secondary" onclick="document.getElementById('fallbackImportInput').click()">Import Fallback Settings</button>
+          <input id="fallbackImportInput" type="file" accept="application/json" style="display:none" onchange="importFallbackSettings(event)">
+          <button class="button-secondary" onclick="resetFallbackSettings()">Reset Fallback Settings</button>
           <button class="button-secondary" onclick="configureVSCodePicker()">Refresh VS Code Model Picker</button>
         </div>
         <div style="margin-top:14px;">

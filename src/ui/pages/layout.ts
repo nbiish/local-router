@@ -1347,6 +1347,44 @@ export function renderLayout(
           await loadCatalog();
         }
 
+        async function exportFallbackSettings() {
+          const res = await fetch('/api/router-settings');
+          const settings = await res.json().catch(() => ({}));
+          const blob = new Blob([JSON.stringify(settings, null, 2)], { type: 'application/json' });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = 'router-settings.json';
+          a.click();
+          URL.revokeObjectURL(url);
+        }
+
+        async function importFallbackSettings(event) {
+          const file = event.target.files && event.target.files[0];
+          if (!file) return;
+          try {
+            const text = await file.text();
+            const settings = JSON.parse(text);
+            await fetch('/api/router-settings', {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(settings)
+            });
+            setMessage('Router settings imported.', 'success');
+            await loadFallbackRoutes();
+          } catch (e) {
+            setMessage('Failed to import router settings.', 'error');
+          }
+          event.target.value = '';
+        }
+
+        async function resetFallbackSettings() {
+          if (!window.confirm('Reset router settings to defaults?')) return;
+          await fetch('/api/router-settings', { method: 'DELETE' });
+          setMessage('Router settings reset to defaults.', 'success');
+          await loadFallbackRoutes();
+        }
+
         // ── Visual Builder Dropdown ──
         async function buildModelDropdown() {
           try {
@@ -2043,6 +2081,44 @@ export function renderLayout(
           clearRouterRouteForm();
           await loadRouterRoutes();
           await loadCatalog();
+        }
+
+        async function exportRouterSettings() {
+          const res = await fetch('/api/router-settings');
+          const settings = await res.json().catch(() => ({}));
+          const blob = new Blob([JSON.stringify(settings, null, 2)], { type: 'application/json' });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = 'router-settings.json';
+          a.click();
+          URL.revokeObjectURL(url);
+        }
+
+        async function importRouterSettings(event) {
+          const file = event.target.files && event.target.files[0];
+          if (!file) return;
+          try {
+            const text = await file.text();
+            const settings = JSON.parse(text);
+            await fetch('/api/router-settings', {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(settings)
+            });
+            setMessage('Router settings imported.', 'success');
+            await loadRouterRoutes();
+          } catch (e) {
+            setMessage('Failed to import router settings.', 'error');
+          }
+          event.target.value = '';
+        }
+
+        async function resetRouterSettings() {
+          if (!window.confirm('Reset router settings to defaults?')) return;
+          await fetch('/api/router-settings', { method: 'DELETE' });
+          setMessage('Router settings reset to defaults.', 'success');
+          await loadRouterRoutes();
         }
 
         async function deleteRouterRoute(routeId) {
