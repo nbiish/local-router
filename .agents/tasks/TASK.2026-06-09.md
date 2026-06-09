@@ -1,7 +1,8 @@
-# Fallback Model Preselection Fixes
+# Live Update Route Items Fixes
 
-- Prefixed route IDs required.
-- Corrected search checks.
+- Added live updates to DOM elements.
+- Syncs fallback routes chain view.
+- Syncs auto-router candidates list view.
 - Preselection is verified.
 - Visual builder populates correctly.
 
