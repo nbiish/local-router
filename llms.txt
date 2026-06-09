@@ -1,82 +1,462 @@
-# DOX framework
+# Local Router: OpenAI-Compatible Proxy Server for VS Code
 
-- DOX is a highly performant `llms.txt` hierarchy installed here
-- Agent must follow DOX instructions across any edits
+This is the project-wide Product Requirements Document (PRD) and root DOX contract.
 
-## Core Contract
+## Purpose
 
-- `llms.txt` files are binding work contracts for their subtrees
-- Work products, source materials, instructions, records, assets, and durable docs must stay understandable from the nearest applicable `llms.txt` plus every parent `llms.txt` above it
+### Overview
+Local Router is a localhost proxy (port `11434`) with **Ollama-compatible** and **OpenAI-compatible** surfaces. Point VS Code Copilot Chat, Claude Code, Cline, Roo Code, Continue, Codex, or scripts at `http://127.0.0.1:11434` and route to **15 built-in catalog providers** plus **any custom OpenAI-compatible API** you register—using one model namespace and one configuration UI.
 
-## Read Before Editing
+### Capabilities & Topology
+- **Port:** `11434` (Ollama default — drop-in)
+- **Client inference:** `POST /v1/chat/completions`, Ollama `/api/chat` & `/api/generate`, Codex `POST /v1/responses`, Claude Code `POST /v1/messages`
+- **Model IDs:** `{provider-slug}/{presented-alias}` (e.g. `zenmux/qwen3.7-max`, `my-vendor/my-alias`) or `local-router/{router-or-fallback-id}`
+- **Keys:** `/config` UI → in-memory while running → **PQC bundle** `~/.config/pqc-secrets/secrets.bundle.json` on every save (ML-KEM-768 + AES-256-GCM). Never committed to git or `providers.txt`.
+- **Catalog:** `providers.txt` (15 providers, **~105** presented models in custom mode) + runtime edits in `provider-models.json` + **custom providers** in `custom-providers.json`.
+- **Custom providers:** `/config` → **Add custom provider…** or `POST /api/providers` (HTTPS `/v1` upstream; loopback HTTP allowed for dev).
+- **Auto-router:** `local-router/auto-router-main` — expanded curated set (`src/routing-defaults.ts`): free → subscription (`opencode-go` → Z.ai → Xiaomi) → paid (Wafer → ZenMux → OpenRouter → Nebius → Cline → Kilo + NIM/Modal/Zen extras); exhaustion-sorted at bootstrap; routes based on coding ability, context length, and price (includes free-tier boost; latency metrics deprecated).
+- **System fallback:** `local-router/fallback-models` — **18** fixed steps (`DEFAULT_FALLBACK_ORDERED_IDS`): Ollama → NIM → Modal → Kilo/Cline free → OpenCode Zen free → OpenRouter free → Go/Z.ai/Xiaomi subscription → six paid anchors (no exhaustion re-sort on bootstrap).
+- **Ollama Cloud:** Shared quota — router/fallback/pull use **nemotron-3-ultra**, **minimax-m3**, **deepseek-v4-flash** only unless a real `ollama.com` API key is set (Pro tags gated).
+- **Ollama shim:** `local-router route set` → `ollama serve` starts real Ollama on `11435` and Local Router on `11434`.
+- **Operator CLI:** `localrouter list`, `keys`, `router export|import|list|show|check`, `verify`, `config --open`.
+- **Thinking:** Proxy toggle default **OFF** (IDE passthrough); optional levels when enabled. Responses strip `reasoning_content` for VS Code safety; requests preserve it for multi-turn tools.
 
-1. Read the root `llms.txt`
-2. Identify every file or folder you expect to touch
-3. Walk from the repository root to each target path
-4. Read every `llms.txt` found along each route
-5. If a parent `llms.txt` lists a child `llms.txt` whose scope contains the path, read that child and continue from there
-6. Use the nearest `llms.txt` as the local contract and parent docs for repo-wide rules
-7. If docs conflict, the closer doc controls local work details, but no child doc may weaken DOX
+```text
+Clients (VS Code, Claude Code, Codex, Cline, scripts)
+        │
+        ▼
+ 127.0.0.1:11434  Local Router (Express, src/index.ts)
+        │  model resolve → router / fallback / direct
+        │  keys from PQC bundle + in-memory keyStore
+        ▼
+ Per-provider upstream OpenAI-compat APIs
+        │
+        └── ollama provider → 127.0.0.1:11435/v1 (real ollama serve, auto-started)
+                 └── :cloud tags via local `ollama signin` session
+```
 
+### Product North Star
+Local Router should become an easy local drop-in replacement for Ollama-compatible tooling: one localhost server, one familiar Ollama/OpenAI-compatible surface, and many provider-backed or locally routed models behind it.
+
+The end-state product should feel like an approachable open-source Ollama-compatible proxy with extra routing intelligence, not a closed provider gateway. Users should be able to point VS Code, Copilot Chat, Continue, Cline, Roo Code, scripts, or Ollama-native clients at `http://127.0.0.1:11434` and keep working while Local Router handles provider keys, model aliases, fallback chains, router models, diagnostics, and explicit routing policy.
+
+The project may take product inspiration from Ollama's local-first ergonomics and API shape, but it must remain its own implementation and brand. Do not copy Ollama source, trademarks, mascot assets, or visual identity unless a future license review explicitly permits it. Compatibility is the goal: same easy local mental model, same drop-in endpoint expectations, and clear behavior under open-source Local Router logic.
+
+#### Visual Direction & Brand Mascot
+Local Router should have a cool, cutesy cyberpunk Anishinaabe character and interface personality that makes the project memorable without weakening the operational tool surface. This character should be original, culturally respectful, and operator/community approved before it becomes a logo, mascot, generated asset, or default UI element. It should support the product as a first-viewport signal and documentation identity, while the app UI remains dense, readable, and useful for repeated routing/configuration work.
+
+`BRAND.md` is the working source of truth for product identity and character direction. Keep it aligned with this PRD before generating or shipping visual assets.
+
+#### Routing Direction
+Auto-routing should be open, inspectable, and improvable by the community. Prefer local TypeScript/Node logic, explicit candidate lists, redacted telemetry, CSV/JSON exports, dry-run scoring, recompute tools, and documented scoring formulas over opaque hosted router behavior. Users should be able to see why a model was selected, tune the policy, share improvements, and verify that no hidden model pool or provider-managed default was used unless they configured it as a normal candidate.
+
+### Web & Architectural Inspiration
+- **Free Claude Code (`fcc-server`):** Repo: https://github.com/Alishahryar1/free-claude-code — A proxy layer between Claude Code and multiple LLM backends. Local Router follows its pattern of browser UI key management and in-memory key storage.
+- **Ollama:** Repo: https://github.com/ollama/ollama — Local Router mirrors Ollama's default port, HTTP route shape, and streaming response conventions so existing tools can repoint with minimal configuration.
+
+---
+
+## Ownership
+
+### Codebase & Repositories
+Remote: `https://github.com/nbiish/local-router.git` (`local-router` remote).
+Maintained by the local-router team. Operators use the local-router agent workflow to interact with the repository.
+
+### Branch & Integration Policy
+The repository uses two long-lived branches with a mandatory two-hop promotion path:
+- **`develop` — integration & verification branch.** All worktree work lands here first. This is where features integrate, build gates run, smoke tests execute, and cross-branch behavior is verified before any release promotion. `develop` is the required pre-release assembly line — not a shortcut around verification.
+- **`main` — release branch.** GitHub default and production-facing canonical state. Receives only verified, fully integrated work promoted from `develop`. Full feature integration updates ship here after `develop` verification passes.
+
+```text
+feature worktree → develop (integrate + verify) → main (release)
+```
+
+#### Rules:
+- Never promote feature work directly to `main`. Every change must pass through `develop` integration and verification first.
+- Never commit active development on `main` or `develop`. Use isolated worktrees (`feature/*`, `docs/*`).
+- Do not use `staging`, `production`, or other long-lived integration branches.
+- Per `AGENTS.md`: create a git worktree for every task. One task = one branch = one worktree.
+- Mandatory worktree removal and feature branch deletion is required after a `feature` -> `develop` merge.
+
+### System Snapshot & Release Lineage (June 2026)
+**`main` @ `3eacb0c`, `develop` @ `9ed761f`** — added CommandCode as final-resort fallback provider (18-step chain), kilo-stepfun-step-3.7-flash-free to fallback, toggleable/skippable candidate models in config UI with drag-reorder, PQC robust detection with auto-keygen, config UI error handling, and model metadata audit.
+
+| Commit | Summary |
+|--------|---------|
+| `3eacb0c` | **Merge develop → main** — integrated toggleable candidates, CommandCode provider, PQC robust detection, config UI error handling, and model metadata audit |
+| `9ed761f` | **Config UI fix** — removed orphaned braces in `addFallbackGroupCandidate` and fixed `onmousedown` string escaping with `&apos;` HTML entities |
+| `afb37e6` | **CommandCode provider + subscription fallback** — added `commandcode` (DeepSeek V4 Pro, `https://api.commandcode.ai/alpha/generate`) to `providers.txt`, `CANDIDATE_DEFAULTS`, paid tail in `DEFAULT_FALLBACK_ORDERED_IDS` (position 18), and `SUBSCRIPTION_PROVIDER_SUB_ORDER` (4th entry) |
+| `5353b39` | **PQC robust detection** — added `getPqcConfigDir()` / `getPqcBundlePath()` / `getPqcPubkeyPath()` / `ensurePqcKeypair()` / `loadKeysFromEnvironment()` / `reportMissingProviders()`; improved `loadPqcSecrets()` and `persistPqcSecrets()` with auto-keygen if bundle exists but keypair missing |
+| `5ea0262` | **Config UI error handling** — added `showUiError` and `safeInit` wrappers so config UI JS errors surface visibly instead of silently failing |
+| `ae71dd2` | **Fallback toggle + drag-reorder** — extended `FallbackModel` with `disabledModels?: string[]`; added inline `disabled` directive parser in `parseFallbackModel()`; added `isFallbackStageEnabled()` / `activeFallbackModels()` / `fallbackExecutionPlan()`; wired fallback visual builder JS (search/dropdown/toggle/drag-reorder/remove); added `kilo-stepfun-step-3.7-flash-free` to `DEFAULT_FALLBACK_ORDERED_IDS` |
+| `8bb0a7c` | **Latency Deprecation & Router CLI** — Deprecated legacy latency metrics from routing scoring in favor of context window and free-tier boosts ($+0.15$ boost); added `localrouter router export` and `localrouter router import <file>` subcommands for CI/CD pipelines; fixed startup bug where persistent routers with custom provider models were discarded on reload due to loading order |
+| `953d309` | **Remove provider default columns** — Removed the `Default` column from `providers.txt` provider summary table; removed `<span class="pill catalog">Catalog</span>` and default tool pills from `/config` UI; updated test column checks to 3 |
+| `ffba167` | **Remove deprecated models** — Removed Moonshot v1 family, MiniMax M2.5/M2.7 (NIM/ZenMux/Ollama/Cline/Kilo/Cline), Qwen 397B, Nous Hermes 405B, OpenCode Go GLM-5, and OpenCode Zen Claude Sonnet 4-6 from `providers.txt` and router defaults |
+| `4918052` | **Model Specs Validation & Audit** — corrected MiniMax M3 context (512K→1M), MiniMax M2.7 output (131K→196K), Kimi K2.6 output (32K→262K); added canonical `model-specs.json` & CI/CD validator script; enhanced router candidate score exports with context & output token capacity |
+| `d8a1c8e` | **Gateway routing curation** — fallback steps 4–5: **MiniMax M3** (Kilo paid / Cline free) replaces Nemotron Ultra; auto-router Cline/Kilo **free** limited to Nemotron Ultra + MiniMax M3 (Cline) + Step 3.7 Flash (Kilo); startup prune for non-curated gateway free rows |
+| `1085c21` | **Tier-suffixed presented IDs** — Cline/Kilo models use explicit `-free` / `-paid` local-router IDs + friendly config labels; legacy alias map for persisted routers |
+| `cbf1099` | **Chat-proven catalogs** — `scripts/validate-cline-kilo-catalog.mjs` + JSON artifact; **12 Cline** + **19 Kilo** rows (every row live chat 200); removed `openrouter/owl-alpha` (Kilo) and Cline `openrouter/free` |
+| `1b8977d` | **Cline curated catalog** — 4 free + 8 paid chat-proven models in `providers.txt` |
+| `8d62919` | **Kilo curated catalog** — 8 free + 11 paid chat-proven models; custom mode = `providers.txt` only |
+| `5a58799` | **`opencode-go` routing** — rename `opencode-code` → `opencode-go` (subscription `/zen/go/v1`) vs `opencode-zen` (free/paid `/zen/v1`); **18-step fixed** `fallback-models` chain; paid order Wafer→ZenMux→OR→**Nebius**→Cline→Kilo; subscription order Go→Z.ai→Xiaomi→CommandCode; ~46 auto-router candidates with catalog-aware exhaustion bootstrap |
+| `38d9e73` | **`opencode-code`** — interim rename `opencode` provider; trim 9 legacy Go models; legacy `opencode-*` aliases (superseded by `5a58799` → use `opencode-go-*`) |
+| `fa18504` | **Routing tier split** — separate fallback vs auto-router defaults; paid order wafer→zenmux→OR→cline→kilo→ozen; `openrouter/free` x3 |
+| `acbb577` | **Init fix** — default fallback sort at module load must not call `findProviderModel` before `modelSourceConfig` exists |
+| `2b47b1e` | **Wraparound exhaustion** — free → subscription → paid bands; `buildWraparoundExecutionPlan()` revisits earlier models before advancing |
+| `db915b2` | **Gateway free curation** — Cline/Kilo catalog limited to 6 free CLI models; router/auto presets excluded |
+| `ab3e27f` | **Cline + Kilo providers** — gateway catalog, `CLINE_API_KEY` / `KILO_API_KEY`, tier gating (`src/gateway-provider-catalog.ts`) |
+| `a905726` | **Ollama free-tier routing** — 3 cloud models in router/fallback/pull; Pro-only gating (`src/ollama-cloud-catalog.ts`) |
+| `954bdea` | System/legacy `default` fallback routes **union** tier defaults then re-sort |
+| `e4758ef` | Provider tier order on **all** fallback routes (not only `fallback-models`) |
+| `4206824` | Default provider tier order: Ollama first; catalog gate for custom mode |
+| `ffbc688` | Catalog filtering + Ollama backend on `:11435` |
+| `d9e1a84` | Custom provider registration |
+
+---
+
+## Local Contracts
+
+### DOX Core Hierarchy Contract
+- `llms.txt` files are binding work contracts for their subtrees.
+- Work products, source materials, instructions, records, assets, and durable docs must stay understandable from the nearest applicable `llms.txt` plus every parent `llms.txt` above it.
+- **Hierarchy:**
+  - Root `llms.txt` is the DOX rail: project-wide instructions, global preferences, durable workflow rules, and the top-level Child DOX Index.
+  - Child `llms.txt` files own domain-specific instructions and their own Child DOX Index.
+  - Each parent explains what its direct children cover and what stays owned by the parent.
+  - The closer a doc is to the work, the more specific and practical it must be.
+- **Child Doc Shape:**
+  - Create a child `llms.txt` when a folder becomes a durable boundary with its own purpose, rules, responsibilities, workflow, materials, or quality standards.
+  - Default section order: Purpose, Ownership, Local Contracts, Work Guidance, Verification, Child DOX Index.
+
+### Architecture Core Contracts
+- **Runtime:** Node.js + Express + TypeScript
+- **Port Invariant:** `11434` (mimicking Ollama's default for drop-in compatibility).
+- **Core Upstream endpoint:** `POST /v1/chat/completions` (OpenAI format).
+- **Ollama-compatible endpoints:** `GET /api/tags`, `POST /api/generate`, `POST /api/chat`, `POST /api/show`, `HEAD /api/version`, `HEAD /api/tags`, `GET /api/ps`.
+- **OpenAI Responses API shim:** `POST /v1/responses` and WebSocket upgrade `ws://localhost:PORT/v1/responses` (Codex compatibility layer).
+- **Anthropic Messages API proxy:** `POST /v1/messages` (Claude Code compatibility layer).
+- **Discovery probes:** `GET /` and `HEAD /` return `Ollama is running`.
+- **Version probe:** `GET /api/version` returns `0.6.4` to satisfy VS Code's Ollama check.
+- **Upstream custom requirements:** Base URL must end with `/v1`. Vendor must support standard bearer auth and implement `POST .../chat/completions` with streaming. Mapped in `custom-providers.json` without secrets.
+
+### PQC Key Management & Secrets Infrastructure
+This is the core security system of the project. Every API key for every application — CLI tools, TUI dashboards, GUI applications, inference providers, cloud services — lives in the PQC secrets bundle. No plaintext keys are ever allowed on disk, in `.env`, or committed to git.
+- **Approved Cryptographic Algorithms:** ML-KEM-768/1024 for secrets wrapping, ML-DSA-65/87 for signing/integrity, AES-256-GCM for payload encryption, Argon2id for key derivation. Classical algorithms (RSA, DSA, ECDSA, ECDH, Ed25519, AES-CBC, unauthenticated openssl) are strictly forbidden for secrets operations.
+- **Infrastructure Layout:**
+  - Private key: stored by default in a system-agnostic, hardware-HKDF derived file `private.key.enc` (encrypted with AES-256-GCM using a machine-bound KEK). Optionally stored in the OS Keystore (macOS Keychain, Linux Secret Service) when opted-in via `PQC_USE_KEYCHAIN=true`.
+  - Public key: `~/.config/pqc-secrets/recipient.pub` (safe to commit).
+  - Encrypted bundle: `~/.config/pqc-secrets/secrets.bundle.json` (AES-256-GCM data key wrapped with ML-KEM-768).
+- **Key Resolution Order:** PQC bundle → Environment variables → Memory (saved in `/config` this session).
+- **Tooling Parity:** The Python `kyber-py` script (`.agents/skills/pqc-secrets/scripts/pqc_secrets.py`) and Rust `rust-fips203` engine are fully compatible and read/pack the same bundle JSON layout.
+- **Verification Signatures:** ML-DSA-65 signatures are managed via OpenSSL and the subprocess wrapper at `.agents/skills/pqc-signatures-security/scripts/pqc_helper.py`, which enforces a 30s timeout and strict returncode classification.
+
+### Model IDs & Namespaces
+Clients format model names using the patterns:
+- `provider/upstream-id` (e.g. `nebius/deepseek-ai/DeepSeek-V4-Pro`) — direct upstream.
+- `provider/presented-alias` (e.g. `zenmux/qwen3.7-max`) — custom or catalog friendly alias.
+- `local-router/router-id` (e.g. `local-router/auto-router-main`) — candidate list auto-selection.
+- `local-router/fallback-id` (e.g. `local-router/fallback-models`) — fallback ordered retry chain.
+
+Slashes after the first segment are passed through as part of the upstream ID (e.g. OpenRouter preset paths).
+
+### Telemetry Formats
+- `router-events.csv`: Decisions logging. Columns: timestamp, router_id, presented_model, router_type, selected_model, status, duration_ms, candidate_latency_ms, stream, request features, coding_task, approx_input_tokens, requested_output_tokens, tool_calls_*, reward_signal, prompt_hash, candidate_scores, error_type. Prompt hash is SHA-256.
+- `router-candidates.csv`: Candidate performance statistics. Columns: model ID, provider, upstream_model, context/output, capabilities, cost, latency, success_rate, tool_call_accuracy, latency_p50_ms, latency_p95_ms, sample_count, tier, last_observed_at.
+
+### Configuration Directories & Settings Map
+Setting files reside at `~/.config/local-router/` (or legacy `~/.config/fvs-code/` as fallback):
+
+| File | Secret? | Persists | Purpose |
+|------|---------|----------|---------|
+| `secrets.bundle.json` | Encrypted | PQC pack | Mapped API keys (`WAFER_SERVERLESS_API_KEY`, etc.) |
+| `recipient.pub` | No | Public | ML-KEM public key |
+| `custom-providers.json` | No | local JSON | Custom provider metadata (endpoints, env variables) |
+| `provider-models.json` | No | local JSON | Custom model overrides and context details |
+| `router-models.json` | No | local JSON | Router specifications and candidate lists |
+| `fallback-models.json` | No | local JSON | Fallback chain ordered routes |
+| `thinking-config.json` | No | local JSON | Thinking levels (none/low/medium/high/xhigh) |
+| `system-prompt.json` | No | local JSON | User system prompt injection configuration |
+| `model-source-config.json` | No | local JSON | Configured source: `custom` vs `endpoints` |
+| `endpoint-models-cache.json` | No | local JSON | Cached upstream `/models` query data |
+| `provider-pricing.json` | No | local JSON | Cost scoring overrides |
+| `sessions.json` | No | Redacted | client-grouped requests within 2-hour windows |
+| `session-feedback.json` | No | Redacted | Session thumbs up/down user votes |
+| `tool-routing.json` | No | local JSON | Ollama shim routing configuration |
+
+### Provider Catalog Contracts
+The catalog contains 15 active providers with ~105 presented models as of 2026-06-05:
+
+| Provider | Catalog Models | Upstream Endpoint | Key Env Variable |
+|---|---|---|---|
+| `wafer-serverless` | 5 | `https://pass.wafer.ai/v1` | `WAFER_SERVERLESS_API_KEY` |
+| `zenmux` | 19 | `https://zenmux.ai/api/v1` | `ZENMUX_API_KEY` |
+| `nebius` | 8 | Nebius Token Factory | `NEBIUS_API_KEY` |
+| `moonshot` | 5 | Moonshot/Kimi API | `MOONSHOT_API_KEY` |
+| `nvidia-nim` | 6 | NVIDIA NIM API | `NVIDIA_NIM_API_KEY` |
+| `modal` | 1 | Modal GLM endpoint | `MODAL_API_KEY` |
+| `openrouter-presets` | 8 | `https://openrouter.ai/api/v1` | `OPENROUTER_API_KEY` |
+| `xiaomi-mimo` | 2 | `https://token-plan-sgp.xiaomimimo.com/v1` | `XIAOMI_MIMO_API_KEY` |
+| `opencode-go` | 9 | `https://opencode.ai/zen/go/v1` | `OPENCODE_API_KEY` |
+| `opencode-zen` | 8 | `https://opencode.ai/zen/v1` | `OPENCODE_API_KEY` |
+| `zai` | 1 | `https://api.z.ai/api/coding/paas/v4` | `ZAI_API_KEY` |
+| `ollama` | 8 | `http://127.0.0.1:11435/v1` | `OLLAMA_API_KEY` |
+| `cline` | 9 | `https://api.cline.bot/api/v1` | `CLINE_API_KEY` |
+| `kilo` | 6 (+ live) | `https://api.kilo.ai/api/gateway` | `KILO_API_KEY` |
+| `commandcode` | 1 | `https://api.commandcode.ai/alpha/generate` | `COMMANDCODE_API_KEY` |
+
+#### Key Model Metadata Specifications
+- **1M-Context Models:** wafer-serverless (deepseek-v4-flash/pro, qwen3.7-max), zenmux (qwen3.7-max, deepseek-v4-pro), nebius (DeepSeek-V4-Pro, Nemotron-3-Ultra), openrouter-presets (@preset/chain-of-draft, @preset/1-million-main/chain-of-draft), xiaomi-mimo (mimo-v2.5-pro/v2.5), minimax/minimax-m3 (all providers).
+- **MiniMax M3:** 1M context, 512K output, MSA Sparse Attention architecture ($0.30/$1.20 per 1M pricing).
+- **Step-3.7-flash:** 256K context, 256K output.
+- **Qwen3.7-max:** 1M context, 64K output.
+- **GLM-5.1:** 200K context, 128K output (Z.AI coding pass, modal FP8).
+- **NVIDIA NIM Kimi K2.6:** 256K context, 262K output, multimodal image, implicit prompt cache.
+- **OpenCode MiniMax M3 free tier:** 1M context, 512K output. Mapped only under `opencode-zen/minimax-m3-free`.
+- **Z.ai:** `code-pass-glm-5.1` (presented model for coding GLM-5.1).
+
+#### Prompt Caching Specs by Provider
+- **DeepSeek:** Disk-based KV cache, automatic, priced at ~1/10-1/50 cost. Uses `prompt_cache_hit_tokens`.
+- **ZenMux:** Explicit `cache_control: {"type": "ephemeral"}` with up to 4 breakpoints.
+- **Wafer Serverless / Moonshot K2.6 / Xiaomi Mimo / OpenRouter:** Automatic pass-through caching.
+- **Nebius / NIM / Modal / Z.ai:** No support.
+
+### Ollama Intercept Shim Contracts
+`local-router route set` installs a shim at `~/.local/bin/ollama` (first in PATH) that intercepts `ollama serve`:
+1. Sets `OLLAMA_HOST=127.0.0.1:11435`.
+2. Starts real Ollama on port `11435` in the background.
+3. Sets `LOCAL_ROUTER_PROVIDER_OLLAMA_BASE_URL` to local server.
+4. Starts Local Router on `11434` in the foreground.
+5. Other commands (pull, run, show) pass through directly to real `/usr/local/bin/ollama`.
+6. Marker comment line: `# local-router ollama shim`.
+7. Trap cleans up the real Ollama process PID on exit.
+
+### OpenAI Responses API Shim Contract
+- Maps Responses requests (`POST /v1/responses`) to standard chat-completion payloads (prepends `instructions` as system prompt).
+- Executes normal routing and returns the re-wrapped responses payload envelope (`object: "response"`, `output` array of parts).
+- HTTP SSE is mapped via a shared translator (`src/responses-stream.ts`) which also services WebSocket upgrade connections at `ws://localhost:PORT/v1/responses`.
+
+### Anthropic Messages API Proxy Contract
+- Translates Anthropic requests (`POST /v1/messages`) to OpenAI shape.
+- Maps non-streaming completions to Anthropic `message` structures.
+- Stream handler converts standard SSE to Anthropic events: `message_start`, `content_block_start`, `content_block_delta`, `message_delta`, `message_stop`.
+
+### User Preferences
+When the user requests a durable behavior change, record it here or in the relevant child `llms.txt`.
+- CoD prompt injection is disabled by default.
+- Global thinking/reasoning default is `none` for VS Code safety.
+
+---
+
+## Work Guidance
+
+### DOX Framework Workflow Rules
+
+#### Read Before Editing
+1. Read the root `llms.txt`.
+2. Identify every file or folder you expect to touch.
+3. Walk from the repository root to each target path.
+4. Read every `llms.txt` found along each route.
+5. If a parent `llms.txt` lists a child `llms.txt` whose scope contains the path, read that child and continue from there.
+6. Use the nearest `llms.txt` as the local contract and parent docs for repo-wide rules.
+7. If docs conflict, the closer doc controls local work details, but no child doc may weaken DOX.
 Do not rely on memory. Re-read the applicable DOX chain in the current session before editing.
 
-## Update After Editing
-
+#### Update After Editing
 Every meaningful change requires a DOX pass before the task is done.
-
 Update the closest owning `llms.txt` when a change affects:
-
 - purpose, scope, ownership, or responsibilities
 - durable structure, contracts, workflows, or operating rules
 - required inputs, outputs, permissions, constraints, side effects, or artifacts
 - user preferences about behavior, communication, process, organization, or quality
 - `llms.txt` creation, deletion, move, rename, or index contents
-
 Update parent docs when parent-level structure, ownership, workflow, or child index changes. Update child docs when parent changes alter local rules. Remove stale or contradictory text immediately. Small edits that do not change behavior or contracts may leave docs unchanged, but the DOX pass still must happen.
 
-## Hierarchy
+#### Style
+- Keep docs concise, current, and operational.
+- Document stable contracts, not diary entries.
+- Put broad rules in parent docs and concrete details in child docs.
+- Prefer direct bullets with explicit names.
+- Do not duplicate rules across many files unless each scope needs a local version.
+- Delete stale notes instead of explaining history.
+- Trim obvious statements, repeated rules, misplaced detail, and warnings for risks that no longer exist.
 
-- Root `llms.txt` is the DOX rail: project-wide instructions, global preferences, durable workflow rules, and the top-level Child DOX Index
-- Child `llms.txt` files own domain-specific instructions and their own Child DOX Index
-- Each parent explains what its direct children cover and what stays owned by the parent
-- The closer a doc is to the work, the more specific and practical it must be
+### Routing Logic Guidance
 
-## Child Doc Shape
+#### Routing Exhaustion Sequence
+`stableSortModelIdsByRoutingExhaustion()` orders candidate models and custom fallback routes:
+**Free (1-4) → Subscription (5) → Paid (6)**
 
-- Create a child `llms.txt` when a folder becomes a durable boundary with its own purpose, rules, responsibilities, workflow, materials, or quality standards
-- Work Guidance must reflect the current standards of the project or user instructions; if there are no specific standards or instructions yet, leave it empty
-- Verification must reflect an existing check; if no verification framework exists yet, leave it empty and update it when one exists
+1. `ollama` free-tier `:cloud` tags (only 3 allowed: nemotron-3-ultra, minimax-m3, deepseek-v4-flash).
+2. `kilo` free gateway (curated to Nemotron Ultra + Step 3.7 Flash only).
+3. `cline` free gateway (curated to Nemotron Ultra + MiniMax M3 only).
+4. Other free models (e.g. `openrouter/free`, `opencode-zen-*-free`).
+5. **Subscription band:** `opencode-go` → `zai` → `xiaomi-mimo` → `commandcode`.
+6. **Paid API order:** `wafer-serverless` → `zenmux` → `openrouter-presets` → `nebius` → `cline` → `kilo` → `opencode-zen` → `nvidia-nim` → `modal`.
+   - **Fallback paid tail (fixed seven):** `wafer-ai-deepseek-v4-flash` → `zenmux-mimo-v2.5-pro` → `openrouter-chain-of-draft` → `nebius-nemotron-3-ultra-550b-a55b` → `cline-deepseek-deepseek-v4-flash-free` → `kilo-deepseek-deepseek-v4-flash-paid` → `commandcode-deepseek-v4-pro`.
 
-Default section order:
-- Purpose
-- Ownership
-- Local Contracts
-- Work Guidance
-- Verification
-- Child DOX Index
+#### Candidate Selection & Execution Plan
+- `selectRouterCandidate()` chooses the **first eligible** model in the sorted exhaustion list. Eligibility checks fail if keys are missing or provider cloud tags are blocked.
+- `buildWraparoundExecutionPlan()` implements retries. Before advancing to next candidate `N+1`, the plan bridges back to retrying earlier candidates `0...N` once to allow for rate-limit/quota recovery window (e.g. subscription buckets reset).
+- Direct chat failures from gateway providers (Cline/Kilo) return errors immediately without cascading to fallback routes.
 
-## Style
+#### Fallback Stages & Skip Preflight
+- Fallback route `fallback-models` follows a fixed 18-step bootstrap order. Legacy configurations might use the `default` alias.
+- Normal fallback execution runs 3 attempts per stage using `{baseSeconds}^retryIndex` wait logic (2s base).
+- Stages with missing keys or blocked Ollama clouds are skipped instantly during fallback preflight checks.
 
-- Keep docs concise, current, and operational
-- Document stable contracts, not diary entries
-- Put broad rules in parent docs and concrete details in child docs
-- Prefer direct bullets with explicit names
-- Do not duplicate rules across many files unless each scope needs a local version
-- Delete stale notes instead of explaining history
-- Trim obvious statements, repeated rules, misplaced detail, and warnings for risks that no longer exist
+#### Ollama Cloud Gating (Free vs Pro)
+Ollama Cloud uses a shared quota. Free cloud tags use `ollama signin` session key (`local-router-ollama`), whereas Pro-only tags are skipped unless a real `OLLAMA_API_KEY` is present.
+- Curated Free: `nemotron-3-ultra:cloud`, `minimax-m3:cloud`, `deepseek-v4-flash:cloud`.
+- Pro-Only (gated): `deepseek-v4-pro:cloud`, `kimi-k2.6:cloud`, `glm-5.1:cloud`, `qwen3.5:cloud`, `minimax-m2.7:cloud`.
+- persisted routes are run through `pruneDisallowedOllamaCloudRouting()` on start to remove unauthorized Pro tags.
 
-## Closeout
+#### Cline & Kilo Gateway Allowlisting
+- **Cline:** Custom catalog is strictly limited to 4 free + 8 paid chat-proven models. Standard vendors (Anthropic, Gemini, OpenAI) are excluded.
+- **Kilo:** Custom catalog is limited to 8 free + 11 paid models. `kilo-auto/free` is excluded.
+- Custom catalogs represent the baseline `providers.txt` models. To search all upstream gateway models, Endpoint Models mode must be enabled with live fetch toggles.
 
-1. Re-check changed paths against the DOX chain
-2. Update nearest owning docs and any affected parents or children
-3. Refresh every affected Child DOX Index
-4. Remove stale or contradictory text
-5. Run existing verification when relevant
-6. Report any docs intentionally left unchanged and why
+### Operator UI, CLI & Configuration
 
-## User Preferences
+#### Setup and Configuration
+1. **First-run:** Copy `.env.example` as `.env` (optional fallback for development, do not save keys here).
+2. **Setup keys:** Open `/config` UI or run `localrouter keys set`. Mapped keys will encrypt at rest using the PQC bundle automatically. Mappings are deduplicated (e.g., `OPENCODE_API_KEY` shared across `opencode-go` and `opencode-zen`).
+3. **Configure clients:** Repoint client base URL to `http://127.0.0.1:11434/v1` (OpenAI compatible) or `http://127.0.0.1:11434` (Ollama) and select the desired model.
 
-When the user requests a durable behavior change, record it here or in the relevant child `llms.txt`
+#### CLI Reference Cheat Sheet
+```bash
+local-router start|stop|status                      # daemon lifecycle
+local-router route set|unset|custom|status           # Ollama serve shim settings
+localrouter list --custom                            # lists custom catalog (providers.txt)
+localrouter list --all                               # lists catalog + endpoint cache
+localrouter keys list|set|unset                      # key management via PQC endpoints
+localrouter router list|show|check                   # router configuration check
+localrouter router export|import <file>              # routing state backup (CI/CD)
+localrouter verify --json                            # headless verification check
+localrouter config --open                            # launch browser config page
+```
+
+#### Configuration UI Pages API
+- `GET /api/provider-configs` — merged custom and catalog provider states.
+- `POST /api/providers` — register custom OpenAI-compatible provider metadata.
+- `GET /api/provider-models` — retrieve full catalog model data.
+- `POST /api/refresh-endpoint-models` — live upstream fetch of `/models` (6s timeout).
+- `GET /api/thinking-level` / `PUT /api/thinking-level` — configuration of thinking levels.
+- `GET /api/system-prompt` / `PUT /api/system-prompt` — system prompt configuration.
+- `GET /api/sessions` / `POST /api/sessions/:id/feedback` — session viewer and feedback.
+
+#### Troubleshooting
+- **Model unknown / 400 provider not found:** check `localrouter list` output. Confirm the presented slug exists. Check for spelling.
+- **Auto-router skips all candidates:** Check logs for `[PQC] Providers without keys`. Configure at least one candidate provider key.
+- **Ollama cloud models missing:** Ensure `ollama signin` session is active. Confirm `[ollama] Backend ready` in server logs.
+- **Restart loop / CLI issues:** Check logs at `~/.config/local-router/proxy-11434.log` (or `~/.config/fvs-code/`). Verify no duplicate servers listen on port 11434.
+
+### Reasoning & Thinking Layer
+VS Code Copilot Chat strips reasoning tags on follow-up requests, leading to upstream API failures (e.g. Moonshot throws because prior assistant messages are missing reasoning metadata).
+- **Request Sanitization:** `sanitizeProviderRequestBody` does not strip `reasoning_content` from request history. It only maps the thinking level parameters. Ollama-only `think` blocks are removed before forwarding.
+- **Response Sanitization:** Strips reasoning metadata from final non-streaming OpenAI-compatible responses, OpenAI SSE chunks, and skips empty reasoning-only chunks in Ollama stream translations to prevent blank assistant chunks in the IDE.
+- **Levels:** `none` (default), `low`, `medium`, `high`, `xhigh`.
+  - OpenAI-style: `reasoning_effort: "low" | "medium" | "high"`.
+  - DeepSeek/Qwen/GLM/Kimi/Step/MiniMax: `enable_thinking: true`.
+  - Level `none` injects disable hints (`reasoning_effort: "none"`, `thinking: { type: "disabled" }`).
+- **Configuration Grid:** Controlled per-provider in `/config` or via `PUT /api/thinking-level`; saved to `thinking-config.json`.
+
+### Custom System Prompt Injection
+- **Default:** OFF (disabled).
+- **Default prompt:** Chain of Draft reasoning style — *"Think step by step, but only keep a minimum draft for each thinking step, with 5 words at most. Return the answer after your thinking."*
+- **Persistence:** `~/.config/local-router/system-prompt.json`.
+- Injection prepends `{ role: "system", content: "<prompt>" }` at the head of the messages array prior to forwarding. Compatible with reasoning sanitization.
+
+### VS Code & Ollama Metadata
+- **VS Code target:** 1.113+, Copilot Chat 0.41.0+, Ollama 0.18.3+.
+- **Ollama compat:** `/api/tags` / `POST /api/show` return standard alias mappings (`basename`, `name`, `details.parameter_size`). Capabilities are advertised (`completion`, `tools`, `vision`). `thinking` is omitted.
+- **Integration API:** `POST /api/vscode/configure` modifies `chatLanguageModels.json` and updates `globalStorage/state.vscdb` to insert custom presented aliases and capabilities.
+
+### Router & Bandit Models
+Presented as `local-router/<router-name>` (saved to `router-models.json`):
+- **Pareto-code:** uses `minCodingScore` filters, cost/latency tie-breakers.
+- **Auto-local:** uses task features (tool use, image, context size, cache, prior success/latency).
+- **Bandit-local:** dLinUCB with discount forgetting factor `γ=0.98`, UCB selection (`explorationBudget` UCB coefficient), persisted matrices.
+- **System fallback:** `fallback-models` safety net.
+
+#### Statistical Outlier Tiering (Auto Exacto)
+- Uses median and Median Absolute Deviation (MAD) over accumulated telemetry.
+- Models categorized into: `verified` (50+ samples within threshold), `insufficient` (<50 samples), and `deranked` (outliers or success rate < 0.85).
+- Recomputed via `POST /api/router-models/:id/recompute` which reads telemetry and offers tier change proposals. Mapped to `enableAutoTiers` flag in router settings.
+
+### CIP Telemetry System
+- **cip-daily-research.mts:** Computes metrics (insufficient data, deranked models, latency warnings) from CSV logs, appends findings to `cip-findings.jsonl`.
+- **cip-apply-findings.mts:** Reads findings and patches `router-models.json` settings automatically.
+- **crx-validate.mts:** Schema check on community registry pull requests.
+- **crx-aggregate.mts:** consensus merging script (majority vote, high-consensus filters).
+
+### Roadmap / Next Steps
+- **Config UI Modularization:** Extract the inline HTML/JS config routes (~3400 lines) from `src/index.ts` into TS route modules (`src/routes/config-*.ts`), mapping shared memory to a consolidated `ConfigState` object.
+- **Scoring Normalization:** Normalize scoring to `[0,1]` and map weights derived dynamically from `costQualityTradeoff`.
+- **Complexity Vectors:** Add `codeDensity`, `languageCount`, `multiTurnDepth`, and `instructionLength` to auto-router scoring logic.
+- **Bandit Management:** Implement UCB state export/import endpoints for backup/restore.
+
+---
+
+## Verification
+
+### Closeout Checklist
+1. Re-check changed paths against the DOX chain.
+2. Update nearest owning docs and any affected parents or children.
+3. Refresh every affected Child DOX Index.
+4. Remove stale or contradictory text.
+5. Run existing verification when relevant.
+6. Report any docs intentionally left unchanged and why.
+
+### Testing Setup & Suite Execution
+Run tests sequentially with isolated context:
+```bash
+npm install
+npm run build
+npm test             # executes all unit and integration tests (56 cases, 13 files)
+```
+*Note: To skip local Ollama daemon auto-start, set `LOCAL_ROUTER_SKIP_OLLAMA_ENSURE=true`.*
+
+#### Current Test Matrix Coverage
+- `tests/ollama-cloud.test.mjs`: cloud tag detection.
+- `tests/ollama-cloud-catalog.test.mjs`: Pro tag gating, allowances, presented ID blocks.
+- `tests/gateway-provider-catalog.test.mjs`: Cline/Kilo allowlists, presented segments.
+- `tests/cline-kilo-catalog-validation.test.mjs`: chat-proven catalog registry matches.
+- `tests/routing-exhaustion-order.test.mjs`: tier bands verification.
+- `tests/execution-plan.test.mjs`: wraparound retry sequence.
+- `tests/provider-keys.integration.test.mjs`: PQC bundle keys, gateway tiers, fallback exhaustion order (3 Ollama + 6 gateway), VS Code picker, pricing overrides, thinking level overrides.
+- `tests/custom-providers.integration.test.mjs`: Custom provider registry CRUD, deletion guards.
+- `tests/responses-http-stream.integration.test.mjs`: Codex Responses API HTTP SSE.
+- `tests/responses-websocket-anthropic.integration.test.mjs`: Responses WS, Anthropic messages.
+- `tests/fallback-disabled-models.test.mjs`: Fallback model toggle/disable via `disabledModels` and inline `disabled` directives.
+- `tests/fallback-disabled-execution-plan.test.mjs`: Execution plan skipping disabled fallback models.
+- `tests/gateway-response.test.mjs`: Cline gateway data envelope unwrap translation.
+
+### Operator Manual Verification Script
+Run the verification tool and inspect the bootsrapped fallback routes:
+```bash
+local-router stop && local-router start
+localrouter verify                               # Headless verification check
+# Query active fallback models to verify fallback-models sequence
+curl -s http://127.0.0.1:11434/api/fallback-models | jq '.data[] | select(.routeId=="fallback-models") | .models'
+```
+
+### Session Progress Log (June 2026 logs)
+- **2026-06-02:** Built & verified Express server on 11434. Loaded 9 keys from PQC bundle.
+- **2026-06-02:** Expanded auto-router to 14 curated candidates. Added MiniMax M3. Created ROUTER-RESEARCH.md.
+- **2026-06-02:** Fixed config UI JS escape SyntaxError. Configured all 12 providers via PQC.
+- **2026-06-02:** Hardened pqc_helper.py openssl timeout. Synced signatures logic to ainish-coder.
+- **2026-06-03:** Stopped launchd Ollama app. Deployed local-router daemon and activated ~/.local/bin/ollama shim.
+- **2026-06-03:** Implemented Codex Responses API shim (`POST /v1/responses` and WS upgrade). Added Anthropic messages API.
+- **2026-06-03:** Implemented Custom Models / Endpoint Models catalog source toggle.
+- **2026-06-04:** Built `localrouter` CLI with headless JSON flags, verify, and router export/import settings.
+- **2026-06-04:** Decoupled system prompt and thinking level cards in /config.
+- **2026-06-04:** Implemented custom provider registration metadata and generic OpenAI-compatible loader.
+- **2026-06-04:** Added Ollama Cloud allowlist gating, limiting auto-start pulls to 3 free-tier tags.
+- **2026-06-04:** Integrated Cline + Kilo gateway free-tier candidates into default auto-router.
+- **2026-06-04:** Created `stableSortModelIdsByRoutingExhaustion()` tier sorting and wraparound retries.
+- **2026-06-05:** Curated Cline (12) and Kilo (19) catalogs with chat-proven tags. Tier-suffixed gateway names.
+
+---
 
 ## Child DOX Index
 
