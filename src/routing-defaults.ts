@@ -34,21 +34,24 @@ export function isAllowedAutoRouterGatewayFreeModel(presentedId: string): boolea
   return AUTO_ROUTER_GATEWAY_FREE_SET.has(String(presentedId || '').trim());
 }
 
-/** Fixed fallback chain (no exhaustion re-sort on bootstrap). */
 export const DEFAULT_FALLBACK_ORDERED_IDS: readonly string[] = [
   'ollama-nemotron-3-ultra-cloud',
   'nvidia-nim-minimax-m3',
-  'modal-glm-5.1-fp8',
-  'kilo-minimax-minimax-m3-paid',
   'cline-minimax-minimax-m3-free',
-  'opencode-zen-minimax-m3-free',
-  'openrouter-free',
   'kilo-stepfun-step-3.7-flash-free',
-  'opencode-go-deepseek-v4-pro',
+  'opencode-zen-minimax-m3-free',
+  'modal-glm-5.1-fp8',
   'zai-code-pass-glm-5.1',
   'xiaomi-mimo-mimo-v2.5-pro',
-  ...FALLBACK_PAID_TAIL_IDS,
-  'commandcode-deepseek-v4-pro'
+  'opencode-go-deepseek-v4-pro',
+  'nebius-nemotron-3-ultra-550b-a55b',
+  'commandcode-deepseek-v4-pro',
+  'wafer-ai-deepseek-v4-flash',
+  'kilo-minimax-minimax-m3-paid',
+  'cline-deepseek-deepseek-v4-pro-paid',
+  'zenmux-mimo-v2.5-pro',
+  'openrouter-chain-of-draft',
+  'openrouter-free'
 ] as const;
 
 const CANDIDATE_DEFAULTS: Record<string, string> = {

@@ -42,6 +42,7 @@ import {
   resolveGatewayPresentedLegacyId
 } from './gateway-provider-catalog';
 import { registerConfigApiRoutes } from './routes/config-api';
+import { loadRouterSettings, saveRouterSettings } from './config-persistence';
 import { normalizeGatewayChatCompletionBody } from './gateway-response';
 import {
   DEFAULT_FALLBACK_ORDERED_IDS,
@@ -1585,6 +1586,35 @@ function loadPersistedRouterModels() {
     console.error('Failed to load persisted router routes:', sanitizeDiagnosticText(String(error?.message || error)));
   }
 }
+function loadPersistedRouterSettings() {
+  try {
+    const settings = loadRouterSettings();
+    if (!settings || typeof settings !== 'object') return;
+    if (typeof settings.fallbackModelsText === 'string' && settings.fallbackModelsText.trim()) {
+      const text = settings.fallbackModelsText.trim();
+      const entries = text.split(/\r?\n|;/).map((line) => line.trim()).filter(Boolean);
+      if (entries.length >= 2) {
+        fallbackModelStore[SYSTEM_FALLBACK_ROUTE_ID] = {
+          id: SYSTEM_FALLBACK_ROUTE_ID,
+          models: entries
+        };
+      }
+    }
+    if (typeof settings.autoRouterCandidatesText === 'string' && settings.autoRouterCandidatesText.trim()) {
+      const text = settings.autoRouterCandidatesText.trim();
+      const entries = text.split(/\r?\n|;/).map((line) => line.trim()).filter(Boolean);
+      if (entries.length >= 2 && routerModelStore[DEFAULT_ROUTER_ID]) {
+        routerModelStore[DEFAULT_ROUTER_ID] = {
+          ...routerModelStore[DEFAULT_ROUTER_ID],
+          candidates: entries.map((model) => ({ model, enabled: true }))
+        };
+      }
+    }
+  } catch (error: any) {
+    console.error('Failed to load persisted router settings:', sanitizeDiagnosticText(String(error?.message || error)));
+  }
+}
+
 function loadPersistedSystemPrompt(): void {
   const persistedPath = existingPath(SYSTEM_PROMPT_PATH, LEGACY_SYSTEM_PROMPT_PATH);
   if (!fs.existsSync(persistedPath)) return;
@@ -2415,6 +2445,10 @@ function normalizeRoutingTierOrder(): void {
     }
   }
 
+  const routerSettingsForFallback = loadRouterSettings();
+  const hasUserCustomizedFallback = typeof routerSettingsForFallback.fallbackModelsText === 'string' && routerSettingsForFallback.fallbackModelsText.trim().length > 0;
+
+
   let systemFallbackChanged = false;
   let otherFallbackChanged = false;
   const defaultFallbackIds = resolvedDefaultFallbackModels();
@@ -2426,7 +2460,7 @@ function normalizeRoutingTierOrder(): void {
     );
 
     let nextModels: string[];
-    if (isSystemFallback) {
+    if (isSystemFallback && !hasUserCustomizedFallback) {
       const catalogValid = (modelId: string) => Boolean(findProviderModel(modelId));
       const preferred = DEFAULT_FALLBACK_ORDERED_IDS.filter(catalogValid);
       const preferredSet = new Set(preferred);
@@ -2441,6 +2475,16 @@ function normalizeRoutingTierOrder(): void {
         extras.push(trimmed);
       }
       nextModels = [...preferred, ...extras];
+    } else if (isSystemFallback && hasUserCustomizedFallback) {
+      const deduped: string[] = [];
+      const seen = new Set<string>();
+      for (const modelId of route.models) {
+        const trimmed = String(modelId || '').trim();
+        if (!trimmed || seen.has(trimmed) || !findProviderModel(trimmed)) continue;
+        seen.add(trimmed);
+        deduped.push(trimmed);
+      }
+      nextModels = deduped;
     } else {
       const deduped: string[] = [];
       const seenModels = new Set<string>();
@@ -3082,6 +3126,11 @@ const configState = {
   set endpointModelsCache(val) { endpointModelsCache = val; }
 };
 
+type RouterSettings = {
+  fallbackModelsText?: string;
+  autoRouterCandidatesText?: string;
+};
+
 const configApiDeps = {
   state: configState,
   keyStore,
@@ -3160,6 +3209,8 @@ const configApiDeps = {
   parseProviderModels,
   persistFallbackModels,
   persistRouterModels,
+  loadRouterSettings,
+  saveRouterSettings,
   persistedProviderModelOverrides,
   providerModelSource,
   refreshRouterModelsPricing,
@@ -3370,6 +3421,7 @@ loadPersistedProviderModels();
 mergeBaselineProviderModelOverrides();
 loadPersistedFallbackModels();
 loadPersistedRouterModels();
+loadPersistedRouterSettings();
 loadProviderPricingStore();
 loadPersistedSystemPrompt();
 loadPersistedThinkingConfig();
