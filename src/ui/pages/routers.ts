@@ -6,6 +6,8 @@ export function renderRoutersPage(params: {
   defaultFallbackModelsText: string;
 }): string {
   const body = `
+      <div class="card">
+        <div class="catalog-meta">
           <div>
             <h2>Router Models</h2>
             <p class="muted">Create a local router model from explicit candidate model IDs. Routers appear as local-router/&lt;name&gt; and only select from the candidates listed here.</p>
@@ -101,7 +103,6 @@ export function renderRoutersPage(params: {
           </div>
         </div>
       </div>
-      <div class="card">
 `;
   return renderLayout('Auto Router Models', body, params);
 }

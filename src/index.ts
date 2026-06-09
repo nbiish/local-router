@@ -1332,7 +1332,7 @@ function parseRouterCandidateLine(line: string): RouterCandidate | null {
   return candidate;
 }
 
-function parseRouterModel(payload: any): RouterModelParseResult {
+export function parseRouterModel(payload: any): RouterModelParseResult {
   const rawId = typeof payload?.id === 'string' ? payload.id.trim() : '';
   const id = normalizeRouterRouteId(rawId);
   const routeError = validateRouteId('Router', id);
@@ -4131,7 +4131,7 @@ function selectBanditCandidate(router: RouterModel, body: any): RouterDecision |
   };
 }
 
-function selectRouterCandidate(router: RouterModel, body: any): RouterDecision | { error: string; candidateScores: Array<Record<string, unknown>> } {
+export function selectRouterCandidate(router: RouterModel, body: any): RouterDecision | { error: string; candidateScores: Array<Record<string, unknown>> } {
   const tradeOff = router.costQualityTradeoff ?? DEFAULT_ROUTER_COST_QUALITY_TRADEOFF;
 
   if (router.type === 'bandit-local') {

@@ -1268,9 +1268,17 @@ export function renderLayout(
           const modelIds = fallbackRoutes.flatMap((route) => Array.isArray(route.models) ? route.models : []);
           await refreshModelAvailability(modelIds);
           renderFallbackRoutes();
+          if (!activeFallbackRouteId && fallbackRoutes.some((r) => r.id === 'fallback-models')) {
+            activeFallbackRouteId = 'fallback-models';
+          }
           if (activeFallbackRouteId) {
             const active = fallbackRoutes.find((entry) => entry.id === activeFallbackRouteId);
             if (active) {
+              const routeIdEl = document.getElementById('fallbackRouteId');
+              if (routeIdEl) {
+                routeIdEl.value = active.id;
+                routeIdEl.disabled = true;
+              }
               const disabled = new Set(Array.isArray(active.disabledModels) ? active.disabledModels : []);
               fallbackCandidateStore = (Array.isArray(active.models) ? active.models : []).map(function(modelId) {
                 return { model: modelId, enabled: !disabled.has(modelId) };
@@ -1757,13 +1765,18 @@ export function renderLayout(
         }
 
         function toggleBanditFields() {
-          var isBandit = document.getElementById('routerType').value === 'bandit-local';
-          document.getElementById('banditExplorationGroup').style.display = isBandit ? '' : 'none';
+          var typeEl = document.getElementById('routerType');
+          if (!typeEl) return;
+          var isBandit = typeEl.value === 'bandit-local';
+          var groupEl = document.getElementById('banditExplorationGroup');
+          if (groupEl) groupEl.style.display = isBandit ? '' : 'none';
           updateRouterTypeHelp();
         }
 
         function updateRouterTypeHelp() {
-          var type = document.getElementById('routerType').value;
+          var typeEl = document.getElementById('routerType');
+          if (!typeEl) return;
+          var type = typeEl.value;
           var help = {
             'auto-local': 'Picks the best model from your candidate list using coding quality, cost, and speed. Use the Cost/Quality slider (0–10) to balance price vs quality. Recommended default.',
             'pareto-code': 'Coding-first routing: drops models below Min Coding Score, then ranks eligible candidates by quality. Best for agent and tool-heavy workflows.',
@@ -1852,6 +1865,7 @@ export function renderLayout(
                     if (candidate.inputPrice !== undefined) parts.push('input=' + candidate.inputPrice);
                     if (candidate.outputPrice !== undefined) parts.push('output=' + candidate.outputPrice);
                     if (candidate.latencyMs !== undefined) parts.push('latency=' + candidate.latencyMs);
+                    if (candidate.enabled === false) parts.push('enabled=false');
                     return parts.join(', ');
                   }).join('\\n')
                 : '';
@@ -1877,6 +1891,43 @@ export function renderLayout(
           ));
           await refreshModelAvailability(modelIds);
           renderRouterRoutes();
+          if (!activeRouterRouteId && routerRoutes.some((r) => r.id === 'auto-router-main')) {
+            activeRouterRouteId = 'auto-router-main';
+          }
+          if (activeRouterRouteId) {
+            const active = routerRoutes.find((entry) => entry.id === activeRouterRouteId);
+            if (active) {
+              const routeIdEl = document.getElementById('routerRouteId');
+              if (routeIdEl) {
+                routeIdEl.value = active.id;
+                routeIdEl.disabled = true;
+              }
+              const typeEl = document.getElementById('routerType');
+              if (typeEl) {
+                typeEl.value = active.type || 'auto-local';
+              }
+              const minCodingEl = document.getElementById('routerMinCodingScore');
+              if (minCodingEl) {
+                minCodingEl.value = active.minCodingScore ?? '0.66';
+              }
+              const tradeoffEl = document.getElementById('routerCostQualityTradeoff');
+              if (tradeoffEl) {
+                tradeoffEl.value = active.costQualityTradeoff ?? '7';
+              }
+              const budgetEl = document.getElementById('routerExplorationBudget');
+              if (budgetEl) {
+                budgetEl.value = active.explorationBudget ?? '0.05';
+              }
+              const tiersEl = document.getElementById('routerEnableAutoTiers');
+              if (tiersEl) {
+                tiersEl.checked = active.enableAutoTiers === true;
+              }
+              toggleBanditFields();
+              routerCandidateStore = Array.isArray(active.candidates) ? active.candidates.map((c) => ({ ...c })) : [];
+              renderCandidateList();
+              syncCandidatesToTextarea();
+            }
+          }
         }
 
         async function saveRouterRoute() {
