@@ -81,6 +81,10 @@ export function renderRoutersPage(params: {
           <button onclick="saveRouterRoute()">Add / Update Router Model</button>
           <button class="button-secondary" onclick="clearRouterRouteForm()">Reset Router Defaults</button>
           <button class="button-secondary" onclick="configureVSCodePicker()">Refresh VS Code Model Picker</button>
+          <button class="button-secondary" onclick="exportRouterSettings()">Export Router Settings</button>
+          <button class="button-secondary" onclick="document.getElementById('routerImportInput').click()">Import Router Settings</button>
+          <input id="routerImportInput" type="file" accept="application/json" style="display:none" onchange="importRouterSettings(event)">
+          <button class="button-secondary" onclick="resetRouterSettings()">Reset Router Settings</button>
           <a class="button-secondary" href="/api/router-candidates.csv" style="display:inline-block; text-decoration:none; padding:10px 15px; border-radius:4px;">Export Candidates CSV</a>
           <a class="button-secondary" href="/api/router-events.csv" style="display:inline-block; text-decoration:none; padding:10px 15px; border-radius:4px;">Export Events CSV</a>
           <button class="button-secondary" onclick="recomputeRouter()">Recompute from Telemetry</button>

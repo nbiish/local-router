@@ -20,14 +20,13 @@ export const ROUTING_EXHAUSTION_BAND = {
   PAID: 5
 } as const;
 
-/** Default fallback paid tail (six anchors; explicit fallback order is authoritative). */
 export const FALLBACK_PAID_TAIL_IDS: readonly string[] = [
-  'wafer-ai-deepseek-v4-flash',
+  'kilo-minimax-minimax-m3-paid',
+  'cline-deepseek-deepseek-v4-pro-paid',
   'zenmux-mimo-v2.5-pro',
   'openrouter-chain-of-draft',
-  'nebius-nemotron-3-ultra-550b-a55b',
-  'cline-deepseek-deepseek-v4-flash-free',
-  'kilo-deepseek-deepseek-v4-flash-paid'
+  'openrouter-free',
+  'wafer-ai-deepseek-v4-flash',
 ] as const;
 
 /** @deprecated Use FALLBACK_PAID_TAIL_IDS */

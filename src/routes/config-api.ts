@@ -19,6 +19,8 @@ import {
   ProviderModel,
   ProviderModelParseResult
 } from '../index';
+import type { RouterSettings } from '../config-persistence';
+import { loadRouterSettings, saveRouterSettings } from '../config-persistence';
 
 export interface ConfigApiDeps {
   state: {
@@ -1332,6 +1334,50 @@ app.delete('/api/fallback-models', (req: Request, res: Response) => {
   }
 
   return res.json({ success: true, persisted: true, removed: fallbackPresentedModelId(id), routeId: id });
+});
+
+app.get('/api/router-settings', (req: Request, res: Response) => {
+  const settings = loadRouterSettings();
+  return res.json({
+    fallbackModelsText: settings.fallbackModelsText || '',
+    autoRouterCandidatesText: settings.autoRouterCandidatesText || ''
+  });
+});
+
+app.put('/api/router-settings', (req: Request, res: Response) => {
+  const body = req.body || {};
+  const settings: RouterSettings = {};
+
+  if (typeof body.fallbackModelsText === 'string') {
+    settings.fallbackModelsText = body.fallbackModelsText;
+  }
+  if (typeof body.autoRouterCandidatesText === 'string') {
+    settings.autoRouterCandidatesText = body.autoRouterCandidatesText;
+  }
+
+  try {
+    saveRouterSettings(settings);
+  } catch (error: any) {
+    return res.status(500).json({
+      error: 'Failed to persist router settings.',
+      details: sanitizeDiagnosticText(String(error?.message || error))
+    });
+  }
+
+  return res.json({ success: true, settings });
+});
+
+app.delete('/api/router-settings', (req: Request, res: Response) => {
+  try {
+    saveRouterSettings({});
+  } catch (error: any) {
+    return res.status(500).json({
+      error: 'Failed to reset router settings.',
+      details: sanitizeDiagnosticText(String(error?.message || error))
+    });
+  }
+
+  return res.json({ success: true });
 });
 
 // ── Session Tracking ──
