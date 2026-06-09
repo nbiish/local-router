@@ -4421,39 +4421,43 @@ function recordProxyTelemetry(event: {
 }
 
 function appendRouterEvent(event: Record<string, unknown>) {
-  ensureLocalRouterConfigDir();
-  const headers = [
-    'timestamp',
-    'router_id',
-    'presented_model',
-    'router_type',
-    'selected_model',
-    'status',
-    'duration_ms',
-    'candidate_latency_ms',
-    'stream',
-    'requires_tools',
-    'requires_images',
-    'code_density',
-    'language_count',
-    'multi_turn_depth',
-    'instruction_length',
-    'coding_task',
-    'approx_input_tokens',
-    'requested_output_tokens',
-    'tool_calls_requested',
-    'tool_calls_valid',
-    'reward_signal',
-    'prompt_hash',
-    'candidate_scores',
-    'error_type'
-  ];
-  if (!fs.existsSync(ROUTER_EVENTS_PATH)) {
-    fs.writeFileSync(ROUTER_EVENTS_PATH, `${headers.join(',')}\n`, { encoding: 'utf8', mode: 0o600 });
+  try {
+    ensureLocalRouterConfigDir();
+    const headers = [
+      'timestamp',
+      'router_id',
+      'presented_model',
+      'router_type',
+      'selected_model',
+      'status',
+      'duration_ms',
+      'candidate_latency_ms',
+      'stream',
+      'requires_tools',
+      'requires_images',
+      'code_density',
+      'language_count',
+      'multi_turn_depth',
+      'instruction_length',
+      'coding_task',
+      'approx_input_tokens',
+      'requested_output_tokens',
+      'tool_calls_requested',
+      'tool_calls_valid',
+      'reward_signal',
+      'prompt_hash',
+      'candidate_scores',
+      'error_type'
+    ];
+    if (!fs.existsSync(ROUTER_EVENTS_PATH)) {
+      fs.writeFileSync(ROUTER_EVENTS_PATH, `${headers.join(',')}\n`, { encoding: 'utf8', mode: 0o600 });
+    }
+    const row = headers.map((header) => csvEscape(event[header])).join(',');
+    fs.appendFileSync(ROUTER_EVENTS_PATH, `${row}\n`, { encoding: 'utf8', mode: 0o600 });
+    fs.chmodSync(ROUTER_EVENTS_PATH, 0o600);
+  } catch {
+    // best-effort telemetry — never crash a request over CSV writes
   }
-  const row = headers.map((header) => csvEscape(event[header])).join(',');
-  fs.appendFileSync(ROUTER_EVENTS_PATH, `${row}\n`, { encoding: 'utf8', mode: 0o600 });
-  fs.chmodSync(ROUTER_EVENTS_PATH, 0o600);
 }
 
 export function classifyHttpFailure(status: number, bodyText: string): AttemptFailure['errorType'] {
