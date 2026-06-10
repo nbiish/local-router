@@ -1,0 +1,14 @@
+{
+  "owner": "hud",
+  "pid": 90217,
+  "cwd": "/Volumes/1tb-sandisk/code-external/fvs-code",
+  "heartbeat_at": "2026-06-05T22:25:28.012Z",
+  "cooldown_ms": 5000,
+  "jitter_ms": 92,
+  "skip_count": 32,
+  "last_status": "skipped",
+  "last_reason": "rate_limited",
+  "last_spawn_at": "2026-06-05T22:25:26.001Z",
+  "last_skip_at": "2026-06-05T22:25:28.012Z",
+  "next_allowed_at": "2026-06-05T22:25:31.093Z"
+}

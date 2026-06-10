@@ -216,6 +216,18 @@
 #              presented model is ZDR-eligible. Toggle in /config → Prompt
 #              & Thinking Level → Wafer AI ZDR Enhancement. Persisted to
 #              ~/.config/local-router/wafer-config.json.
+#
+#              EXTERNAL TOOL INTEGRATION — To replicate this feature in
+#              other tools (Zed, Hermes, Cline, Goose, etc.) that call
+#              Wafer AI directly: add the HTTP header `Wafer-ZDR: required`
+#              on every request to https://pass.wafer.ai/v1/chat/completions
+#              when the model is `GLM-5.1` or `Kimi-K2.6`. Header format:
+#                -H "Wafer-ZDR: required"
+#              Do NOT send this header for non-ZDR models (deepseek-v4-flash,
+#              deepseek-v4-pro, qwen3.7-max, MiniMax-M3) — it is ignored or
+#              rejected. The header has no effect on other providers.
+#              Config state can be read from:
+#              ~/.config/local-router/wafer-config.json ({"zdrEnabled":true}).
 
 ## zenmux __________________________________________________________________
 # Tier:        Aggregator (60+ upstream models)
