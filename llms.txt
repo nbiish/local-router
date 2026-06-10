@@ -204,6 +204,10 @@ The catalog contains 15 active providers with ~105 presented models as of 2026-0
 | `cline` | 9 | `https://api.cline.bot/api/v1` | `CLINE_API_KEY` |
 | `kilo` | 6 (+ live) | `https://api.kilo.ai/api/gateway` | `KILO_API_KEY` |
 | `commandcode` | 1 | `https://api.commandcode.ai/alpha/generate` | `COMMANDCODE_API_KEY` |
+| `antigravity` | 5+ | Google Cloud Code Assist (OAuth PKCE) | `ANTIGRAVITY_OAUTH_TOKEN` |
+| `github-copilot` | Dynamic | `https://api.githubcopilot.com` (OAuth device) | `COPILOT_GITHUB_TOKEN` |
+
+**Note:** `antigravity` and `github-copilot` are planned OAuth-based providers. See "Provider Integration Research" section below for full authentication details, API surface, and implementation plan. These providers use short-lived tokens with automatic refresh instead of static API keys.
 
 #### Key Model Metadata Specifications
 - **1M-Context Models:** wafer-serverless (deepseek-v4-flash/pro, qwen3.7-max), zenmux (qwen3.7-max, deepseek-v4-pro), nebius (DeepSeek-V4-Pro, Nemotron-3-Ultra), openrouter-presets (@preset/chain-of-draft, @preset/1-million-main/chain-of-draft), xiaomi-mimo (mimo-v2.5-pro/v2.5), minimax/minimax-m3 (all providers).
@@ -462,6 +466,160 @@ curl -s http://127.0.0.1:11434/api/fallback-models | jq '.data[] | select(.route
 
 ### Future Items
 - **Thinking/Reasoning Capability Audit:** `providers.txt` marks nearly all models as `NO*` for thinking support, but the current notation conflates "model natively supports reasoning" with "Local Router strips reasoning content." A separate column or notation is needed to distinguish these. Task: web-search every model for its actual reasoning/thinking API capability, document findings, update `SanitizeProviderRequestBody` to pass through client thinking directives by default (rather than stripping), and correct `providers.txt` to reflect native model capability vs. proxy behavior. Target: next session.
+
+---
+
+## Provider Integration Research — OAuth / Subscription Providers (June 2026)
+
+Research into integrating two new provider types that use OAuth authentication instead of static API keys: **Google Antigravity** and **GitHub Copilot**. These are subscription-based providers with quota-limited access. The goal is to add them as first-class providers in the Local Router catalog alongside the existing 15 static-key providers.
+
+### Why These Providers
+
+Both Antigravity and GitHub Copilot offer access to frontier models (Claude, GPT, Gemini) through a single subscription, making them high-value additions to the Local Router provider catalog. Unlike current providers that use static API keys, these require OAuth flows with short-lived tokens and automatic refresh.
+
+### Provider 1: Google Antigravity (Subscription / Quota-Limited)
+
+**Product Overview:**
+- Google Antigravity is an agent-based AI development platform launched November 2025 (VS Code-based, built by the ex-Windsurf team acquired for $2.4B).
+- At Google I/O May 2026, it expanded to a five-surface platform: Antigravity 2.0 (desktop), Antigravity CLI (`agy`), Antigravity SDK, Managed Agents API, and Enterprise.
+- Replaced Gemini CLI (shutdown June 18, 2026). CLI binary is Go-based, invoked as `agy`.
+- Built-in models: Gemini 3.1 Pro, Gemini 3 Flash, Claude Opus 4.6, Claude Sonnet 4.6, GPT-OSS 120B.
+- Pricing: Free ($0, 20 req/day, Gemini Flash only), AI Pro ($20/mo, 1,000 credits), AI Ultra ($250/mo, 25,000 credits).
+- Uses a hybrid quota system: sprint quota (5-hour refresh) + weekly baseline cap + AI credits for overage.
+
+**Authentication Flow — OAuth 2.0 with PKCE:**
+1. Client generates PKCE verifier/challenge pair (SHA-256 + base64url).
+2. Opens browser to Google OAuth authorization URL: `https://accounts.google.com/o/oauth2/v2/auth`
+3. Required OAuth scopes: `cloud-platform`, `userinfo.email`, `userinfo.profile`, `cclog`, `experimentsandconfigs`
+4. Redirect URI: local HTTP server (e.g. `http://localhost:51121/oauth-callback`) or manual paste for headless.
+5. Exchange authorization code for tokens at `https://oauth2.googleapis.com/token` (includes `client_id`, `client_secret`, PKCE `code_verifier`).
+6. Access token + refresh token returned. Access token is short-lived; refresh token is long-lived.
+7. Auto-refresh: when access token expires, use refresh token to get a new one at the same token endpoint.
+
+**API Surface:**
+- OpenAI-compatible chat completions format.
+- Model discovery via API (dynamic model list).
+- Streaming SSE support.
+- Usage/quota tracking via response headers or separate API.
+- Version override available: `PI_AI_ANTIGRAVITY_VERSION` env var.
+
+**Implementation Notes for Local Router:**
+- Provider ID: `antigravity` (slug).
+- Key env var: `ANTIGRAVITY_OAUTH_TOKEN` (but token is short-lived, needs refresh).
+- The token lifecycle management is fundamentally different from static-key providers. The Local Router key store (`keyStore`) currently assumes static strings. We need a new `OAuthProviderState` that stores `{ accessToken, refreshToken, expiresAt }` per provider and a background refresh timer.
+- The `/config` UI needs an "OAuth Login" button (opens browser to Google auth flow) instead of a text field for API key entry.
+- The `POST /api/keys` endpoint needs a new branch for OAuth providers that stores the initial token set instead of a plain API key.
+- New module needed: `src/oauth-providers.ts` — handles PKCE generation, local callback server, token exchange, auto-refresh, and credential persistence.
+- The PQC bundle must store OAuth tokens (access + refresh + expiry) alongside static API keys. The existing `secrets.bundle.json` format can be extended with a per-provider `authType: 'oauth' | 'static'` discriminator.
+- Quota awareness: Antigravity has strict quota limits. The Local Router routing logic should be extended to track quota exhaustion per-provider (detect 429 responses or quota-specific error codes) and temporarily deprioritize or skip the provider.
+
+**Reference Implementations:**
+- `oh-my-pi` / `pi-mono` (upstream): `npx @mariozechner/pi-ai login google-antigravity` — full OAuth PKCE flow with `loginAntigravity()` function. Uses `auth.json` for credential persistence. Auto-refresh via `getOAuthApiKey('google-antigravity', auth)`. ([mintlify.wiki/badlogic/pi-mono/ai/oauth](https://mintlify.wiki/badlogic/pi-mono/ai/oauth))
+- `opencode-google-antigravity-auth` plugin: PKCE flow, multi-account load balancing (up to 10 Google accounts), automatic rate-limit detection and account switching, streaming response transformation, thinking block extraction. ([deepwiki.com/shekohex/opencode-google-antigravity-auth](https://deepwiki.com/shekohex/opencode-google-antigravity-auth/6.3-api-endpoints-and-constants))
+- PicoClaw: Complete Antigravity auth guide with PKCE implementation, token management, model fetching, usage tracking. ([docs.picoclaw.io/docs/providers/antigravity](https://docs.picoclaw.io/docs/providers/antigravity/))
+- `oh-my-opencode` / `fractalmind-ai`: Internal auth component integrating with `opencode-antigravity-auth` plugin for multi-account Gemini access. ([deepwiki.com/fractalmind-ai/oh-my-opencode/8.6-google-antigravity-authentication](https://deepwiki.com/fractalmind-ai/oh-my-opencode/8.6-google-antigravity-authentication))
+
+### Provider 2: GitHub Copilot (Subscription / Quota-Limited)
+
+**Product Overview:**
+- GitHub Copilot exposes a standard OpenAI-style endpoint at `https://api.githubcopilot.com`.
+- Subscription includes access to multiple frontier models: Claude (Sonnet, Opus), GPT (4o, 4.1, 5.x), Gemini, o-series — all through a single API.
+- Copilot CLI provides `copilot login` — OAuth device flow authentication.
+- Tokens are short-lived (~30 minutes). Must be refreshed by re-exchanging the GitHub OAuth token for a new Copilot API token.
+
+**Authentication Flow — OAuth Device Flow (RFC 8628):**
+1. CLI requests device code from `https://github.com/login/device/code` (well-known public Copilot client ID: `Iv1.b507a08c87ecfe98`).
+2. User visits `https://github.com/login/device` and enters the short code displayed in the terminal.
+3. CLI polls `https://github.com/github/login/oauth/access_token` until the user authorizes.
+4. GitHub token (`ghu_...` or `gho_...`) is exchanged for a short-lived Copilot API token via `GET https://api.github.com/copilot_internal/v2/token` with `Authorization: token <github_token>`.
+5. Response: `{ "token": "tid=...", "expires_at": "..." }`.
+6. The Copilot API token (~30 min lifetime) is used as bearer auth for all API calls.
+7. When expired, re-exchange the stored GitHub token for a fresh Copilot API token.
+
+**Required Runtime Headers:**
+```
+Authorization: Bearer <copilot_api_token>
+Copilot-Integration-Id: vscode-chat
+Editor-Version: vscode/1.99.0
+Editor-Plugin-Version: copilot-chat/0.26.7
+User-Agent: GitHubCopilotChat/0.26.7
+openai-intent: conversation-panel
+x-github-api-version: 2025-04-01
+```
+
+**API Surface:**
+- Base URL: `https://api.githubcopilot.com` (OpenAI-compatible).
+- Model discovery: `GET https://api.githubcopilot.com/models` — returns dynamic model list based on subscription entitlement.
+- Chat completions: `POST /chat/completions` (standard OpenAI format for most models).
+- Claude-family models: route to `/v1/messages` (Anthropic format). Must strip `cache_control.ephemeral.scope` — Copilot rejects this Claude API extension field.
+- GPT-5 Responses-capable models: route to `/responses` (except `gpt-5-mini` which stays on chat completions).
+- Streaming SSE support.
+
+**Implementation Notes for Local Router:**
+- Provider ID: `github-copilot` (slug).
+- Key env var: `COPILOT_GITHUB_TOKEN` (the long-lived GitHub OAuth token, not the short-lived API token).
+- Same OAuth token lifecycle challenge as Antigravity — needs `OAuthProviderState` with `{ githubToken, copilotApiToken, copilotApiTokenExpires }`.
+- The `/config` UI needs a "Login with GitHub" device-flow button instead of a key text field.
+- The Copilot device flow is simpler than Antigravity PKCE — no browser callback server needed, just terminal-based code entry. However, it has the extra step of exchanging the GitHub token for a Copilot API token.
+- Important: The `Copilot-Integration-Id: vscode-chat` header is **required** on all API requests. Without it, GitHub returns `400 model_not_available_for_integrator: copilot-language-server` for newer models. This was a significant bug discovered and fixed in oh-my-pi PR #1210.
+- Model routing logic needs to handle the split between `/chat/completions` (most models), `/v1/messages` (Claude models), and `/responses` (GPT-5 models) — currently Local Router only uses `/chat/completions` for all providers.
+- The existing `custom-providers.json` cannot express these provider-specific routing rules. We may need a new `auth-providers.json` schema or extend `providers.txt` with auth type metadata.
+- Credential dedup: oh-my-pi discovered that repeated logins accumulate duplicate credential rows because `ghu_`/`gho_` tokens are opaque (not JWTs). Fix: call `GET /api.github.com/user` after device flow to get the stable numeric GitHub user ID, use it as `accountId` for dedup. Local Router should implement this pattern from the start.
+- Token storage: JetBrains IDEs store the Copilot OAuth token at `~/.config/github-copilot/apps.json`. We could optionally read this file for initial token discovery.
+
+**Reference Implementations:**
+- `oh-my-pi` / `pi-mono`: `npx @mariozechner/pi-ai login github-copilot` — full device flow with `loginGitHubCopilot()` function. PR #1210 added `Copilot-Integration-Id` header and credential dedup via `GET /api.github.com/user`. ([github.com/can1357/oh-my-pi/pull/1210](https://github.com/can1357/oh-my-pi/pull/1210))
+- Aider: Direct REST endpoint usage — set `OPENAI_API_BASE=https://api.githubcopilot.com` + `OPENAI_API_KEY=<oauth_token>`. Reads token from `~/.config/github-copilot/apps.json`. ([aider.chat/docs/llms/github.html](https://aider.chat/docs/llms/github.html))
+- Conduit (Icehunter): Wire contract documented in `PROVIDER_COMPATIBILITY.md`. Covers device-code auth, token exchange, model discovery, runtime headers, Claude-family `/v1/messages` routing, and GPT-5 `/responses` routing. ([github.com/Icehunter/conduit/blob/main/PROVIDER_COMPATIBILITY.md](https://github.com/Icehunter/conduit/blob/main/PROVIDER_COMPATIBILITY.md))
+- LiteLLM: Full Copilot provider with authenticator, model information, and test suite. ([litellm docs](https://docs.litellm.ai/docs/providers/github_copilot))
+- byterover-cli: Feature request #322 with detailed technical design for Copilot as first-class provider, including device flow, model discovery, provider registry entry, and scope of changes. ([github.com/campfirein/byterover-cli/issues/322](https://github.com/campfirein/byterover-cli/issues/322))
+- forgiven: ADR 0004 documenting both LSP-side auth (device flow via `copilot-language-server`) and HTTP-side auth (agent panel token lifecycle with auto-refresh 60s before expiry). ([github.com/daneb/forgiven/blob/master/docs/adr/0004-copilot-authentication.md](https://github.com/daneb/forgiven/blob/master/docs/adr/0004-copilot-authentication.md))
+
+### Shared Implementation Architecture
+
+Both providers share a common challenge: **OAuth token lifecycle management** in a system currently designed for static API keys. The implementation plan:
+
+1. **New TypeScript module: `src/oauth-providers.ts`**
+   - `OAuthProviderState` interface: `{ provider: string, authType: 'oauth-pkce' | 'oauth-device', accessToken: string, refreshToken: string, expiresAt: number, accountId?: string }`
+   - `loginAntigravity()` — PKCE flow: generate verifier/challenge, open browser, local callback server, token exchange.
+   - `loginGitHubCopilot()` — Device flow: request device code, display code + URL, poll until authorized, exchange for Copilot API token, call `GET /api.github.com/user` for dedup.
+   - `refreshOAuthToken(provider)` — Auto-refresh access tokens before expiry. For Copilot: re-exchange GitHub token for new API token. For Antigravity: use refresh token at Google OAuth endpoint.
+   - `getOAuthApiKey(provider)` — Returns current valid access token, triggering refresh if needed. Drop-in replacement for `keyStore[provider]` reads.
+   - Background refresh timer (check every 60s, refresh 5 minutes before expiry).
+
+2. **PQC Bundle Extension**
+   - Extend `secrets.bundle.json` payload to support `authType: 'oauth'` entries alongside existing static key entries.
+   - OAuth entries store `{ authType, accessToken, refreshToken, expiresAt, accountId }` — all encrypted via AES-256-GCM + ML-KEM-768 as today.
+   - The `pqc-secrets pack` / `pqc-secrets export` tools should be updated to handle OAuth entries, or the tokens should be managed entirely within the Local Router's own encrypted storage.
+
+3. **Config UI Extension**
+   - New "Login with..." buttons for OAuth providers (opens browser / displays device code).
+   - Visual token status indicator (green = valid, yellow = expiring, red = expired, grey = not configured).
+   - Quota usage display for Antigravity (if API provides it).
+
+4. **Routing Integration**
+   - New exhaustion tier: **Subscription OAuth** (between existing Subscription band and Paid band).
+   - Quota-aware routing: detect 429 / quota-exhausted responses, temporarily deprioritize the provider.
+   - The `providers.txt` catalog needs new metadata fields: `auth_type`, `oauth_provider`, `required_headers`.
+   - New `providers.txt` entries:
+     ```
+     antigravity         | https://antigravity.googleapis.com/v1    | ANTAGRAVITY_OAUTH_TOKEN | oauth-pkce
+     github-copilot      | https://api.githubcopilot.com            | COPILOT_GITHUB_TOKEN    | oauth-device
+     ```
+
+5. **Files to Create or Modify**
+   - New: `src/oauth-providers.ts` — OAuth flows, token management, refresh logic.
+   - New: `src/oauth-callback-server.ts` — Temporary HTTP server for PKCE callback (Antigravity).
+   - New: `tests/oauth-providers.test.mjs` — Test suite for OAuth flows (mocked).
+   - Modify: `src/index.ts` — Wire OAuth provider state into key resolution, add `/api/oauth/login/:provider` and `/api/oauth/status/:provider` endpoints.
+   - Modify: `src/routes/config-api.ts` — OAuth login button handling, token status display.
+   - Modify: `providers.txt` — Add `antigravity` and `github-copilot` provider entries with auth type metadata.
+   - Modify: `src/routing-defaults.ts` — Add OAuth provider models to auto-router candidate lists.
+   - Modify: `src/key-management.ts` — Extend key store to handle OAuth token state alongside static keys.
+   - Modify: `src/ui/pages/providers.ts` — OAuth login UI components.
+   - Modify: PQC secrets handling — Support `authType` discriminator in bundle payload.
+
+---
 
 ## Child DOX Index
 
