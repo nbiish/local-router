@@ -310,19 +310,20 @@ Local Router must maximize cache hits across every failover and auto-route hop. 
   - Surface `cached_tokens` in router telemetry (`router-events.csv`) to track cache hit rates per model.
 
 ##### Moonshot / Kimi (`moonshot`, plus any Kimi route via OpenRouter or Groq)
-- **Mode:** Explicit context caching via `context_id` mechanism. Kimi API supports context caching through a dedicated context ID lifecycle.
-- **Mechanism:**
-  - First request: send the full prompt without a context ID. The provider returns a `context_id` in the response.
-  - Subsequent requests: send the same `context_id` in the request body to reference the cached prefix.
-  - The context cache stores pre-computed KV pairs for repeated prompt prefixes, reducing both latency and billed tokens.
-- **Cost:** Context caching reduces input costs by ~75% for cached tokens on the official Moonshot API. On Groq (Kimi K2-Instruct), cached input tokens are 50% discounted.
+- **Mode:** Two mechanisms depending on model series:
+  - **K2 series (kimi-k2.5, kimi-k2.6):** Automatic prefix caching — no code changes required. 50% discount on cached tokens. Requires exact prefix preservation; the model's `reasoning_content` from prior responses must be included verbatim or the cache is invalidated. Optional `prompt_cache_key` request field for sticky routing to ensure repeated requests hit the same cache server.
+  - **moonshot-v1 (legacy):** Explicit context caching via `/v1/caching` API with `role: cache` + `cache_id` reference.
+- **K2 series cost:** Cached input tokens at ~50% discount (e.g. cache hit $0.20/M vs miss $0.40/M for kimi-k2.6). Zero write premium.
+- **K2 series cache persistence:** Prefix cache survives across multi-turn conversations as long as the identical prefix (including prior `reasoning_content`) is preserved.
+- **Legacy moonshot-v1 cost:** ~75% discount on cached tokens. Requires explicit cache lifecycle management.
 - **Context window:** Kimi K2.5/K2.6 support 256K context. The cache covers the full prefix within that window.
-- **Observability:** Token usage can be checked via the Token Calculation API (`/api/estimate`).
-- **Invalidation rules:** Invalidate the `context_id` when the system prompt changes, tool definitions/schema change, model changes, or the provider returns "unknown/expired context_id".
+- **Observability:** Token usage via `/api/estimate`; K2 series returns standard `usage.prompt_tokens_details.cached_tokens`.
+- **Invalidation rules (both mechanisms):** Invalidate when system prompt changes, tool definitions/schema change, model changes, or the provider returns "unknown/expired" reference. For K2 series, any edit/reorder to prior messages (including removal of `reasoning_content`) invalidates the cache.
 - **Implementation guidance for Local Router:**
-  - Store `context_id` per session in `sessions.json` alongside the provider key, model, and expiry timestamp.
-  - Reuse `context_id` only when the prompt prefix is identical (system + tools schema + static prelude). If any part of the prefix changes, omit the `context_id` and let the provider build a new cache.
-  - On provider failover, the `context_id` is provider-specific and cannot be reused by a different provider. Start fresh on the new provider but preserve the messages array for that provider's own cache.
+  - For K2 series, preserve the full `messages` array verbatim — including assistant `reasoning_content` fields — across turns and failover hops.
+  - Use `prompt_cache_key` with a stable session-derived value when routing K2 series traffic to maximize sticky routing to a single cache server.
+  - For legacy moonshot-v1, store `context_id` per session in `sessions.json`. Invalidate on any prefix change.
+  - On provider failover, cache state is provider-specific. Start fresh on the new provider but preserve the full messages array.
 
 ##### Groq (Kimi K2-Instruct route, GPT-OSS models via `openrouter-presets` or direct)
 - **Mode:** Automatic prefix matching — no code changes required.
@@ -343,17 +344,40 @@ Local Router must maximize cache hits across every failover and auto-route hop. 
   - Preserve the full messages array across failover hops within the same Groq provider. Note: failover to a non-Groq provider loses the cache.
 
 ##### NVIDIA NIM (`nvidia-nim`)
-- **Mode:** No prompt caching (KV cache reuse across requests). NIM's caching infrastructure (`/opt/nim/.cache` or `NIM_CACHE_PATH`) is for model weight storage between container restarts, not for prefix caching across inference requests.
+- **Mode (hosted API):** No prompt caching on the NVIDIA-hosted API endpoint (`integrate.api.nvidia.com`). Full prefill on every request.
+- **Mode (self-hosted deployment):** KV cache reuse available via `NIM_ENABLE_KV_CACHE_REUSE=1` or `--enable-prefix-caching` flag (TRT-LLM backend). Host memory offloading via `NIM_ENABLE_KV_CACHE_HOST_OFFLOAD` with `NIM_KV_CACHE_HOST_MEM_FRACTION` (default 0.1). ~2x TTFT speedup for repeated prefixes. No HTTP-level caching API — purely deployment-level configuration via environment variables or CLI flags.
+- **Model weight caching:** NIM's `/opt/nim/.cache` (or `NIM_CACHE_PATH`) is for model weight storage between container restarts, not for prefix caching across inference requests. Requires persistent volume mounts (`-v ~/.cache/nim:/opt/nim/.cache`) in Kubernetes or Docker.
 - **Implementation guidance for Local Router:**
-  - Do not inject cache directives for NIM — the provider does not support prompt caching.
-  - NIM's model weight cache is a deployment optimization (faster container startup), not a per-request KV cache. It requires persistent volume mounts (`-v ~/.cache/nim:/opt/nim/.cache`) in Kubernetes or Docker.
-  - When failover reaches NIM, the model cold-starts with a full prefill.
+  - Do not inject cache directives for the hosted NIM API — it does not support prompt caching.
+  - For self-hosted NIM deployments behind Local Router, KV cache reuse is handled entirely at the deployment level. No request-level changes needed.
+  - When failover reaches NIM (hosted), the model cold-starts with a full prefill.
+
+##### Xiaomi MiMo (`xiaomi-mimo`, plus any MiMo route via ZenMux or OpenRouter)
+- **Mode:** Automatic server-side prompt caching. Enabled by default. No code changes required.
+- **Cache architecture:** Dual-pool KVCache with SWA-aware prefix cache trees. GCache distributed cache system spans multiple servers with slot-based hash mapping. Engineering blog reports 93–95% server-side cache hit rate in production.
+- **Minimum tokens:** No explicit minimum published; cache builds from every request and matches on shared prefixes.
+- **Cost:** ~99% discount on cache hits. Token Plan pricing (mimo-v2.5-pro): cache hit 2.5 credits vs miss 300 credits. Cache write at miss price (no write premium).
+- **Observability:** Standard `usage.prompt_tokens_details.cached_tokens` in responses.
+- **Implementation guidance for Local Router:**
+  - Fully automatic — no request modification needed. Place static system prompts and tool definitions first; dynamic content last to maximize prefix match.
+  - Preserve the full `messages` array across failover hops within the same MiMo-backed provider.
+
+##### Z.ai / GLM (`zai`, plus any GLM route via ZenMux, Modal, Nebius, or OpenRouter)
+- **Mode:** Automatic context caching (implicit). Enabled by default on all GLM-4.5 through GLM-5.1 models. No code changes required.
+- **Cache mechanics:**
+  - Server-side prefix matching across consecutive requests. No manual `cache_control` directives needed.
+  - "Preserved Thinking" mode (`clear_thinking: false`) increases cache hit rates by keeping reasoning KV state warm across turns.
+- **Minimum tokens:** No explicit minimum published; cache builds from shared prefixes across requests.
+- **Cost:** Cache hits at reduced pricing (specific multiplier not published by Z.ai as of June 2026). Implicit — savings are pass-through.
+- **Observability:** `usage.prompt_tokens_details.cached_tokens` in every response.
+- **Implementation guidance for Local Router:**
+  - Fully automatic — no request modification needed.
+  - For GLM-5.1 with reasoning enabled, preserve `reasoning_content` in assistant messages to maintain cache warmth across turns.
+  - When GLM-5.1 is routed via Modal, Nebius, or other pass-through providers, caching depends on the intermediate layer. Direct Z.ai or ZenMux routes preserve caching.
 
 ##### Providers Without Prompt Caching Support
 - **Nebius:** No prompt caching support. Full prefill on every request.
-- **Modal:** No prompt caching support. Full prefill on every request.
-- **Z.ai:** No prompt caching support. Full prefill on every request.
-- **Xiaomi Mimo:** No documented prompt caching support.
+- **Modal:** Infrastructure platform (not a model provider). Runs vLLM/SGLang underneath. GPU memory snapshots for fast cold starts. No native prompt caching of its own; caching depends on the deployed inference engine (vLLM's `--enable-prefix-caching` available for self-hosted Modal deployments, but the Modal GLM endpoint does not expose or enable it). Full prefill on every request through the hosted endpoint.
 - **Wafer Serverless:** No documented prompt caching support (passes through to upstream; caching depends on upstream provider, typically DeepSeek which handles it automatically).
 - **Ollama local (`ollama` provider, port 11435):** No prompt caching across requests. Each request to the local Ollama backend processes from scratch.
 - **CommandCode:** No documented prompt caching support.

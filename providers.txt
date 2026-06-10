@@ -157,22 +157,31 @@
 # │ zenmux             │ explicit/imp │ Ephemeral cache_control blocks (Anthropic)    │
 # │ nebius             │ NONE         │ No documented caching support or pricing      │
 # │ moonshot           │ implicit     │ Automatic system-managed prompt caching       │
-# │ nvidia-nim         │ NONE         │ No caching docs or pricing                    │
-# │ modal              │ NONE         │ Upstream GLM supports it; Modal disables it   │
+# │ nvidia-nim         │ NONE (API)   │ Hosted API: no caching. Self-hosted: KV cache  │
+# │                    │ + KV reuse   │  reuse via NIM_ENABLE_KV_CACHE_REUSE flag     │
+# │ modal              │ NONE (API)   │ Hosted: no caching. Self-hosted: vLLM         │
+# │                    │ + vLLM reuse │  --enable-prefix-caching available            │
 # │ openrouter-presets │ pass-through │ Passes through upstream provider caching      │
-# │ xiaomi-mimo        │ pass-through │ Tiered cache_read pricing via OpenRouter      │
+# │ xiaomi-mimo        │ automatic    │ ~99% discount, GCache distributed, 93-95% hit │
 # │ opencode-go      │ pass-through │ Passes through upstream model caching         │
 # │ opencode-zen       │ pass-through │ Unified subscription pass-through caching     │
-# │ zai                │ NONE         │ No caching docs                               │
+# │ zai                │ automatic    │ Implicit context caching, preserved thinking  │
 # │ ollama             │ N/A          │ Local inference, no network caching           │
 #
 # DETAILS:
 # - DeepSeek models (all providers): Automatic KV caching. No request parameters
-#   required. Prefix matching is handled entirely server-side.
+#   required. Prefix matching is handled entirely server-side. 64-token cache
+#   units; practical minimum ~1,024 tokens. Cache-read ~10-50x cheaper than miss.
 # - Anthropic models (via ZenMux/OpenCode Zen/OpenRouter): Explicit caching is
 #   triggered by adding a "cache_control": {"type": "ephemeral"} parameter to
 #   system prompt blocks, tool definitions, and historical conversation messages.
 #   Local Router automatically injects these breakpoints for large prompts.
+# - Xiaomi MiMo (all providers): Automatic server-side GCache distributed caching.
+#   ~99% discount on hits. No request parameters required.
+# - Z.ai GLM models: Automatic implicit context caching. Preserved Thinking mode
+#   (clear_thinking:false) increases cache hit rates by keeping reasoning KV warm.
+# - Moonshot Kimi K2 series: Automatic prefix caching, 50% discount. Must preserve
+#   reasoning_content verbatim across turns. Optional prompt_cache_key for sticky routing.
 
 # =============================================================================
 # PROVIDER DETAILS
@@ -426,8 +435,13 @@
 #              understanding: text, image, video, and audio. FVS-CODE
 #              currently advertises this as Ollama vision/image capability
 #              plus tool calling.
-#              Both models support prompt caching with tiered cache_read
-#              pricing (confirmed via OpenRouter /v1/models upstream data).
+#              Both models support automatic server-side prompt caching.
+#              ~99% discount on cache hits (cache hit 2.5 credits vs miss 300
+#              credits for mimo-v2.5-pro). Uses dual-pool KVCache with
+#              SWA-aware prefix cache trees and GCache distributed cache
+#              (93–95% server-side hit rate). No code changes required.
+#              See Xiaomi MiMo Token Plan pricing for current rates.
+#              Also confirmed via OpenRouter /v1/models upstream data.
 #              Do not store Xiaomi Mimo keys in providers.txt, .env, git,
 #              shell history, logs, or tool output.
 
