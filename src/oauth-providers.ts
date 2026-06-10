@@ -69,16 +69,7 @@ export const OAUTH_STORE_PATH = path.join(OAUTH_STORE_DIR, 'oauth-credentials.js
  *  publicly-distributed desktop client; Copilot's is the same VS Code
  *  Copilot Chat client that GitHub ships, reused by every third-party
  *  integration. They are not org-specific. */
-const ANTIGRAVITY_CLIENT_ID = '1071006060591-tmhssin2hfnl3djmbc4of7457t62hdcj.apps.googleusercontent.com';
-const ANTIGRAVITY_CLIENT_SECRET = '';
-const ANTIGRAVITY_AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth';
 const ANTIGRAVITY_TOKEN_URL = 'https://oauth2.googleapis.com/token';
-const ANTIGRAVITY_SCOPES = [
-  'https://www.googleapis.com/auth/cloud-platform',
-  'https://www.googleapis.com/auth/userinfo.email',
-  'https://www.googleapis.com/auth/userinfo.profile',
-  'openid'
-];
 const ANTIGRAVITY_USERINFO_URL = 'https://www.googleapis.com/oauth2/v3/userinfo';
 const ANTIGRAVITY_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta';
 const ANTIGRAVITY_DISPLAY_NAME = 'Google Antigravity';
@@ -141,70 +132,6 @@ const REFRESH_INFLIGHT = new Map<OAuthProviderId, Promise<OAuthProviderState>>()
  *  inflight slot forever — every later call would await the stuck promise
  *  until process restart. */
 const REFRESH_TIMEOUT_MS = 30_000;
-
-/** In-flight Antigravity PKCE logins tracked by `state` token. */
-type AntigravityPendingLogin = {
-  init: AntigravityLoginInit;
-  resolve: (value: { code: string }) => void;
-  reject: (error: Error) => void;
-  promise: Promise<{ code: string }>;
-};
-
-const ANTIGRAVITY_PENDING = new Map<string, AntigravityPendingLogin>();
-let antigravityCallbackServer: http.Server | null = null;
-let antigravityCallbackPort = 51121;
-
-function ensureAntigravityCallbackServer(): void {
-  if (antigravityCallbackServer) return;
-  antigravityCallbackServer = http.createServer((req, res) => {
-    try {
-      const url = new URL(req.url || '/', 'http://127.0.0.1');
-      if (url.pathname !== '/oauth-callback') {
-        res.statusCode = 404;
-        res.end('not found');
-        return;
-      }
-      const error = url.searchParams.get('error');
-      if (error) {
-        res.statusCode = 400;
-        res.setHeader('Content-Type', 'text/html; charset=utf-8');
-        res.end(`<h1>OAuth error</h1><p>${error}</p><p>You may close this window.</p>`);
-        const state = url.searchParams.get('state');
-        if (state) {
-          const pending = ANTIGRAVITY_PENDING.get(state);
-          if (pending) {
-            pending.reject(new Error(`Antigravity OAuth error: ${error}`));
-            ANTIGRAVITY_PENDING.delete(state);
-          }
-        }
-        return;
-      }
-      const state = url.searchParams.get('state');
-      const code = url.searchParams.get('code');
-      if (!state || !code) {
-        res.statusCode = 400;
-        res.end('missing state or code');
-        return;
-      }
-      const pending = ANTIGRAVITY_PENDING.get(state);
-      if (pending) {
-        pending.resolve({ code });
-        ANTIGRAVITY_PENDING.delete(state);
-      }
-      res.setHeader('Content-Type', 'text/html; charset=utf-8');
-      res.end('<h1>Antigravity login complete</h1><p>You may close this window and return to the Local Router configuration.</p>');
-    } catch (err) {
-      res.statusCode = 500;
-      res.end('internal error');
-    }
-  });
-  antigravityCallbackServer.on('error', () => {
-    antigravityCallbackServer = null;
-  });
-  antigravityCallbackServer.listen(antigravityCallbackPort, '127.0.0.1', () => {
-    /* server ready */
-  });
-}
 
 function loadStore(): OAuthStore {
   try {
@@ -352,69 +279,78 @@ export function __resetRefreshInflight(): void {
 }
 
 // ---------------------------------------------------------------------------
-// Antigravity PKCE flow
+// Antigravity ADC flow (oh-my-pi pattern)
 // ---------------------------------------------------------------------------
 
-function base64url(buffer: Buffer): string {
-  return buffer.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-}
-
-function generatePkcePair(): { verifier: string; challenge: string } {
-  const verifier = base64url(randomBytes(32));
-  const challenge = base64url(createHash('sha256').update(verifier).digest());
-  return { verifier, challenge };
-}
-
-export function buildAntigravityAuthUrl(redirectUri: string, state: string, challenge: string): string {
-  const url = new URL(ANTIGRAVITY_AUTH_URL);
-  url.searchParams.set('client_id', ANTIGRAVITY_CLIENT_ID);
-  url.searchParams.set('response_type', 'code');
-  url.searchParams.set('redirect_uri', redirectUri);
-  url.searchParams.set('scope', ANTIGRAVITY_SCOPES.join(' '));
-  url.searchParams.set('code_challenge', challenge);
-  url.searchParams.set('code_challenge_method', 'S256');
-  url.searchParams.set('state', state);
-  url.searchParams.set('access_type', 'offline');
-  url.searchParams.set('prompt', 'consent');
-  url.searchParams.set('include_granted_scopes', 'true');
-  return url.toString();
-}
-
-async function exchangeAntigravityCode(params: {
-  code: string;
-  verifier: string;
-  redirectUri: string;
-}): Promise<{ access: string; refresh: string; expiresIn: number; idToken?: string }> {
-  const body = new URLSearchParams({
-    client_id: ANTIGRAVITY_CLIENT_ID,
-    code: params.code,
-    grant_type: 'authorization_code',
-    redirect_uri: params.redirectUri,
-    code_verifier: params.verifier
-  });
-  if (ANTIGRAVITY_CLIENT_SECRET) {
-    body.set('client_secret', ANTIGRAVITY_CLIENT_SECRET);
+/**
+ * oh-my-pi relies on Google Application Default Credentials (ADC) for Vertex AI
+ * and Cloud Code Assist (Antigravity). The Gemini CLI client ID
+ * (1071006060591-tmhssin2hfnl3djmbc4of7457t62hdcj) is restricted by Google
+ * and blocks third-party OAuth PKCE flows. Instead of a browser callback, we
+ * read the user's gcloud ADC credentials file directly.
+ */
+function getAdcCredentialsPath(): string {
+  if (process.env.GOOGLE_APPLICATION_CREDENTIALS) {
+    return process.env.GOOGLE_APPLICATION_CREDENTIALS;
   }
+  return path.join(os.homedir(), '.config', 'gcloud', 'application_default_credentials.json');
+}
+
+async function loadAdcCredentials(): Promise<any> {
+  const credsPath = getAdcCredentialsPath();
+  if (!fs.existsSync(credsPath)) {
+    throw new Error(`ADC credentials not found at ${credsPath}. Run \`gcloud auth application-default login\`.`);
+  }
+  return JSON.parse(fs.readFileSync(credsPath, 'utf8'));
+}
+
+export async function initAntigravityLogin(): Promise<{ success: boolean; message: string }> {
+  // For ADC, "login" simply means reading the existing gcloud credentials
+  // and exchanging the refresh token for a fresh access token to verify them.
+  const creds = await loadAdcCredentials();
+  
+  if (creds.type !== 'authorized_user' || !creds.refresh_token || !creds.client_id) {
+    throw new Error('Unsupported ADC credential type. Only "authorized_user" is supported currently.');
+  }
+
+  const body = new URLSearchParams({
+    client_id: creds.client_id,
+    client_secret: creds.client_secret || '',
+    refresh_token: creds.refresh_token,
+    grant_type: 'refresh_token'
+  });
+
   const res = await fetch(ANTIGRAVITY_TOKEN_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body,
     signal: AbortSignal.timeout(15_000)
   });
+
   if (!res.ok) {
     const text = await res.text();
-    throw new Error(`Antigravity token exchange failed (${res.status}): ${text.slice(0, 200)}`);
+    throw new Error(`ADC token exchange failed (${res.status}): ${text.slice(0, 200)}`);
   }
+
   const data = await res.json() as any;
   if (!data.access_token) {
-    throw new Error('Antigravity token exchange returned no access_token');
+    throw new Error('ADC token exchange returned no access_token');
   }
-  return {
-    access: data.access_token,
-    refresh: data.refresh_token || '',
-    expiresIn: Number(data.expires_in) || 3600,
-    idToken: data.id_token
+
+  const userInfo = await fetchAntigravityUserInfo(data.access_token);
+  
+  const state: OAuthProviderState = {
+    provider: 'antigravity',
+    authType: 'oauth-pkce', // Keeping authType string for backward compatibility
+    refreshToken: creds.refresh_token,
+    accessToken: data.access_token,
+    expiresAt: Date.now() + (Number(data.expires_in) || 3600) * 1000,
+    accountId: userInfo.sub || 'adc-user',
+    accountLabel: userInfo.email || 'ADC Credentials',
+    lastRefreshedAt: Date.now()
   };
+  persistState(state);
+  return { success: true, message: 'Successfully loaded Google ADC credentials' };
 }
 
 async function fetchAntigravityUserInfo(accessToken: string): Promise<{ sub: string; email?: string }> {
@@ -432,111 +368,34 @@ async function fetchAntigravityUserInfo(accessToken: string): Promise<{ sub: str
 }
 
 async function refreshAntigravityToken(state: OAuthProviderState): Promise<OAuthProviderState> {
-  if (!state.refreshToken) {
-    throw new Error('Antigravity refresh token missing — re-login required.');
-  }
+  const creds = await loadAdcCredentials();
   const body = new URLSearchParams({
-    client_id: ANTIGRAVITY_CLIENT_ID,
+    client_id: creds.client_id,
+    client_secret: creds.client_secret || '',
     grant_type: 'refresh_token',
-    refresh_token: state.refreshToken
+    refresh_token: creds.refresh_token || state.refreshToken
   });
-  if (ANTIGRAVITY_CLIENT_SECRET) {
-    body.set('client_secret', ANTIGRAVITY_CLIENT_SECRET);
-  }
+
   const res = await fetch(ANTIGRAVITY_TOKEN_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body,
     signal: AbortSignal.timeout(15_000)
   });
+
   if (!res.ok) {
     const text = await res.text();
-    throw new Error(`Antigravity token refresh failed (${res.status}): ${text.slice(0, 200)}`);
+    throw new Error(`ADC refresh failed (${res.status}): ${text.slice(0, 200)}`);
   }
+
   const data = await res.json() as any;
-  if (!data.access_token) {
-    throw new Error('Antigravity token refresh returned no access_token');
-  }
   return {
     ...state,
+    refreshToken: creds.refresh_token || state.refreshToken, // Use the newest refresh token
     accessToken: data.access_token,
-    refreshToken: data.refresh_token || state.refreshToken,
     expiresAt: Date.now() + (Number(data.expires_in) || 3600) * 1000
   };
 }
-
-export type AntigravityLoginInit = {
-  authUrl: string;
-  redirectUri: string;
-  state: string;
-  verifier: string;
-};
-
-export function initAntigravityLogin(): AntigravityLoginInit {
-  ensureAntigravityCallbackServer();
-  const { verifier, challenge } = generatePkcePair();
-  const state = base64url(randomBytes(16));
-  const redirectUri = `http://127.0.0.1:${antigravityCallbackPort}/oauth-callback`;
-  const authUrl = buildAntigravityAuthUrl(redirectUri, state, challenge);
-  const entry: AntigravityPendingLogin = {
-    init: { authUrl, redirectUri, state, verifier },
-    resolve: () => {},
-    reject: () => {},
-    promise: Promise.resolve({ code: '' })
-  };
-  entry.promise = new Promise<{ code: string }>((resolve, reject) => {
-    entry.resolve = resolve;
-    entry.reject = reject;
-  });
-  // Prevent unhandled promise rejection crash
-  entry.promise.catch(() => {});
-  ANTIGRAVITY_PENDING.set(state, entry);
-  // Auto-expire pending logins after 5 minutes.
-  setTimeout(() => {
-    const pending = ANTIGRAVITY_PENDING.get(state);
-    if (pending) {
-      pending.reject(new Error('Antigravity OAuth callback timed out'));
-      ANTIGRAVITY_PENDING.delete(state);
-    }
-  }, 5 * 60_000);
-  return { authUrl, redirectUri, state, verifier };
-}
-
-export async function waitForAntigravityCode(state: string, timeoutMs = 5 * 60_000): Promise<{ code: string }> {
-  const pending = ANTIGRAVITY_PENDING.get(state);
-  if (!pending) {
-    throw new Error('Antigravity login session expired or unknown state token.');
-  }
-  return Promise.race([
-    pending.promise,
-    new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Antigravity OAuth callback timed out')), timeoutMs))
-  ]);
-}
-
-export async function completeAntigravityLogin(init: AntigravityLoginInit): Promise<OAuthProviderState> {
-  const callback = await waitForAntigravityCode(init.state);
-  const tokens = await exchangeAntigravityCode({
-    code: callback.code,
-    verifier: init.verifier,
-    redirectUri: init.redirectUri
-  });
-  const user = await fetchAntigravityUserInfo(tokens.access);
-  const state: OAuthProviderState = {
-    provider: 'antigravity',
-    authType: 'oauth-pkce',
-    accessToken: tokens.access,
-    refreshToken: tokens.refresh,
-    expiresAt: Date.now() + tokens.expiresIn * 1000,
-    accountId: user.sub || undefined,
-    accountLabel: user.email,
-    lastRefreshedAt: Date.now()
-  };
-  persistState(state);
-  ANTIGRAVITY_PENDING.delete(init.state);
-  return state;
-}
-
-// ---------------------------------------------------------------------------
 // GitHub Copilot device flow
 // ---------------------------------------------------------------------------
 

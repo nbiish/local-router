@@ -396,13 +396,12 @@ app.post('/api/oauth/login/:provider', async (req: Request, res: Response) => {
 
   if (providerName === 'antigravity') {
     try {
-      const init = initAntigravityLogin();
+      const result = await initAntigravityLogin();
       return res.json({
         success: true,
         provider: 'antigravity',
-        authType: 'oauth-pkce',
-        authUrl: init.authUrl,
-        message: 'Open the auth URL in your browser to complete login. The Local Router callback server will capture the authorization code automatically.'
+        authType: 'oauth-adc',
+        message: result.message
       });
     } catch (error: any) {
       return res.status(500).json({ error: error?.message || 'Failed to start Antigravity login.' });
@@ -434,31 +433,6 @@ app.post('/api/oauth/complete/:provider', async (req: Request, res: Response) =>
   const providerName = String(req.params.provider || '').trim().toLowerCase();
   if (!isOAuthProvider(providerName)) {
     return res.status(400).json({ error: `Provider "${providerName}" is not an OAuth provider.` });
-  }
-
-  if (providerName === 'antigravity') {
-    // The PKCE callback server captures the code and completes login
-    // automatically. This endpoint is a manual trigger for headless setups
-    // where the caller pastes the full redirect URL back.
-    const { redirectUrl } = req.body || {};
-    if (!redirectUrl || typeof redirectUrl !== 'string') {
-      return res.status(400).json({ error: 'Body must include `redirectUrl` (the full http://127.0.0.1:51121/oauth-callback?code=... URL).' });
-    }
-    try {
-      const url = new URL(redirectUrl);
-      const code = url.searchParams.get('code');
-      const state = url.searchParams.get('state');
-      if (!code) {
-        return res.status(400).json({ error: 'redirectUrl missing `code` query parameter.' });
-      }
-      // Reconstruct init from the in-memory pending state. We keep the
-      // verifier on the module-level pending map by having the caller call
-      // `/api/oauth/login/antigravity` first, which sets it up. For now we
-      // rely on the local callback server; this endpoint is a fallback.
-      return res.status(501).json({ error: 'Headless PKCE completion not yet implemented. Use the browser callback flow.' });
-    } catch (error: any) {
-      return res.status(400).json({ error: error?.message || 'Invalid redirectUrl.' });
-    }
   }
 
   if (providerName === 'github-copilot') {

@@ -2889,6 +2889,11 @@ export function renderLayout(
                 const res = await fetch('/api/oauth/login/' + encodeURIComponent(provider), { method: 'POST' });
                 const payload = await res.json();
                 if (!res.ok) throw new Error(payload?.error || 'Login failed');
+                if (payload.authType === 'oauth-adc') {
+                  setMessage(payload.message || 'ADC credentials loaded.', 'success');
+                  loadOAuthProviders();
+                  return;
+                }
                 if (payload.authUrl) {
                   const popup = window.open(payload.authUrl, '_blank', 'noopener,noreferrer');
                   if (!popup) {
