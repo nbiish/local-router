@@ -1325,6 +1325,23 @@ export function renderLayout(
           await loadCatalog();
         }
 
+        async function autoSaveFallbackRoute() {
+          syncFallbackCandidatesToTextarea();
+          const id = document.getElementById('fallbackRouteId').value.trim();
+          const modelsText = document.getElementById('fallbackModelsText').value.trim();
+          if (!id || !modelsText) return;
+          try {
+            const res = await fetch('/api/fallback-models', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ id, modelsText })
+            });
+            if (res.ok) await loadFallbackRoutes();
+          } catch {
+            // Silent auto-save — best effort.
+          }
+        }
+
         async function deleteFallbackRoute(routeId) {
           if (!routeId) return;
 
@@ -1655,11 +1672,13 @@ export function renderLayout(
             fallbackCandidateStore.splice(targetIndex, 0, movedFb);
             renderFallbackCandidateList();
             syncFallbackCandidatesToTextarea();
+            autoSaveFallbackRoute();
           } else {
             var moved = routerCandidateStore.splice(dragSourceIndex, 1)[0];
             routerCandidateStore.splice(targetIndex, 0, moved);
             renderCandidateList();
             syncCandidatesToTextarea();
+            autoSaveRouterRoute();
           }
           dragSourceIndex = -1;
           dragSourceList = 'router';
@@ -2081,6 +2100,35 @@ export function renderLayout(
           clearRouterRouteForm();
           await loadRouterRoutes();
           await loadCatalog();
+        }
+
+        async function autoSaveRouterRoute() {
+          syncCandidatesToTextarea();
+          const id = document.getElementById('routerRouteId').value.trim();
+          const type = document.getElementById('routerType').value;
+          const candidatesText = document.getElementById('routerCandidatesText').value.trim();
+          if (!id || !candidatesText) return;
+          const minCodingScoreRaw = document.getElementById('routerMinCodingScore').value;
+          const costQualityTradeoffRaw = document.getElementById('routerCostQualityTradeoff').value;
+          const explorationBudgetRaw = document.getElementById('routerExplorationBudget').value;
+          const payload = { id, type, candidatesText };
+          if (minCodingScoreRaw !== '') payload.minCodingScore = Number(minCodingScoreRaw);
+          if (costQualityTradeoffRaw !== '') payload.costQualityTradeoff = Number(costQualityTradeoffRaw);
+          if (explorationBudgetRaw !== '' && type === 'bandit-local') payload.explorationBudget = Number(explorationBudgetRaw);
+          try {
+            const el = document.getElementById('routerEnableAutoTiers');
+            if (el) payload.enableAutoTiers = el.checked;
+          } catch {}
+          try {
+            const res = await fetch('/api/router-models', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(payload)
+            });
+            if (res.ok) await loadRouterRoutes();
+          } catch {
+            // Silent auto-save — best effort.
+          }
         }
 
         async function exportRouterSettings() {
