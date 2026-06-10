@@ -585,6 +585,7 @@ export function renderLayout(
           messageEl.classList.remove('error', 'success');
           messageEl.classList.add(type === 'error' ? 'error' : 'success');
           messageEl.innerText = text;
+          messageEl.style.display = 'block';
         }
 
         function suggestCustomKeyEnvFromSlug(slug) {
@@ -2889,8 +2890,16 @@ export function renderLayout(
                 const payload = await res.json();
                 if (!res.ok) throw new Error(payload?.error || 'Login failed');
                 if (payload.authUrl) {
-                  window.open(payload.authUrl, '_blank');
-                  setMessage('Opened ' + (payload.authUrl || 'login page') + '. Complete the flow in your browser.', 'success');
+                  const popup = window.open(payload.authUrl, '_blank', 'noopener,noreferrer');
+                  if (!popup) {
+                    // Popup blocked - show clickable link in message
+                    const messageEl = document.getElementById('message');
+                    const linkText = 'Click here to open the login page in a new tab';
+                    messageEl.innerHTML = 'Popup blocked. <a href="' + escapeHtml(payload.authUrl) + '" target="_blank" rel="noopener noreferrer">' + linkText + '</a>';
+                    messageEl.style.display = 'block';
+                  } else {
+                    setMessage('Opened login page in a new tab. Complete the flow in your browser.', 'success');
+                  }
                 }
                 if (payload.userCode) {
                   setMessage('Enter code ' + payload.userCode + ' at ' + payload.verificationUri + '. Waiting for authorization...', 'success');
