@@ -579,13 +579,14 @@ export function renderLayout(
             .replace(/"/g, '&quot;')
             .replace(/'/g, '&#39;');
         }
-
         function setMessage(text, type) {
           const messageEl = document.getElementById('message');
+          if (!messageEl) return;
           messageEl.classList.remove('error', 'success');
           messageEl.classList.add(type === 'error' ? 'error' : 'success');
           messageEl.innerText = text;
           messageEl.style.display = 'block';
+          window.scrollTo({ top: 0, behavior: 'smooth' });
         }
 
         function suggestCustomKeyEnvFromSlug(slug) {
