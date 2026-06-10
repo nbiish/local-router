@@ -456,8 +456,12 @@ curl -s http://127.0.0.1:11434/api/fallback-models | jq '.data[] | select(.route
 - **2026-06-04:** Integrated Cline + Kilo gateway free-tier candidates into default auto-router.
 - **2026-06-04:** Created `stableSortModelIdsByRoutingExhaustion()` tier sorting and wraparound retries.
 - **2026-06-05:** Curated Cline (12) and Kilo (19) catalogs with chat-proven tags. Tier-suffixed gateway names.
+- **2026-06-09:** Implemented Wafer AI ZDR enhancement toggle (`Wafer-ZDR: required` header for GLM-5.1, Kimi-K2.6 via wafer-serverless). Added `/api/wafer-config` GET/PUT routes, UI toggle card in /config, config persistence to `~/.config/local-router/wafer-config.json`. Merged to develop, verified on :11436.
 
 ---
+
+### Future Items
+- **Thinking/Reasoning Capability Audit:** `providers.txt` marks nearly all models as `NO*` for thinking support, but the current notation conflates "model natively supports reasoning" with "Local Router strips reasoning content." A separate column or notation is needed to distinguish these. Task: web-search every model for its actual reasoning/thinking API capability, document findings, update `SanitizeProviderRequestBody` to pass through client thinking directives by default (rather than stripping), and correct `providers.txt` to reflect native model capability vs. proxy behavior. Target: next session.
 
 ## Child DOX Index
 
