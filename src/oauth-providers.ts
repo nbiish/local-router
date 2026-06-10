@@ -440,6 +440,8 @@ export function initAntigravityLogin(): AntigravityLoginInit {
     entry.resolve = resolve;
     entry.reject = reject;
   });
+  // Prevent unhandled promise rejection crash
+  entry.promise.catch(() => {});
   ANTIGRAVITY_PENDING.set(state, entry);
   // Auto-expire pending logins after 5 minutes.
   setTimeout(() => {
