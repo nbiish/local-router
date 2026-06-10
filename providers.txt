@@ -207,6 +207,15 @@
 #              caching, native reasoning stripped for VS Code).
 #              Do not store Wafer API keys in providers.txt, .env, git,
 #              shell history, logs, or tool output.
+#
+#              ZDR (Zero Delay Reduction): Wafer AI supports a spatial/fast
+#              inference optimization for GLM-5.1 and Kimi-K2.6 via the
+#              custom HTTP header `Wafer-ZDR: required`. Local Router
+#              automatically injects this header on every upstream request
+#              to Wafer AI when the toggle is enabled (default ON) and the
+#              presented model is ZDR-eligible. Toggle in /config → Prompt
+#              & Thinking Level → Wafer AI ZDR Enhancement. Persisted to
+#              ~/.config/local-router/wafer-config.json.
 
 ## zenmux __________________________________________________________________
 # Tier:        Aggregator (60+ upstream models)

@@ -61,6 +61,20 @@ export function renderThinkingPage(params: {
         </div>
         </div>
       </div>
+      <div class="card">
+        <div class="catalog-meta">
+          <div>
+            <h2>Wafer AI ZDR Enhancement</h2>
+            <p class="muted">Zero Delay Reduction inference optimization for GLM-5.1 and Kimi-K2.6 models via <code>Wafer-ZDR: required</code> header.</p>
+          </div>
+          <div class="muted" id="waferZdrStatus">Loading...</div>
+        </div>
+        <div style="margin-top:12px;">
+          <label style="display:inline-flex;align-items:center;gap:8px;font-weight:bold;cursor:pointer;">
+            <input type="checkbox" id="waferZdrToggle" onchange="toggleWaferZdr()"> Enable ZDR enhancement for eligible Wafer AI models
+          </label>
+        </div>
+      </div>
 `;
   return renderLayout('Prompt & Thinking Level', body, params);
 }

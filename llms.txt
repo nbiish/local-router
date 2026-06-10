@@ -174,7 +174,8 @@ Setting files reside at `~/.config/local-router/` (or legacy `~/.config/fvs-code
 | `provider-models.json` | No | local JSON | Custom model overrides and context details |
 | `router-models.json` | No | local JSON | Router specifications and candidate lists |
 | `fallback-models.json` | No | local JSON | Fallback chain ordered routes |
-| `thinking-config.json` | No | local JSON | Thinking levels (none/low/medium/high/xhigh) |
+|| `thinking-config.json` | No | local JSON | Thinking levels (none/low/medium/high/xhigh) |
+|| `wafer-config.json` | No | local JSON | Wafer AI ZDR enhancement toggle (enabled by default) |
 | `system-prompt.json` | No | local JSON | User system prompt injection configuration |
 | `model-source-config.json` | No | local JSON | Configured source: `custom` vs `endpoints` |
 | `endpoint-models-cache.json` | No | local JSON | Cached upstream `/models` query data |
