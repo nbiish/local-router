@@ -3097,7 +3097,7 @@ function loadPqcSecrets(): void {
 
 function reportMissingProviders(): void {
   const allSummaries = allProviderSummaries();
-  const missing = allSummaries.filter((s) => !keyStore[s.name]).map((s) => s.name);
+  const missing = allSummaries.filter((s) => !keyStore[s.name] && !isOAuthProvider(s.name)).map((s) => s.name);
   if (missing.length > 0) {
     const missingWithoutOllama = missing.filter((name) => name !== 'ollama');
     if (missingWithoutOllama.length > 0) {
