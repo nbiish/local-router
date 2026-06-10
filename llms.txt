@@ -483,6 +483,7 @@ localrouter config --open                            # launch browser config pag
 - `GET /api/provider-models` — retrieve full catalog model data.
 - `POST /api/refresh-endpoint-models` — live upstream fetch of `/models` (6s timeout).
 - `GET /api/thinking-level` / `PUT /api/thinking-level` — configuration of thinking levels.
+- `GET /api/wafer-config` / `PUT /api/wafer-config` — Wafer AI ZDR enhancement toggle (enabled by default).
 - `GET /api/system-prompt` / `PUT /api/system-prompt` — system prompt configuration.
 - `GET /api/sessions` / `POST /api/sessions/:id/feedback` — session viewer and feedback.
 
@@ -501,6 +502,14 @@ VS Code Copilot Chat strips reasoning tags on follow-up requests, leading to ups
   - DeepSeek/Qwen/GLM/Kimi/Step/MiniMax: `enable_thinking: true`.
   - Level `none` injects disable hints (`reasoning_effort: "none"`, `thinking: { type: "disabled" }`).
 - **Configuration Grid:** Controlled per-provider in `/config` or via `PUT /api/thinking-level`; saved to `thinking-config.json`.
+
+### Wafer AI ZDR Enhancement Toggle
+- **Provider:** `wafer-serverless` only.
+- **Eligible models:** `GLM-5.1`, `Kimi-K2.6`.
+- **Header:** `Wafer-ZDR: required` injected on eligible models when toggle is on.
+- **Default:** ON (enabled) — ZDR is a free inference enhancement.
+- **Persistence:** `~/.config/local-router/wafer-config.json`.
+- **Toggle location:** `/config` UI under Wafer AI provider card, or via `PUT /api/wafer-config`.
 
 ### Custom System Prompt Injection
 - **Default:** OFF (disabled).
