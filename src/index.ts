@@ -5352,7 +5352,13 @@ async function handleChatCompletion(req: Request, res: Response, bodyOverrides?:
   });
 
   const sysFallback = findSystemFallback();
+
   if (sysFallback && shouldCascadeDirectModelToSystemFallback(model)) {
+    const cascadeDetail = `${directModelResult.error.errorType} (status ${directModelResult.error.status || 500})`;
+    console.warn(
+      `[proxy] Direct model "${model}" failed on provider "${directModelResult.error.providerName}" — ` +
+      `${cascadeDetail} — cascading to system fallback "${sysFallback.id}".`
+    );
     pushDiagnostic({
       event: 'proxy_error',
       route: requestRoute,
@@ -5373,7 +5379,6 @@ async function handleChatCompletion(req: Request, res: Response, bodyOverrides?:
     });
     return executeFallbackRoute(sysFallback, body, model, stream, requestRoute, outputFormat, requestStartedAt, res);
   }
-
   if (directModelResult.error.errorType === 'upstream_http') {
     const errorBody = directModelResult.error.responseText || directModelResult.error.message;
     return res.status(directModelResult.error.status || 502).send(errorBody);
