@@ -59,28 +59,34 @@ test('subscription band for OpenCode Go, Z.ai, Xiaomi (not OpenCode Zen paid)', 
   );
 });
 
-test('subscription sub-order: opencode-go → zai → xiaomi-mimo → commandcode', () => {
+test('subscription sub-order: opencode-go → zai → xiaomi-mimo → commandcode → antigravity → github-copilot', () => {
   assert.deepEqual(SUBSCRIPTION_PROVIDER_SUB_ORDER, [
     'opencode-go',
     'zai',
     'xiaomi-mimo',
-    'commandcode'
+    'commandcode',
+    'antigravity',
+    'github-copilot'
   ]);
   const catalog = new Map([
     ['xiaomi-mimo-mimo-v2.5-pro', { provider: 'xiaomi-mimo', model: 'mimo-v2.5-pro' }],
     ['zai-code-pass-glm-5.1', { provider: 'zai', model: 'code-pass-glm-5.1' }],
     ['opencode-go-deepseek-v4-pro', { provider: 'opencode-go', model: 'deepseek-v4-pro' }],
-    ['commandcode-deepseek-v4-pro', { provider: 'commandcode', model: 'deepseek-v4-pro' }]
+    ['commandcode-deepseek-v4-pro', { provider: 'commandcode', model: 'deepseek-v4-pro' }],
+    ['anti-gemini-3.1-pro', { provider: 'antigravity', model: 'models/gemini-3.1-pro' }],
+    ['copi-gpt-4o', { provider: 'github-copilot', model: 'gpt-4o' }]
   ]);
   const sorted = stableSortModelIdsByRoutingExhaustion(
-    ['commandcode-deepseek-v4-pro', 'xiaomi-mimo-mimo-v2.5-pro', 'zai-code-pass-glm-5.1', 'opencode-go-deepseek-v4-pro'],
+    ['commandcode-deepseek-v4-pro', 'xiaomi-mimo-mimo-v2.5-pro', 'zai-code-pass-glm-5.1', 'opencode-go-deepseek-v4-pro', 'anti-gemini-3.1-pro', 'copi-gpt-4o'],
     (id) => catalog.get(id)
   );
   assert.deepEqual(sorted, [
     'opencode-go-deepseek-v4-pro',
     'zai-code-pass-glm-5.1',
     'xiaomi-mimo-mimo-v2.5-pro',
-    'commandcode-deepseek-v4-pro'
+    'commandcode-deepseek-v4-pro',
+    'anti-gemini-3.1-pro',
+    'copi-gpt-4o'
   ]);
 });
 

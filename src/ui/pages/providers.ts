@@ -167,6 +167,11 @@ export function renderProvidersPage(params: {
         </div>
         <div id="catalog" class="catalog"></div>
       </div>
+      <div class="card">
+        <h2>OAuth Provider Logins</h2>
+        <p class="muted">Some providers authenticate via OAuth instead of a static API key. Use the controls below to sign in. Tokens are stored locally at <code>~/.config/local-router/oauth-credentials.json</code> and refreshed automatically.</p>
+        <div id="oauthProviderList" class="provider-grid"></div>
+      </div>
 `;
   return renderLayout('Providers & Models', body, params);
 }

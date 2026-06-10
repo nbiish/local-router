@@ -3,6 +3,14 @@ import fs from 'fs';
 import path from 'path';
 import { ThinkingLevel } from '../reasoning';
 import { ProxyProvider } from '../types';
+import {
+  clearOAuthCredentials,
+  getOAuthStatus,
+  initAntigravityLogin,
+  isOAuthProvider,
+  startCopilotLogin,
+  OAuthProviderId
+} from '../oauth-providers';
 import { renderProvidersPage } from '../ui/pages/providers';
 import { renderFallbackPage } from '../ui/pages/fallback';
 import { renderRoutersPage } from '../ui/pages/routers';
@@ -366,6 +374,116 @@ app.delete('/api/keys/:provider', (req: Request, res: Response) => {
     sharedProviders: providerSummariesForEnvVar(summary.keyEnvVar).map((entry) => entry.name)
   });
 });
+
+// ---------------------------------------------------------------------------
+// OAuth provider login endpoints
+// ---------------------------------------------------------------------------
+
+app.get('/api/oauth/status/:provider', async (req: Request, res: Response) => {
+  const providerName = String(req.params.provider || '').trim().toLowerCase();
+  if (!isOAuthProvider(providerName)) {
+    return res.status(400).json({ error: `Provider "${providerName}" is not an OAuth provider.` });
+  }
+  const status = getOAuthStatus(providerName as OAuthProviderId);
+  res.json(status);
+});
+
+app.post('/api/oauth/login/:provider', async (req: Request, res: Response) => {
+  const providerName = String(req.params.provider || '').trim().toLowerCase();
+  if (!isOAuthProvider(providerName)) {
+    return res.status(400).json({ error: `Provider "${providerName}" is not an OAuth provider.` });
+  }
+
+  if (providerName === 'antigravity') {
+    try {
+      const init = initAntigravityLogin();
+      return res.json({
+        success: true,
+        provider: 'antigravity',
+        authType: 'oauth-pkce',
+        authUrl: init.authUrl,
+        message: 'Open the auth URL in your browser to complete login. The Local Router callback server will capture the authorization code automatically.'
+      });
+    } catch (error: any) {
+      return res.status(500).json({ error: error?.message || 'Failed to start Antigravity login.' });
+    }
+  }
+
+  if (providerName === 'github-copilot') {
+    try {
+      const init = await startCopilotLogin();
+      return res.json({
+        success: true,
+        provider: 'github-copilot',
+        authType: 'oauth-device',
+        userCode: init.userCode,
+        verificationUri: init.verificationUri,
+        expiresAt: init.expiresAt,
+        interval: init.interval,
+        message: `Enter code ${init.userCode} at ${init.verificationUri}. The server will automatically detect when you complete authorization.`
+      });
+    } catch (error: any) {
+      return res.status(500).json({ error: error?.message || 'Failed to start GitHub Copilot login.' });
+    }
+  }
+
+  return res.status(400).json({ error: `OAuth login not implemented for "${providerName}".` });
+});
+
+app.post('/api/oauth/complete/:provider', async (req: Request, res: Response) => {
+  const providerName = String(req.params.provider || '').trim().toLowerCase();
+  if (!isOAuthProvider(providerName)) {
+    return res.status(400).json({ error: `Provider "${providerName}" is not an OAuth provider.` });
+  }
+
+  if (providerName === 'antigravity') {
+    // The PKCE callback server captures the code and completes login
+    // automatically. This endpoint is a manual trigger for headless setups
+    // where the caller pastes the full redirect URL back.
+    const { redirectUrl } = req.body || {};
+    if (!redirectUrl || typeof redirectUrl !== 'string') {
+      return res.status(400).json({ error: 'Body must include `redirectUrl` (the full http://127.0.0.1:51121/oauth-callback?code=... URL).' });
+    }
+    try {
+      const url = new URL(redirectUrl);
+      const code = url.searchParams.get('code');
+      const state = url.searchParams.get('state');
+      if (!code) {
+        return res.status(400).json({ error: 'redirectUrl missing `code` query parameter.' });
+      }
+      // Reconstruct init from the in-memory pending state. We keep the
+      // verifier on the module-level pending map by having the caller call
+      // `/api/oauth/login/antigravity` first, which sets it up. For now we
+      // rely on the local callback server; this endpoint is a fallback.
+      return res.status(501).json({ error: 'Headless PKCE completion not yet implemented. Use the browser callback flow.' });
+    } catch (error: any) {
+      return res.status(400).json({ error: error?.message || 'Invalid redirectUrl.' });
+    }
+  }
+
+  if (providerName === 'github-copilot') {
+    // Device flow polling runs in the background after `/api/oauth/login`
+    // is called. This endpoint is just a confirmation/status check for the
+    // UI to know the login succeeded or is still pending.
+    const status = getOAuthStatus('github-copilot');
+    if (status.configured) {
+      return res.json({ success: true, provider: 'github-copilot', configured: true, status });
+    }
+    return res.json({ success: true, provider: 'github-copilot', configured: false, pending: status.pendingDeviceCode ? true : false });
+  }
+
+  return res.status(400).json({ error: `OAuth complete not implemented for "${providerName}".` });
+});
+
+app.delete('/api/oauth/credentials/:provider', async (req: Request, res: Response) => {
+  const providerName = String(req.params.provider || '').trim().toLowerCase();
+  if (!isOAuthProvider(providerName)) {
+    return res.status(400).json({ error: `Provider "${providerName}" is not an OAuth provider.` });
+  }
+  clearOAuthCredentials(providerName as OAuthProviderId);
+  return res.json({ success: true, provider: providerName, configured: false });
+});
+
 app.get('/api/model-source', (req: Request, res: Response) => {
   res.json(modelSourceConfig);
 });
