@@ -9,6 +9,37 @@ import os from 'os';
 import { execFileSync } from 'child_process';
 import { WebSocket, WebSocketServer } from 'ws';
 import { ProxyProvider } from './types';
+import {
+  OAuthProviderId,
+  OAuthProviderState,
+  OAuthProviderSummary,
+  clearOAuthCredentials,
+  fetchOAuthProviderModels,
+  getOAuthAccessToken,
+  getOAuthState,
+  getOAuthStatus,
+  getOAuthUpstreamHeaders,
+  initAntigravityLogin,
+  completeAntigravityLogin,
+  isOAuthProvider,
+  listOAuthProviders,
+  refreshOAuthToken,
+  startCopilotLogin,
+  cancelCopilotLogin
+} from './oauth-providers';
+
+/** Bridge helper for places that have a `string` and need to check
+ *  whether it's one of our OAuth provider slugs. */
+function isOAuthProviderName(name: string): boolean {
+  return isOAuthProvider(name);
+}
+
+/** Safe wrapper around `getOAuthState` for code paths that might receive
+ *  a non-OAuth slug (the underlying helper throws on unknown ids). */
+function getOAuthStateSafe(name: string): OAuthProviderState | undefined {
+  if (!isOAuthProviderName(name)) return undefined;
+  return getOAuthState(name as OAuthProviderId);
+}
 import { sanitizeProviderRequestBody, stripReasoningMetadata, ThinkingLevel, DEFAULT_THINKING_LEVEL } from './reasoning';
 import { loadSessions, loadFeedback, recordRequest, getSessions, getSessionById, recordFeedback, saveSessions } from './sessions';
 import { computeTiers } from './tiers';
@@ -929,6 +960,10 @@ function providerConfigs() {
     const models = effectiveProviderModels(provider.name);
     const isCustom = provider.source === 'custom' || isCustomProvider(provider.name);
 
+    // Attach OAuth status for OAuth-based providers so the config UI can
+    // render the correct auth control (login button vs. key text field).
+    const oauthStatus = isOAuthProvider(provider.name) ? getOAuthStatus(provider.name as OAuthProviderId) : undefined;
+
     return {
       ...provider,
       isCustom,
@@ -937,7 +972,8 @@ function providerConfigs() {
       ollamaPlaceholder: provider.name === 'ollama' ? ollamaPlaceholder : undefined,
       modelSource: providerModelSource(provider.name),
       modelCount: models.length,
-      models
+      models,
+      oauthStatus
     };
   });
 }
@@ -3257,7 +3293,13 @@ const configApiDeps = {
   sanitizeDiagnosticText,
   selectRouterCandidate,
   validateFallbackReferences,
-  validateRouterReferences
+  validateRouterReferences,
+  isOAuthProvider,
+  getOAuthStatus,
+  getOAuthStateSafe,
+  clearOAuthCredentials,
+  refreshOAuthToken,
+  fetchOAuthProviderModels
 };
 
 registerConfigApiRoutes(app, configApiDeps);
@@ -3843,6 +3885,13 @@ function ollamaCloudRoutingAllowsPro(): boolean {
 function providerHasConfiguredKey(providerName: string) {
   if (providerName === 'ollama') {
     return true;
+  }
+  // OAuth providers are considered "configured" when they have a stored
+  // access token (regardless of whether it has expired — the proxy will
+  // refresh on the next request).
+  if (isOAuthProviderName(providerName)) {
+    const oauthState = getOAuthStateSafe(providerName);
+    if (oauthState?.accessToken) return true;
   }
   const summary = getProviderSummary(providerName);
   if (!summary) return false;
@@ -4530,7 +4579,7 @@ export function normalizeHttpFailure(error: AttemptFailure): AttemptFailure {
 }
 
 export function isClassifiedFailoverError(errorType: string): boolean {
-  return errorType === 'upstream_http_quota' || errorType === 'upstream_http_payment_required' || errorType === 'upstream_http_auth' || errorType === 'upstream_http_rate_limit' || errorType === 'upstream_http_unavailable' || errorType === 'upstream_http_invalid_request';
+  return errorType === 'upstream_http_quota' || errorType === 'upstream_http_payment_required' || errorType === 'upstream_http_rate_limit' || errorType === 'upstream_http_unavailable' || errorType === 'upstream_http_invalid_request';
 }
 
 export type ContentClassification = 'generated' | 'streaming' | 'instant_error';
@@ -4696,7 +4745,9 @@ async function proxyModelAttempt(
 
   let providerHeaders: Record<string, string>;
   try {
-    providerHeaders = provider.getHeaders();
+    providerHeaders = provider.getHeadersAsync
+      ? await provider.getHeadersAsync()
+      : provider.getHeaders();
   } catch (error: any) {
     return {
       ok: false,

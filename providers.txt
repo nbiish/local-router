@@ -35,6 +35,8 @@
 # │ cline              │ https://api.cline.bot/api/v1          │ CLINE_API_KEY            │
 # │ kilo               │ https://api.kilo.ai/api/gateway       │ KILO_API_KEY             │
 # │ commandcode        │ https://api.commandcode.ai/alpha/generate│ COMMANDCODE_API_KEY    │
+│ antigravity        │ https://generativelanguage.googleapis.com/v1beta│ ANTIGRAVITY_API_KEY│
+│ github-copilot     │ https://api.githubcopilot.com        │ GITHUB_COPILOT_API_KEY   │
 
 # =============================================================================
 # MASTER MODEL SPECIFICATION
@@ -472,6 +474,51 @@
 # Router:      Ollama → Kilo free (incl. openrouter/free) → subscription → paid API tiers.
 # Notes:       Never register via Add custom provider (appends /v1 and breaks paths).
 #              kilo-auto/free remains excluded from routing.
+
+## antigravity ______________________________________________________________
+# Tier:        Google Antigravity (subscription / quota-limited)
+# Endpoint:    https://generativelanguage.googleapis.com/v1beta
+# Key env:     ANTIGRAVITY_API_KEY  (placeholder only — real auth is OAuth)
+# Auth:        OAuth 2.0 + PKCE (browser flow) — login from /config
+# Storage:     ~/.config/local-router/oauth-credentials.json  (chmod 600)
+# Models:      Discovered live via /models when logged in. Curated defaults:
+#              gemini-3.1-pro, gemini-3-flash, claude-opus-4.6,
+#              claude-sonnet-4.6, gpt-oss-120b
+# Quota:       Hybrid: sprint 5h refresh + weekly baseline + AI credits overage.
+#              Detect 429 / quota_exceeded and skip in routing.
+# Notes:       Do NOT store any token in providers.txt, .env, git, or shell
+#              history. Use /config → Antigravity → Login to start the PKCE flow.
+
+# │ 50 │ antigravity        │ models/gemini-3.1-pro               │ anti:gemini-3.1-pro        │1,000,000 │ 64,000   │ YES   │ YES  │ NO    │ YES       │
+# │ 51 │ antigravity        │ models/gemini-3-flash               │ anti:gemini-3-flash        │1,000,000 │ 64,000   │ YES   │ YES  │ NO    │ NO        │
+# │ 52 │ antigravity        │ models/claude-opus-4-6              │ anti:claude-opus-4-6       │ 200,000  │ 64,000   │ YES   │ YES  │ NO    │ YES       │
+# │ 53 │ antigravity        │ models/claude-sonnet-4-6            │ anti:claude-sonnet-4-6     │ 200,000  │ 64,000   │ YES   │ YES  │ NO    │ YES       │
+# │ 54 │ antigravity        │ models/gpt-oss-120b                 │ anti:gpt-oss-120b          │ 128,000  │ 32,000   │ YES   │ NO   │ NO    │ NO        │
+
+## github-copilot ___________________________________________________________
+# Tier:        GitHub Copilot (subscription / quota-limited)
+# Endpoint:    https://api.githubcopilot.com
+# Key env:     GITHUB_COPILOT_API_KEY  (placeholder only — real auth is OAuth)
+# Auth:        OAuth device flow (RFC 8628) — login from /config
+# Storage:     ~/.config/local-router/oauth-credentials.json  (chmod 600)
+# Required:    Copilot-Integration-Id: vscode-chat header on every request
+# Models:      Discovered live via /models when logged in. Includes Claude,
+#              GPT, Gemini, o-series — all routed through /chat/completions
+#              except Claude-family (/v1/messages) and GPT-5 (/responses).
+# Quota:       Per-subscription; tokens expire ~30min and are re-exchanged
+#              automatically from the stored GitHub token.
+# Notes:       The /api.github.com/copilot_internal/v2/token endpoint
+#              exchanges the GitHub token for a short-lived Copilot API
+#              token on every refresh. Calling GET /api.github.com/user
+#              after device flow gives a stable accountId for dedup
+#              (oh-my-pi PR #1210). Do NOT store any token in providers.txt,
+#              .env, git, or shell history.
+
+# │ 55 │ github-copilot     │ claude-sonnet-4.6                   │ copi:claude-sonnet-4.6     │ 200,000  │ 64,000   │ YES   │ YES  │ NO    │ YES       │
+# │ 56 │ github-copilot     │ gpt-4o                              │ copi:gpt-4o                │ 128,000  │ 16,000   │ YES   │ YES  │ NO    │ NO        │
+# │ 57 │ github-copilot     │ gpt-5                               │ copi:gpt-5                 │ 400,000  │ 64,000   │ YES   │ YES  │ NO    │ YES       │
+# │ 58 │ github-copilot     │ gemini-2.5-pro                      │ copi:gemini-2.5-pro        │1,000,000 │ 64,000   │ YES   │ YES  │ NO    │ YES       │
+# │ 59 │ github-copilot     │ o3-mini                             │ copi:o3-mini               │ 200,000  │ 100,000  │ YES   │ NO   │ NO    │ YES       │
 
 # =============================================================================
 # CROSS-TOOL CONFIGURATION MATRIX

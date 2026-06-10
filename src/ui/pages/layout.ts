@@ -2976,7 +2976,92 @@ export function renderLayout(
         }
         refreshDiagnostics();
 
-  </script>  </script>
+        async function loadOAuthProviders() {
+          const listEl = document.getElementById('oauthProviderList');
+          if (!listEl) return;
+          const oauthProviders = ['antigravity', 'github-copilot'];
+          const rows = await Promise.all(oauthProviders.map(async (name) => {
+            try {
+              const res = await fetch('/api/oauth/status/' + encodeURIComponent(name));
+              const status = res.ok ? await res.json() : null;
+              return { name, status };
+            } catch {
+              return { name, status: null };
+            }
+          }));
+          listEl.innerHTML = rows.map(({ name, status }) => {
+            const configured = status?.configured;
+            const pending = status?.pendingDeviceCode;
+            const accountLabel = status?.accountLabel || 'not signed in';
+            let html = '<section class="provider-card' + (configured ? ' active' : '') + '">' +
+              '<h4>' + escapeHtml(status?.displayName || name) + '</h4>' +
+              '<div class="muted">Account: ' + escapeHtml(accountLabel) + '</div>' +
+              '<div class="muted">Auth: ' + escapeHtml(status?.authType || '') + '</div>';
+            if (pending) {
+              html += '<div class="pill status-pill pending">Pending device code: ' + escapeHtml(pending.userCode) + '</div>' +
+                '<div class="muted">Enter this code at ' + escapeHtml(pending.verificationUri) + '</div>';
+            }
+            if (configured) {
+              html += '<div class="pill status-pill configured">Logged in</div>' +
+                '<div class="row row-actions">' +
+                  '<button data-oauth-logout="' + escapeHtml(name) + '">Log out</button>' +
+                '</div>';
+            } else {
+              html += '<div class="pill status-pill pending">Not logged in</div>' +
+                '<div class="row row-actions">' +
+                  '<button data-oauth-login="' + escapeHtml(name) + '">Log in with ' + escapeHtml(status?.displayName || name) + '</button>' +
+                '</div>';
+            }
+            html += '</section>';
+            return html;
+          }).join('');
+          listEl.querySelectorAll('button[data-oauth-login]').forEach((button) => {
+            button.addEventListener('click', async () => {
+              const provider = button.getAttribute('data-oauth-login') || '';
+              try {
+                const res = await fetch('/api/oauth/login/' + encodeURIComponent(provider), { method: 'POST' });
+                const payload = await res.json();
+                if (!res.ok) throw new Error(payload?.error || 'Login failed');
+                if (payload.authUrl) {
+                  window.open(payload.authUrl, '_blank');
+                  setMessage('Opened ' + (payload.authUrl || 'login page') + '. Complete the flow in your browser.', 'success');
+                }
+                if (payload.userCode) {
+                  setMessage('Enter code ' + payload.userCode + ' at ' + payload.verificationUri + '. Waiting for authorization...', 'success');
+                }
+                const poll = setInterval(async () => {
+                  const statusRes = await fetch('/api/oauth/status/' + encodeURIComponent(provider));
+                  const statusPayload = await statusRes.json();
+                  if (statusPayload.configured) {
+                    clearInterval(poll);
+                    setMessage('Logged in to ' + (statusPayload.displayName || provider) + ' successfully.', 'success');
+                    loadOAuthProviders();
+                  }
+                }, 2000);
+                setTimeout(() => clearInterval(poll), 5 * 60_000);
+              } catch (err: any) {
+                setMessage(err?.message || 'Login failed.', 'error');
+              }
+            });
+          });
+          listEl.querySelectorAll('button[data-oauth-logout]').forEach((button) => {
+            button.addEventListener('click', async () => {
+              const provider = button.getAttribute('data-oauth-logout') || '';
+              const res = await fetch('/api/oauth/credentials/' + encodeURIComponent(provider), { method: 'DELETE' });
+              const payload = await res.json().catch(() => ({}));
+              if (!res.ok) {
+                setMessage(payload?.error || 'Logout failed.', 'error');
+                return;
+              }
+              setMessage('Logged out of ' + provider + '.', 'success');
+              loadOAuthProviders();
+            });
+          });
+        }
+
+        await loadOAuthProviders();
+
+  </script>
 </body>
 </html>`;
 }
