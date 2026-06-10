@@ -206,11 +206,15 @@ function ensureAntigravityCallbackServer(): void {
       } else {
         console.warn(`[oauth] antigravity callback received code but no pending login for state=${state.slice(0, 8)}... — user may have started login in a different server instance.`);
       }
-      // Redirect the browser back to the Local Router config UI. The UI
-      // will auto-refresh the OAuth status panel to reflect the new login.
-      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      // Redirect the browser back to the Local Router config UI on the
+      // MAIN server port (e.g. 11436), not the callback port (51121).
+      // Using a relative path here would resolve to
+      // http://127.0.0.1:51121/config/providers (404). We must point at
+      // the main server explicitly.
+      const mainPort = Number.parseInt(process.env.PORT || '11434', 10);
       res.statusCode = 302;
-      res.setHeader('Location', '/config/providers');
+      res.setHeader('Location', `http://127.0.0.1:${mainPort}/config/providers`);
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
       res.end('<h1>Antigravity login complete</h1><p>Redirecting to the Local Router configuration...</p>');
     } catch (err) {
       console.error('[oauth] antigravity callback error:', err);
