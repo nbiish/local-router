@@ -116,19 +116,41 @@ scrolls-lab/output/
 **/*.jpg
 **/*.mp4
 **/*.vtt
+providers.txt
+**/providers.txt
+providers**.txt
+**/providers**.txt
+
 # Scrolls ceremony cloned repos (large)
 .scrolls-ceremony/repos/
+
+# Graphify scratch output
+graphify-out/
+
+# PQC secrets — bundle and audit log (the .env patterns above cover
+# most cases, but PQC artifacts are explicit for clarity)
+secrets.bundle.json
+secrets.bundle.json.bak.*
+audit.log
+audit.log.*
+# Local pqc-sign public keys (used for verification, not for committing)
+.pqc-keys/*.priv
+.pqc-keys/*.sk
+
+# Hermes / agent plan and context directories (auto-injected by
+# subdirectory context discovery — never intended for git)
+.hermes/
+.omx/
+.omo/
+.omp/
 
 # ═══════════════════════════════════════════════════════════════════════════
 # Project-specific patterns (preserved from existing .gitignore)
 # ═══════════════════════════════════════════════════════════════════════════
 
+.opencode/
 src/**/*.d.ts
 src/**/*.d.ts.map
 src/**/*.js
 src/**/*.js.map
 
-
-# oh-my-openagent team-mode local config
-.opencode/
-.omo/

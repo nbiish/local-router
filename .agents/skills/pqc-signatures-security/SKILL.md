@@ -207,3 +207,270 @@ PASSWORD_HASHER = PasswordHasher(
     salt_len=16,
 )
 ```
+
+## §5 Algorithm Reference
+
+PQC signature suite. All algorithms are FIPS-compliant (final since
+August 2024) and approved for NSA CNSA 2.0 use.
+
+| Algorithm | Standard | Type | Status | Sizes (bytes) | Use |
+|---|---|---|---|---|---|
+| **ML-DSA-65** | FIPS 204 | Lattice sig | Final Aug 2024 | pk 1952 / sig 3309 | Identity / primary signing |
+| ML-DSA-87 | FIPS 204 | Lattice sig | Final Aug 2024 | pk 2592 / sig 4627 | Higher-security signing |
+| **SLH-DSA-SHA2-128s** | FIPS 205 | Hash-based sig | Final Aug 2024 | pk 32 / sig 7856 | Backup / long-term |
+| SLH-DSA-SHAKE-128s | FIPS 205 | Hash-based sig | Final Aug 2024 | pk 32 / sig 7856 | Backup (SHAKE variant) |
+| SLH-DSA-SHA2-192s | FIPS 205 | Hash-based sig | Final Aug 2024 | pk 48 / sig 16272 | Higher-security backup |
+| SLH-DSA-SHA2-256s | FIPS 205 | Hash-based sig | Final Aug 2024 | pk 64 / sig 29792 | Maximum-security backup |
+| **SHA3-256** | FIPS 202 | Hash | Standard | 32 B digest | Integrity / message digests |
+| SHA3-512 | FIPS 202 | Hash | Standard | 64 B digest | Higher-security hashing |
+| **Argon2id** | OWASP 2025 | Password KDF | Standard | 32+ B, t=3 m=64MB p=4 | Password-based KDF |
+
+**Bold** = used in the default `pqc-signatures` configuration. Other
+algorithms are available via explicit flags.
+
+References:
+- NSA CNSA 2.0
+- NIST FIPS 204/205 (August 2024 — final)
+- NIST FIPS 202 (SHA-3)
+
+**Forbidden algorithms for code signing / identity** (audit contexts excepted):
+RSA, DSA, ECDSA, Ed25519, ECDSA-secp256k1, MD5, SHA-1.
+
+Standard cryptography (TLS 1.3, SSH host keys via Ed25519, GPG, platform
+TLS) is fine for **transport**. The line: if it signs code that runs
+on the user's systems, or identifies the user, it uses PQC.
+
+## §6 Signing Workflow
+
+### 6.1 Generate an ML-DSA-65 keypair
+
+```bash
+$ pqc-sign keygen --algorithm ml-dsa-65
+Wrote public key to ~/.config/pqc-sigs/ml-dsa-65.pub (1952 B)
+Wrote private key to macOS keychain (service: pqc-sigs, account: ml-dsa-65)
+```
+
+The public key is safe to commit. The private key is in the OS keychain.
+
+### 6.2 Sign a file
+
+```bash
+$ pqc-sign sign --key ml-dsa-65 --input ./dist/index.js --output ./dist/index.js.sig
+Signed ./dist/index.js (43,192 B input) -> ./dist/index.js.sig (3,309 B signature)
+Audit: sign algorithm=ml-dsa-65 input=dist/index.js size=43192
+```
+
+The signature is a standalone file. The input file is unchanged.
+
+### 6.3 Verify a signature
+
+```bash
+$ pqc-sign verify --key ml-dsa-65 --input ./dist/index.js --signature ./dist/index.js.sig
+OK: signature valid (ml-dsa-65, dist/index.js)
+$ echo $?
+0
+```
+
+Exit 0 on valid signature, 1 on invalid or missing.
+
+### 6.4 Hash-based backup signatures (SLH-DSA)
+
+For long-term signatures (e.g., notarized releases, audit logs),
+generate a SLH-DSA keypair as a backup:
+
+```bash
+$ pqc-sign keygen --algorithm slh-dsa-sha2-128s
+$ pqc-sign sign --key slh-dsa-sha2-128s --input ./dist/index.js
+```
+
+SLH-DSA signatures are 7,856 B (much larger than ML-DSA-65's 3,309 B)
+but are based purely on hash security — no lattice assumptions.
+
+## §7 Public Key Distribution
+
+### 7.1 Trusted public key registry
+
+Public keys are stored at `~/.config/pqc-sigs/<algorithm>.pub` and
+optionally in a per-repo `.pqc-keys/` directory for project-scoped
+trust.
+
+```bash
+$ ls .pqc-keys/
+ml-dsa-65.pub   # trusted ML-DSA-65 public key for this project
+slh-dsa-sha2-128s.pub   # backup SLH-DSA key
+```
+
+### 7.2 Commit `.pqc-keys/`
+
+Commit `.pqc-keys/*.pub` to the repo. These are public keys — safe
+to commit, and consumers of the project need them to verify
+signatures.
+
+Add `.pqc-keys/*.priv` (if any private key files exist locally) to
+`.gitignore`.
+
+### 7.3 Distribute public keys out-of-band
+
+For trust bootstrapping, distribute public keys via a separate
+channel (e.g., a project website with HTTPS, a signed announcement
+in a mailing list). Never rely on a single channel for the first
+introduction of a public key.
+
+## §8 Verification Recipes
+
+### 8.1 Pre-commit hook
+
+```bash
+#!/usr/bin/env bash
+# .git/hooks/pre-commit
+# Re-verify all signatures in the project before allowing commit.
+set -e
+for sig in $(find . -name '*.sig'); do
+  input="${sig%.sig}"
+  if ! pqc-sign verify --key ml-dsa-65 --input "$input" --signature "$sig" 2>/dev/null; then
+    echo "FAIL: $sig does not verify"
+    exit 1
+  fi
+done
+```
+
+### 8.2 CI verification
+
+```yaml
+# .github/workflows/verify.yml
+name: verify
+on: [push, pull_request]
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install pqc-sign
+        run: cargo install pqc-sign
+      - name: Verify all signatures
+        run: |
+          for sig in $(find . -name '*.sig'); do
+            input="${sig%.sig}"
+            pqc-sign verify --key ml-dsa-65 --input "$input" --signature "$sig"
+          done
+```
+
+### 8.3 Agent runtime check (Hermes MCP)
+
+The betterbrowsermcp MCP server does not currently expose
+`pqc-sign` tools. This is a v0.9.0 candidate. For now, agents
+can shell out:
+
+```bash
+$ pqc-sign verify --key ml-dsa-65 --input ./dist/index.js --signature ./dist/index.js.sig
+```
+
+## §9 Anti-pattern Catalog
+
+### 9.1 Ed25519 / RSA / ECDSA code signing
+
+```bash
+# WRONG — classical signature, vulnerable to quantum attacks
+$ gpg --sign --default-key 0xDEADBEEF dist/index.js
+$ cosign sign-blob --key .cosign/key.pem dist/index.js
+$ signify -S .signify/key.sec -m dist/index.js
+```
+
+**Fix:** use `pqc-sign sign --key ml-dsa-65`. Migrate any existing
+Ed25519/RSA/ECDSA signing keys to ML-DSA-65 with a planned
+rollover (sign the new ML-DSA-65 pubkey with the old key, then
+distribute).
+
+### 9.2 Signing the hash of a file (not the file itself)
+
+```python
+# WRONG — vulnerable to chosen-prefix collisions if hash is weak
+import hashlib
+digest = hashlib.sha256(open("dist/index.js", "rb").read()).digest()
+signature = pqc_sign(digest)
+```
+
+**Fix:** sign the file contents directly. The ML-DSA-65 / SLH-DSA
+implementations handle internal hashing correctly. Don't pre-hash
+externally — that bypasses the algorithm's domain separation.
+
+### 9.3 Self-signed without a trust anchor
+
+```bash
+# WRONG — no way for the consumer to know they have the right pubkey
+$ pqc-sign keygen --algorithm ml-dsa-65
+$ pqc-sign sign --key ml-dsa-65 dist/index.js
+# No pubkey distribution step!
+```
+
+**Fix:** commit `.pqc-keys/ml-dsa-65.pub` to the repo, publish it
+on the project website, and reference it in the release notes.
+
+### 9.4 Signing binaries that include the signature itself
+
+```python
+# WRONG — chicken-and-egg
+sig = sign(binary_with_placeholder_sig)
+binary_with_real_sig = binary_with_placeholder.replace(placeholder, sig)
+```
+
+**Fix:** sign the binary without the signature, append the signature
+as a separate file (`binary.sig`). The signature is over the
+binary's exact bytes — adding the signature changes the bytes,
+invalidating the signature.
+
+### 9.5 Not rotating signing keys
+
+Signing keys should be rotated annually (or after a security
+incident). The procedure:
+1. Generate new ML-DSA-65 keypair.
+2. Cross-sign: new key signs old pubkey; old key signs new pubkey.
+3. Distribute new pubkey in `.pqc-keys/`.
+4. Re-sign all artifacts with new key.
+5. Keep old key for 1-year grace (verify-old artifacts window).
+
+## §10 Threat Model Statement
+
+### Primary risk: code tampering
+
+The dominant threat vector is **code tampering** — a malicious actor
+modifying signed artifacts (binaries, scripts, configs) between
+author and consumer. Signing detects this; verification enforces it.
+
+### What signing does NOT protect against
+
+- **Compromise of the signing key.** If the keychain is compromised,
+  the attacker can sign malicious updates. Mitigation: hardware
+  keychain, signing ceremony review, key rotation.
+- **Vulnerabilities in the signed code itself.** ML-DSA-65 verifies
+  that the code is exactly what was signed, not that the code is
+  safe. Use code review, fuzzing, and SAST in addition.
+- **Consumer side compromise.** If the consumer's `pqc-sign verify`
+  binary is replaced, the consumer is fooled. Use reproducible
+  builds and signed binaries of `pqc-sign` itself.
+
+### What signing DOES protect against
+
+- **MITM substitution of the download.** TLS handles transport; signing
+  handles end-to-end authenticity.
+- **Compromise of the distribution channel.** Even if the GitHub
+  release is replaced, the signature won't match the consumer's
+  trusted pubkey.
+- **Long-term integrity.** SLH-DSA signatures remain valid
+  indefinitely (hash security), so even if ML-DSA-65 is broken
+  by a future quantum attack, the SLH-DSA backup still verifies.
+
+### In-memory reads are trusted
+
+The user's own LLM (Hermes, Claude Code, etc.) is trusted to read
+the local public key, run the verify command, and report the
+result. The audit log captures every `pqc-sign` invocation so
+the user can verify "did my agent sign/verify X at Y time?"
+
+## §11 See also
+
+- [pqc-secrets](../pqc-secrets/SKILL.md) — companion skill for
+  symmetric encryption of secrets (uses ML-KEM-768 + AES-256-GCM)
+- `references/pqc-sign-cli.md` — CLI reference (future work)
+- `references/signature-formats.md` — signature file formats
+  (future work)

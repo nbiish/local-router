@@ -20,7 +20,6 @@ import {
   getOAuthStatus,
   getOAuthUpstreamHeaders,
   initAntigravityLogin,
-  completeAntigravityLogin,
   isOAuthProvider,
   listOAuthProviders,
   refreshOAuthToken,
