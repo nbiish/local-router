@@ -159,6 +159,7 @@ function ensureAntigravityCallbackServer(): void {
   antigravityCallbackServer = http.createServer(async (req, res) => {
     try {
       const url = new URL(req.url || '/', 'http://127.0.0.1');
+      console.log(`[oauth] antigravity callback hit: ${url.pathname}${url.search}`);
       if (url.pathname !== '/oauth-callback') {
         res.statusCode = 404;
         res.end('not found');
@@ -188,6 +189,7 @@ function ensureAntigravityCallbackServer(): void {
       }
       const pending = ANTIGRAVITY_PENDING.get(state);
       if (pending) {
+        console.log(`[oauth] antigravity callback received valid code, auto-completing login for state=${state.slice(0, 8)}...`);
         pending.resolve({ code });
         ANTIGRAVITY_PENDING.delete(state);
         // Auto-complete the login: exchange the code for tokens and persist.
@@ -201,6 +203,8 @@ function ensureAntigravityCallbackServer(): void {
           .catch((err) => {
             console.error('[oauth] antigravity auto-complete failed:', err?.message || err);
           });
+      } else {
+        console.warn(`[oauth] antigravity callback received code but no pending login for state=${state.slice(0, 8)}... — user may have started login in a different server instance.`);
       }
       // Redirect the browser back to the Local Router config UI. The UI
       // will auto-refresh the OAuth status panel to reflect the new login.
@@ -209,12 +213,18 @@ function ensureAntigravityCallbackServer(): void {
       res.setHeader('Location', '/config/providers');
       res.end('<h1>Antigravity login complete</h1><p>Redirecting to the Local Router configuration...</p>');
     } catch (err) {
+      console.error('[oauth] antigravity callback error:', err);
       res.statusCode = 500;
       res.end('internal error');
     }
   });
+  antigravityCallbackServer.on('error', () => {
+    antigravityCallbackServer = null;
+  });
+  antigravityCallbackServer.listen(antigravityCallbackPort, '127.0.0.1', () => {
+    /* server ready */
+  });
 }
-
 function loadStore(): OAuthStore {
   try {
     if (!fs.existsSync(OAUTH_STORE_PATH)) return {};
