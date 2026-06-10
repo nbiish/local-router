@@ -26,6 +26,7 @@ export interface ConfigApiDeps {
   state: {
     customProviderStore: CustomProviderRecord[];
     thinkingProxyEnabled: boolean;
+    waferZdrEnabled: boolean;
     endpointModelsCache: ProviderModel[];
   };
   keyStore: Record<string, string>;
@@ -84,6 +85,8 @@ export interface ConfigApiDeps {
   persistSystemPrompt: () => void;
   thinkingLevelApiPayload: () => any;
   persistThinkingConfig: () => void;
+  persistWaferConfig: () => void;
+  waferZdrApiPayload: () => { zdrEnabled: boolean };
   DEFAULT_FALLBACK_MODELS_TEXT: string;
   resolvedDefaultAutoRouterCandidatesText: () => string;
   DEFAULT_CHAIN_OF_DRAFT_PROMPT: string;
@@ -175,6 +178,8 @@ export function registerConfigApiRoutes(app: express.Express, deps: ConfigApiDep
     thinkingLevelApiPayload,
     thinkingLevelStore,
     persistThinkingConfig,
+    persistWaferConfig,
+    waferZdrApiPayload,
     DEFAULT_FALLBACK_MODELS_TEXT,
     resolvedDefaultAutoRouterCandidatesText,
     DEFAULT_CHAIN_OF_DRAFT_PROMPT,
@@ -1538,6 +1543,20 @@ app.delete('/api/thinking-level/:provider', (req: Request, res: Response) => {
   delete thinkingLevelStore[providerName];
   persistThinkingConfig();
   return res.json(thinkingLevelApiPayload());
+});
+
+// ── Wafer AI ZDR Config API ────────────────────────────────────────────────
+app.get('/api/wafer-config', (req: Request, res: Response) => {
+  return res.json(waferZdrApiPayload());
+});
+
+app.put('/api/wafer-config', (req: Request, res: Response) => {
+  if (typeof req.body?.zdrEnabled !== 'boolean') {
+    return res.status(400).json({ error: 'zdrEnabled must be a boolean.' });
+  }
+  state.waferZdrEnabled = req.body.zdrEnabled;
+  persistWaferConfig();
+  return res.json(waferZdrApiPayload());
 });
 
 app.head('/api/version', (req: Request, res: Response) => {

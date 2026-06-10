@@ -2472,6 +2472,42 @@ export function renderLayout(
           renderProviderThinkingGrid();
           setMessage('Thinking level for ' + escapeHtml(provider) + ' set to: ' + level, 'success');
         }
+        let waferZdrEnabled = true;
+        async function loadWaferZdrConfig() {
+          try {
+            const res = await fetch('/api/wafer-config');
+            if (!res.ok) throw new Error('HTTP ' + res.status);
+            const data = await res.json();
+            waferZdrEnabled = Boolean(data.zdrEnabled);
+            const toggleEl = document.getElementById('waferZdrToggle');
+            const statusEl = document.getElementById('waferZdrStatus');
+            if (toggleEl) toggleEl.checked = waferZdrEnabled;
+            if (statusEl) statusEl.textContent = waferZdrEnabled ? 'ZDR active for GLM-5.1 and Kimi-K2.6' : 'ZDR disabled';
+          } catch (err) {
+            console.error('loadWaferZdrConfig failed:', err);
+            const statusEl = document.getElementById('waferZdrStatus');
+            if (statusEl) statusEl.textContent = 'Failed to load';
+          }
+        }
+        async function toggleWaferZdr() {
+          const toggleEl = document.getElementById('waferZdrToggle');
+          const enabled = Boolean(toggleEl?.checked);
+          const res = await fetch('/api/wafer-config', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ zdrEnabled: enabled })
+          });
+          const payload = await res.json().catch(() => ({}));
+          if (!res.ok) {
+            setMessage(payload?.error || 'Failed to update ZDR config.', 'error');
+            if (toggleEl) toggleEl.checked = !enabled;
+            return;
+          }
+          waferZdrEnabled = payload.zdrEnabled;
+          const statusEl = document.getElementById('waferZdrStatus');
+          if (statusEl) statusEl.textContent = waferZdrEnabled ? 'ZDR active for GLM-5.1 and Kimi-K2.6' : 'ZDR disabled';
+          setMessage('Wafer ZDR enhancement ' + (waferZdrEnabled ? 'enabled' : 'disabled') + '.', 'success');
+        }
         async function toggleSystemPrompt() {
           const toggleEl = document.getElementById('systemPromptToggle');
           const fieldsEl = document.getElementById('systemPromptFields');
@@ -2805,6 +2841,7 @@ export function renderLayout(
         loadSessionsPanel();
         loadSystemPrompt();
         loadThinkingConfig();
+        loadWaferZdrConfig();
         loadModelSource();
 
         async function loadProviderPricingPanel() {

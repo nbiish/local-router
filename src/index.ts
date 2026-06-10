@@ -226,6 +226,7 @@ const LEGACY_MODEL_SOURCE_CONFIG_PATH = path.join(LEGACY_FVS_CONFIG_DIR, 'model-
 const ENDPOINT_MODELS_CACHE_PATH = path.join(LOCAL_ROUTER_CONFIG_DIR, 'endpoint-models-cache.json');
 const LEGACY_ENDPOINT_MODELS_CACHE_PATH = path.join(LEGACY_FVS_CONFIG_DIR, 'endpoint-models-cache.json');
 const CUSTOM_PROVIDERS_PATH = path.join(LOCAL_ROUTER_CONFIG_DIR, 'custom-providers.json');
+const WAFER_CONFIG_PATH = path.join(LOCAL_ROUTER_CONFIG_DIR, 'wafer-config.json');
 const RESERVED_PROVIDER_SLUGS = new Set([
   FALLBACK_PROVIDER_NAME,
   ...FALLBACK_PROVIDER_LEGACY_NAMES,
@@ -1650,6 +1651,10 @@ function persistSystemPrompt(): void {
 const thinkingLevelStore: Record<string, ThinkingLevel> = {};
 let thinkingProxyEnabled = false;
 
+// ── Wafer AI ZDR Configuration ────────────────────────────────────────────
+
+let waferZdrEnabled = true;
+
 function loadPersistedThinkingConfig(): void {
   const persistedPath = existingPath(THINKING_CONFIG_PATH, LEGACY_THINKING_CONFIG_PATH);
   if (!fs.existsSync(persistedPath)) return;
@@ -1690,6 +1695,34 @@ function persistThinkingConfig(): void {
   });
   fs.renameSync(temporaryPath, THINKING_CONFIG_PATH);
   fs.chmodSync(THINKING_CONFIG_PATH, 0o600);
+}
+
+function loadWaferConfig(): void {
+  if (!fs.existsSync(WAFER_CONFIG_PATH)) return;
+  try {
+    const parsed = JSON.parse(fs.readFileSync(WAFER_CONFIG_PATH, 'utf8'));
+    if (typeof parsed?.zdrEnabled === 'boolean') {
+      waferZdrEnabled = parsed.zdrEnabled;
+    }
+  } catch (error: any) {
+    console.error('Failed to load wafer config:', sanitizeDiagnosticText(String(error?.message || error)));
+  }
+}
+
+function persistWaferConfig(): void {
+  ensureLocalRouterConfigDir();
+  const payload = { zdrEnabled: waferZdrEnabled };
+  const temporaryPath = `${WAFER_CONFIG_PATH}.${process.pid}.tmp`;
+  fs.writeFileSync(temporaryPath, `${JSON.stringify(payload, null, 2)}\n`, {
+    encoding: 'utf8',
+    mode: 0o600
+  });
+  fs.renameSync(temporaryPath, WAFER_CONFIG_PATH);
+  fs.chmodSync(WAFER_CONFIG_PATH, 0o600);
+}
+
+function waferZdrApiPayload() {
+  return { zdrEnabled: waferZdrEnabled };
 }
 
 function getEffectiveThinkingLevel(providerName: string): ThinkingLevel {
@@ -3122,6 +3155,8 @@ const configState = {
   set customProviderStore(val) { customProviderStore = val; },
   get thinkingProxyEnabled() { return thinkingProxyEnabled; },
   set thinkingProxyEnabled(val) { thinkingProxyEnabled = val; },
+  get waferZdrEnabled() { return waferZdrEnabled; },
+  set waferZdrEnabled(val) { waferZdrEnabled = val; },
   get endpointModelsCache() { return endpointModelsCache; },
   set endpointModelsCache(val) { endpointModelsCache = val; }
 };
@@ -3188,6 +3223,8 @@ const configApiDeps = {
   thinkingLevelApiPayload,
   thinkingLevelStore,
   persistThinkingConfig,
+  persistWaferConfig,
+  waferZdrApiPayload,
   DEFAULT_FALLBACK_MODELS_TEXT,
   resolvedDefaultAutoRouterCandidatesText,
   DEFAULT_CHAIN_OF_DRAFT_PROMPT,
@@ -3420,11 +3457,15 @@ loadCustomProviders();
 loadPersistedProviderModels();
 mergeBaselineProviderModelOverrides();
 loadPersistedFallbackModels();
+if (waferZdrEnabled) {
+  console.log('[Wafer] ZDR enabled for GLM-5.1, Kimi-K2.6');
+}
 loadPersistedRouterModels();
 loadPersistedRouterSettings();
 loadProviderPricingStore();
 loadPersistedSystemPrompt();
 loadPersistedThinkingConfig();
+loadWaferConfig();
 loadModelSourceConfig();
 loadEndpointModelsCache();
 
@@ -4666,6 +4707,12 @@ async function proxyModelAttempt(
         message: sanitizeDiagnosticText(String(error?.message || 'Provider key is missing.'))
       }
     };
+  }
+
+  // Inject Wafer AI ZDR header for eligible models
+  const ZDR_ELIGIBLE_MODELS = new Set(['GLM-5.1', 'Kimi-K2.6']);
+  if (target.providerName === 'wafer-serverless' && waferZdrEnabled && ZDR_ELIGIBLE_MODELS.has(target.actualModel)) {
+    providerHeaders['Wafer-ZDR'] = 'required';
   }
 
   const requestBody = {
