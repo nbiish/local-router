@@ -156,7 +156,7 @@ let antigravityCallbackPort = 51121;
 
 function ensureAntigravityCallbackServer(): void {
   if (antigravityCallbackServer) return;
-  antigravityCallbackServer = http.createServer((req, res) => {
+  antigravityCallbackServer = http.createServer(async (req, res) => {
     try {
       const url = new URL(req.url || '/', 'http://127.0.0.1');
       if (url.pathname !== '/oauth-callback') {
@@ -190,19 +190,28 @@ function ensureAntigravityCallbackServer(): void {
       if (pending) {
         pending.resolve({ code });
         ANTIGRAVITY_PENDING.delete(state);
+        // Auto-complete the login: exchange the code for tokens and persist.
+        // The browser will be redirected back to the config UI.
+        const init = pending.init;
+        Promise.resolve()
+          .then(() => completeAntigravityLogin(init))
+          .then((state2) => {
+            console.log(`[oauth] antigravity login complete for ${state2.accountLabel || state2.accountId || 'user'}`);
+          })
+          .catch((err) => {
+            console.error('[oauth] antigravity auto-complete failed:', err?.message || err);
+          });
       }
+      // Redirect the browser back to the Local Router config UI. The UI
+      // will auto-refresh the OAuth status panel to reflect the new login.
       res.setHeader('Content-Type', 'text/html; charset=utf-8');
-      res.end('<h1>Antigravity login complete</h1><p>You may close this window and return to the Local Router configuration.</p>');
+      res.statusCode = 302;
+      res.setHeader('Location', '/config/providers');
+      res.end('<h1>Antigravity login complete</h1><p>Redirecting to the Local Router configuration...</p>');
     } catch (err) {
       res.statusCode = 500;
       res.end('internal error');
     }
-  });
-  antigravityCallbackServer.on('error', () => {
-    antigravityCallbackServer = null;
-  });
-  antigravityCallbackServer.listen(antigravityCallbackPort, '127.0.0.1', () => {
-    /* server ready */
   });
 }
 

@@ -945,7 +945,14 @@ function providerConfigs() {
     const hasEnvKey = Boolean(process.env[provider.keyEnvVar]);
     const ollamaPlaceholder = provider.name === 'ollama'
       && isOllamaPlaceholderKey(keyStore.ollama || process.env.OLLAMA_API_KEY);
-    const configured = provider.name === 'ollama' || hasMemoryKey || hasEnvKey;
+    // OAuth-based providers are "configured" when they have a valid access
+    // token in the OAuth credentials store (GitHub Copilot device flow,
+    // Google Antigravity PKCE). Without this, the UI shows "Not configured"
+    // for providers that are actually authenticated via OAuth.
+    const isOauth = isOAuthProvider(provider.name);
+    const oauthAccessToken = isOauth ? getOAuthState(provider.name as OAuthProviderId)?.accessToken : undefined;
+    const hasOAuthKey = Boolean(oauthAccessToken);
+    const configured = provider.name === 'ollama' || hasMemoryKey || hasEnvKey || hasOAuthKey;
     let configuredSource: string;
     if (provider.name === 'ollama' && ollamaPlaceholder) {
       configuredSource = 'default';
@@ -953,6 +960,8 @@ function providerConfigs() {
       configuredSource = 'memory';
     } else if (hasEnvKey) {
       configuredSource = 'env';
+    } else if (hasOAuthKey) {
+      configuredSource = 'oauth';
     } else {
       configuredSource = 'none';
     }
