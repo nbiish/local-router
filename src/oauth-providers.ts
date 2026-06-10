@@ -73,11 +73,19 @@ const ANTIGRAVITY_CLIENT_ID = '1071006060591-tmhssin2h21lcre235vtolojh4g403ep.ap
 const ANTIGRAVITY_CLIENT_SECRET = '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';
 const ANTIGRAVITY_AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth';
 const ANTIGRAVITY_TOKEN_URL = 'https://oauth2.googleapis.com/token';
+// Scopes for Google Antigravity (Cloud Code Assist). These match the scopes
+// used by oh-my-pi's google-antigravity.ts:
+// - cclog: Cloud Code Logs (required for Antigravity session logging)
+// - experimentsandconfigs: Cloud Code experiments and configs API
+// Without these, the OAuth consent screen is missing the "know what you're
+// doing in the app" permission that Antigravity requires, and token
+// exchange fails with insufficient_scope / invalid_grant.
 const ANTIGRAVITY_SCOPES = [
   'https://www.googleapis.com/auth/cloud-platform',
   'https://www.googleapis.com/auth/userinfo.email',
   'https://www.googleapis.com/auth/userinfo.profile',
-  'openid'
+  'https://www.googleapis.com/auth/cclog',
+  'https://www.googleapis.com/auth/experimentsandconfigs'
 ];
 const ANTIGRAVITY_USERINFO_URL = 'https://www.googleapis.com/oauth2/v3/userinfo';
 const ANTIGRAVITY_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta';
