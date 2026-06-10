@@ -34,6 +34,10 @@ export function isAllowedAutoRouterGatewayFreeModel(presentedId: string): boolea
   return AUTO_ROUTER_GATEWAY_FREE_SET.has(String(presentedId || '').trim());
 }
 
+// User-curated 19-step fallback chain. The order places OAuth/subscription
+// providers (Antigravity, GitHub Copilot) in the top half so the proxy
+// hits a free- or subscription-backed model before the paid-tier fallbacks
+// kick in.
 export const DEFAULT_FALLBACK_ORDERED_IDS: readonly string[] = [
   'ollama-nemotron-3-ultra-cloud',
   'nvidia-nim-minimax-m3',
@@ -41,13 +45,13 @@ export const DEFAULT_FALLBACK_ORDERED_IDS: readonly string[] = [
   'kilo-stepfun-step-3.7-flash-free',
   'opencode-zen-minimax-m3-free',
   'modal-glm-5.1-fp8',
+  'antigravity-gemini-3.5-flash',
+  'github-copilot-gemini-3.1-pro',
+  'antigravity-gemini-3.5-flash',
   'zai-code-pass-glm-5.1',
-  'xiaomi-mimo-mimo-v2.5-pro',
   'opencode-go-deepseek-v4-pro',
   'nebius-nemotron-3-ultra-550b-a55b',
   'commandcode-deepseek-v4-pro',
-  'antigravity-gemini-3.1-pro',
-  'github-copilot-claude-sonnet-4.6',
   'wafer-ai-deepseek-v4-flash',
   'kilo-minimax-minimax-m3-paid',
   'cline-deepseek-deepseek-v4-pro-paid',
@@ -55,6 +59,7 @@ export const DEFAULT_FALLBACK_ORDERED_IDS: readonly string[] = [
   'openrouter-chain-of-draft',
   'openrouter-free'
 ] as const;
+
 
 const CANDIDATE_DEFAULTS: Record<string, string> = {
   'ollama-nemotron-3-ultra-cloud': 'coding=0.86, input=0, output=0, latency=850, notes=Ollama Cloud Nemotron 3 Ultra (free tier)',
@@ -87,15 +92,14 @@ const CANDIDATE_DEFAULTS: Record<string, string> = {
   'xiaomi-mimo-mimo-v2.5-pro': 'coding=0.80, input=0.44, output=0.88, latency=1000, notes=Xiaomi MiMo V2.5 Pro subscription',
   'xiaomi-mimo-mimo-v2.5': 'coding=0.76, input=0.15, output=0.29, latency=1100, notes=Xiaomi MiMo V2.5 subscription',
   'commandcode-deepseek-v4-pro': 'coding=0.89, input=0.5, output=1, latency=800, notes=CommandCode DeepSeek V4 Pro subscription',
-  'antigravity-gemini-3.1-pro': 'coding=0.88, input=0, output=0, latency=800, notes=Google Antigravity Gemini 3.1 Pro subscription',
+  'antigravity-gemini-3.1-pro': 'coding=0.93, input=0, output=0, latency=800, notes=Google Antigravity Gemini 3.1 Pro subscription',
   'antigravity-gemini-3-flash': 'coding=0.84, input=0, output=0, latency=750, notes=Google Antigravity Gemini 3 Flash subscription',
+  'antigravity-gemini-3.5-flash': 'coding=0.95, input=0, output=0, latency=700, notes=Google Antigravity Gemini 3.5 Flash (primary subscription model)',
   'antigravity-claude-opus-4-6': 'coding=0.91, input=0, output=0, latency=950, notes=Google Antigravity Claude Opus 4.6 subscription',
   'antigravity-claude-sonnet-4-6': 'coding=0.90, input=0, output=0, latency=750, notes=Google Antigravity Claude Sonnet 4.6 subscription',
-  'antigravity-gpt-oss-120b': 'coding=0.82, input=0, output=0, latency=850, notes=Google Antigravity GPT OSS 120B subscription',
-  'github-copilot-claude-sonnet-4.6': 'coding=0.90, input=0, output=0, latency=700, notes=GitHub Copilot Claude 3.5 Sonnet subscription',
   'github-copilot-gpt-4o': 'coding=0.86, input=0, output=0, latency=750, notes=GitHub Copilot GPT-4o subscription',
   'github-copilot-gpt-5': 'coding=0.92, input=0, output=0, latency=850, notes=GitHub Copilot GPT-5 subscription',
-  'github-copilot-gemini-2.5-pro': 'coding=0.88, input=0, output=0, latency=800, notes=GitHub Copilot Gemini 2.5 Pro subscription',
+  'github-copilot-gemini-3.1-pro': 'coding=0.92, input=0, output=0, latency=800, notes=GitHub Copilot Gemini 3.1 Pro subscription',
   'github-copilot-o3-mini': 'coding=0.87, input=0, output=0, latency=750, notes=GitHub Copilot o3-mini subscription',
   'wafer-ai-deepseek-v4-flash': 'coding=0.87, input=0.5, output=1, latency=600, notes=Wafer DeepSeek V4 Flash',
   'zenmux-mimo-v2.5-pro': 'coding=0.84, input=0.44, output=0.88, latency=700, notes=ZenMux xiaomi/mimo-v2.5-pro paid tail',
@@ -141,6 +145,8 @@ function candidateLine(modelId: string): string {
   return `${modelId}, ${meta}`;
 }
 
+const FALLBACK_CANDIDATE_LINES = DEFAULT_FALLBACK_ORDERED_IDS.map((id) => candidateLine(id));
+
 function dedupeLines(lines: readonly string[]): string[] {
   const seen = new Set<string>();
   const out: string[] = [];
@@ -152,15 +158,13 @@ function dedupeLines(lines: readonly string[]): string[] {
   }
   return out;
 }
-
-const FALLBACK_CANDIDATE_LINES = DEFAULT_FALLBACK_ORDERED_IDS.map((id) => candidateLine(id));
-
-/** Curated auto-router superset (Hermes-relevant providers.txt picks + fallback union). */
+// Antigravity is the primary subscription-backed model (Google Cloud Code
+// Assist). Place it at the top of the auto-router-main candidate list so
 const AUTO_ROUTER_EXTRA_CANDIDATE_IDS = [
+  'antigravity-gemini-3.5-flash',
+  'github-copilot-gemini-3.1-pro',
   'ollama-minimax-m3-cloud',
-  'ollama-deepseek-v4-flash-cloud',
   ...AUTO_ROUTER_GATEWAY_FREE_PRESENTED_IDS,
-  'opencode-zen-deepseek-v4-flash-free',
   'opencode-go-minimax-m3',
   'opencode-go-kimi-k2.6',
   'opencode-go-glm-5.1',
@@ -177,7 +181,7 @@ const AUTO_ROUTER_EXTRA_CANDIDATE_IDS = [
   'github-copilot-claude-sonnet-4.6',
   'github-copilot-gpt-4o',
   'github-copilot-gpt-5',
-  'github-copilot-gemini-2.5-pro',
+  'github-copilot-gemini-3.1-pro',
   'github-copilot-o3-mini',
   'nvidia-nim-kimi-k2.6',
   'nvidia-nim-step-3.7-flash',
