@@ -190,13 +190,12 @@ function ensureAntigravityCallbackServer(): void {
       const pending = ANTIGRAVITY_PENDING.get(state);
       if (pending) {
         console.log(`[oauth] antigravity callback received valid code, auto-completing login for state=${state.slice(0, 8)}...`);
-        pending.resolve({ code });
-        ANTIGRAVITY_PENDING.delete(state);
-        // Auto-complete the login: exchange the code for tokens and persist.
-        // The browser will be redirected back to the config UI.
+        // Do NOT delete the pending entry yet — completeAntigravityLogin
+        // still needs to look it up to get the PKCE verifier. The entry
+        // is cleaned up inside completeAntigravityLogin itself.
         const init = pending.init;
         Promise.resolve()
-          .then(() => completeAntigravityLogin(init))
+          .then(() => completeAntigravityLogin(init, code))
           .then((state2) => {
             console.log(`[oauth] antigravity login complete for ${state2.accountLabel || state2.accountId || 'user'}`);
           })
@@ -536,10 +535,19 @@ export async function waitForAntigravityCode(state: string, timeoutMs = 5 * 60_0
   ]);
 }
 
-export async function completeAntigravityLogin(init: AntigravityLoginInit): Promise<OAuthProviderState> {
-  const callback = await waitForAntigravityCode(init.state);
+export async function completeAntigravityLogin(init: AntigravityLoginInit, codeOverride?: string): Promise<OAuthProviderState> {
+  // If the code was provided directly (e.g. from the callback server),
+  // use it. Otherwise, fall back to waiting on the pending map (used by
+  // the /api/oauth/complete/:provider endpoint for headless flows).
+  let code: string;
+  if (codeOverride) {
+    code = codeOverride;
+  } else {
+    const callback = await waitForAntigravityCode(init.state);
+    code = callback.code;
+  }
   const tokens = await exchangeAntigravityCode({
-    code: callback.code,
+    code,
     verifier: init.verifier,
     redirectUri: init.redirectUri
   });
