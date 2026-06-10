@@ -95,7 +95,11 @@ const PRESENTATION_PREFIX_TO_PROVIDER: Record<string, string> = {
   'wafer-serverless': 'wafer-serverless',
   zenmux: 'zenmux',
   openrouter: 'openrouter-presets',
-  'openrouter-presets': 'openrouter-presets'
+  'openrouter-presets': 'openrouter-presets',
+  antigravity: 'antigravity',
+  anti: 'antigravity',
+  'github-copilot': 'github-copilot',
+  copi: 'github-copilot'
 };
 
 export type CatalogModelRef = {

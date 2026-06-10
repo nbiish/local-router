@@ -35,8 +35,8 @@
 # │ cline              │ https://api.cline.bot/api/v1          │ CLINE_API_KEY            │
 # │ kilo               │ https://api.kilo.ai/api/gateway       │ KILO_API_KEY             │
 # │ commandcode        │ https://api.commandcode.ai/alpha/generate│ COMMANDCODE_API_KEY    │
-│ antigravity        │ https://generativelanguage.googleapis.com/v1beta│ ANTIGRAVITY_API_KEY│
-│ github-copilot     │ https://api.githubcopilot.com        │ GITHUB_COPILOT_API_KEY   │
+# │ antigravity        │ https://generativelanguage.googleapis.com/v1beta│ ANTIGRAVITY_API_KEY│
+# │ github-copilot     │ https://api.githubcopilot.com        │ GITHUB_COPILOT_API_KEY   │
 
 # =============================================================================
 # MASTER MODEL SPECIFICATION
