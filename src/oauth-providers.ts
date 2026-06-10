@@ -122,6 +122,26 @@ const PROVIDER_CONFIG: Record<OAuthProviderId, {
 
 const DEVICE_FLOW_PENDING: Partial<Record<OAuthProviderId, OAuthProviderSummary['pendingDeviceCode']>> = {};
 
+// ---------------------------------------------------------------------------
+// Concurrent refresh deduplication
+// ---------------------------------------------------------------------------
+
+/**
+ * In-flight refresh promises keyed by provider. When two requests arrive
+ * simultaneously and the token is expired, both would otherwise race the
+ * refresh endpoint — the second call would see a rotated refresh_token
+ * (Google rotates on every refresh) and fail. Sharing the in-flight promise
+ * (oh-my-pi pattern from `getVertexAccessToken` in
+ * packages/ai/src/providers/google-auth.ts) means a single refresh serves
+ * all concurrent callers.
+ */
+const REFRESH_INFLIGHT = new Map<OAuthProviderId, Promise<OAuthProviderState>>();
+
+/** Bound the shared refresh slot: a hung OAuth exchange must not pin the
+ *  inflight slot forever — every later call would await the stuck promise
+ *  until process restart. */
+const REFRESH_TIMEOUT_MS = 30_000;
+
 /** In-flight Antigravity PKCE logins tracked by `state` token. */
 type AntigravityPendingLogin = {
   init: AntigravityLoginInit;
@@ -288,19 +308,47 @@ export async function getOAuthAccessToken(provider: OAuthProviderId): Promise<st
 }
 
 export async function refreshOAuthToken(provider: OAuthProviderId): Promise<OAuthProviderState> {
-  const state = getOAuthState(provider);
-  if (!state) {
-    throw new Error(`OAuth provider "${provider}" is not configured.`);
-  }
-  let next: OAuthProviderState;
-  if (state.authType === 'oauth-pkce') {
-    next = await refreshAntigravityToken(state);
-  } else {
-    next = await refreshCopilotToken(state);
-  }
-  next.lastRefreshedAt = Date.now();
-  persistState(next);
-  return next;
+  // Share the in-flight refresh promise across concurrent callers.
+  // See REFRESH_INFLIGHT comment above for the rationale.
+  const existing = REFRESH_INFLIGHT.get(provider);
+  if (existing) return existing;
+  const promise = (async () => {
+    try {
+      const state = getOAuthState(provider);
+      if (!state) {
+        throw new Error(`OAuth provider "${provider}" is not configured.`);
+      }
+      let next: OAuthProviderState;
+      if (state.authType === 'oauth-pkce') {
+        next = await refreshAntigravityToken(state);
+      } else {
+        next = await refreshCopilotToken(state);
+      }
+      next.lastRefreshedAt = Date.now();
+      persistState(next);
+      return next;
+    } finally {
+      REFRESH_INFLIGHT.delete(provider);
+    }
+  })();
+  // Bound the shared slot: a hung refresh must not pin the inflight entry
+  // forever. If the timeout fires, reject the shared promise and clean up.
+  const guarded = Promise.race<OAuthProviderState>([
+    promise,
+    new Promise<never>((_, reject) =>
+      setTimeout(
+        () => reject(new Error(`OAuth refresh for ${provider} timed out after ${REFRESH_TIMEOUT_MS}ms`)),
+        REFRESH_TIMEOUT_MS,
+      ),
+    ),
+  ]);
+  REFRESH_INFLIGHT.set(provider, guarded);
+  return guarded;
+}
+
+/** Test seam: clears every in-flight refresh promise. */
+export function __resetRefreshInflight(): void {
+  REFRESH_INFLIGHT.clear();
 }
 
 // ---------------------------------------------------------------------------
@@ -724,10 +772,57 @@ export async function fetchOAuthProviderModels(provider: OAuthProviderId): Promi
 }
 
 // ---------------------------------------------------------------------------
-// Headers used for upstream requests
+// Copilot-specific helpers (oh-my-pi pattern from
+// packages/ai/src/providers/github-copilot-headers.ts)
 // ---------------------------------------------------------------------------
 
-export async function getOAuthUpstreamHeaders(provider: OAuthProviderId): Promise<Record<string, string>> {
+export type CopilotInitiator = 'user' | 'agent';
+
+/**
+ * Infer whether the current Copilot request is user-initiated or
+ * agent-initiated, so GitHub can properly account premium requests.
+ * Mirrors oh-my-pi's `inferCopilotInitiator`.
+ */
+export function inferCopilotInitiator(messages: unknown[] | undefined): CopilotInitiator {
+  if (!Array.isArray(messages) || messages.length === 0) return 'user';
+  const last = messages[messages.length - 1] as Record<string, unknown>;
+  const role = last?.role as string | undefined;
+  if (role === 'assistant' || role === 'system' || role === 'tool') return 'agent';
+  if (role !== 'user') return 'user';
+  // User message but the last block is a tool_result → agent turn.
+  const content = last.content;
+  if (Array.isArray(content) && content.length > 0) {
+    const lastBlock = content[content.length - 1] as Record<string, unknown>;
+    if (lastBlock?.type === 'tool_result') return 'agent';
+  }
+  return 'user';
+}
+
+/**
+ * Check whether any message in the conversation contains image content
+ * (for the Copilot-Vision-Request header).
+ */
+export function hasCopilotVisionInput(messages: unknown[] | undefined): boolean {
+  if (!Array.isArray(messages)) return false;
+  return messages.some((msg) => {
+    const m = msg as Record<string, unknown>;
+    if (m.role === 'user' && Array.isArray(m.content)) {
+      return (m.content as unknown[]).some((c) => {
+        const b = c as Record<string, unknown>;
+        return b.type === 'image' || b.type === 'image_url';
+      });
+    }
+    return false;
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Headers used for upstream requests
+// ---------------------------------------------------------------------------
+export async function getOAuthUpstreamHeaders(
+  provider: OAuthProviderId,
+  opts?: { messages?: unknown[] },
+): Promise<Record<string, string>> {
   const state = getOAuthState(provider);
   if (!state) {
     throw new Error(`OAuth provider "${provider}" is not configured.`);
@@ -738,9 +833,17 @@ export async function getOAuthUpstreamHeaders(provider: OAuthProviderId): Promis
   const accessToken = await getOAuthAccessToken(provider);
   const headers: Record<string, string> = {
     Authorization: `Bearer ${accessToken}`,
-    'Content-Type': 'application/json'
+    'Content-Type': 'application/json',
   };
   const extra = PROVIDER_CONFIG[provider].headers?.();
   if (extra) Object.assign(headers, extra);
+  // Copilot-specific dynamic headers (oh-my-pi pattern from
+  // packages/ai/src/providers/github-copilot-headers.ts).
+  if (provider === 'github-copilot') {
+    headers['X-Initiator'] = inferCopilotInitiator(opts?.messages);
+    if (hasCopilotVisionInput(opts?.messages)) {
+      headers['Copilot-Vision-Request'] = 'true';
+    }
+  }
   return headers;
 }

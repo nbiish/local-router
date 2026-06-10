@@ -4745,8 +4745,11 @@ async function proxyModelAttempt(
 
   let providerHeaders: Record<string, string>;
   try {
+    // Pass the request messages to getHeadersAsync so per-request dynamic
+    // headers (e.g. Copilot's X-Initiator) can inspect the conversation
+    // (oh-my-pi pattern).
     providerHeaders = provider.getHeadersAsync
-      ? await provider.getHeadersAsync()
+      ? await provider.getHeadersAsync({ messages: body?.messages })
       : provider.getHeaders();
   } catch (error: any) {
     return {

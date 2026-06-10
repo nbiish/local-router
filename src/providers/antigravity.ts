@@ -12,7 +12,7 @@ const provider: ProxyProvider = {
     // hot path — the proxy uses getHeadersAsync instead.
     throw new Error('Antigravity requires async headers — login first via /config');
   },
-  getHeadersAsync: async () => getOAuthUpstreamHeaders('antigravity'),
+  getHeadersAsync: async (opts) => getOAuthUpstreamHeaders('antigravity', opts),
   getModels: async () => fetchOAuthProviderModels('antigravity')
 };
 

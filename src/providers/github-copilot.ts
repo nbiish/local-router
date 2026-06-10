@@ -12,7 +12,7 @@ const provider: ProxyProvider = {
     // hot path — the proxy uses getHeadersAsync instead.
     throw new Error('GitHub Copilot requires async headers — login first via /config');
   },
-  getHeadersAsync: async () => getOAuthUpstreamHeaders('github-copilot'),
+  getHeadersAsync: async (opts) => getOAuthUpstreamHeaders('github-copilot', opts),
   getModels: async () => fetchOAuthProviderModels('github-copilot')
 };
 
