@@ -1,0 +1,7 @@
+model_id,benchmark,score,evaluator,model_used,date,notes
+opencode-go/kimi-k2.6,human-eval-typescript,0.93,oh-my-pi,opencode-go/kimi-k2.6,2026-06-11,Pass@1 with OMP AST-aware editing
+opencode-go/kimi-k2.6,mbpp,0.90,oh-my-pi,opencode-go/kimi-k2.6,2026-06-11,Pass@1
+opencode-zen/glm-5.1,human-eval-typescript,0.89,oh-my-pi,opencode-go/kimi-k2.6,2026-06-11,Pass@1
+wafer-serverless/glm-5.1,swe-bench-verified,0.28,oh-my-pi,opencode-go/kimi-k2.6,2026-06-11,Resolved rate with LSP
+nvidia-nim/nemotron-3-ultra,human-eval-typescript,0.88,oh-my-pi,opencode-go/kimi-k2.6,2026-06-11,Pass@1 fast inference
+nvidia-nim/nemotron-3-ultra,mbpp,0.85,oh-my-pi,opencode-go/kimi-k2.6,2026-06-11,Pass@1

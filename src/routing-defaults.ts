@@ -39,7 +39,6 @@ export function isAllowedAutoRouterGatewayFreeModel(presentedId: string): boolea
 // hits a free- or subscription-backed model before the paid-tier fallbacks
 // kick in.
 export const DEFAULT_FALLBACK_ORDERED_IDS: readonly string[] = [
-  'pioneer-minimax-m3',
   'ollama-nemotron-3-ultra-cloud',
   'nvidia-nim-minimax-m3',
   'cline-minimax-minimax-m3-free',
@@ -48,8 +47,9 @@ export const DEFAULT_FALLBACK_ORDERED_IDS: readonly string[] = [
   'modal-glm-5.1-fp8',
   'antigravity-gemini-3.5-flash',
   'github-copilot-gemini-3.1-pro',
-  'antigravity-gemini-3.5-flash',
   'zai-code-pass-glm-5.1',
+  'xiaomi-mimo-mimo-v2.5-pro',
+  'pioneer-minimax-m3',
   'opencode-go-deepseek-v4-pro',
   'nebius-nemotron-3-ultra-550b-a55b',
   'commandcode-deepseek-v4-pro',
@@ -167,6 +167,7 @@ const AUTO_ROUTER_EXTRA_CANDIDATE_IDS = [
   'antigravity-gemini-3.5-flash',
   'github-copilot-gemini-3.1-pro',
   'ollama-minimax-m3-cloud',
+  'ollama-deepseek-v4-flash-cloud',
   ...AUTO_ROUTER_GATEWAY_FREE_PRESENTED_IDS,
   'opencode-go-minimax-m3',
   'opencode-go-kimi-k2.6',

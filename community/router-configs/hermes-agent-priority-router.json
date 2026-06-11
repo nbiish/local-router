@@ -1,0 +1,41 @@
+{
+  "id": "hermes-agent-priority-router",
+  "type": "priority",
+  "description": "Hermes Agent's priority router for multi-agent orchestration with PQC secrets and skills",
+  "contributor": "hermes-agent",
+  "model_used": "anthropic/claude-opus-4-7",
+  "candidates": [
+    {
+      "model": "anthropic/claude-opus-4-7",
+      "codingScore": 0.95,
+      "inputPrice": 10,
+      "outputPrice": 30,
+      "latencyMs": 2000,
+      "notes": "Opus 4.7 - best for complex orchestration and skill authoring"
+    },
+    {
+      "model": "anthropic/claude-sonnet-4-6",
+      "codingScore": 0.91,
+      "inputPrice": 3,
+      "outputPrice": 15,
+      "latencyMs": 1500,
+      "notes": "Sonnet 4.6 - balanced for daily agentic workflows"
+    },
+    {
+      "model": "google/gemini-3.1-pro",
+      "codingScore": 0.88,
+      "inputPrice": 2,
+      "outputPrice": 5,
+      "latencyMs": 1200,
+      "notes": "Gemini 3.1 Pro - large context for multi-repo tasks"
+    },
+    {
+      "model": "opencode-go/kimi-k2.6",
+      "codingScore": 0.92,
+      "inputPrice": 1,
+      "outputPrice": 2,
+      "latencyMs": 1200,
+      "notes": "Kimi K2.6 - cost-effective fallback for coding subtasks"
+    }
+  ]
+}

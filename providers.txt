@@ -29,7 +29,7 @@
 # │ openrouter-presets │ https://openrouter.ai/api/v1          │ OPENROUTER_API_KEY       │
 # │ xiaomi-mimo        │ https://token-plan-sgp.xiaomimimo.com/v1│ XIAOMI_MIMO_API_KEY     │
 # │ opencode-go      │ https://opencode.ai/zen/go/v1          │ OPENCODE_API_KEY        │
-# │ opencode-zen       │ https://opencode.ai/zen/v1             │ OPENCODE_API_KEY        │
+# │ opencode-zen       │ https://opencode.ai/zen/v1             │ OPENCODE_ZEN_API_KEY    │
 # │ zai                │ https://api.z.ai/api/coding/paas/v4    │ ZAI_API_KEY             │
 # │ ollama             │ http://127.0.0.1:11435/v1              │ OLLAMA_API_KEY          │
 # │ cline              │ https://api.cline.bot/api/v1          │ CLINE_API_KEY            │
@@ -145,8 +145,6 @@
 # │124 │ kilo               │ xiaomi/mimo-v2.5                    │ kilo:mimo-v2.5                 │1,048,576 │ 131,072  │ YES   │ YES  │ YES   │ NO* paid  │
 # │125 │ kilo               │ moonshotai/kimi-k2.6                │ kilo:kimi-k2.6                 │ 262,144  │ 262,144  │ YES   │ YES  │ YES   │ NO* paid  │
 # │126 │ pioneer            │ minimax/minimax-m3                  │ pio:minimax-m3                 │1,000,000 │ 512,000  │ YES   │ YES  │ YES   │ YES  paid │
-# │127 │ pioneer            │ Qwen/Qwen3-8B                       │ pio:qwen3-8b                   │  32,768  │  8,192   │ YES   │ NO   │ YES   │ NO  paid   │
-# │128 │ pioneer            │ fastino/gliner2-base-v1             │ pio:gliner2-base-v1            │   8,192  │  2,048   │ YES   │ NO   │ NO    │ NO  paid   │
 # #
 # * Native reasoning DISABLED — VS Code/Copilot Chat and Zed cannot reliably
 #   preserve provider-native reasoning metadata across turns. FVS-CODE strips
@@ -555,7 +553,7 @@
 # Key env:     PIONEER_API_KEY
 # Zed prefix:  pio
 # Cross-tool:  All agents (openai_compatible format)
-# Models:      3  —  minimax/minimax-m3, Qwen/Qwen3-8B, fastino/gliner2-base-v1
+# Models:      1  —  minimax/minimax-m3
 # Notes:       Provides drop-in OpenAI-compatible chat completions.
 #              Supports Pioneer prompt caching (explicit caching via cache_control).
 #

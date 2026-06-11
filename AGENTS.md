@@ -1,5 +1,5 @@
 ---
-description: PQC secrets for all API keys. Worktree per task. ALL feature branches merge+verify on develop before ANY develop→main release. develop integrates+verifies; main is finalize-only. Polyglot ecosystem (Rust, TS, Py, etc). Chain-of-Draft (CoD) reasoning: strictly ≤5 words per step. Mimic human shorthand: pure logic/state transformations. Separate final output via ####. Ask before merging. Output full production code. llms.txt is the PRD anchor. Read it. No secrets in tasks or PRD. FIPS 203/204/205 for secrets ops. Standard crypto for transport. Audit for banned algorithms and secrets every cycle. Never work on main or develop. Create a worktree for every task. Branch naming: `<type>/<scope>-<slug>`. Pre-merge checklist: gates, diff, user confirmation. Fail closed on any conflict or unconfirmed merge.
+description: PQC secrets for all API keys. Worktree per task. All development commits/merges happen strictly on develop branch for validation. main is strictly a public-facing release-only branch. Chain-of-Draft (CoD) reasoning: strictly ≤5 words per step. Mimic human shorthand: pure logic/state transformations. Separate final output via ####. Ask before merging. Output full production code. llms.txt is the PRD anchor. Read it. No secrets in tasks or PRD. FIPS 203/204/205 for secrets ops. Standard crypto for transport. Audit for banned algorithms and secrets every cycle. Create a worktree for every task. Branch naming: `<type>/<scope>-<slug>`. Pre-merge checklist: gates, diff, user confirmation. Fail closed on any conflict or unconfirmed merge.
 ---
 
 # 🚧 WORKTREE GATE — MANDATORY CHECKPOINT
@@ -7,7 +7,7 @@ description: PQC secrets for all API keys. Worktree per task. ALL feature branch
 **Run this check BEFORE any code edit, file read, or git operation.**
 
 □ 1. What branch am I on?   → git branch --show-current
-   If "main" or "develop": STOP. Do nothing else. Create a worktree immediately (step 3).
+   If "main": STOP. Do nothing else. Create a worktree immediately (step 3).
 
 □ 2. Am I in a worktree?   → git worktree list
    If the cwd is the main worktree (no separate path): STOP. Create a worktree.
@@ -24,13 +24,11 @@ description: PQC secrets for all API keys. Worktree per task. ALL feature branch
 **Worktree path:** Sibling of main repo (e.g. `../my-feature`). Sibling paths keep worktrees discoverable and prevent nesting the worktree inside the main repo.
 
 **Rules:**
-- **NEVER** read, edit, or commit files while on `main` or `develop`.
-- **NEVER** run `git commit` from the main repository directory during active development.
+- **NEVER** read, edit, or commit files while on `main`.
 - One task = one branch = one worktree. No exceptions.
-- If you discover you're on `main` or `develop` after already making changes: stash, create worktree, pop stash in worktree, then continue.
+- If you discover you're on `main` after already making changes: stash, check out develop, create worktree, pop stash, then continue.
 
-**Why:** `main` is the release surface — production-ready, fully integrated state only. `develop` is the integration and verification surface — all worktree branches land here first for cross-feature assembly, gates, and smoke testing before release promotion. Active development never happens directly on either branch; only `feature/*` and `docs/*` worktrees commit code.
-
+**Why:** `main` is strictly the public-facing release branch. `develop` is the active development and integration branch — all changes land here (either directly or via feature worktrees merged here) for verification before release.
 ---
 
 # IDENTITY & PRIORITY
@@ -129,11 +127,9 @@ Validate types and paths (CWE-22). Parameterize SQL. `shell=False` for subproces
 
 | Branch | Purpose | Writes allowed? |
 |--------|---------|----------------|
-| `main` | **Release branch.** Production-facing canonical state. Receives only verified, integrated work promoted from `develop`. | **NO** — merge-only from `develop` after full verification |
-| `develop` | **Integration & verification branch.** Mandatory assembly line where all worktree work lands, integrates, and is tested before release. | **NO** — merge-only from `feature/*` / `docs/*` worktrees |
-| `feature/<slug>` | **Active development.** One task, one branch, one isolated worktree. | **YES** |
-
-**Invariant:** No feature work ships to `main` without passing through `develop`. `develop` is not optional — it is the required integration and verification gate.
+| `main` | **Release branch.** Public-facing release-only state. | **NO** — merge-only from `develop` during release windows |
+| `develop` | **Active development & integration branch.** All changes land here for verification. | **YES** — direct commits/merges allowed |
+| `feature/<slug>` | **Active task development.** Isolated worktree branched from `develop`. | **YES** |
 
 ### Develop-Complete Gate — Hard Rule Before `main`
 
@@ -236,9 +232,8 @@ git worktree list                         # expect: only the main repo
 git branch | grep -v "^\*"                # expect: no <type>/<scope>-<slug> rows
 git status                                # expect: clean
 
-# 4. (Recommended) Switch to main for safety until the next task
-git checkout main
-```
+# 4. (Recommended) Switch to develop for safety until the next task
+git checkout develop
 
 **Why:** Orphaned worktrees and merged branches accumulate fast and confuse future tasks. Cleaning up after every merge keeps the worktree list and branch namespace small and auditable. The task file (`.agents/tasks/TASK.$(date).md`) survives worktree deletion because it lives in the merged branch, not the worktree's working copy.
 </WORKFLOW>
