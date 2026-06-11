@@ -510,6 +510,7 @@
 # Tier:        Google Antigravity (subscription / quota-limited)
 # Endpoint:    https://generativelanguage.googleapis.com/v1beta
 # Key env:     ANTIGRAVITY_API_KEY  (placeholder only — real auth is OAuth)
+# OAuth env:   ANTIGRAVITY_CLIENT_ID, ANTIGRAVITY_CLIENT_SECRET  (PQC bundle)
 # Auth:        OAuth 2.0 + PKCE (browser flow) — login from /config
 # Storage:     ~/.config/local-router/oauth-credentials.json  (chmod 600)
 # Models:      Discovered live via /models when logged in. Curated defaults:
@@ -517,7 +518,9 @@
 #              claude-sonnet-4.6, gpt-oss-120b
 # Quota:       Hybrid: sprint 5h refresh + weekly baseline + AI credits overage.
 #              Detect 429 / quota_exceeded and skip in routing.
-# Notes:       Do NOT store any token in providers.txt, .env, git, or shell
+# Notes:       OAuth client ID and secret are loaded from environment variables
+#              (set via PQC bundle or secrets-load). They are never hardcoded.
+#              Do NOT store any token in providers.txt, .env, git, or shell
 #              history. Use /config → Antigravity → Login to start the PKCE flow.
 
 # │ 50 │ antigravity        │ models/gemini-3.1-pro               │ anti:gemini-3.1-pro        │1,000,000 │ 64,000   │ YES   │ YES  │ NO    │ YES       │
