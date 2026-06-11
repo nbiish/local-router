@@ -68,9 +68,12 @@ export const OAUTH_STORE_PATH = path.join(OAUTH_STORE_DIR, 'oauth-credentials.js
 /** Public, well-known OAuth client IDs. Antigravity is Google's own
  *  publicly-distributed desktop client; Copilot's is the same VS Code
  *  Copilot Chat client that GitHub ships, reused by every third-party
- *  integration. They are not org-specific. */
-const ANTIGRAVITY_CLIENT_ID = '1071006060591-tmhssin2h21lcre235vtolojh4g403ep.apps.googleusercontent.com';
-const ANTIGRAVITY_CLIENT_SECRET = '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';
+ *  integration. They are not org-specific.
+ *
+ *  Values are loaded from environment variables (set via PQC bundle
+ *  or shell) so they never appear as hardcoded literals in git history. */
+const ANTIGRAVITY_CLIENT_ID = process.env.ANTIGRAVITY_CLIENT_ID || '';
+const ANTIGRAVITY_CLIENT_SECRET = process.env.ANTIGRAVITY_CLIENT_SECRET || '';
 const ANTIGRAVITY_AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth';
 const ANTIGRAVITY_TOKEN_URL = 'https://oauth2.googleapis.com/token';
 // Scopes for Google Antigravity (Cloud Code Assist). These match the scopes
