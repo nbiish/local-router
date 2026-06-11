@@ -10,7 +10,8 @@ const provider: ProxyProvider = {
     if (!key) throw new Error('OPENROUTER_API_KEY is not set in the environment');
     return {
       'Content-Type': 'application/json',
-      'Authorization': `Bearer ${key}`
+      'Authorization': `Bearer ${key}`,
+      'X-OpenRouter-Cache': 'true'
     };
   },
   getModels: async () => {

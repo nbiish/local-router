@@ -60,6 +60,7 @@ export const SUBSCRIPTION_PROVIDER_SUB_ORDER = [
 export const ROUTING_PAID_PROVIDER_SUB_ORDER = [
   'wafer-serverless',
   'zenmux',
+  'pioneer',
   'openrouter-presets',
   'nebius',
   'cline',
@@ -94,6 +95,8 @@ const PRESENTATION_PREFIX_TO_PROVIDER: Record<string, string> = {
   'wafer-ai': 'wafer-serverless',
   'wafer-serverless': 'wafer-serverless',
   zenmux: 'zenmux',
+  pioneer: 'pioneer',
+  pio: 'pioneer',
   openrouter: 'openrouter-presets',
   'openrouter-presets': 'openrouter-presets',
   antigravity: 'antigravity',

@@ -37,6 +37,7 @@
 # │ commandcode        │ https://api.commandcode.ai/alpha/generate│ COMMANDCODE_API_KEY    │
 # │ antigravity        │ https://generativelanguage.googleapis.com/v1beta│ ANTIGRAVITY_API_KEY│
 # │ github-copilot     │ https://api.githubcopilot.com        │ GITHUB_COPILOT_API_KEY   │
+# │ pioneer            │ https://api.pioneer.ai/v1             │ PIONEER_API_KEY          │
 
 # =============================================================================
 # MASTER MODEL SPECIFICATION
@@ -143,6 +144,9 @@
 # │123 │ kilo               │ xiaomi/mimo-v2.5-pro                │ kilo:mimo-v2.5-pro             │1,048,576 │ 131,072  │ YES   │ NO   │ YES   │ NO* paid  │
 # │124 │ kilo               │ xiaomi/mimo-v2.5                    │ kilo:mimo-v2.5                 │1,048,576 │ 131,072  │ YES   │ YES  │ YES   │ NO* paid  │
 # │125 │ kilo               │ moonshotai/kimi-k2.6                │ kilo:kimi-k2.6                 │ 262,144  │ 262,144  │ YES   │ YES  │ YES   │ NO* paid  │
+# │126 │ pioneer            │ minimax/minimax-m3                  │ pio:minimax-m3                 │1,000,000 │ 512,000  │ YES   │ YES  │ YES   │ YES  paid │
+# │127 │ pioneer            │ Qwen/Qwen3-8B                       │ pio:qwen3-8b                   │  32,768  │  8,192   │ YES   │ NO   │ YES   │ NO  paid   │
+# │128 │ pioneer            │ fastino/gliner2-base-v1             │ pio:gliner2-base-v1            │   8,192  │  2,048   │ YES   │ NO   │ NO    │ NO  paid   │
 # #
 # * Native reasoning DISABLED — VS Code/Copilot Chat and Zed cannot reliably
 #   preserve provider-native reasoning metadata across turns. FVS-CODE strips
@@ -167,6 +171,7 @@
 # │ opencode-zen       │ pass-through │ Unified subscription pass-through caching     │
 # │ zai                │ automatic    │ Implicit context caching, preserved thinking  │
 # │ ollama             │ N/A          │ Local inference, no network caching           │
+# │ pioneer            │ explicit/auto│ Claude requires cache_control; GPT is auto    │
 #
 # DETAILS:
 # - DeepSeek models (all providers): Automatic KV caching. No request parameters
@@ -541,6 +546,20 @@
 #              (oh-my-pi PR #1210). Do NOT store any token in providers.txt,
 #              .env, git, or shell history.
 
+## pioneer __________________________________________________________________
+# Tier:        Pioneer AI Agentic Inference Platform
+# Endpoint:    https://api.pioneer.ai/v1
+# Key env:     PIONEER_API_KEY
+# Zed prefix:  pio
+# Cross-tool:  All agents (openai_compatible format)
+# Models:      3  —  minimax/minimax-m3, Qwen/Qwen3-8B, fastino/gliner2-base-v1
+# Notes:       Provides drop-in OpenAI-compatible chat completions.
+#              Supports Pioneer prompt caching (explicit caching via cache_control).
+#
+## pioneer-caching-details
+# - Pioneer: Caching is automatic for server-managed models and explicit
+#   (cache_control with ttl: "1h") for all other models (e.g. Minimax M3).
+
 # │ 55 │ github-copilot     │ claude-sonnet-4.6                   │ copi:claude-sonnet-4.6     │ 200,000  │ 64,000   │ YES   │ YES  │ NO    │ YES       │
 # │ 56 │ github-copilot     │ gpt-4o                              │ copi:gpt-4o                │ 128,000  │ 16,000   │ YES   │ YES  │ NO    │ NO        │
 # │ 57 │ github-copilot     │ gpt-5                               │ copi:gpt-5                 │ 400,000  │ 64,000   │ YES   │ YES  │ NO    │ YES       │
@@ -564,6 +583,7 @@
 # │ opencode-go      │ YES    │ YES        │ YES custom│ YES  │ YES   │ YES │ YES   │ YES   │ YES   │ YES       │
 # │ cline              │ YES    │ YES        │ YES custom│ YES  │ YES   │ YES │ YES   │ YES   │ YES   │ YES       │
 # │ kilo               │ YES    │ YES        │ YES custom│ YES  │ YES   │ YES │ YES   │ YES   │ YES   │ YES       │
+# │ pioneer            │ YES    │ YES        │ YES custom│ YES  │ YES   │ YES │ YES   │ YES   │ YES   │ YES       │
 #
 # All providers use standard OpenAI-compatible API format (POST /v1/chat/completions).
 # Any tool that supports custom OpenAI-compatible endpoints can use these configs.

@@ -291,6 +291,7 @@ const DEFAULT_PROVIDER_TIER_ORDER = [
   'xiaomi-mimo',
   'wafer-serverless',
   'zenmux',
+  'pioneer',
   'openrouter-presets'
 ] as const;
 
@@ -309,6 +310,7 @@ const PRESENTATION_PREFIX_TO_PROVIDER: Record<string, string> = {
   'wafer-ai': 'wafer-serverless',
   'wafer-serverless': 'wafer-serverless',
   zenmux: 'zenmux',
+  pioneer: 'pioneer',
   openrouter: 'openrouter-presets',
   'openrouter-presets': 'openrouter-presets'
 };
@@ -4662,26 +4664,60 @@ export function buildFailoverPreservedBody(body: any, preservedModel: string): a
   return prepared;
 }
 
-function injectPromptCaching(body: any, providerName: string): any {
-  const isCachingSupported = ['zenmux', 'opencode-go', 'opencode-zen', 'xiaomi-mimo', 'wafer-serverless', 'openrouter', 'openrouter-presets'].includes(providerName);
+export function injectPromptCaching(body: any, providerName: string): any {
+  const isCachingSupported = [
+    'zenmux',
+    'opencode-go',
+    'opencode-zen',
+    'xiaomi-mimo',
+    'wafer-serverless',
+    'openrouter',
+    'openrouter-presets',
+    'pioneer',
+    'cline',
+    'kilo'
+  ].includes(providerName);
   if (!isCachingSupported) return body;
+
+  const modelLower = String(body.model || '').toLowerCase();
+  const isOpenAiFamily = modelLower.startsWith('gpt-') || 
+                         modelLower.startsWith('o1-') || 
+                         modelLower.startsWith('o3-') || 
+                         modelLower.includes('chatgpt') ||
+                         modelLower.includes('gpt-4') ||
+                         modelLower.includes('gpt-5');
+
+  if (isOpenAiFamily) {
+    const newBody = { ...body };
+    newBody.prompt_cache_retention = "24h";
+    return newBody;
+  }
+
+  const isPioneer = providerName === 'pioneer';
 
   const messages = body.messages || [];
   const totalMessageLength = messages.reduce((acc: number, m: any) => acc + (typeof m.content === 'string' ? m.content.length : 0), 0);
   const isLargePrompt = totalMessageLength > 800 || messages.length >= 4;
   if (!isLargePrompt) return body;
 
+  const cacheControlValue = isPioneer 
+    ? { type: 'ephemeral', ttl: '1h' } 
+    : { type: 'ephemeral' };
+
   const newBody = { ...body };
+  if (providerName === 'zai') {
+    newBody.clear_thinking = false;
+  }
   if (Array.isArray(newBody.messages) && newBody.messages.length > 0) {
     const newMessages = [...newBody.messages];
 
     if (newMessages[0] && newMessages[0].role === 'system') {
       const msg = { ...newMessages[0] };
       if (typeof msg.content === 'string') {
-        msg.content = [{ type: 'text', text: msg.content, cache_control: { type: 'ephemeral' } }];
+        msg.content = [{ type: 'text', text: msg.content, cache_control: cacheControlValue }];
       } else if (Array.isArray(msg.content) && msg.content[0]) {
         msg.content = msg.content.map((part: any, idx: number) => 
-          idx === 0 ? { ...part, cache_control: { type: 'ephemeral' } } : part
+          idx === 0 ? { ...part, cache_control: cacheControlValue } : part
         );
       }
       newMessages[0] = msg;
@@ -4691,10 +4727,10 @@ function injectPromptCaching(body: any, providerName: string): any {
     if (targetIdx > 0 && newMessages[targetIdx]) {
       const msg = { ...newMessages[targetIdx] };
       if (typeof msg.content === 'string') {
-        msg.content = [{ type: 'text', text: msg.content, cache_control: { type: 'ephemeral' } }];
+        msg.content = [{ type: 'text', text: msg.content, cache_control: cacheControlValue }];
       } else if (Array.isArray(msg.content) && msg.content[0]) {
         msg.content = msg.content.map((part: any, idx: number) => 
-          idx === 0 ? { ...part, cache_control: { type: 'ephemeral' } } : part
+          idx === 0 ? { ...part, cache_control: cacheControlValue } : part
         );
       }
       newMessages[targetIdx] = msg;
@@ -4775,6 +4811,9 @@ async function proxyModelAttempt(
   const ZDR_ELIGIBLE_MODELS = new Set(['GLM-5.1', 'Kimi-K2.6']);
   if (target.providerName === 'wafer-serverless' && waferZdrEnabled && ZDR_ELIGIBLE_MODELS.has(target.actualModel)) {
     providerHeaders['Wafer-ZDR'] = 'required';
+  }
+  if (target.providerName === 'openrouter' || target.providerName === 'openrouter-presets') {
+    providerHeaders['X-OpenRouter-Cache'] = 'true';
   }
 
   const requestBody = {
