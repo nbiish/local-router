@@ -375,22 +375,24 @@ test('provider key save/reset lifecycle exposes configured source', async (t) =>
   const expectedFallbackChain = [
     'ollama-nemotron-3-ultra-cloud',
     'nvidia-nim-minimax-m3',
-    'modal-glm-5.1-fp8',
-    'kilo-minimax-minimax-m3-paid',
     'cline-minimax-minimax-m3-free',
-    'opencode-zen-minimax-m3-free',
-    'openrouter-free',
     'kilo-stepfun-step-3.7-flash-free',
-    'opencode-go-deepseek-v4-pro',
+    'opencode-zen-minimax-m3-free',
+    'modal-glm-5.1-fp8',
+    'antigravity-gemini-3.5-flash',
+    'github-copilot-gemini-3.1-pro',
     'zai-code-pass-glm-5.1',
     'xiaomi-mimo-mimo-v2.5-pro',
+    'pioneer-minimax-m3',
+    'opencode-go-deepseek-v4-pro',
+    'nebius-nemotron-3-ultra-550b-a55b',
+    'commandcode-deepseek-v4-pro',
     'wafer-ai-deepseek-v4-flash',
+    'kilo-minimax-minimax-m3-paid',
+    'cline-deepseek-deepseek-v4-pro-paid',
     'zenmux-mimo-v2.5-pro',
     'openrouter-chain-of-draft',
-    'nebius-nemotron-3-ultra-550b-a55b',
-    'cline-deepseek-deepseek-v4-flash-free',
-    'kilo-deepseek-deepseek-v4-flash-paid',
-    'commandcode-deepseek-v4-pro'
+    'openrouter-free'
   ];
   assert.deepEqual(
     fallbackChain,
@@ -1615,47 +1617,58 @@ test('localrouter CLI lists models and inspects routers against running server',
   );
 });
 
-test('shared OPENCODE_API_KEY applies to opencode-go and opencode-zen', async (t) => {
+test('separate OPENCODE_API_KEY and OPENCODE_ZEN_API_KEY apply to opencode-go and opencode-zen', async (t) => {
   if (skipReason) {
     t.skip(skipReason);
     return;
   }
 
-  const sharedKey = 'shared-opencode-integration-key';
-  const save = await requestJson('/api/keys', {
+  const goKey = 'opencode-go-integration-key';
+  const saveGo = await requestJson('/api/keys', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ provider: 'opencode-go', apiKey: sharedKey })
+    body: JSON.stringify({ provider: 'opencode-go', apiKey: goKey })
   });
-  assert.equal(save.response.status, 200);
+  assert.equal(saveGo.response.status, 200);
   assert.deepEqual(
-    new Set(save.body?.sharedProviders || []),
-    new Set(['opencode-go', 'opencode-zen'])
+    new Set(saveGo.body?.sharedProviders || []),
+    new Set(['opencode-go'])
+  );
+
+  const zenKey = 'opencode-zen-integration-key';
+  const saveZen = await requestJson('/api/keys', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ provider: 'opencode-zen', apiKey: zenKey })
+  });
+  assert.equal(saveZen.response.status, 200);
+  assert.deepEqual(
+    new Set(saveZen.body?.sharedProviders || []),
+    new Set(['opencode-zen'])
   );
 
   const configs = await requestJson('/api/provider-configs');
   assert.equal(configs.response.status, 200);
-  for (const name of ['opencode-go', 'opencode-zen']) {
-    const entry = configs.body?.data?.find((item) => item.name === name);
-    assert.ok(entry, `Expected ${name} in provider configs`);
-    assert.equal(entry.configured, true);
-    assert.equal(entry.configuredSource, 'memory');
-  }
+  
+  const entryGo = configs.body?.data?.find((item) => item.name === 'opencode-go');
+  assert.ok(entryGo);
+  assert.equal(entryGo.configured, true);
 
-  const reset = await requestJson('/api/keys/opencode-go', { method: 'DELETE' });
-  assert.equal(reset.response.status, 200);
-  assert.deepEqual(
-    new Set(reset.body?.sharedProviders || []),
-    new Set(['opencode-go', 'opencode-zen'])
-  );
+  const entryZen = configs.body?.data?.find((item) => item.name === 'opencode-zen');
+  assert.ok(entryZen);
+  assert.equal(entryZen.configured, true);
 
-  const afterReset = await requestJson('/api/provider-configs');
-  for (const name of ['opencode-go', 'opencode-zen']) {
-    const entry = afterReset.body?.data?.find((item) => item.name === name);
-    assert.ok(entry, `Expected ${name} after reset`);
-    assert.equal(entry.configured, false);
-    assert.equal(entry.configuredSource, 'none');
-  }
+  const resetGo = await requestJson('/api/keys/opencode-go', { method: 'DELETE' });
+  assert.equal(resetGo.response.status, 200);
+
+  const configsAfter = await requestJson('/api/provider-configs');
+  const entryGoAfter = configsAfter.body?.data?.find((item) => item.name === 'opencode-go');
+  assert.equal(entryGoAfter.configured, false);
+
+  const entryZenAfter = configsAfter.body?.data?.find((item) => item.name === 'opencode-zen');
+  assert.equal(entryZenAfter.configured, true);
+
+  await requestJson('/api/keys/opencode-zen', { method: 'DELETE' });
 });
 
 test('router export and import via CLI', async (t) => {

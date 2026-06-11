@@ -29,7 +29,7 @@
 # │ openrouter-presets │ https://openrouter.ai/api/v1          │ OPENROUTER_API_KEY       │
 # │ xiaomi-mimo        │ https://token-plan-sgp.xiaomimimo.com/v1│ XIAOMI_MIMO_API_KEY     │
 # │ opencode-go      │ https://opencode.ai/zen/go/v1          │ OPENCODE_API_KEY        │
-# │ opencode-zen       │ https://opencode.ai/zen/v1             │ OPENCODE_API_KEY        │
+# │ opencode-zen       │ https://opencode.ai/zen/v1             │ OPENCODE_ZEN_API_KEY    │
 # │ zai                │ https://api.z.ai/api/coding/paas/v4    │ ZAI_API_KEY             │
 # │ ollama             │ http://127.0.0.1:11435/v1              │ OLLAMA_API_KEY          │
 # │ cline              │ https://api.cline.bot/api/v1          │ CLINE_API_KEY            │
