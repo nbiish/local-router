@@ -4,11 +4,10 @@ This is the project-wide Product Requirements Document (PRD) and root DOX contra
 
 ## Purpose
 
-Local Router is a localhost proxy (port `11434` by default; `PORT` env var override) with **Ollama-compatible** and **OpenAI-compatible** surfaces. Point VS Code Copilot Chat, Claude Code, Cline, Roo Code, Continue, Codex, or scripts at `http://127.0.0.1:11434` and route to **17 built-in catalog providers** (15 static-key + 2 OAuth-subscription: Google Antigravity, GitHub Copilot) plus **any custom OpenAI-compatible API** you register—using one model namespace and one configuration UI.
+Local Router is a localhost proxy running on the Ollama-default port `11434` for the release/`main` branch (this is the port all standard tooling should target). The `develop` branch builds and runs on `11436` for operator inspection and verification only — never for client tooling. Both branches expose **Ollama-compatible** and **OpenAI-compatible** surfaces. Point VS Code Copilot Chat, Claude Code, Cline, Roo Code, Continue, Codex, or scripts at `http://127.0.0.1:11434` and route to **17 built-in catalog providers** (15 static-key + 2 OAuth-subscription: Google Antigravity, GitHub Copilot) plus **any custom OpenAI-compatible API** you register—using one model namespace and one configuration UI.
 
 ### Capabilities & Topology
-- **Port:** `11434` (Ollama default — drop-in)
-- **Client inference:** `POST /v1/chat/completions`, Ollama `/api/chat` & `/api/generate`, Codex `POST /v1/responses`, Claude Code `POST /v1/messages`
+- **Port:** `11434` (Ollama default — drop-in). `develop` verification build uses `11436` (the main server port + 2) to avoid colliding with the running main server. Override with the `PORT` env var.
 - **Model IDs:** `{provider-slug}/{presented-alias}` (e.g. `zenmux/qwen3.7-max`, `my-vendor/my-alias`) or `local-router/{router-or-fallback-id}`
 - **Keys:** `/config` UI → in-memory while running → **PQC bundle** `~/.config/pqc-secrets/secrets.bundle.json` on every save (ML-KEM-768 + AES-256-GCM). Never committed to git or `providers.txt`.
 - **Catalog:** `providers.txt` (15 providers, **~105** presented models in custom mode) + runtime edits in `provider-models.json` + **custom providers** in `custom-providers.json`.
