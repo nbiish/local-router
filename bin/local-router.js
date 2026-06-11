@@ -147,6 +147,49 @@ function readStateFile(filePath) {
   }
 }
 
+/**
+ * Find all PIDs with an IPv4/IPv6 socket listening on `port`.
+ * Returns an array of unique integer PIDs (may be empty).
+ */
+function findPidsOnPort(port) {
+  try {
+    const result = spawnSync(
+      'lsof',
+      ['-i', `:${port}`, '-P', '-n', '-sTCP:LISTEN', '-F', 'p'],
+      { encoding: 'utf8', timeout: 3000 }
+    );
+    if (!result.stdout) return [];
+    const pids = [];
+    for (const line of result.stdout.split(/\r?\n/)) {
+      const trimmed = line.trim();
+      if (trimmed.startsWith('p')) {
+        const pid = Number.parseInt(trimmed.slice(1), 10);
+        if (Number.isInteger(pid) && pid > 0) pids.push(pid);
+      }
+    }
+    return [...new Set(pids)];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Send SIGTERM to a process group (negative pid) so child processes
+ * spawned by `tsx watch` or `npm exec` are also terminated.
+ * Falls back to killing just the pid if the group kill fails.
+ */
+function killProcessTree(pid) {
+  try {
+    process.kill(-pid, 'SIGTERM');
+  } catch {
+    try {
+      process.kill(pid, 'SIGTERM');
+    } catch {
+      // process already gone
+    }
+  }
+}
+
 function writeStateFile(filePath, value) {
   ensureConfigDir();
   fs.writeFileSync(filePath, `${JSON.stringify(value, null, 2)}\n`, 'utf8');
@@ -261,31 +304,49 @@ async function cmdStatus(options) {
 
 async function cmdStop(options) {
   const localState = readStateFile(STATE_PATH) || readStateFile(LEGACY_STATE_PATH);
+
+  // Phase 1: try recorded PID (process group kill to catch tsx/npm trees)
   if (localState && Number.isInteger(localState.pid)) {
-    try {
-      process.kill(localState.pid, 'SIGTERM');
-    } catch (error) {
-      // Keep going and check runtime state.
-    }
+    killProcessTree(localState.pid);
   }
 
+  // Phase 2: wait briefly, then fall back to lsof-based port discovery
   for (let i = 0; i < 25; i += 1) {
     const current = await probeServer(options.host, options.port);
     if (!current.running || current.kind !== 'local-router') {
-      try {
-        fs.unlinkSync(STATE_PATH);
-      } catch {
-        // noop
-      }
-      try {
-        fs.unlinkSync(LEGACY_STATE_PATH);
-      } catch {
-        // noop
-      }
+      try { fs.unlinkSync(STATE_PATH); } catch { /* noop */ }
+      try { fs.unlinkSync(LEGACY_STATE_PATH); } catch { /* noop */ }
       console.log(`Local Router stopped on ${options.host}:${options.port}`);
       return 0;
     }
+
+    // After 5 failed probes, discover PIDs on the port and force-kill them
+    if (i === 5) {
+      const pids = findPidsOnPort(options.port);
+      for (const pid of pids) {
+        killProcessTree(pid);
+      }
+    }
+
     await new Promise((resolve) => setTimeout(resolve, 200));
+  }
+
+  // Final attempt: lsof one more time with SIGKILL
+  const finalPids = findPidsOnPort(options.port);
+  for (const pid of finalPids) {
+    try { process.kill(-pid, 'SIGKILL'); } catch {
+      try { process.kill(pid, 'SIGKILL'); } catch { /* gone */ }
+    }
+  }
+
+  // Brief wait for SIGKILL to take effect
+  await new Promise((resolve) => setTimeout(resolve, 500));
+  const final = await probeServer(options.host, options.port);
+  if (!final.running || final.kind !== 'local-router') {
+    try { fs.unlinkSync(STATE_PATH); } catch { /* noop */ }
+    try { fs.unlinkSync(LEGACY_STATE_PATH); } catch { /* noop */ }
+    console.log(`Local Router stopped on ${options.host}:${options.port}`);
+    return 0;
   }
 
   console.error('Unable to confirm Local Router shutdown. Check running processes.');
