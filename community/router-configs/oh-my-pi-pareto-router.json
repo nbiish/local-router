@@ -1,0 +1,42 @@
+{
+  "id": "oh-my-pi-pareto-router",
+  "type": "pareto-code",
+  "description": "OhMyPi's pareto-code router for hash-anchored editing and LSP-assisted workflows",
+  "contributor": "oh-my-pi",
+  "model_used": "opencode-go/kimi-k2.6",
+  "minCodingScore": 0.80,
+  "candidates": [
+    {
+      "model": "opencode-go/kimi-k2.6",
+      "codingScore": 0.92,
+      "inputPrice": 1,
+      "outputPrice": 2,
+      "latencyMs": 1200,
+      "notes": "Kimi K2.6 - optimal for OMP's AST-aware edits"
+    },
+    {
+      "model": "opencode-zen/glm-5.1",
+      "codingScore": 0.89,
+      "inputPrice": 1,
+      "outputPrice": 2,
+      "latencyMs": 1100,
+      "notes": "GLM 5.1 - strong for multi-file refactoring"
+    },
+    {
+      "model": "wafer-serverless/glm-5.1",
+      "codingScore": 0.91,
+      "inputPrice": 2,
+      "outputPrice": 3,
+      "latencyMs": 1300,
+      "notes": "GLM 5.1 via Wafer - high context for large codebases"
+    },
+    {
+      "model": "nvidia-nim/nemotron-3-ultra",
+      "codingScore": 0.88,
+      "inputPrice": 1,
+      "outputPrice": 1,
+      "latencyMs": 800,
+      "notes": "Nemotron 3 Ultra - fast inference for iterative edits"
+    }
+  ]
+}

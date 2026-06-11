@@ -1,0 +1,43 @@
+{
+  "id": "oh-my-openagent-auto-router",
+  "type": "auto-local",
+  "description": "OhMyOpenAgent's auto-local router optimized for coding workflows with OpenCode/Codex agents",
+  "contributor": "oh-my-openagent",
+  "model_used": "opencode-go/kimi-k2.6",
+  "costQualityTradeoff": 6,
+  "explorationBudget": 0.05,
+  "candidates": [
+    {
+      "model": "opencode-go/kimi-k2.6",
+      "codingScore": 0.92,
+      "inputPrice": 1,
+      "outputPrice": 2,
+      "latencyMs": 1200,
+      "notes": "Kimi K2.6 via OpenCode Go - excellent for agentic coding"
+    },
+    {
+      "model": "opencode-zen/glm-5.1",
+      "codingScore": 0.89,
+      "inputPrice": 1,
+      "outputPrice": 2,
+      "latencyMs": 1100,
+      "notes": "GLM 5.1 via OpenCode Zen - strong reasoning"
+    },
+    {
+      "model": "wafer-serverless/deepseek-v4-pro",
+      "codingScore": 0.94,
+      "inputPrice": 2,
+      "outputPrice": 4,
+      "latencyMs": 1500,
+      "notes": "DeepSeek V4 Pro - top-tier coding"
+    },
+    {
+      "model": "zenmux/qwen/qwen2.5-coder-32b",
+      "codingScore": 0.87,
+      "inputPrice": 1,
+      "outputPrice": 1,
+      "latencyMs": 900,
+      "notes": "Qwen 2.5 Coder 32B - budget-friendly"
+    }
+  ]
+}

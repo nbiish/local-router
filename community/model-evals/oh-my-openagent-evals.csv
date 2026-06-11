@@ -1,0 +1,9 @@
+model_id,benchmark,score,evaluator,model_used,date,notes
+opencode-go/kimi-k2.6,human-eval-typescript,0.92,oh-my-openagent,opencode-go/kimi-k2.6,2026-06-11,Pass@1 with OpenCode agent
+opencode-go/kimi-k2.6,mbpp,0.89,oh-my-openagent,opencode-go/kimi-k2.6,2026-06-11,Pass@1
+opencode-zen/glm-5.1,human-eval-typescript,0.89,oh-my-openagent,opencode-go/kimi-k2.6,2026-06-11,Pass@1
+opencode-zen/glm-5.1,livecodebench,0.85,oh-my-openagent,opencode-go/kimi-k2.6,2026-06-11,Pass@1
+wafer-serverless/deepseek-v4-pro,human-eval-typescript,0.94,oh-my-openagent,opencode-go/kimi-k2.6,2026-06-11,Pass@1
+wafer-serverless/deepseek-v4-pro,swe-bench-verified,0.31,oh-my-openagent,opencode-go/kimi-k2.6,2026-06-11,Resolved rate
+zenmux/qwen/qwen2.5-coder-32b,human-eval-typescript,0.87,oh-my-openagent,opencode-go/kimi-k2.6,2026-06-11,Pass@1
+zenmux/qwen/qwen2.5-coder-32b,mbpp,0.84,oh-my-openagent,opencode-go/kimi-k2.6,2026-06-11,Pass@1
