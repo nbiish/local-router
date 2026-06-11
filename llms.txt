@@ -4,8 +4,7 @@ This is the project-wide Product Requirements Document (PRD) and root DOX contra
 
 ## Purpose
 
-### Overview
-Local Router is a localhost proxy (port `11434`) with **Ollama-compatible** and **OpenAI-compatible** surfaces. Point VS Code Copilot Chat, Claude Code, Cline, Roo Code, Continue, Codex, or scripts at `http://127.0.0.1:11434` and route to **15 built-in catalog providers** plus **any custom OpenAI-compatible API** you register—using one model namespace and one configuration UI.
+Local Router is a localhost proxy (port `11434` by default; `PORT` env var override) with **Ollama-compatible** and **OpenAI-compatible** surfaces. Point VS Code Copilot Chat, Claude Code, Cline, Roo Code, Continue, Codex, or scripts at `http://127.0.0.1:11434` and route to **17 built-in catalog providers** (15 static-key + 2 OAuth-subscription: Google Antigravity, GitHub Copilot) plus **any custom OpenAI-compatible API** you register—using one model namespace and one configuration UI.
 
 ### Capabilities & Topology
 - **Port:** `11434` (Ollama default — drop-in)
@@ -14,8 +13,8 @@ Local Router is a localhost proxy (port `11434`) with **Ollama-compatible** and 
 - **Keys:** `/config` UI → in-memory while running → **PQC bundle** `~/.config/pqc-secrets/secrets.bundle.json` on every save (ML-KEM-768 + AES-256-GCM). Never committed to git or `providers.txt`.
 - **Catalog:** `providers.txt` (15 providers, **~105** presented models in custom mode) + runtime edits in `provider-models.json` + **custom providers** in `custom-providers.json`.
 - **Custom providers:** `/config` → **Add custom provider…** or `POST /api/providers` (HTTPS `/v1` upstream; loopback HTTP allowed for dev).
-- **Auto-router:** `local-router/auto-router-main` — expanded curated set (`src/routing-defaults.ts`): free → subscription (`opencode-go` → Z.ai → Xiaomi) → paid (Wafer → ZenMux → OpenRouter → Nebius → Cline → Kilo + NIM/Modal/Zen extras); exhaustion-sorted at bootstrap; routes based on coding ability, context length, and price (includes free-tier boost; latency metrics deprecated).
-- **System fallback:** `local-router/fallback-models` — **18** fixed steps (`DEFAULT_FALLBACK_ORDERED_IDS`): Ollama → NIM → Modal → Kilo/Cline free → OpenCode Zen free → OpenRouter free → Go/Z.ai/Xiaomi subscription → six paid anchors (no exhaustion re-sort on bootstrap).
+- **Auto-router:** `local-router/auto-router-main` — expanded curated set (`src/routing-defaults.ts`): free → subscription (`opencode-go` → Z.ai → Xiaomi) → OAuth subscription (`antigravity-gemini-3.5-flash` → `github-copilot-gemini-3.1-pro`) → paid (Wafer → ZenMux → OpenRouter → Nebius → Cline → Kilo + NIM/Modal/Zen extras); exhaustion-sorted at bootstrap; routes based on coding ability, context length, and price (includes free-tier boost; latency metrics deprecated).
+- **System fallback:** `local-router/fallback-models` — **18** fixed steps (`DEFAULT_FALLBACK_ORDERED_IDS`): Ollama → NIM → Modal → Kilo/Cline free → OpenCode Zen free → OpenRouter free → **OAuth subscription (antigravity-gemini-3.5-flash at step 7, github-copilot-gemini-3.1-pro at step 8)** → Go/Z.ai/Xiaomi subscription → six paid anchors (no exhaustion re-sort on bootstrap).
 - **Ollama Cloud:** Shared quota — router/fallback/pull use **nemotron-3-ultra**, **minimax-m3**, **deepseek-v4-flash** only unless a real `ollama.com` API key is set (Pro tags gated).
 - **Ollama shim:** `local-router route set` → `ollama serve` starts real Ollama on `11435` and Local Router on `11434`.
 - **Operator CLI:** `localrouter list`, `keys`, `router export|import|list|show|check`, `verify`, `config --open`.
@@ -185,29 +184,30 @@ Setting files reside at `~/.config/local-router/` (or legacy `~/.config/fvs-code
 | `tool-routing.json` | No | local JSON | Ollama shim routing configuration |
 
 ### Provider Catalog Contracts
-The catalog contains 15 active providers with ~105 presented models as of 2026-06-05:
+The catalog contains **17 active providers** (15 static-key + 2 OAuth-subscription) with **104+ presented models** as of 2026-06-10:
 
-| Provider | Catalog Models | Upstream Endpoint | Key Env Variable |
-|---|---|---|---|
-| `wafer-serverless` | 5 | `https://pass.wafer.ai/v1` | `WAFER_SERVERLESS_API_KEY` |
-| `zenmux` | 19 | `https://zenmux.ai/api/v1` | `ZENMUX_API_KEY` |
-| `nebius` | 8 | Nebius Token Factory | `NEBIUS_API_KEY` |
-| `moonshot` | 5 | Moonshot/Kimi API | `MOONSHOT_API_KEY` |
-| `nvidia-nim` | 6 | NVIDIA NIM API | `NVIDIA_NIM_API_KEY` |
-| `modal` | 1 | Modal GLM endpoint | `MODAL_API_KEY` |
-| `openrouter-presets` | 8 | `https://openrouter.ai/api/v1` | `OPENROUTER_API_KEY` |
-| `xiaomi-mimo` | 2 | `https://token-plan-sgp.xiaomimimo.com/v1` | `XIAOMI_MIMO_API_KEY` |
-| `opencode-go` | 9 | `https://opencode.ai/zen/go/v1` | `OPENCODE_API_KEY` |
-| `opencode-zen` | 8 | `https://opencode.ai/zen/v1` | `OPENCODE_API_KEY` |
-| `zai` | 1 | `https://api.z.ai/api/coding/paas/v4` | `ZAI_API_KEY` |
-| `ollama` | 8 | `http://127.0.0.1:11435/v1` | `OLLAMA_API_KEY` |
-| `cline` | 9 | `https://api.cline.bot/api/v1` | `CLINE_API_KEY` |
-| `kilo` | 6 (+ live) | `https://api.kilo.ai/api/gateway` | `KILO_API_KEY` |
-| `commandcode` | 1 | `https://api.commandcode.ai/alpha/generate` | `COMMANDCODE_API_KEY` |
-| `antigravity` | 5+ | Google Cloud Code Assist (OAuth PKCE) | `ANTIGRAVITY_OAUTH_TOKEN` |
-| `github-copilot` | Dynamic | `https://api.githubcopilot.com` (OAuth device) | `COPILOT_GITHUB_TOKEN` |
+| Provider | Catalog Models | Upstream Endpoint | Key Env Variable | Auth |
+|---|---|---|---|---|
+| `wafer-serverless` | 5 | `https://pass.wafer.ai/v1` | `WAFER_SERVERLESS_API_KEY` | static |
+| `zenmux` | 19 | `https://zenmux.ai/api/v1` | `ZENMUX_API_KEY` | static |
+| `nebius` | 8 | Nebius Token Factory | `NEBIUS_API_KEY` | static |
+| `moonshot` | 5 | Moonshot/Kimi API | `MOONSHOT_API_KEY` | static |
+| `nvidia-nim` | 6 | NVIDIA NIM API | `NVIDIA_NIM_API_KEY` | static |
+| `modal` | 1 | Modal GLM endpoint | `MODAL_API_KEY` | static |
+| `openrouter-presets` | 8 | `https://openrouter.ai/api/v1` | `OPENROUTER_API_KEY` | static |
+| `xiaomi-mimo` | 2 | `https://token-plan-sgp.xiaomimimo.com/v1` | `XIAOMI_MIMO_API_KEY` | static |
+| `opencode-go` | 9 | `https://opencode.ai/zen/go/v1` | `OPENCODE_API_KEY` | static |
+| `opencode-zen` | 8 | `https://opencode.ai/zen/v1` | `OPENCODE_API_KEY` | static |
+| `zai` | 1 | `https://api.z.ai/api/coding/paas/v4` | `ZAI_API_KEY` | static |
+| `ollama` | 8 | `http://127.0.0.1:11435/v1` | `OLLAMA_API_KEY` | static |
+| `cline` | 9 | `https://api.cline.bot/api/v1` | `CLINE_API_KEY` | static |
+| `kilo` | 6 (+ live) | `https://api.kilo.ai/api/gateway` | `KILO_API_KEY` | static |
+| `commandcode` | 1 | `https://api.commandcode.ai/alpha/generate` | `COMMANDCODE_API_KEY` | static |
+| `antigravity` | 6 | Google Cloud Code Assist (`https://cloudcode-pa.googleapis.com/v1internal`) | `ANTIGRAVITY_OAUTH_TOKEN` | **oauth-pkce** |
+| `github-copilot` | 5 | `https://api.githubcopilot.com` | `COPILOT_GITHUB_TOKEN` | **oauth-device** |
 
-**Note:** `antigravity` and `github-copilot` are planned OAuth-based providers. See "Provider Integration Research" section below for full authentication details, API surface, and implementation plan. These providers use short-lived tokens with automatic refresh instead of static API keys.
+**Auth legend:** `static` = long-lived API key in the PQC bundle. `oauth-pkce` = browser-based OAuth 2.0 authorization-code + PKCE flow. `oauth-device` = OAuth 2.0 device flow (RFC 8628).
+**Note:** `antigravity` and `github-copilot` are **fully implemented** OAuth-subscription providers with active PKCE (Antigravity) and device flow (Copilot) auth, dynamic model discovery, and concurrent-refresh deduplication. Tokens persist to `~/.config/local-router/oauth-credentials.json` (chmod 600). See the "OAuth / Subscription Providers" section below for the full authentication contract, oh-my-pi design references, and integration architecture.
 
 #### Key Model Metadata Specifications
 - **1M-Context Models:** wafer-serverless (deepseek-v4-flash/pro, qwen3.7-max), zenmux (qwen3.7-max, deepseek-v4-pro), nebius (DeepSeek-V4-Pro, Nemotron-3-Ultra), openrouter-presets (@preset/chain-of-draft, @preset/1-million-main/chain-of-draft), xiaomi-mimo (mimo-v2.5-pro/v2.5), minimax/minimax-m3 (all providers).
@@ -638,6 +638,7 @@ curl -s http://127.0.0.1:11434/api/fallback-models | jq '.data[] | select(.route
 - **2026-06-09:** Wrote comprehensive prompt caching specs in `llms.txt` — all 15 providers verified against official docs (June 2026). Documented read/write mechanics, minimum tokens, TTL options, pricing multipliers, observability fields, and cross-provider failover caching contract. Fixed DeepSeek V4 Pro pricing (75% limited-time discount expired May 31, 2026 — now at standard list pricing).
 - **2026-06-09:** Implemented Wafer AI ZDR enhancement toggle (`Wafer-ZDR: required` header for GLM-5.1, Kimi-K2.6 via wafer-serverless). Added `/api/wafer-config` GET/PUT routes, UI toggle card in /config, config persistence to `~/.config/local-router/wafer-config.json`. Merged to develop, verified on :11436.
 - **2026-06-10:** Fixed fallback/router drag-reorder persistence bug — drag-and-drop reordering in the fallback and router candidate lists was in-memory only; added `autoSaveFallbackRoute()` and `autoSaveRouterRoute()` to silently POST reordered chains via `/api/fallback-models` and `/api/router-models` on drop. Updated `providers.txt` with external tool ZDR integration spec (exact header, eligible models, config path). Promoted to main, verified on :11436.
+- **2026-06-10:** Shipped Google Antigravity + GitHub Copilot OAuth integration. PKCE flow for Antigravity (callback server on :51121, scopes `cloud-platform` + `userinfo.email` + `userinfo.profile` + `cclog` + `experimentsandconfigs`, `oh-my-pi` base64-encoded `CLIENT_ID` `1071006060591-tmhssin2h21lcre235vtolojh4g403ep.apps.googleusercontent.com` + `CLIENT_SECRET` `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`). Device flow for Copilot (`Iv1.b507a08c87ecfe98`). Concurrent-refresh deduplication (in-flight map + 30s timeout) ported from `oh-my-pi`'s `google-auth.ts`. Dynamic per-request headers (`X-Initiator` user/agent, `Copilot-Vision-Request`) ported from `github-copilot-headers.ts`. Fixed 4 UI bugs: duplicate `THEME_STORAGE_KEY` declaration, duplicate `DEFAULT_ROUTED_ID` declaration, top-level `await` outside async function, and `TypeScript catch (err: any)` annotation leaking into the JS template literal. Fixed callback redirect to absolute URL on main server port (was resolving to 51121/404). Fixed callback callback race where `ANTIGRAVITY_PENDING` was deleted before `completeAntigravityLogin` could look it up — now passes the code directly as a parameter. Synced native Rust PQC binary (851KB) + PQC skills to `bin/pqc-secrets` from `ainish-coder`. OAuth providers excluded from the "Providers without keys" warning. Loud `console.warn` on direct-model cascade to system fallback. Fallback chain updated to user-requested 19-step order with `antigravity-gemini-3.5-flash` and `github-copilot-gemini-3.1-pro` at the top. Both new models present in catalog (104 total). All OAuth logins complete end-to-end: Antigravity as `kenwab12@gmail.com`, GitHub Copilot as `nbiish`. Merged `develop` → `main`, rebuilt, and verified on `:11436`.
 
 ---
 
@@ -648,6 +649,24 @@ curl -s http://127.0.0.1:11434/api/fallback-models | jq '.data[] | select(.route
 - **Bandit Management:** Implement UCB state export/import endpoints for backup/restore.
 - **ZenMux explicit caching:** ZenMux supports `cache_control: {"type": "ephemeral"}` with up to 4 breakpoints. Wire cache directives into ZenMux requests when the provider is routed through the auto-router or fallback chain.
 - **Thinking/Reasoning Capability Audit:** `providers.txt` marks nearly all models as `NO*` for thinking support, but the current notation conflates "model natively supports reasoning" with "Local Router strips reasoning content." A separate column or notation is needed to distinguish these. Task: web-search every model for its actual reasoning/thinking API capability, document findings, update `SanitizeProviderRequestBody` to pass through client thinking directives by default (rather than stripping), and correct `providers.txt` to reflect native model capability vs. proxy behavior. Target: next session.
+
+---
+
+## OAuth / Subscription Providers — Implementation Summary (June 2026)
+
+**Status: SHIPPED.** Antigravity and GitHub Copilot are now first-class providers in the Local Router catalog with end-to-end OAuth authentication, automatic token refresh, dynamic model discovery, and integration into the auto-router and fallback chain.
+
+**Files implemented:**
+- `src/oauth-providers.ts` (888 lines) — PKCE and device-flow login, token refresh, callback server, credential persistence.
+- `src/providers/antigravity.ts` (19 lines) — OAuth-aware OpenAI-compatible provider wired through `getOAuthUpstreamHeaders`.
+- `src/providers/github-copilot.ts` (19 lines) — Same shape, with `X-Initiator` and `Copilot-Vision-Request` dynamic headers (oh-my-pi pattern).
+- `src/routes/config-api.ts` — New endpoints: `/api/oauth/login/:provider`, `/api/oauth/complete/:provider`, `/api/oauth/status/:provider`, `/api/oauth/credentials/:provider`.
+- `src/ui/pages/layout.ts` — OAuth login buttons in `/config` UI, scroll-to-top on success, popup-blocker fallback link.
+- `src/routing-exhaustion-order.ts` — Added `antigravity`/`anti` and `github-copilot`/`copi` prefix mappings.
+- `src/routing-defaults.ts` — `antigravity-gemini-3.5-flash` (step 7) and `github-copilot-gemini-3.1-pro` (step 8) in the 18-step fallback chain; both ranked at the top of the auto-router candidates.
+- `providers.txt` — Provider summary table entries (with `# ` prefix so the parser picks them up) and 11 new model rows.
+
+**Live verification (June 2026 on `:11436`):** Antigravity authenticated as `kenwab12@gmail.com`, GitHub Copilot as `nbiish`. Both providers' models visible in the providers page and `/v1/models` endpoint (104 total models).
 
 ---
 
