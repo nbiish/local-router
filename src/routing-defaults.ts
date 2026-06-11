@@ -39,6 +39,7 @@ export function isAllowedAutoRouterGatewayFreeModel(presentedId: string): boolea
 // hits a free- or subscription-backed model before the paid-tier fallbacks
 // kick in.
 export const DEFAULT_FALLBACK_ORDERED_IDS: readonly string[] = [
+  'pioneer-minimax-m3',
   'ollama-nemotron-3-ultra-cloud',
   'nvidia-nim-minimax-m3',
   'cline-minimax-minimax-m3-free',
@@ -62,6 +63,7 @@ export const DEFAULT_FALLBACK_ORDERED_IDS: readonly string[] = [
 
 
 const CANDIDATE_DEFAULTS: Record<string, string> = {
+  'pioneer-minimax-m3': 'coding=0.90, input=0.1, output=0.3, latency=650, notes=Pioneer Minimax M3',
   'ollama-nemotron-3-ultra-cloud': 'coding=0.86, input=0, output=0, latency=850, notes=Ollama Cloud Nemotron 3 Ultra (free tier)',
   'ollama-minimax-m3-cloud': 'coding=0.82, input=0, output=0, latency=950, notes=Ollama Cloud MiniMax M3 (free tier)',
   'ollama-deepseek-v4-flash-cloud': 'coding=0.84, input=0, output=0, latency=900, notes=Ollama Cloud DeepSeek V4 Flash (free tier)',
@@ -161,6 +163,7 @@ function dedupeLines(lines: readonly string[]): string[] {
 // Antigravity is the primary subscription-backed model (Google Cloud Code
 // Assist). Place it at the top of the auto-router-main candidate list so
 const AUTO_ROUTER_EXTRA_CANDIDATE_IDS = [
+  'pioneer-minimax-m3',
   'antigravity-gemini-3.5-flash',
   'github-copilot-gemini-3.1-pro',
   'ollama-minimax-m3-cloud',
@@ -176,12 +179,9 @@ const AUTO_ROUTER_EXTRA_CANDIDATE_IDS = [
   'xiaomi-mimo-mimo-v2.5',
   'antigravity-gemini-3.1-pro',
   'antigravity-gemini-3-flash',
-  'antigravity-claude-opus-4-6',
   'antigravity-claude-sonnet-4-6',
-  'github-copilot-claude-sonnet-4.6',
   'github-copilot-gpt-4o',
   'github-copilot-gpt-5',
-  'github-copilot-gemini-3.1-pro',
   'github-copilot-o3-mini',
   'nvidia-nim-kimi-k2.6',
   'nvidia-nim-step-3.7-flash',

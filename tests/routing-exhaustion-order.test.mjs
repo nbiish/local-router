@@ -127,10 +127,10 @@ test('paid provider order: wafer → zenmux → openrouter → nebius → cline 
   assert.deepEqual(ROUTING_PAID_PROVIDER_SUB_ORDER.slice(0, 6), [
     'wafer-serverless',
     'zenmux',
+    'pioneer',
     'openrouter-presets',
     'nebius',
-    'cline',
-    'kilo'
+    'cline'
   ]);
 });
 
