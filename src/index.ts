@@ -477,7 +477,7 @@ const persistedProviderModelOverrides = new Set<string>();
 let customProviderStore: CustomProviderRecord[] = [];
 const fallbackModelStore: Record<string, FallbackModel> = {};
 const routerModelStore: Record<string, RouterModel> = {};
-const modelSourceConfig: { source: 'custom' | 'endpoints' } = { source: 'custom' };
+const modelSourceConfig: { source: 'custom' | 'endpoints'; filterConfigured: boolean } = { source: 'custom', filterConfigured: true };
 let endpointModelsCache: ProviderModel[] = [];
 const DEFAULT_CHAIN_OF_DRAFT_PROMPT = `Think step by step, but only keep a minimum draft for each thinking step, with 5 words at most. Return the answer after your thinking.`;
 const systemPromptConfig: { enabled: boolean; prompt: string; thinkingLevel: ThinkingLevel } = {
@@ -1884,6 +1884,9 @@ function loadModelSourceConfig(): void {
     if (parsed && (parsed.source === 'custom' || parsed.source === 'endpoints')) {
       modelSourceConfig.source = parsed.source;
     }
+    if (typeof parsed.filterConfigured === 'boolean') {
+      modelSourceConfig.filterConfigured = parsed.filterConfigured;
+    }
   } catch (error: any) {
     console.error('Failed to load persisted model source config:', sanitizeDiagnosticText(String(error?.message || error)));
   }
@@ -1898,6 +1901,19 @@ function persistModelSourceConfig(): void {
   });
   fs.renameSync(temporaryPath, MODEL_SOURCE_CONFIG_PATH);
   fs.chmodSync(MODEL_SOURCE_CONFIG_PATH, 0o600);
+}
+
+function filterConfiguredModels(models: ProviderModel[]): ProviderModel[] {
+  if (!modelSourceConfig.filterConfigured) return models;
+  return models.filter((model) => {
+    if (model.provider === FALLBACK_PROVIDER_NAME) return true;
+    if (model.provider === 'ollama') return true;
+    if (isOAuthProviderName(model.provider)) {
+      const oauthState = getOAuthStateSafe(model.provider);
+      return Boolean(oauthState?.accessToken);
+    }
+    return providerHasConfiguredKey(model.provider);
+  });
 }
 
 function loadEndpointModelsCache(): void {
@@ -2103,10 +2119,13 @@ async function discoveryModelList(live = false): Promise<ProviderModel[]> {
   return [...providerCatalogModels(), ...fallbackModelList(), ...routerModelList()];
 }
 
+const MODEL_ENTRY_CREATED_TIMESTAMP = Math.floor(Date.now() / 1000);
+
 function openAIModelEntry(model: ProviderModel) {
   return {
     id: model.id,
     object: 'model',
+    created: MODEL_ENTRY_CREATED_TIMESTAMP,
     owned_by: model.provider,
     display_name: model.display,
     context_length: model.contextLength,
@@ -3223,6 +3242,7 @@ const configApiDeps = {
   clearProviderKeyForProvider,
   modelSourceConfig,
   persistModelSourceConfig,
+  filterConfiguredModels,
   ensureOllamaBackend,
   queryAllProviderEndpoints,
   persistEndpointModelsCache,
@@ -6207,11 +6227,13 @@ app.get('/v1/models', async (req: Request, res: Response) => {
   }
 
   const providerModels = await discoveryModelList(live);
+  const filtered = filterConfiguredModels(providerModels);
 
   res.json({
     object: 'list',
-    data: providerModels.map((model) => openAIModelEntry(model)),
-    catalog_mode: modelSourceConfig.source
+    data: filtered.map((model) => openAIModelEntry(model)),
+    catalog_mode: modelSourceConfig.source,
+    filter_configured: modelSourceConfig.filterConfigured
   });
 });
 
@@ -6227,9 +6249,10 @@ app.head('/api/tags', (req: Request, res: Response) => {
 app.get('/api/tags', async (req: Request, res: Response) => {
   const live = String(req.query.live || '').toLowerCase() === 'true';
   const providerModels = await discoveryModelList(live);
+  const filtered = filterConfiguredModels(providerModels);
 
   res.json({
-    models: providerModels.map((model) => ollamaTag(model))
+    models: filtered.map((model) => ollamaTag(model))
   });
 });
 

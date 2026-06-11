@@ -48,8 +48,9 @@ export interface ConfigApiDeps {
   providerSummariesForEnvVar: (envVar: string) => ProviderSummary[];
   DEFAULT_OLLAMA_API_KEY: string;
   clearProviderKeyForProvider: (provider: string) => void;
-  modelSourceConfig: { source: 'custom' | 'endpoints' };
+  modelSourceConfig: { source: 'custom' | 'endpoints'; filterConfigured: boolean };
   persistModelSourceConfig: () => void;
+  filterConfiguredModels: (models: ProviderModel[]) => ProviderModel[];
   ensureOllamaBackend: () => Promise<boolean>;
   queryAllProviderEndpoints: () => Promise<ProviderModel[]>;
   persistEndpointModelsCache: () => void;
@@ -140,6 +141,7 @@ export function registerConfigApiRoutes(app: express.Express, deps: ConfigApiDep
     clearProviderKeyForProvider,
     modelSourceConfig,
     persistModelSourceConfig,
+    filterConfiguredModels,
     ensureOllamaBackend,
     queryAllProviderEndpoints,
     persistEndpointModelsCache,
@@ -489,11 +491,16 @@ app.get('/api/model-source', (req: Request, res: Response) => {
 });
 
 app.put('/api/model-source', (req: Request, res: Response) => {
-  const { source } = req.body;
-  if (source !== 'custom' && source !== 'endpoints') {
+  const { source, filterConfigured } = req.body;
+  if (source !== undefined && source !== 'custom' && source !== 'endpoints') {
     return res.status(400).json({ error: 'source must be "custom" or "endpoints"' });
   }
-  modelSourceConfig.source = source;
+  if (source !== undefined) {
+    modelSourceConfig.source = source;
+  }
+  if (typeof filterConfigured === 'boolean') {
+    modelSourceConfig.filterConfigured = filterConfigured;
+  }
   persistModelSourceConfig();
   res.json({ success: true, ...modelSourceConfig });
 });

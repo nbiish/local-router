@@ -162,6 +162,12 @@ export function renderProvidersPage(params: {
               </span>
               <button id="refreshEndpointsBtn" class="button-secondary" onclick="refreshEndpointModels()" style="padding: 4px 10px; font-size: 13px; display: none;">🔄 Refresh Endpoints</button>
             </div>
+            <div style="margin-top: 10px; display: flex; align-items: center; gap: 8px;">
+              <label class="flag-toggle">
+                <input id="filterConfiguredToggle" type="checkbox" checked onchange="setFilterConfigured(this.checked)">
+                <span style="font-weight: 500;">Only show models from configured providers in Ollama proxy</span>
+              </label>
+            </div>
           </div>
           <div class="muted" id="catalogCount">Loading catalog...</div>
         </div>

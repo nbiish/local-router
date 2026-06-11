@@ -2585,16 +2585,21 @@ export function renderLayout(
         }
 
         let modelSource = 'custom';
+        let filterConfigured = true;
 
         async function loadModelSource() {
           try {
             const res = await fetch('/api/model-source');
             const data = await res.json();
             modelSource = data.source || 'custom';
+            if (typeof data.filterConfigured === 'boolean') {
+              filterConfigured = data.filterConfigured;
+            }
             
             const customRadio = document.getElementById('modelSourceCustom');
             const endpointsRadio = document.getElementById('modelSourceEndpoints');
             const refreshBtn = document.getElementById('refreshEndpointsBtn');
+            const filterToggle = document.getElementById('filterConfiguredToggle');
             
             if (modelSource === 'endpoints') {
               if (endpointsRadio) endpointsRadio.checked = true;
@@ -2603,8 +2608,25 @@ export function renderLayout(
               if (customRadio) customRadio.checked = true;
               if (refreshBtn) refreshBtn.style.display = 'none';
             }
+            if (filterToggle) filterToggle.checked = filterConfigured;
           } catch (e) {
             console.error('Failed to load model source setting:', e);
+          }
+        }
+
+        async function setFilterConfigured(checked) {
+          try {
+            const res = await fetch('/api/model-source', {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ filterConfigured: checked })
+            });
+            if (res.ok) {
+              filterConfigured = checked;
+              setMessage('Ollama proxy model filtering ' + (checked ? 'enabled' : 'disabled') + '.', 'success');
+            }
+          } catch (e) {
+            setMessage('Failed to update filtering: ' + e.message, 'error');
           }
         }
 
