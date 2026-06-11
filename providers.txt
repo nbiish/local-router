@@ -145,6 +145,10 @@
 # │124 │ kilo               │ xiaomi/mimo-v2.5                    │ kilo:mimo-v2.5                 │1,048,576 │ 131,072  │ YES   │ YES  │ YES   │ NO* paid  │
 # │125 │ kilo               │ moonshotai/kimi-k2.6                │ kilo:kimi-k2.6                 │ 262,144  │ 262,144  │ YES   │ YES  │ YES   │ NO* paid  │
 # │126 │ pioneer            │ minimax/minimax-m3                  │ pio:minimax-m3                 │1,000,000 │ 512,000  │ YES   │ YES  │ YES   │ YES  paid │
+# │127 │ pioneer            │ XiaomiMiMo/MiMo-V2.5-Pro            │ pio:mimo-v2.5-pro              │1,048,576 │ 131,072  │ YES   │ NO   │ YES   │ NO   paid │
+# │128 │ pioneer            │ deepseek-ai/DeepSeek-V4-Pro         │ pio:deepseek-v4-pro            │1,000,000 │ 384,000  │ YES   │ NO   │ YES   │ NO   paid │
+# │129 │ pioneer            │ moonshotai/Kimi-K2.6                │ pio:kimi-k2.6                  │ 262,144  │ 262,144  │ YES   │ YES  │ YES   │ NO   paid │
+# │130 │ pioneer            │ zai-org/GLM-5.1                     │ pio:glm-5.1                    │ 200,000  │ 128,000  │ YES   │ NO   │ YES   │ NO   paid │
 # #
 # * Native reasoning DISABLED — VS Code/Copilot Chat and Zed cannot reliably
 #   preserve provider-native reasoning metadata across turns. FVS-CODE strips
@@ -553,7 +557,7 @@
 # Key env:     PIONEER_API_KEY
 # Zed prefix:  pio
 # Cross-tool:  All agents (openai_compatible format)
-# Models:      1  —  minimax/minimax-m3
+# Models:      5  —  minimax/minimax-m3, XiaomiMiMo/MiMo-V2.5-Pro, deepseek-ai/DeepSeek-V4-Pro, moonshotai/Kimi-K2.6, zai-org/GLM-5.1
 # Notes:       Provides drop-in OpenAI-compatible chat completions.
 #              Supports Pioneer prompt caching (explicit caching via cache_control).
 #
