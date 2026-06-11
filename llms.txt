@@ -77,11 +77,11 @@ feature worktree → develop (integrate + verify) → main (release)
 - Mandatory worktree removal and feature branch deletion is required after a `feature` -> `develop` merge.
 
 ### System Snapshot & Release Lineage (June 2026)
-**`main` @ `c06e15a`, `develop` @ `766c63a`** — Pioneer AI provider integration and optimized prompt caching across all active providers, robust CLI stop/start with lsof port discovery + process tree kill, OAuth secrets remediation (hardcoded Antigravity credentials moved to PQC env vars).
+**`main` @ `8ca614c`, `develop` @ `8ca614c`** — Pioneer AI provider integration, separate OpenCode keys, and optimized prompt caching across all active providers, robust CLI stop/start with lsof port discovery + process tree kill, OAuth secrets remediation (hardcoded Antigravity credentials moved to PQC env vars).
 
 | Commit | Summary |
 |--------|---------|
-| `c06e15a` | **Pioneer AI provider + prompt caching optimization** — added Pioneer AI provider with Minimax M3 as primary fallback/AutoRouter, and optimized prompt caching across all static-key providers (ZenMux, Cline, Kilo, OpenRouter, OpenCode, Xiaomi-Mimo, Wafer-Serverless) using explicit cache TTLs and response caching |
+| `8ca614c` | **Pioneer AI provider + prompt caching optimization** — added Pioneer AI provider with all 5 preferred models (Minimax M3, MiMo V2.5 Pro, DeepSeek V4 Pro, Kimi K2.6, GLM 5.1), configured fallback order at index 10, separated Opencode and OpenCodeZen keys, and optimized prompt caching (explicit 1-hour cache TTL and OpenRouter edge response cache) |
 | `1abccf2` | **Merge develop → main** — OAuth secrets remediation: move hardcoded credentials to PQC env vars |
 | `766c63a` | **Merge fix/oauth-secrets-env into develop** — integrated OAuth secret fix |
 | `c939b15` | **fix(security): OAuth env vars** — moved `ANTIGRAVITY_CLIENT_ID`/`ANTIGRAVITY_CLIENT_SECRET` from hardcoded literals to `process.env` reads; packed into PQC bundle; updated `providers.txt` |
