@@ -1,0 +1,8 @@
+model_id,benchmark,score,evaluator,model_used,date,notes
+anthropic/claude-opus-4-7,human-eval-typescript,0.95,hermes-agent,anthropic/claude-opus-4-7,2026-06-11,Pass@1 with Hermes skills + PQC secrets
+anthropic/claude-opus-4-7,swe-bench-verified,0.42,hermes-agent,anthropic/claude-opus-4-7,2026-06-11,Resolved rate with multi-agent orchestration
+anthropic/claude-opus-4-7,livecodebench,0.88,hermes-agent,anthropic/claude-opus-4-7,2026-06-11,Pass@1
+anthropic/claude-sonnet-4-6,human-eval-typescript,0.91,hermes-agent,anthropic/claude-opus-4-7,2026-06-11,Pass@1
+anthropic/claude-sonnet-4-6,mbpp,0.89,hermes-agent,anthropic/claude-opus-4-7,2026-06-11,Pass@1
+google/gemini-3.1-pro,human-eval-typescript,0.88,hermes-agent,anthropic/claude-opus-4-7,2026-06-11,Pass@1 large context
+opencode-go/kimi-k2.6,human-eval-typescript,0.92,hermes-agent,anthropic/claude-opus-4-7,2026-06-11,Pass@1 fallback for coding
