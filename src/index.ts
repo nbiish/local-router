@@ -4741,20 +4741,6 @@ export function buildFailoverPreservedBody(body: any, preservedModel: string): a
 }
 
 export function injectPromptCaching(body: any, providerName: string): any {
-  const isCachingSupported = [
-    'zenmux',
-    'opencode-go',
-    'opencode-zen',
-    'xiaomi-mimo',
-    'wafer-serverless',
-    'openrouter',
-    'openrouter-presets',
-    'pioneer',
-    'cline',
-    'kilo'
-  ].includes(providerName);
-  if (!isCachingSupported) return body;
-
   const modelLower = String(body.model || '').toLowerCase();
   const isOpenAiFamily = modelLower.startsWith('gpt-') || 
                          modelLower.startsWith('o1-') || 
@@ -4769,17 +4755,7 @@ export function injectPromptCaching(body: any, providerName: string): any {
     return newBody;
   }
 
-  const isPioneer = providerName === 'pioneer';
-
-  const messages = body.messages || [];
-  const totalMessageLength = messages.reduce((acc: number, m: any) => acc + (typeof m.content === 'string' ? m.content.length : 0), 0);
-  const isLargePrompt = totalMessageLength > 800 || messages.length >= 4;
-  if (!isLargePrompt) return body;
-
-  const cacheControlValue = isPioneer 
-    ? { type: 'ephemeral', ttl: '1h' } 
-    : { type: 'ephemeral' };
-
+  const cacheControlValue = { type: 'ephemeral', ttl: '1h' };
   const newBody = { ...body };
   if (providerName === 'zai') {
     newBody.clear_thinking = false;
