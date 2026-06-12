@@ -1,0 +1,212 @@
+#!/usr/bin/env node
+/**
+ * provider-models-list probe — hits the live /v1/models endpoint of every
+ * configured local-router provider and emits a unified table.
+ *
+ * Usage:
+ *   node probe.mjs                              # all providers, all models
+ *   node probe.mjs zenmux openrouter-presets    # specific providers
+ *   node probe.mjs --filter "step|kimi"          # regex filter on model id
+ *   node probe.mjs --json                       # JSON output
+ *   node probe.mjs --free                       # only free-tier models (heuristic)
+ *   node probe.mjs --context 1000000            # only models with ctx >= 1M
+ *
+ * Keys are pulled from `process.env.<KEY_ENV_VAR>`; if the running shell
+ * has not run `secrets-load`, the affected provider is skipped with a
+ * "no key" warning rather than erroring.
+ *
+ * No secrets are written to disk or echoed to the log. Bearer tokens are
+ * only used in-process for the fetch.
+ */
+'use strict';
+
+const PROVIDERS = [
+  { slug: 'wafer-serverless',   baseUrl: 'https://pass.wafer.ai/v1',              envVar: 'WAFER_SERVERLESS_API_KEY', modelsPath: '/models' },
+  { slug: 'zenmux',             baseUrl: 'https://zenmux.ai/api/v1',              envVar: 'ZENMUX_API_KEY',           modelsPath: '/models' },
+  { slug: 'nebius',             baseUrl: 'https://api.tokenfactory.nebius.com/v1', envVar: 'NEBIUS_API_KEY',         modelsPath: '/models' },
+  { slug: 'moonshot',           baseUrl: 'https://api.moonshot.ai/v1',            envVar: 'MOONSHOT_API_KEY',         modelsPath: '/models' },
+  { slug: 'nvidia-nim',         baseUrl: 'https://integrate.api.nvidia.com/v1',   envVar: 'NVIDIA_NIM_API_KEY',       modelsPath: '/models' },
+  { slug: 'modal',              baseUrl: 'https://api.us-west-2.modal.direct/v1', envVar: 'MODAL_API_KEY',            modelsPath: '/models' },
+  { slug: 'openrouter-presets', baseUrl: 'https://openrouter.ai/api/v1',          envVar: 'OPENROUTER_API_KEY',       modelsPath: '/models' },
+  { slug: 'xiaomi-mimo',        baseUrl: 'https://token-plan-sgp.xiaomimimo.com/v1', envVar: 'XIAOMI_MIMO_API_KEY',   modelsPath: '/models' },
+  { slug: 'opencode-go',        baseUrl: 'https://opencode.ai/zen/go/v1',          envVar: 'OPENCODE_API_KEY',         modelsPath: '/models' },
+  { slug: 'opencode-zen',       baseUrl: 'https://opencode.ai/zen/v1',             envVar: 'OPENCODE_ZEN_API_KEY',     modelsPath: '/models' },
+  { slug: 'zai',                baseUrl: 'https://api.z.ai/api/coding/paas/v4',    envVar: 'ZAI_API_KEY',              modelsPath: '/models' },
+  { slug: 'ollama',             baseUrl: 'http://127.0.0.1:11435/v1',              envVar: 'OLLAMA_API_KEY',           modelsPath: '/models' },
+  { slug: 'cline',              baseUrl: 'https://api.cline.bot/api/v1',          envVar: 'CLINE_API_KEY',            modelsPath: '/models' },
+  { slug: 'kilo',               baseUrl: 'https://api.kilo.ai/api/gateway',       envVar: 'KILO_API_KEY',             modelsPath: '/models' },
+  { slug: 'commandcode',        baseUrl: 'https://api.commandcode.ai/alpha/generate', envVar: 'COMMANDCODE_API_KEY',  modelsPath: '/models' },
+  { slug: 'pioneer',            baseUrl: 'https://api.pioneer.ai/v1',             envVar: 'PIONEER_API_KEY',          modelsPath: '/models' }
+];
+
+const OAUTH_SKIPS = new Set(['antigravity', 'github-copilot']);
+
+function parseArgs(argv) {
+  const opts = { providers: [], filter: null, json: false, free: false, minContext: 0 };
+  for (let i = 0; i < argv.length; i += 1) {
+    const a = argv[i];
+    if (a === '--json') { opts.json = true; continue; }
+    if (a === '--free') { opts.free = true; continue; }
+    if (a === '--filter') { opts.filter = new RegExp(argv[++i] || '', 'i'); continue; }
+    if (a === '--context') { opts.minContext = Number.parseInt(argv[++i] || '0', 10); continue; }
+    if (a.startsWith('--')) { console.error(`Unknown flag: ${a}`); process.exit(1); }
+    opts.providers.push(a);
+  }
+  return opts;
+}
+
+async function fetchProviderModels(provider, signal) {
+  const key = process.env[provider.envVar];
+  if (!key) {
+    return { ok: false, reason: `no key (${provider.envVar} not in env)`, models: [] };
+  }
+  const url = `${provider.baseUrl.replace(/\/+$/, '')}${provider.modelsPath}`;
+  try {
+    const res = await fetch(url, {
+      method: 'GET',
+      headers: { Authorization: `Bearer ${key}` },
+      signal
+    });
+    if (!res.ok) {
+      return { ok: false, reason: `HTTP ${res.status}`, models: [] };
+    }
+    const body = await res.json();
+    const list = Array.isArray(body.data) ? body.data
+      : Array.isArray(body.models) ? body.models
+      : Array.isArray(body) ? body
+      : [];
+    const models = list.map((m) => {
+      const id = m.id || m.name || m.model || '';
+      return {
+        id: String(id),
+        context: typeof m.context_length === 'number' ? m.context_length
+              : typeof m.max_context_length === 'number' ? m.max_context_length
+              : null,
+        pricing: m.pricing || null,
+        raw: m
+      };
+    });
+    return { ok: true, reason: null, models };
+  } catch (err) {
+    return { ok: false, reason: err.message || 'fetch failed', models: [] };
+  }
+}
+
+function isFreeHeuristic(model) {
+  const id = String(model.id || '').toLowerCase();
+  if (id.endsWith(':free') || id.includes(':free')) return true;
+  if (id.endsWith('-free') || id.endsWith('.free')) return true;
+  if (id.includes('openrouter/free')) return true;
+  const p = model.pricing;
+  if (p && Number(p.prompt) === 0 && Number(p.completion) === 0) return true;
+  return false;
+}
+
+function filterModels(models, opts) {
+  return models.filter((m) => {
+    if (opts.filter && !opts.filter.test(m.id)) return false;
+    if (opts.free && !isFreeHeuristic(m)) return false;
+    if (opts.minContext > 0 && (m.context == null || m.context < opts.minContext)) return false;
+    return true;
+  });
+}
+
+function pad(s, n) {
+  s = String(s);
+  return s.length >= n ? s.slice(0, n) : s + ' '.repeat(n - s.length);
+}
+
+function renderTable(rows) {
+  const cols = [
+    { name: 'PROVIDER', width: 22 },
+    { name: 'MODEL ID', width: 56 },
+    { name: 'CTX',       width: 10 },
+    { name: 'PRICE/M in', width: 14 },
+    { name: 'STATUS',   width: 16 }
+  ];
+  const sep = cols.map((c) => '-'.repeat(c.width)).join('-+-');
+  const head = cols.map((c) => pad(c.name, c.width)).join(' | ');
+  const lines = [head, sep];
+  for (const r of rows) {
+    lines.push(cols.map((c) => pad(r[c.name.toLowerCase()] ?? '', c.width)).join(' | '));
+  }
+  return lines.join('\n');
+}
+
+async function main() {
+  const opts = parseArgs(process.argv.slice(2));
+  const targetSlugs = opts.providers.length
+    ? new Set(opts.providers)
+    : new Set(PROVIDERS.map((p) => p.slug));
+  const targets = PROVIDERS.filter((p) => targetSlugs.has(p.slug));
+  for (const skip of OAUTH_SKIPS) {
+    if (targetSlugs.has(skip)) {
+      console.error(`# ${skip} is OAuth; use the proxy's /api/oauth endpoint, not /v1/models.`);
+    }
+  }
+
+  const ac = new AbortController();
+  const timer = setTimeout(() => ac.abort(), 10_000);
+  try {
+    const results = await Promise.all(
+      targets.map(async (p) => ({ provider: p, result: await fetchProviderModels(p, ac.signal) }))
+    );
+    clearTimeout(timer);
+
+    if (opts.json) {
+      const out = results.map(({ provider, result }) => ({
+        provider: provider.slug,
+        ok: result.ok,
+        reason: result.reason,
+        models: filterModels(result.models, opts)
+      }));
+      console.log(JSON.stringify(out, null, 2));
+      return;
+    }
+
+    const rows = [];
+    for (const { provider, result } of results) {
+      if (!result.ok) {
+        rows.push({
+          provider: provider.slug,
+          'model id': '—',
+          ctx: '—',
+          'price/m in': '—',
+          status: result.reason
+        });
+        continue;
+      }
+      const filtered = filterModels(result.models, opts);
+      if (filtered.length === 0) {
+        rows.push({
+          provider: provider.slug,
+          'model id': '(no models match filter)',
+          ctx: '—',
+          'price/m in': '—',
+          status: 'ok'
+        });
+        continue;
+      }
+      for (const m of filtered) {
+        const p = m.pricing || {};
+        rows.push({
+          provider: provider.slug,
+          'model id': m.id,
+          ctx: m.context == null ? '?' : m.context.toLocaleString(),
+          'price/m in': (p.prompt != null || p.completion != null)
+            ? `in ${p.prompt ?? '?'} / out ${p.completion ?? '?'}`
+            : '—',
+          status: isFreeHeuristic(m) ? 'FREE' : 'paid'
+        });
+      }
+    }
+    console.log(renderTable(rows));
+    console.log(`\n# ${results.length} provider(s) probed. OAuth providers (antigravity, github-copilot) excluded — use /api/oauth instead.`);
+  } catch (err) {
+    clearTimeout(timer);
+    console.error(`fatal: ${err.message || err}`);
+    process.exit(1);
+  }
+}
+
+main();
