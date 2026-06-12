@@ -154,7 +154,7 @@ async function startProxyProcess() {
     serverLogs += data.toString();
   });
 
-  await delay(2500);
+  await delay(6000);
 }
 
 async function stopProxyProcess() {
