@@ -14,6 +14,15 @@ Point VS Code Copilot Chat, Claude Code, Cline, Roo Code, Continue, Codex, or sc
 - **Custom providers:** `/config` → **Add custom provider…** or `POST /api/providers` (HTTPS `/v1` upstream; loopback HTTP allowed for dev).
 - **Auto-router:** `local-router/auto-router-main` — expanded curated set (`src/routing-defaults.ts`): free → subscription (`opencode-go` → Z.ai → Xiaomi) → OAuth subscription (`antigravity-gemini-3.5-flash` → `github-copilot-gemini-3.1-pro`) → paid (Wafer → ZenMux → OpenRouter → Nebius → Cline → Kilo + NIM/Modal/Zen extras); exhaustion-sorted at bootstrap; routes based on coding ability, context length, and price (includes free-tier boost; latency metrics deprecated).
 - **System fallback:** `local-router/fallback-models` — **18** fixed steps (`DEFAULT_FALLBACK_ORDERED_IDS`): Ollama → NIM → Modal → Kilo/Cline free → OpenCode Zen free → OpenRouter free → **OAuth subscription (antigravity-gemini-3.5-flash at step 7, github-copilot-gemini-3.1-pro at step 8)** → Go/Z.ai/Xiaomi subscription → six paid anchors (no exhaustion re-sort on bootstrap).
+- **Preset routes** (8 built-in, bootstrapped on first run from `src/routing-defaults.ts`):
+  - `local-router/multimodal` — **fallback** chain of 16 vision-capable models (NIM Kimi K2.6 → Antigravity → Copilot → Pioneer → ZenMux → Wafer).
+  - `local-router/preferred-text` — **auto-local** router, 14 top-quality text candidates, `minCodingScore=0.85`, quality-weighted (`costQualityTradeoff=9`).
+  - `local-router/preferred-multimodal` — **auto-local** router, 12 vision-capable top-quality candidates, `minCodingScore=0.84`, quality-weighted.
+  - `local-router/performance-text` — **auto-local** router, 15 highest-scoring text candidates, `minCodingScore=0.88`, max quality (`costQualityTradeoff=10`).
+  - `local-router/performance-multimodal` — **auto-local** router, 8 highest-scoring multimodal candidates, `minCodingScore=0.88`, max quality.
+  - `local-router/low-cost-text` — **auto-local** router, 12 free/cheap text candidates, `minCodingScore=0.75`, cost-optimized (`costQualityTradeoff=2`).
+  - `local-router/low-cost-multimodal` — **auto-local** router, 8 free/cheap vision-capable candidates, `minCodingScore=0.75`, cost-optimized.
+  - `local-router/nanoboozhoo` — **auto-local** SOTA router, 64 candidates (full superset of auto-router-main + all fallback models), `minCodingScore=0.86`, max quality. Named for the Anishinaabe trickster-teacher; implements reasoning-aware routing principles from RADAR/ODAR/PILOT/IRT-Router academic research (NeurIPS 2025, EMNLP 2025, ACL 2025) — uses the broadest candidate pool with aggressive quality gating so the auto-local scorer always picks the best available model at runtime.
 - **Ollama Cloud:** Shared quota — router/fallback/pull use **nemotron-3-ultra**, **minimax-m3**, **deepseek-v4-flash** only unless a real `ollama.com` API key is set (Pro tags gated).
 - **Ollama shim:** `local-router route set` → `ollama serve` starts real Ollama on `11435` and Local Router on `11434`.
 - **Operator CLI:** `localrouter list`, `keys`, `router export|import|list|show|check`, `verify`, `config --open`.
@@ -561,6 +570,20 @@ Presented as `local-router/<router-name>` (saved to `router-models.json`):
 - **Auto-local:** uses task features (tool use, image, context size, cache, prior success/latency).
 - **Bandit-local:** dLinUCB with discount forgetting factor `γ=0.98`, UCB selection (`explorationBudget` UCB coefficient), persisted matrices.
 - **System fallback:** `fallback-models` safety net.
+
+#### Preset Routes (bootstrapped on first run)
+8 built-in preset routes are auto-created via `ensurePresetRoutes()` during startup if they don't already exist. Users can customize or delete them via `/config` UI or API. Defined in `src/routing-defaults.ts` as `PRESET_FALLBACK_ROUTES` and `PRESET_ROUTER_ROUTES`.
+
+| Route ID | Type | Candidates | minCodingScore | costQualityTradeoff | Purpose |
+|---|---|---|---|---|---|
+| `multimodal` | fallback | 16 | — | — | Vision-capable ordered retry chain |
+| `preferred-text` | auto-local | 14 | 0.85 | 9 | Curated top-quality text models |
+| `preferred-multimodal` | auto-local | 12 | 0.84 | 9 | Curated top-quality vision models |
+| `performance-text` | auto-local | 15 | 0.88 | 10 | Maximum coding quality, price irrelevant |
+| `performance-multimodal` | auto-local | 8 | 0.88 | 10 | Maximum quality, vision required |
+| `low-cost-text` | auto-local | 12 | 0.75 | 2 | Free and cheap text models |
+| `low-cost-multimodal` | auto-local | 8 | 0.75 | 2 | Free and cheap vision models |
+| `nanoboozhoo` | auto-local | 64 | 0.86 | 10 | SOTA routing — full candidate superset with aggressive quality gating |
 
 #### Statistical Outlier Tiering (Auto Exacto)
 - Uses median and Median Absolute Deviation (MAD) over accumulated telemetry.

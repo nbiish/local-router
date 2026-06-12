@@ -258,3 +258,178 @@ export function buildDefaultAutoRouterCandidateLines(
   const sortedIds = sortModelIdsByRoutingExhaustion([...byId.keys()], findModel);
   return sortedIds.map((id) => byId.get(id)!).filter(Boolean);
 }
+
+// ---------------------------------------------------------------------------
+// Preset Route Definitions
+// ---------------------------------------------------------------------------
+
+/** A preset fallback route: fixed ordered retry chain. */
+export type PresetFallbackRoute = { id: string; models: readonly string[] };
+
+export const PRESET_FALLBACK_ROUTES: readonly PresetFallbackRoute[] = [
+  {
+    id: 'multimodal',
+    models: [
+      'nvidia-nim-kimi-k2.6',
+      'antigravity-gemini-3.5-flash',
+      'antigravity-gemini-3.1-pro',
+      'github-copilot-gemini-3.1-pro',
+      'antigravity-claude-opus-4-6',
+      'antigravity-claude-sonnet-4-6',
+      'github-copilot-gpt-5',
+      'github-copilot-gpt-4o',
+      'nvidia-nim-minimax-m3',
+      'pioneer-minimax-m3',
+      'nvidia-nim-step-3.7-flash',
+      'openrouter-chain-of-draft',
+      'cline-minimax-minimax-m3-free',
+      'kilo-stepfun-step-3.7-flash-free',
+      'zenmux-minimax-m3',
+      'wafer-ai-minimax-m3',
+    ] as const,
+  },
+] as const;
+
+/** A preset router route: auto-local or pareto-code scored selection. */
+export type PresetRouterRoute = {
+  id: string;
+  type: 'auto-local' | 'pareto-code';
+  minCodingScore: number;
+  costQualityTradeoff: number;
+  candidateIds: readonly string[];
+};
+
+export const PRESET_ROUTER_ROUTES: readonly PresetRouterRoute[] = [
+  {
+    id: 'preferred-text',
+    type: 'auto-local',
+    minCodingScore: 0.85,
+    costQualityTradeoff: 9,
+    candidateIds: [
+      'antigravity-gemini-3.5-flash',
+      'antigravity-gemini-3.1-pro',
+      'github-copilot-gpt-5',
+      'github-copilot-gemini-3.1-pro',
+      'opencode-go-deepseek-v4-pro',
+      'antigravity-claude-opus-4-6',
+      'pioneer-minimax-m3',
+      'antigravity-claude-sonnet-4-6',
+      'zenmux-minimax-m3',
+      'wafer-ai-minimax-m3',
+      'commandcode-deepseek-v4-pro',
+      'zai-code-pass-glm-5.1',
+      'wafer-ai-glm-5.1',
+      'nebius-deepseek-v4-pro',
+    ] as const,
+  },
+  {
+    id: 'preferred-multimodal',
+    type: 'auto-local',
+    minCodingScore: 0.84,
+    costQualityTradeoff: 9,
+    candidateIds: [
+      'antigravity-gemini-3.5-flash',
+      'antigravity-gemini-3.1-pro',
+      'github-copilot-gpt-5',
+      'github-copilot-gemini-3.1-pro',
+      'antigravity-claude-opus-4-6',
+      'antigravity-claude-sonnet-4-6',
+      'pioneer-minimax-m3',
+      'zenmux-minimax-m3',
+      'nvidia-nim-kimi-k2.6',
+      'nvidia-nim-minimax-m3',
+      'nvidia-nim-step-3.7-flash',
+      'openrouter-chain-of-draft',
+    ] as const,
+  },
+  {
+    id: 'performance-text',
+    type: 'auto-local',
+    minCodingScore: 0.88,
+    costQualityTradeoff: 10,
+    candidateIds: [
+      'antigravity-gemini-3.5-flash',
+      'antigravity-gemini-3.1-pro',
+      'github-copilot-gpt-5',
+      'github-copilot-gemini-3.1-pro',
+      'opencode-go-deepseek-v4-pro',
+      'antigravity-claude-opus-4-6',
+      'pioneer-minimax-m3',
+      'antigravity-claude-sonnet-4-6',
+      'zenmux-minimax-m3',
+      'wafer-ai-minimax-m3',
+      'commandcode-deepseek-v4-pro',
+      'zai-code-pass-glm-5.1',
+      'wafer-ai-glm-5.1',
+      'nebius-deepseek-v4-pro',
+      'cline-deepseek-deepseek-v4-pro-paid',
+    ] as const,
+  },
+  {
+    id: 'performance-multimodal',
+    type: 'auto-local',
+    minCodingScore: 0.88,
+    costQualityTradeoff: 10,
+    candidateIds: [
+      'antigravity-gemini-3.5-flash',
+      'antigravity-gemini-3.1-pro',
+      'github-copilot-gpt-5',
+      'github-copilot-gemini-3.1-pro',
+      'antigravity-claude-opus-4-6',
+      'pioneer-minimax-m3',
+      'antigravity-claude-sonnet-4-6',
+      'zenmux-minimax-m3',
+    ] as const,
+  },
+  {
+    id: 'low-cost-text',
+    type: 'auto-local',
+    minCodingScore: 0.75,
+    costQualityTradeoff: 2,
+    candidateIds: [
+      'ollama-nemotron-3-ultra-cloud',
+      'cline-nvidia-nemotron-3-ultra-550b-a55b-free',
+      'cline-minimax-minimax-m3-free',
+      'kilo-nvidia-nemotron-3-ultra-550b-a55b-free',
+      'kilo-stepfun-step-3.7-flash-free',
+      'opencode-zen-minimax-m3-free',
+      'opencode-zen-deepseek-v4-flash-free',
+      'openrouter-free',
+      'modal-glm-5.1-fp8',
+      'nvidia-nim-minimax-m3',
+      'nvidia-nim-step-3.7-flash',
+      'wafer-ai-deepseek-v4-flash',
+    ] as const,
+  },
+  {
+    id: 'low-cost-multimodal',
+    type: 'auto-local',
+    minCodingScore: 0.75,
+    costQualityTradeoff: 2,
+    candidateIds: [
+      'cline-minimax-minimax-m3-free',
+      'kilo-stepfun-step-3.7-flash-free',
+      'nvidia-nim-minimax-m3',
+      'nvidia-nim-step-3.7-flash',
+      'nvidia-nim-kimi-k2.6',
+      'openrouter-chain-of-draft',
+      'zenmux-minimax-m3',
+      'wafer-ai-minimax-m3',
+    ] as const,
+  },
+  {
+    id: 'nanoboozhoo',
+    type: 'auto-local',
+    minCodingScore: 0.86,
+    costQualityTradeoff: 10,
+    candidateIds: [
+      ...AUTO_ROUTER_EXTRA_CANDIDATE_IDS,
+      ...DEFAULT_FALLBACK_ORDERED_IDS,
+    ] as const,
+  },
+] as const;
+
+/** Build the candidates text block for a preset router route. */
+export function buildPresetRouterCandidatesText(preset: PresetRouterRoute): string {
+  return preset.candidateIds.map((id) => candidateLine(id)).join('\n');
+}
