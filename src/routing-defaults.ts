@@ -67,7 +67,7 @@ const CANDIDATE_DEFAULTS: Record<string, string> = {
   'ollama-nemotron-3-ultra-cloud': 'coding=0.86, input=0, output=0, latency=850, notes=Ollama Cloud Nemotron 3 Ultra (free tier)',
   'ollama-minimax-m3-cloud': 'coding=0.82, input=0, output=0, latency=950, notes=Ollama Cloud MiniMax M3 (free tier)',
   'ollama-deepseek-v4-flash-cloud': 'coding=0.84, input=0, output=0, latency=900, notes=Ollama Cloud DeepSeek V4 Flash (free tier)',
-  'nvidia-nim-minimax-m3': 'coding=0.85, input=0.1, output=0.3, latency=720, notes=NVIDIA NIM MiniMax M3',
+  'nvidia-nim-minimax-m3': 'coding=0.85, input=0, output=0, latency=720, notes=NVIDIA NIM MiniMax M3 (free tier, June 2026)',
   'nvidia-nim-kimi-k2.6': 'coding=0.86, input=0.6, output=2.5, latency=850, notes=NVIDIA NIM Kimi K2.6',
   'nvidia-nim-step-3.7-flash': 'coding=0.84, input=0.1, output=0.3, latency=700, notes=NVIDIA NIM Step 3.7 Flash',
   'modal-glm-5.1-fp8': 'coding=0.83, input=0.5, output=1, latency=800, notes=Modal GLM-5.1 FP8 200K ctx',

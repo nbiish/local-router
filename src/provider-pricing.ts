@@ -59,6 +59,12 @@ export const BASELINE_PROVIDER_PRICING: Record<string, ProviderPricingEntry> = {
     outputPricePerM: 0,
     label: 'OpenCode Zen MiniMax M3 free tier'
   },
+  'nvidia-nim-minimax-m3': {
+    inputPricePerM: 0,
+    outputPricePerM: 0,
+    label: 'NVIDIA NIM MiniMax M3 free tier (June 2026)',
+    sourceUrl: 'https://integrate.api.nvidia.com/v1/models'
+  },
   'zenmux-mimo-v2.5-pro': {
     inputPricePerM: 0.44,
     outputPricePerM: 0.88,
