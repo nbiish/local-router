@@ -631,7 +631,7 @@ Run tests sequentially with isolated context:
 ```bash
 npm install
 npm run build
-npm test             # executes all unit and integration tests (56 cases, 13 files)
+npm test             # executes all unit and integration tests (82 cases, 16 files)
 ```
 *Note: To skip local Ollama daemon auto-start, set `LOCAL_ROUTER_SKIP_OLLAMA_ENSURE=true`.*
 
@@ -648,7 +648,10 @@ npm test             # executes all unit and integration tests (56 cases, 13 fil
 - `tests/responses-websocket-anthropic.integration.test.mjs`: Responses WS, Anthropic messages.
 - `tests/fallback-disabled-models.test.mjs`: Fallback model toggle/disable via `disabledModels` and inline `disabled` directives.
 - `tests/fallback-disabled-execution-plan.test.mjs`: Execution plan skipping disabled fallback models.
+- `tests/fallback-content-classifier.test.mjs`: Content-aware failover classification — `classifyHttpFailure()` (auth/quota/payment/unavailable/invalid-request), `classifyResponseContent()` (generated/streaming/instant_error), `classifyStreamChunkAsError()`, and `buildFailoverPreservedBody()` for session continuity across failover hops.
 - `tests/gateway-response.test.mjs`: Cline gateway data envelope unwrap translation.
+- `tests/prompt-caching.test.mjs`: Universal cache directive injection across all 15 providers — OpenAI 24h retention, Anthropic ephemeral breakpoints (1h/5m TTL), Gemini implicit/explicit, DeepSeek automatic prefix, OpenRouter sticky routing, Moonshot K2 series (50% cache hit discount), Groq 50% discount + 2h expiry, Xiaomi MiMo GCache (93–95% hit rate), Z.ai implicit, plus cross-provider failover contract.
+- `tests/router-disabled-candidates.test.mjs`: Router disabled-candidate pruning, scoring, and execution plan integration.
 
 ### Operator Manual Verification Script
 Run the verification tool and inspect the bootsrapped fallback routes:
