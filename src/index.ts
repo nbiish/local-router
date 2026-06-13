@@ -1847,8 +1847,8 @@ async function compressWithHeadroom(body: any, model: string): Promise<any> {
       return { ...body, messages: result.messages };
     }
     return body;
-  } catch {
-    // Headroom proxy not running or unreachable — silently pass through
+  } catch (err: any) {
+    console.error('[Headroom] Compression failed:', err?.message || err);
     return body;
   }
 }

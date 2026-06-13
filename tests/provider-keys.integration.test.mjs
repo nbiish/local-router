@@ -470,7 +470,7 @@ test('provider key save/reset lifecycle exposes configured source', async (t) =>
   ));
   const routerZaiIdx = autoRouterCandidates.findIndex((id) => String(id).startsWith('zai-'));
   const routerXiaomiIdx = autoRouterCandidates.findIndex((id) => String(id).startsWith('xiaomi-mimo-'));
-  const routerNvidiaIdx = autoRouterCandidates.findIndex((id) => String(id).startsWith('nvidia-nim-') && id !== 'nvidia-nim-minimax-m3');
+  const routerNvidiaIdx = autoRouterCandidates.findIndex((id) => id === 'nvidia-nim-kimi-k2.6');
   if (routerKiloIdx >= 0 && routerClineIdx >= 0) {
     assert.ok(routerKiloIdx < routerClineIdx, 'auto-router should list Kilo before Cline');
   }
