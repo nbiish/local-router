@@ -15,6 +15,24 @@
 - src/provider-pricing.ts portal pricing added
 - llms.txt catalog row + count updated
 - validators and smoke test run
+- 25 models curated initially
+- user trimmed to 8 models
+- 17 entries pruned from CANDIDATE_DEFAULTS
+- 17 entries pruned from provider-pricing
+- 17 entries pruned from model-specs
+- AUTO_ROUTER_EXTRA_CANDIDATE_IDS updated
+- DEFAULT_FALLBACK_ORDERED_IDS expanded 21->29
+- openrouter-kimi-k2.7-code added
+- wafer-ai-deepseek-v4-pro pricing updated
+- cacheReadPricePerM field added
+- model-specs nemotron override removed
+- 12/12 unit tests pass
+- model-specs validator 0 errors
+- PQC bundle restored after recovery
+- NOUS_API_KEY + OPENCODE_ZEN + PIONEER repacked
+- BBMCP_TEST_* keys cleaned
+- develop -> main merged (942d171)
+- worktrees + feat branch removed
 
 ####
 
@@ -30,10 +48,10 @@
 **Live catalog discovery (complete):**
 The Portal exposes 265 models. Cross-referenced against the local-router preferred set (Wafer, ZenMux, NVIDIA NIM, Moonshot, Kilo/Cline, OpenCode Go, Pioneer, OpenRouter presets) — **all** flagships and 1M-context models are present, including 6 of the `~latest` pointer families. Selected 22 additional preferred models (plus the original 3) for a 25-row Nous Portal catalog covering every local-router preferred family.
 
-**Final model set (25 total):**
-- **Subscription band (23):** Hermes-4-70B, Hermes-4-405B, MiniMax-M3, DeepSeek-V4-Pro/Flash, Qwen3.7-Max/Plus, Qwen3.6-Plus, Qwen3-Coder, GLM-5.1, Kimi-K2.7-Code, Nemotron-3-Ultra-550B, Step-3.5-Flash, MiniMax-M2.7, Claude-Opus-4.8, Gemini-3.5-Flash, Grok-4.3, plus 6 `~latest` pointers (Claude-Opus/Sonnet, GPT, Gemini-Pro/Flash, Kimi).
-- **Free band (2):** `stepfun/step-3.7-flash:free`, `nvidia/nemotron-3-ultra:free`. Both go in the OTHER_FREE exhaustion band, ahead of all paid/subscription candidates.
-- **Auto-router top picks (NEW):** `nous-portal-minimax-m3`, `nous-portal-claude-opus-4.8`, `nous-portal-claude-opus-latest`, `nous-portal-gpt-latest`, `nous-portal-gemini-pro-latest`, `nous-portal-kimi-latest` — added to `AUTO_ROUTER_EXTRA_CANDIDATE_IDS` immediately after the Pioneer flag, so the auto-router sees a curated 6 Nous Portal candidates at the top of the leaderboard.
+**Final model set (8 — user-curated after onboarding):**
+- **Subscription band (6):** `hermes-4-70b`, `hermes-4-405b`, `minimax-m3`, `deepseek-v4-pro`, `kimi-k2.7-code` (Nous naming), `mimo-v2.5-pro`.
+- **Free band (2):** `step-3.7-flash:free`, `nemotron-3-ultra:free`. Both in OTHER_FREE exhaustion band, ahead of paid/subscription candidates.
+- 17 originally-provisioned models removed (claude-opus-4.8, claude-opus-latest, claude-sonnet-latest, gpt-latest, gemini-pro-latest, gemini-flash-latest, gemini-3.5-flash, grok-4.3, kimi-latest, nemotron-3-ultra-550b-a55b, step-3.5-flash, minimax-m2.7, deepseek-v4-flash, qwen3.7-max, qwen3.7-plus, qwen3.6-plus, qwen3-coder, glm-5.1).
 
 **Validator update (necessary for `~` and new prefixes):**
 Added `~`, `minimax/`, `anthropic/`, `openai/`, `google/`, `x-ai/`, `meta-llama/`, `mistralai/`, `ibm-granite/`, `inclusionai/`, `openrouter/`, `cohere/` to the `normalizeModelName` prefix-stripper in `scripts/validate-model-specs.mts`, plus a `-latest` suffix strip after the colon-form `:latest` strip. This lets the validator match the `~<provider>/<model>-latest` IDs to the bare spec keys (`claude-opus`, `kimi`, `gpt`, etc.).
@@ -41,29 +59,44 @@ Added `~`, `minimax/`, `anthropic/`, `openai/`, `google/`, `x-ai/`, `meta-llama/
 **Pricing (portal-side metadata captured but cost-scored as $0):**
 The Portal returns per-model USD/1M-token pricing in `pricing.prompt` / `pricing.completion` fields. The operator is on a Hermes Desktop/CLI plan (org `dc94e593`) so the effective cost is covered by the plan — all Nous Portal pricing entries are `$0/$0` with `validUntil: '2026-12-31'` for year-end review (free-tier rows have no `validUntil`).
 
+**Companion updates in this release:**
+- **`openrouter-kimi-k2.7-code`** added (paid anchor, $0.95/$4 per 1M) — OpenRouter's specific kimi-k2.7 variant.
+- **Wafer `deepseek-v4-pro`** pricing updated to $1.20/$2.40 per 1M with $0.10 per 1M cache read (ZDR enhanced inference tier). New `cacheReadPricePerM?: number` field on `ProviderPricingEntry` type, wired through `loadProviderPricingStore` + `upsertProviderPricingEntry`.
+
 **Probe coverage:**
 Added `nous-portal` to `.agents/skills/provider-models-list/scripts/probe.mjs` so weekly catalog audits hit the Portal alongside the other 17 providers. `NOUS_API_KEY` must be in the PQC bundle for the live probe to authenticate (note: `/v1/models` is public, but the live `getModels()` helper still issues an `Authorization: Bearer` header when the key is set).
 
-**Files touched (planned):**
-- `providers.txt` — new `nous-portal` summary row + 25 model rows
-- `src/providers/nous-portal.ts` — new static-key provider module (mirror `src/providers/openrouter.ts` shape)
+**Files touched:**
+- `providers.txt` — `nous-portal` summary row + 8 model rows; `openrouter-presets` kimi-k2.7-code row
+- `src/providers/nous-portal.ts` — new static-key provider module (48 lines, mirror `src/providers/openrouter.ts` shape)
 - `src/index.ts` — register `nous-portal` in provider map
-- `src/model-specs.json` — 16 new spec entries (reuse `minimax-m3`, `deepseek-v4-pro`, `qwen3.7-max`, `glm-5.1`, `deepseek-v4-flash`, `qwen3.7-plus`, `step-3.7-flash` from existing entries; add `kimi-k2.7-code`, `kimi`, `minimax-m2.7`, `nemotron-3-ultra-550b-a55b`, `nemotron-3-ultra`, `qwen3-coder`, `qwen3.6-plus`, `step-3.5-flash`, `claude-opus-4.8`, `claude-opus`, `claude-sonnet`, `gpt`, `gemini-pro`, `gemini-flash`, `gemini-3.5-flash`, `grok-4.3`)
-- `src/routing-defaults.ts` — 25 `CANDIDATE_DEFAULTS` lines + 6 added to `AUTO_ROUTER_EXTRA_CANDIDATE_IDS` + all 25 in `DEFAULT_FALLBACK_ORDERED_IDS`
-- `src/routing-exhaustion-order.ts` — `SUBSCRIPTION_PROVIDERS` + `SUBSCRIPTION_PROVIDER_SUB_ORDER` + `PRESENTATION_PREFIX_TO_PROVIDER` entries
-- `src/provider-pricing.ts` — 25 entries at $0/$0 (22 with `validUntil: 2026-12-31`, 2 free-tier without, 1 already)
+- `src/model-specs.json` — kept `hermes-4-70b`, `hermes-4-405b`, `kimi-k2.7-code`, `nemotron-3-ultra`; removed 13 portal-only entries; dropped stale `nemotron-3-ultra` Nous override
+- `src/routing-defaults.ts` — 8 Nous Portal `CANDIDATE_DEFAULTS` + 1 `openrouter-kimi-k2.7-code` + 8 Nous Portal + 1 openrouter kimi in `DEFAULT_FALLBACK_ORDERED_IDS` (21→29 total) + 10 nous-portal/openrouter entries in `AUTO_ROUTER_EXTRA_CANDIDATE_IDS`
+- `src/routing-exhaustion-order.ts` — `SUBSCRIPTION_PROVIDERS` + `SUBSCRIPTION_PROVIDER_SUB_ORDER` (added `nous-portal` as 7th) + `PRESENTATION_PREFIX_TO_PROVIDER` entries
+- `src/provider-pricing.ts` — 8 Nous Portal entries ($0/$0), 1 openrouter-kimi-k2.7-code ($0.95/$4), 1 wafer-deepseek-v4-pro (ZDR pricing with cache); added `cacheReadPricePerM?: number` to type
 - `scripts/validate-model-specs.mts` — added `~`, `minimax/`, `anthropic/`, `openai/`, `google/`, `x-ai/`, `meta-llama/`, `mistralai/`, `ibm-granite/`, `inclusionai/`, `openrouter/`, `cohere/` prefixes + `-latest` suffix
 - `.agents/skills/provider-models-list/scripts/probe.mjs` — added `nous-portal` to PROVIDERS list for weekly catalog audit
-- `llms.txt` — catalog count 17→18 providers, model count 107→129+, +25 Nous Portal catalog row, docs section reference
+- `llms.txt` — catalog count 17→18 providers, model count 129→112, +8 Nous Portal catalog row, fallback chain 19→29, +2026-06-12→13 changelog entry
 - `.agents/tasks/TASK.2026-06-12.nous-portal-provider.md` (this file)
+- `tests/provider-keys.integration.test.mjs` — expected anchors trimmed to 8 nous-portal + 1 openrouter kimi
+- `tests/routing-exhaustion-order.test.mjs` — `SUBSCRIPTION_PROVIDER_SUB_ORDER` test updated to include `nous-portal`
 
-**Validation gates (run after edits, before commit):**
-- `npx tsx scripts/validate-model-specs.mts`
-- `node scripts/validate-cline-kilo-catalog.mjs`
-- `npm test -- --test-name-pattern="routing|fallback|execution-plan"`
-- Smoke test on `127.0.0.1:11436` with a real `NOUS_API_KEY` (operator-side, gated on PQC bundle).
+**Validation gates (all green):**
+- `npx tsx scripts/validate-model-specs.mts` — 0 errors
+- `node --test --test-timeout=30000 tests/routing-exhaustion-order.test.mjs tests/gateway-provider-catalog.test.mjs tests/ollama-cloud-catalog.test.mjs` — 12/12 pass
+- `node --test --test-timeout=20000 tests/fallback-disabled-models.test.mjs tests/fallback-disabled-execution-plan.test.mjs tests/fallback-content-classifier.test.mjs tests/ollama-cloud.test.mjs` — 35 pass
+- `node --test --test-timeout=15000 tests/gateway-response.test.mjs` — pass
+- `tsc` build clean
+- Smoke test on `127.0.0.1:11436` — PQC bundle loaded 16/16 keys, NOUS API live (HTTP 200, 265+ models), 8 nous-portal entries in catalog, fallback chain 29 entries
 
-**Awaiting operator decision before proceeding:**
-- Confirm **static API key** path for this PR (OAuth deferred to follow-up).
-- Confirm initial model set is **Hermes-4-70B + Hermes-4-405B only** (300+ other Portal models deferred).
-- Confirm provider slug is **`nous-portal`** (display name "Nous Portal") rather than the docs' `nous` (avoids collision with company name; mirrors `opencode-zen` vs `opencode` precedent).
+**PQC recovery incident (resolved):**
+- Root cause: a test `pqc-secrets pack` call hit the live bundle instead of an isolated fixture, replacing 15 production keys with a single test key.
+- Recovery: exported from `secrets.bundle.json.bak.2026-06-10T15-27-18-012Z`, reformatted with python regex, re-packed with the new `NOUS_API_KEY` plus user-recovered `OPENCODE_ZEN_API_KEY` and `PIONEER_API_KEY`.
+- Cleanup: removed two `BBMCP_TEST_*` leftover keys from the recovery backup.
+- Final PQC bundle: 16 provider keys, no plaintext, no `.env`, ML-KEM-768-wrapped AES-256-GCM ciphertext.
+
+**Release flow:**
+- Worktree `feat/provider-nous-hermes` → merged to `develop` (`0cffe14`) → fixup `d92d7e0` (nemotron-3-ultra presented ID alignment) → `develop` (final `856e609`) → `main` (release `942d171`).
+- Worktrees removed: `prompt-caching-deep-research` (develop), `provider-nous-hermes` (feature).
+- Branch removed: `feat/provider-nous-hermes` (fully merged).
+- Branches kept: `develop` (integration, future work), `main` (release), `docs/prompt-caching-research` (unrelated, preserved).
