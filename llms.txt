@@ -194,7 +194,7 @@ Setting files reside at `~/.config/local-router/` (or legacy `~/.config/fvs-code
 | `tool-routing.json` | No | local JSON | Ollama shim routing configuration |
 
 ### Provider Catalog Contracts
-The catalog contains **18 active providers** (16 static-key + 2 OAuth-subscription) with **129+ presented models** as of 2026-06-12:
+The catalog contains **18 active providers** (16 static-key + 2 OAuth-subscription) with **112+ presented models** as of 2026-06-12:
 
 | Provider | Catalog Models | Upstream Endpoint | Key Env Variable | Auth |
 |---|---|---|---|---|
@@ -204,7 +204,7 @@ The catalog contains **18 active providers** (16 static-key + 2 OAuth-subscripti
 | `moonshot` | 5 | Moonshot/Kimi API | `MOONSHOT_API_KEY` | static |
 | `nvidia-nim` | 6 | NVIDIA NIM API | `NVIDIA_NIM_API_KEY` | static |
 | `modal` | 1 | Modal GLM endpoint | `MODAL_API_KEY` | static |
-| `openrouter-presets` | 8 | `https://openrouter.ai/api/v1` | `OPENROUTER_API_KEY` | static |
+| `openrouter-presets` | 9 | `https://openrouter.ai/api/v1` | `OPENROUTER_API_KEY` | static |
 | `xiaomi-mimo` | 2 | `https://token-plan-sgp.xiaomimimo.com/v1` | `XIAOMI_MIMO_API_KEY` | static |
 | `opencode-go` | 9 | `https://opencode.ai/zen/go/v1` | `OPENCODE_API_KEY` | static |
 | `opencode-zen` | 8 | `https://opencode.ai/zen/v1` | `OPENCODE_API_KEY` | static |
@@ -215,7 +215,7 @@ The catalog contains **18 active providers** (16 static-key + 2 OAuth-subscripti
 | `commandcode` | 1 | `https://api.commandcode.ai/alpha/generate` | `COMMANDCODE_API_KEY` | static |
 | `antigravity` | 6 | Google Cloud Code Assist (`https://cloudcode-pa.googleapis.com/v1internal`) | `ANTIGRAVITY_OAUTH_TOKEN` | **oauth-pkce** |
 | `github-copilot` | 5 | `https://api.githubcopilot.com` | `COPILOT_GITHUB_TOKEN` | **oauth-device** |
-| `nous-portal` | 25 | `https://inference-api.nousresearch.com/v1` | `NOUS_API_KEY` | static |
+| `nous-portal` | 8 | `https://inference-api.nousresearch.com/v1` | `NOUS_API_KEY` | static |
 
 **Auth legend:** `static` = long-lived API key in the PQC bundle. `oauth-pkce` = browser-based OAuth 2.0 authorization-code + PKCE flow. `oauth-device` = OAuth 2.0 device flow (RFC 8628).
 **Note:** `antigravity` and `github-copilot` are **fully implemented** OAuth-subscription providers with active PKCE (Antigravity) and device flow (Copilot) auth, dynamic model discovery, and concurrent-refresh deduplication. Tokens persist to `~/.config/local-router/oauth-credentials.json` (chmod 600). See the "OAuth / Subscription Providers" section below for the full authentication contract, oh-my-pi design references, and integration architecture.

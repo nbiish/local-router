@@ -404,29 +404,14 @@ test('provider key save/reset lifecycle exposes configured source', async (t) =>
     'nous-portal-hermes-4-405b',
     'nous-portal-minimax-m3',
     'nous-portal-deepseek-v4-pro',
-    'nous-portal-deepseek-v4-flash',
-    'nous-portal-qwen3.7-max',
-    'nous-portal-qwen3.7-plus',
-    'nous-portal-qwen3.6-plus',
-    'nous-portal-qwen3-coder',
-    'nous-portal-glm-5.1',
     'nous-portal-kimi-k2.7-code',
-    'nous-portal-kimi-latest',
-    'nous-portal-nemotron-3-ultra-550b-a55b',
-    'nous-portal-step-3.5-flash',
-    'nous-portal-minimax-m2.7',
-    'nous-portal-claude-opus-4.8',
-    'nous-portal-claude-opus-latest',
-    'nous-portal-claude-sonnet-latest',
-    'nous-portal-gpt-latest',
-    'nous-portal-gemini-pro-latest',
-    'nous-portal-gemini-flash-latest',
-    'nous-portal-gemini-3.5-flash',
-    'nous-portal-grok-4.3',
+    'nous-portal-mimo-v2.5-pro',
     // Nous Portal: free band (OTHER_FREE — sorted by provider, after other
     // free-tier models in the chain)
     'nous-portal-step-3.7-flash-free',
-    'nous-portal-nemotron-3-ultra-free'
+    'nous-portal-nemotron-3-ultra-free',
+    // OpenRouter paid kimi-k2.7-code (added 2026-06-12)
+    'openrouter-kimi-k2.7-code'
   ];
   const chainSet = new Set(fallbackChain);
   const missingAnchors = expectedFallbackAnchors.filter((id) => !chainSet.has(id));
