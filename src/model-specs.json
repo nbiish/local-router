@@ -60,6 +60,14 @@
       "reasoning": false,
       "source": "z.ai, deepinfra (April 2026)"
     },
+    "glm-4.6v": {
+      "context": 200000,
+      "output": 128000,
+      "tools": true,
+      "vision": true,
+      "reasoning": true,
+      "source": "z.ai coding plan endpoint (June 2026); vision variant of GLM-4.6 with preserved thinking"
+    },
 
     "qwen3.7-max": {
       "context": 1048576,
