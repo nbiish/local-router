@@ -120,14 +120,10 @@ Open `http://localhost:11434/config` → **Router Models**. Each type selects fr
 **Out-of-box recommendation:** use `local-router/auto-router-main` or `local-router/nanoboozhoo` as your model. The system fallback chain `local-router/fallback-models` is bootstrapped automatically and catches failures when providers are missing or upstream calls fail.
 
 ### Preset Routes (built-in)
-8 built-in preset routes are auto-bootstrapped on first startup:
+4 built-in preset routes are auto-bootstrapped on first startup:
 - `local-router/multimodal` — fallback chain of 16 vision-capable models (NIM Kimi K2.6 → Antigravity → Copilot → Pioneer → ZenMux → Wafer).
-- `local-router/preferred-text` — auto-local router, 14 curated top-quality text candidates (`minCodingScore=0.85`, quality=9).
-- `local-router/preferred-multimodal` — auto-local router, 12 curated top-quality vision candidates (`minCodingScore=0.84`, quality=9).
-- `local-router/performance-text` — auto-local router, 15 highest-scoring text candidates (`minCodingScore=0.88`, quality=10).
-- `local-router/performance-multimodal` — auto-local router, 8 highest-scoring multimodal candidates (`minCodingScore=0.88`, quality=10).
-- `local-router/low-cost-text` — auto-local router, 12 free/cheap text candidates (`minCodingScore=0.75`, quality=2).
-- `local-router/low-cost-multimodal` — auto-local router, 8 free/cheap vision candidates (`minCodingScore=0.75`, quality=2).
+- `local-router/performance` — auto-local router, 15 top-quality candidates (text + multimodal union, deduped), `minCodingScore=0.88`, max quality (`costQualityTradeoff=10`).
+- `local-router/low-cost` — auto-local router, 6 free candidates (one from each provider with free models), `minCodingScore=0.75`, cost-optimized (`costQualityTradeoff=2`).
 - `local-router/nanoboozhoo` — auto-local SOTA router, 64 candidates (full candidate pool), quality=10, `minCodingScore=0.86`. Implements reasoning-aware routing principles from NeurIPS/ACL 2025 SOTA papers (broad candidate pool + aggressive quality gating to guarantee the best selection at runtime).
 
 ### Universal Prompt Caching Policy
