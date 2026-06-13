@@ -82,10 +82,20 @@ feature worktree → develop (integrate + verify) → main (release)
 - Mandatory worktree removal and feature branch deletion is required after a `feature` -> `develop` merge.
 
 ### System Snapshot & Release Lineage (June 2026)
-**`main` @ `8ca614c`, `develop` @ `8ca614c`** — Pioneer AI provider integration, separate OpenCode keys, and optimized prompt caching across all active providers, robust CLI stop/start with lsof port discovery + process tree kill, OAuth secrets remediation (hardcoded Antigravity credentials moved to PQC env vars).
+**`main` @ `e733527`, `develop` @ `e733527`** — Nous Portal curation to 2 free/paid models (Hermes 4 family dropped), `local-router/multimodal` expansion to 15 vision-capable entries (`zai-code-pass-glm-4.6v`, `commandcode-minimax-m3`, `xiaomi-mimo-mimo-v2.5`, `wafer-ai-minimax-m3` added), and catalog parser fix so letter-suffixed row numbers (e.g. `64a`, `72a`) are accepted and the new zai/commandcode anchors now show Ready.
 
 | Commit | Summary |
 |--------|---------|
+| `e733527` | **Release 2026-06-13b** — fix catalog parser rejecting letter-suffixed row numbers; zai `code-pass-glm-4.6v` and commandcode `minimax-m3` multimodal anchors now show Ready |
+| `90f04bc` | **Merge fix/multimodal-zai-commandcode-unavailable into develop** — integrated catalog fix |
+| `5aca19f` | **fix(catalog): renumber zai 64a→80 and commandcode 72a→137** — providers.txt parser uses `/^\d+$/` so letter-suffixed rows were silently dropped; renumbered to free integers; switched zai model from `zai-org/GLM-4.6v` to `code-pass-glm-4.6v` to match sibling `zai-code-pass-glm-5.1` and produce the correct presented ID |
+| `d024ec0` | **Release 2026-06-13** — Nous Portal curation + multimodal expansion; expanded `local-router/multimodal` from 11 → 15 vision-capable entries |
+| `e693f19` | **Merge feat/multimodal-expansion into develop** — expanded multimodal route to 15 entries (zai/xiaomi/commandcode/wafer) |
+| `9e40525` | **docs(llms): update multimodal route to 15 entries + changelog** — bullet list, preset routes table, and session log entry for the multimodal expansion |
+| `5253f72` | **feat(routing): expand local-router/multimodal to 15 entries** — added 2 new catalog entries (zai, commandcode) and 2 existing entries (xiaomi-mimo-mimo-v2.5, wafer-ai-minimax-m3) |
+| `f4811d6` | **feat(pricing): add zai-glm-4.6v and commandcode-minimax-m3 pricing entries** — subscription-billed, `validUntil 2026-12-31` |
+| `9d852e1` | **feat(specs): add glm-4.6v to model-specs.json** |
+| `105cde9` | **feat(providers): add zai-code-pass-glm-4.6v and commandcode-minimax-m3 catalog rows** — new `providers.txt` rows (with letter-suffixed row numbers `64a` and `72a` that needed the later parser fix) |
 | `8ca614c` | **Pioneer AI provider + prompt caching optimization** — added Pioneer AI provider with all 5 preferred models (Minimax M3, MiMo V2.5 Pro, DeepSeek V4 Pro, Kimi K2.6, GLM 5.1), configured fallback order at index 10, separated Opencode and OpenCodeZen keys, and optimized prompt caching (explicit 1-hour cache TTL and OpenRouter edge response cache) |
 | `1abccf2` | **Merge develop → main** — OAuth secrets remediation: move hardcoded credentials to PQC env vars |
 | `766c63a` | **Merge fix/oauth-secrets-env into develop** — integrated OAuth secret fix |
@@ -194,7 +204,7 @@ Setting files reside at `~/.config/local-router/` (or legacy `~/.config/fvs-code
 | `tool-routing.json` | No | local JSON | Ollama shim routing configuration |
 
 ### Provider Catalog Contracts
-The catalog contains **18 active providers** (16 static-key + 2 OAuth-subscription) with **110+ presented models** as of 2026-06-13:
+The catalog contains **18 active providers** (16 static-key + 2 OAuth-subscription) with **112 presented models** as of 2026-06-13 (after `zai-code-pass-glm-4.6v` and `commandcode-minimax-m3` joined the multimodal expansion of `local-router/multimodal` to 15 entries; earlier 110 was the pre-expansion count):
 
 | Provider | Catalog Models | Upstream Endpoint | Key Env Variable | Auth |
 |---|---|---|---|---|
@@ -208,11 +218,11 @@ The catalog contains **18 active providers** (16 static-key + 2 OAuth-subscripti
 | `xiaomi-mimo` | 2 | `https://token-plan-sgp.xiaomimimo.com/v1` | `XIAOMI_MIMO_API_KEY` | static |
 | `opencode-go` | 9 | `https://opencode.ai/zen/go/v1` | `OPENCODE_API_KEY` | static |
 | `opencode-zen` | 8 | `https://opencode.ai/zen/v1` | `OPENCODE_API_KEY` | static |
-| `zai` | 1 | `https://api.z.ai/api/coding/paas/v4` | `ZAI_API_KEY` | static |
+| `zai` | 2 | `https://api.z.ai/api/coding/paas/v4` | `ZAI_API_KEY` | static |
 | `ollama` | 8 | `http://127.0.0.1:11435/v1` | `OLLAMA_API_KEY` | static |
 | `cline` | 9 | `https://api.cline.bot/api/v1` | `CLINE_API_KEY` | static |
 | `kilo` | 6 (+ live) | `https://api.kilo.ai/api/gateway` | `KILO_API_KEY` | static |
-| `commandcode` | 1 | `https://api.commandcode.ai/alpha/generate` | `COMMANDCODE_API_KEY` | static |
+| `commandcode` | 2 | `https://api.commandcode.ai/alpha/generate` | `COMMANDCODE_API_KEY` | static |
 | `antigravity` | 6 | Google Cloud Code Assist (`https://cloudcode-pa.googleapis.com/v1internal`) | `ANTIGRAVITY_OAUTH_TOKEN` | **oauth-pkce** |
 | `github-copilot` | 5 | `https://api.githubcopilot.com` | `COPILOT_GITHUB_TOKEN` | **oauth-device** |
 | `nous-portal` | 6 | `https://inference-api.nousresearch.com/v1` | `NOUS_API_KEY` | static |
@@ -226,9 +236,10 @@ The catalog contains **18 active providers** (16 static-key + 2 OAuth-subscripti
 - **Step-3.7-flash:** 256K context, 256K output.
 - **Qwen3.7-max:** 1M context, 64K output.
 - **GLM-5.1:** 200K context, 128K output (Z.AI coding pass, modal FP8).
+- **GLM-4.6v:** 200K context, 128K output (Z.AI coding pass, vision variant of GLM-4.6 with preserved thinking — multimodal anchor `zai-code-pass-glm-4.6v`).
 - **NVIDIA NIM Kimi K2.6:** 256K context, 262K output, multimodal image, implicit prompt cache.
 - **OpenCode MiniMax M3 free tier:** 1M context, 512K output. Mapped only under `opencode-zen/minimax-m3-free`.
-- **Z.ai:** `code-pass-glm-5.1` (presented model for coding GLM-5.1).
+- **Z.ai:** `code-pass-glm-5.1` (presented model for coding GLM-5.1); `code-pass-glm-4.6v` (presented model for vision-capable GLM-4.6v — multimodal anchor).
 
 #### Prompt Caching by Provider — Read/Write Mechanics & Cost Impact
 Local Router must maximize cache hits across every failover and auto-route hop. The rules below govern how `src/index.ts` (or the eventual caching module) should inject cache directives, preserve prefixes across provider transitions, and interpret cache metrics in upstream responses.
@@ -678,6 +689,8 @@ curl -s http://127.0.0.1:11434/api/fallback-models | jq '.data[] | select(.route
 - **2026-06-13:** Curated Nous Portal to a 2-model set per operator instruction. Dropped `hermes-4-70b` and `hermes-4-405b` from the Nous Portal catalog (no operator use), as well as `deepseek-v4-pro`, `kimi-k2.7-code`, `mimo-v2.5-pro`, and `nemotron-3-ultra:free` (subsumed by other providers in the chain). Catalog model count 112 → 110; Nous Portal rows 8 → 6. Reordered `DEFAULT_FALLBACK_ORDERED_IDS` from 29 → 23 steps: moved `nous-portal-step-3.7-flash-free` to step 7 (just above the OAuth subscription band, above `antigravity-gemini-3.5-flash`) so a free model is always tried before any subscription bucket; moved `nous-portal-minimax-m3` to the paid tail (just after `cline-deepseek-deepseek-v4-pro-paid`). Removed 6 Nous Portal entries from `AUTO_ROUTER_EXTRA_CANDIDATE_IDS` and 6 from `CANDIDATE_DEFAULTS`. Rebuilt `local-router/multimodal` (PRESET_FALLBACK_ROUTES) to be the multimodal subset of the curated fallback chain — 11 vision-capable models (NIM MiniMax M3 → Cline/Kilo/OpenCode Zen MiniMax M3 free → Nous Portal Step 3.7 Flash free → Antigravity Gemini 3.5 Flash → Copilot Gemini 3.1 Pro → Pioneer MiniMax M3 → Kilo MiniMax M3 paid → OpenRouter chain-of-draft + kimi-k2.7-code). Removed 6 Nous Portal entries from `src/provider-pricing.ts`. Updated `tests/provider-keys.integration.test.mjs` expected anchors from 8 → 2 nous-portal entries. Worktree `chore/nous-portal-fallback-curate`.
 
 - **2026-06-13 (multimodal expansion):** Per operator instruction, expanded `local-router/multimodal` from 11 → 15 vision-capable models. Added 2 new catalog entries: `zai-code-pass-glm-4.6v` (Z.ai, 200K ctx, vision variant of GLM-4.6 with preserved thinking) and `commandcode-minimax-m3` (CommandCode 4x-deal plan, 1M ctx, vision-capable). Added 2 existing catalog entries: `xiaomi-mimo-mimo-v2.5` and `wafer-ai-minimax-m3`. The 3 subscription-band entries (zai, xiaomi, commandcode) are placed in the runtime-sorted route between `github-copilot-gemini-3.1-pro` and `pioneer-minimax-m3` (the 8th model in the previous runtime-sorted order); `wafer-ai-minimax-m3` is placed in the paid band just before `openrouter-chain-of-draft`. Added `glm-4.6v` to `model-specs.json`. Added pricing entries for both new models in `src/provider-pricing.ts` (subscription-billed, validUntil 2026-12-31). Updated `tests/provider-keys.integration.test.mjs` multimodal anchor list from 11 → 15. Worktree `feat/multimodal-expansion`.
+
+- **2026-06-13 (multimodal catalog fix):** Operator reported that the two new multimodal anchors `zai-code-pass-glm-4.6v` and `commandcode-minimax-m3` showed Unavailable in the models page even though `providers/zai` and `providers/commandcode` had keys configured. Root cause: the 2026-06-13 multimodal-expansion commit added the new `providers.txt` rows with letter-suffixed row numbers `64a│ zai` and `72a│ commandcode` (intended as "variant of row 64/72" notation), but `readProviderModels()` in [src/index.ts:3421](src/index.ts) uses `if (!/^\d+$/.test(rowNumber)) continue;` to skip rows, so both new entries were silently dropped from the catalog. The zai row also used the upstream-namespace model name `zai-org/GLM-4.6v`; after `modelAliasSegment()` normalization that would have produced presented ID `zai-glm-4.6v` — not the `zai-code-pass-glm-4.6v` the multimodal route and pricing entry expect. Fix: renumbered `64a → 80` and `72a → 137` (free integers) and switched the zai model from `zai-org/GLM-4.6v` to `code-pass-glm-4.6v` to match the sibling `zai-code-pass-glm-5.1` convention and produce the correct presented ID. Verified: `scripts/validate-model-specs.mts` 0 errors / 117 rows parsed (was 115), `npx tsc --noEmit` clean, 65/66 unit tests pass (the 1 cancelled is a pre-existing ollama-backend test), smoke on `:11436` shows `resolved: true, keyConfigured: true, status: "ready"` for both anchors; full 15-anchor availability dump: 13 ready + 2 no_key (antigravity + github-copilot, OAuth subscription requiring user sign-in). Merged `fix/multimodal-zai-commandcode-unavailable` → `develop` (merge `90f04bc`) → `main` (release `e733527`). Worktree `fix/multimodal-zai-commandcode-unavailable`.
 
 ---
 
