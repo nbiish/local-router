@@ -398,18 +398,11 @@ test('provider key save/reset lifecycle exposes configured source', async (t) =>
     'zenmux-mimo-v2.5-pro',
     'openrouter-chain-of-draft',
     'openrouter-free',
-    // Nous Portal: subscription band (positioned after github-copilot per
-    // SUBSCRIPTION_PROVIDER_SUB_ORDER, which lists nous-portal last in band 4)
-    'nous-portal-hermes-4-70b',
-    'nous-portal-hermes-4-405b',
-    'nous-portal-minimax-m3',
-    'nous-portal-deepseek-v4-pro',
-    'nous-portal-kimi-k2.7-code',
-    'nous-portal-mimo-v2.5-pro',
-    // Nous Portal: free band (OTHER_FREE — sorted by provider, after other
-    // free-tier models in the chain)
+    // Nous Portal: curated 2-model set (Step 3.7 Flash free + MiniMax M3)
+    // MiniMax M3 sits in the paid tail just after Cline DeepSeek V4 Pro paid
+    // Step 3.7 Flash free sits above the subscription band (above Antigravity)
     'nous-portal-step-3.7-flash-free',
-    'nous-portal-nemotron-3-ultra-free',
+    'nous-portal-minimax-m3',
     // OpenRouter paid kimi-k2.7-code (added 2026-06-12)
     'openrouter-kimi-k2.7-code'
   ];
