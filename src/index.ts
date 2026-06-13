@@ -4779,7 +4779,32 @@ export function getPromptCacheKey(messages: any[]): string | undefined {
 }
 
 export function injectPromptCaching(body: any, providerName: string): any {
-  const modelLower = String(body.model || '').toLowerCase();
+  const newBody = { ...body };
+
+  // 1. Prevent any tool/IDE from disabling caching via body flags
+  const cacheOverrideKeys = ['cache', 'use_cache', 'no_cache', 'bypass_cache'];
+  for (const k of cacheOverrideKeys) {
+    if (k in newBody) {
+      delete newBody[k];
+    }
+  }
+
+  // 2. Strip provider.order to preserve sticky routing on OpenRouter
+  if (providerName === 'openrouter' || providerName === 'openrouter-presets') {
+    if (newBody.provider && typeof newBody.provider === 'object') {
+      if ('order' in newBody.provider) {
+        const cleanedProvider = { ...newBody.provider };
+        delete cleanedProvider.order;
+        if (Object.keys(cleanedProvider).length === 0) {
+          delete newBody.provider;
+        } else {
+          newBody.provider = cleanedProvider;
+        }
+      }
+    }
+  }
+
+  const modelLower = String(newBody.model || '').toLowerCase();
   const isOpenAiFamily = modelLower.startsWith('gpt-') || 
                          modelLower.startsWith('o1-') || 
                          modelLower.startsWith('o3-') || 
@@ -4788,15 +4813,14 @@ export function injectPromptCaching(body: any, providerName: string): any {
                          modelLower.includes('gpt-5');
 
   if (isOpenAiFamily) {
-    const newBody = stripCacheControl(body);
-    newBody.prompt_cache_retention = "24h";
-    const cacheKey = getPromptCacheKey(newBody.messages);
+    const cleanedBody = stripCacheControl(newBody);
+    cleanedBody.prompt_cache_retention = "24h";
+    const cacheKey = getPromptCacheKey(cleanedBody.messages);
     if (cacheKey) {
-      newBody.prompt_cache_key = cacheKey;
+      cleanedBody.prompt_cache_key = cacheKey;
     }
-    return newBody;
+    return cleanedBody;
   }
-
   const supportsExplicitCacheControl = [
     'zenmux',
     'opencode-go',
@@ -4811,11 +4835,10 @@ export function injectPromptCaching(body: any, providerName: string): any {
   ].includes(providerName);
 
   if (!supportsExplicitCacheControl) {
-    return stripCacheControl(body);
+    return stripCacheControl(newBody);
   }
 
   const cacheControlValue = { type: 'ephemeral', ttl: '1h' };
-  const newBody = { ...body };
   if (providerName === 'zai') {
     newBody.clear_thinking = false;
   }

@@ -165,3 +165,39 @@ test('Kimi model gets prompt_cache_key parameter for sticky routing', () => {
   const result2 = injectPromptCaching(body, 'openrouter');
   assert.equal(result2.prompt_cache_key, result.prompt_cache_key);
 });
+
+test('Cache-disabling flags are stripped from request body', () => {
+  const body = {
+    model: 'pioneer/minimax-m3',
+    cache: false,
+    use_cache: false,
+    no_cache: true,
+    bypass_cache: true,
+    messages: [
+      { role: 'system', content: 'You are a coding assistant.' }
+    ]
+  };
+
+  const result = injectPromptCaching(body, 'pioneer');
+  assert.equal(result.cache, undefined);
+  assert.equal(result.use_cache, undefined);
+  assert.equal(result.no_cache, undefined);
+  assert.equal(result.bypass_cache, undefined);
+});
+
+test('provider.order is stripped for OpenRouter models to protect sticky caching', () => {
+  const body = {
+    model: 'openrouter/anthropic/claude-3.5-sonnet',
+    provider: {
+      order: ['Anthropic'],
+      data_collection: 'deny'
+    },
+    messages: [
+      { role: 'system', content: 'You are a coding assistant.' }
+    ]
+  };
+
+  const result = injectPromptCaching(body, 'openrouter');
+  assert.equal(result.provider.order, undefined);
+  assert.equal(result.provider.data_collection, 'deny');
+});
