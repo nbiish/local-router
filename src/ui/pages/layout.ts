@@ -2388,7 +2388,7 @@ export function renderLayout(
             const toggleEl = document.getElementById('headroomToggle');
             const statusEl = document.getElementById('headroomStatus');
             const fieldsEl = document.getElementById('headroomFields');
-            const urlInputEl = document.getElementById('headroomProxyUrlInput') as HTMLInputElement;
+            const urlInputEl = document.getElementById('headroomProxyUrlInput');
             if (toggleEl) toggleEl.checked = headroomEnabled;
             if (statusEl) statusEl.textContent = headroomEnabled ? 'Context compression active (' + escapeHtml(headroomProxyUrl) + ')' : 'Context compression disabled';
             if (fieldsEl) fieldsEl.style.display = headroomEnabled ? 'block' : 'none';
@@ -2422,7 +2422,7 @@ export function renderLayout(
           setMessage('Headroom context compression ' + (headroomEnabled ? 'enabled' : 'disabled') + '.', 'success');
         }
         async function saveHeadroomProxyUrl() {
-          const urlInputEl = document.getElementById('headroomProxyUrlInput') as HTMLInputElement;
+          const urlInputEl = document.getElementById('headroomProxyUrlInput');
           const proxyUrl = urlInputEl?.value?.trim();
           if (!proxyUrl) {
             setMessage('Proxy URL cannot be empty.', 'error');
