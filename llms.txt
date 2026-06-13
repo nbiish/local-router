@@ -236,6 +236,14 @@ The catalog contains **17 active providers** (15 static-key + 2 OAuth-subscripti
 #### Prompt Caching by Provider — Read/Write Mechanics & Cost Impact
 Local Router must maximize cache hits across every failover and auto-route hop. The rules below govern how `src/index.ts` (or the eventual caching module) should inject cache directives, preserve prefixes across provider transitions, and interpret cache metrics in upstream responses.
 
+
+##### Universal Caching Policy (implements maximum caching and retention)
+As of June 2026, Local Router enforces universal caching across all providers and all models:
+- **Universal Activation:** Prompt caching is active for all providers (`isCachingSupported` is universally `true`).
+- **No Length Constraints:** Caching applies to all requests regardless of the input token size or message count (the `isLargePrompt` length filter is bypassed).
+- **Maximum Caching Length (non-OpenAI):** For all non-OpenAI models, prompt cache breakpoints are injected (`cache_control: { type: "ephemeral", ttl: "1h" }`) on the system message and the second-to-last message to maximize prefix cache hits.
+- **Maximum Caching Duration (OpenAI):** OpenAI family models are configured with maximum retention (`prompt_cache_retention: "24h"`).
+
 ##### OpenAI (`openrouter-presets`, plus any direct OpenAI candidate)
 - **Mode:** Automatic — no code changes required to enable.
 - **Minimum tokens:** 1,024 tokens in the prompt prefix; first 1,024 tokens must be identical across requests. After the first 1,024, cache hits occur every 128 additional identical tokens.

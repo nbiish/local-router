@@ -4740,6 +4740,44 @@ export function buildFailoverPreservedBody(body: any, preservedModel: string): a
   return prepared;
 }
 
+export function stripCacheControl(body: any): any {
+  if (!body || !Array.isArray(body.messages)) return body;
+  const newBody = { ...body };
+  newBody.messages = newBody.messages.map((msg: any) => {
+    if (!msg) return msg;
+    if (Array.isArray(msg.content)) {
+      const cleanedContent = msg.content.map((part: any) => {
+        if (part && typeof part === 'object') {
+          const { cache_control, ...rest } = part;
+          return rest;
+        }
+        return part;
+      });
+      if (cleanedContent.length === 1 && cleanedContent[0]?.type === 'text' && typeof cleanedContent[0]?.text === 'string') {
+        return { ...msg, content: cleanedContent[0].text };
+      }
+      return { ...msg, content: cleanedContent };
+    }
+    return msg;
+  });
+  return newBody;
+}
+
+export function getPromptCacheKey(messages: any[]): string | undefined {
+  if (!Array.isArray(messages) || messages.length === 0) return undefined;
+  const firstSystem = messages.find(m => m?.role === 'system')?.content;
+  const firstUser = messages.find(m => m?.role === 'user')?.content;
+  const contentToHash = String(firstSystem || '') + '|' + String(firstUser || '');
+  if (!contentToHash.trim()) return undefined;
+  let hash = 0;
+  for (let i = 0; i < contentToHash.length; i++) {
+    const char = contentToHash.charCodeAt(i);
+    hash = (hash << 5) - hash + char;
+    hash |= 0;
+  }
+  return 'lr_' + Math.abs(hash).toString(16);
+}
+
 export function injectPromptCaching(body: any, providerName: string): any {
   const modelLower = String(body.model || '').toLowerCase();
   const isOpenAiFamily = modelLower.startsWith('gpt-') || 
@@ -4750,9 +4788,30 @@ export function injectPromptCaching(body: any, providerName: string): any {
                          modelLower.includes('gpt-5');
 
   if (isOpenAiFamily) {
-    const newBody = { ...body };
+    const newBody = stripCacheControl(body);
     newBody.prompt_cache_retention = "24h";
+    const cacheKey = getPromptCacheKey(newBody.messages);
+    if (cacheKey) {
+      newBody.prompt_cache_key = cacheKey;
+    }
     return newBody;
+  }
+
+  const supportsExplicitCacheControl = [
+    'zenmux',
+    'opencode-go',
+    'opencode-zen',
+    'xiaomi-mimo',
+    'wafer-serverless',
+    'openrouter',
+    'openrouter-presets',
+    'pioneer',
+    'cline',
+    'kilo'
+  ].includes(providerName);
+
+  if (!supportsExplicitCacheControl) {
+    return stripCacheControl(body);
   }
 
   const cacheControlValue = { type: 'ephemeral', ttl: '1h' };
@@ -4789,6 +4848,13 @@ export function injectPromptCaching(body: any, providerName: string): any {
     }
 
     newBody.messages = newMessages;
+  }
+
+  if (modelLower.includes('kimi') || modelLower.includes('moonshot')) {
+    const cacheKey = getPromptCacheKey(newBody.messages);
+    if (cacheKey) {
+      newBody.prompt_cache_key = cacheKey;
+    }
   }
 
   return newBody;
