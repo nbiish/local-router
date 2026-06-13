@@ -166,6 +166,20 @@ export const BASELINE_PROVIDER_PRICING: Record<string, ProviderPricingEntry> = {
     sourceUrl: 'https://inference-api.nousresearch.com/v1/models',
     validUntil: '2026-12-31'
   },
+  'zai-code-pass-glm-4.6v': {
+    inputPricePerM: 0,
+    outputPricePerM: 0,
+    label: 'Z.ai zai-org/GLM-4.6v (vision variant, subscription via Z.ai coding plan)',
+    sourceUrl: 'https://api.z.ai/api/coding/paas/v4/models',
+    validUntil: '2026-12-31'
+  },
+  'commandcode-minimax-m3': {
+    inputPricePerM: 0,
+    outputPricePerM: 0,
+    label: 'CommandCode minimax/minimax-m3 (subscription via 4x-deal plan)',
+    sourceUrl: 'https://api.commandcode.ai/alpha/generate',
+    validUntil: '2026-12-31'
+  },
   'openrouter-kimi-k2.7-code': {
     inputPricePerM: 0.95,
     outputPricePerM: 4,
