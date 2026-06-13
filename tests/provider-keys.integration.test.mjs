@@ -470,7 +470,7 @@ test('provider key save/reset lifecycle exposes configured source', async (t) =>
   ));
   const routerZaiIdx = autoRouterCandidates.findIndex((id) => String(id).startsWith('zai-'));
   const routerXiaomiIdx = autoRouterCandidates.findIndex((id) => String(id).startsWith('xiaomi-mimo-'));
-  const routerNvidiaIdx = autoRouterCandidates.findIndex((id) => String(id).startsWith('nvidia-nim-'));
+  const routerNvidiaIdx = autoRouterCandidates.findIndex((id) => id === 'nvidia-nim-kimi-k2.6');
   if (routerKiloIdx >= 0 && routerClineIdx >= 0) {
     assert.ok(routerKiloIdx < routerClineIdx, 'auto-router should list Kilo before Cline');
   }
@@ -750,11 +750,28 @@ test('provider key save/reset lifecycle exposes configured source', async (t) =>
   ));
   assert.ok(unconfiguredProviderEntry, 'Expected at least one unconfigured provider in catalog');
 
+  // Temporarily disable model filtering to access unconfigured provider models in /api/tags
+  const disableFilter = await requestJson('/api/model-source', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ filterConfigured: false })
+  });
+  assert.equal(disableFilter.response.status, 200);
+
   const tagsForZeroEligible = await requestJson('/api/tags');
   const missingKeyCatalogModel = tagsForZeroEligible.body?.models?.find((model) => (
     model.details?.family === unconfiguredProviderEntry.name
     && !String(model.name).startsWith('local-router/')
   ));
+
+  // Re-enable model filtering to restore standard state
+  const enableFilter = await requestJson('/api/model-source', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ filterConfigured: true })
+  });
+  assert.equal(enableFilter.response.status, 200);
+
   assert.ok(missingKeyCatalogModel, 'Expected catalog model from unconfigured provider');
 
   const zeroEligibleFallbackSave = await requestJson('/api/fallback-models', {

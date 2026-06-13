@@ -35,6 +35,8 @@ export interface ConfigApiDeps {
     customProviderStore: CustomProviderRecord[];
     thinkingProxyEnabled: boolean;
     waferZdrEnabled: boolean;
+    headroomEnabled: boolean;
+    headroomProxyUrl: string;
     endpointModelsCache: ProviderModel[];
   };
   keyStore: Record<string, string>;
@@ -96,6 +98,8 @@ export interface ConfigApiDeps {
   persistThinkingConfig: () => void;
   persistWaferConfig: () => void;
   waferZdrApiPayload: () => { zdrEnabled: boolean };
+  persistHeadroomConfig: () => void;
+  headroomApiPayload: () => { enabled: boolean; proxyUrl: string };
   DEFAULT_FALLBACK_MODELS_TEXT: string;
   resolvedDefaultAutoRouterCandidatesText: () => string;
   DEFAULT_CHAIN_OF_DRAFT_PROMPT: string;
@@ -190,6 +194,8 @@ export function registerConfigApiRoutes(app: express.Express, deps: ConfigApiDep
     persistThinkingConfig,
     persistWaferConfig,
     waferZdrApiPayload,
+    persistHeadroomConfig,
+    headroomApiPayload,
     DEFAULT_FALLBACK_MODELS_TEXT,
     resolvedDefaultAutoRouterCandidatesText,
     DEFAULT_CHAIN_OF_DRAFT_PROMPT,
@@ -1682,6 +1688,28 @@ app.put('/api/wafer-config', (req: Request, res: Response) => {
   state.waferZdrEnabled = req.body.zdrEnabled;
   persistWaferConfig();
   return res.json(waferZdrApiPayload());
+});
+
+// ── Headroom Compression Config API ────────────────────────────────────────
+app.get('/api/headroom-config', (req: Request, res: Response) => {
+  return res.json(headroomApiPayload());
+});
+
+app.put('/api/headroom-config', (req: Request, res: Response) => {
+  if (req.body?.enabled !== undefined && typeof req.body.enabled !== 'boolean') {
+    return res.status(400).json({ error: 'enabled must be a boolean.' });
+  }
+  if (req.body?.proxyUrl !== undefined && typeof req.body.proxyUrl !== 'string') {
+    return res.status(400).json({ error: 'proxyUrl must be a string.' });
+  }
+  if (typeof req.body?.enabled === 'boolean') {
+    state.headroomEnabled = req.body.enabled;
+  }
+  if (typeof req.body?.proxyUrl === 'string' && req.body.proxyUrl.trim()) {
+    state.headroomProxyUrl = req.body.proxyUrl.trim();
+  }
+  persistHeadroomConfig();
+  return res.json(headroomApiPayload());
 });
 
 app.head('/api/version', (req: Request, res: Response) => {
