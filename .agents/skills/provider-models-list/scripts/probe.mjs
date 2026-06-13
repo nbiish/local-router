@@ -40,7 +40,8 @@ const PROVIDERS = [
   { slug: 'cline',              baseUrl: 'https://api.cline.bot/api/v1',          envVar: 'CLINE_API_KEY',            modelsPath: '/models' },
   { slug: 'kilo',               baseUrl: 'https://api.kilo.ai/api/gateway',       envVar: 'KILO_API_KEY',             modelsPath: '/models' },
   { slug: 'commandcode',        baseUrl: 'https://api.commandcode.ai/alpha/generate', envVar: 'COMMANDCODE_API_KEY',  modelsPath: '/models' },
-  { slug: 'pioneer',            baseUrl: 'https://api.pioneer.ai/v1',             envVar: 'PIONEER_API_KEY',          modelsPath: '/models' }
+  { slug: 'pioneer',            baseUrl: 'https://api.pioneer.ai/v1',             envVar: 'PIONEER_API_KEY',          modelsPath: '/models' },
+  { slug: 'nous-portal',        baseUrl: 'https://inference-api.nousresearch.com/v1', envVar: 'NOUS_API_KEY',         modelsPath: '/models' }
 ];
 
 const OAUTH_SKIPS = new Set(['antigravity', 'github-copilot']);

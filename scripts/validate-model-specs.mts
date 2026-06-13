@@ -111,8 +111,10 @@ function normalizeModelName(model: string): string {
   // Strip provider-namespace prefixes and common suffixes
   const base = model
     .toLowerCase()
-    .replace(/^(deepseek-ai\/|deepseek\/|minimaxai\/|moonshotai\/|nvidia\/|zai-org\/|z-ai\/|xiaomi\/|stepfun-ai\/|stepfun\/|sapiens-ai\/|nousresearch\/|qwen\/|poolside\/)/, '')
+    .replace(/^~/, '') // Nous Portal "latest snapshot" pointer (e.g. ~moonshotai/kimi-latest)
+    .replace(/^(deepseek-ai\/|deepseek\/|minimaxai\/|minimax\/|moonshotai\/|nvidia\/|zai-org\/|z-ai\/|xiaomi\/|stepfun-ai\/|stepfun\/|sapiens-ai\/|nousresearch\/|qwen\/|poolside\/|anthropic\/|openai\/|google\/|x-ai\/|meta-llama\/|mistralai\/|ibm-granite\/|inclusionai\/|openrouter\/|cohere\/)/, '')
     .replace(/:(cloud|free|latest)$/, '')
+    .replace(/-latest$/, '') // Nous Portal "latest" suffix after strip
     .replace(/-fp8$/, '')
     .replace(/-highspeed$/, '')
     .replace(/-free$/, '')

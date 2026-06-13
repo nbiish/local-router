@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated": "2026-06-05",
+  "updated": "2026-06-12",
   "description": "Authoritative model specifications for CI/CD validation. Sources: provider API docs, OpenRouter metadata, model cards. Used by scripts/validate-model-specs.mts to detect metadata drift in providers.txt.",
   "models": {
     "deepseek-v4-pro": {
@@ -172,6 +172,134 @@
       "vision": false,
       "reasoning": false,
       "source": "OpenRouter"
+    },
+    "kimi-k2.7-code": {
+      "context": 262144,
+      "output": 262144,
+      "tools": true,
+      "vision": true,
+      "reasoning": true,
+      "source": "Nous Portal (inference-api.nousresearch.com/v1/models)"
+    },
+    "kimi": {
+      "context": 262144,
+      "output": 262142,
+      "tools": true,
+      "vision": true,
+      "reasoning": true,
+      "source": "Nous Portal ~moonshotai/kimi-latest pointer"
+    },
+    "minimax-m2.7": {
+      "context": 204800,
+      "output": 131072,
+      "tools": true,
+      "vision": false,
+      "reasoning": true,
+      "source": "Nous Portal"
+    },
+    "nemotron-3-ultra-550b-a55b": {
+      "context": 1000000,
+      "output": 16384,
+      "tools": true,
+      "vision": false,
+      "reasoning": true,
+      "source": "Nous Portal"
+    },
+    "nemotron-3-ultra": {
+      "context": 1000000,
+      "output": 16384,
+      "tools": true,
+      "vision": false,
+      "reasoning": true,
+      "source": "Nous Portal nvidia/nemotron-3-ultra:free"
+    },
+    "qwen3-coder": {
+      "context": 1048576,
+      "output": 65536,
+      "tools": true,
+      "vision": false,
+      "reasoning": false,
+      "source": "Nous Portal"
+    },
+    "qwen3.6-plus": {
+      "context": 1000000,
+      "output": 65536,
+      "tools": true,
+      "vision": true,
+      "reasoning": true,
+      "source": "Nous Portal"
+    },
+    "step-3.5-flash": {
+      "context": 262144,
+      "output": 16384,
+      "tools": true,
+      "vision": false,
+      "reasoning": true,
+      "source": "Nous Portal"
+    },
+    "claude-opus-4.8": {
+      "context": 1000000,
+      "output": 128000,
+      "tools": true,
+      "vision": true,
+      "reasoning": true,
+      "source": "Nous Portal anthropic/claude-opus-4.8"
+    },
+    "claude-opus": {
+      "context": 1000000,
+      "output": 128000,
+      "tools": true,
+      "vision": true,
+      "reasoning": true,
+      "source": "Nous Portal ~anthropic/claude-opus-latest pointer"
+    },
+    "claude-sonnet": {
+      "context": 1000000,
+      "output": 128000,
+      "tools": true,
+      "vision": true,
+      "reasoning": true,
+      "source": "Nous Portal ~anthropic/claude-sonnet-latest pointer"
+    },
+    "gpt": {
+      "context": 1050000,
+      "output": 128000,
+      "tools": true,
+      "vision": true,
+      "reasoning": true,
+      "source": "Nous Portal ~openai/gpt-latest pointer"
+    },
+    "gemini-pro": {
+      "context": 1048576,
+      "output": 65536,
+      "tools": true,
+      "vision": true,
+      "reasoning": true,
+      "source": "Nous Portal ~google/gemini-pro-latest pointer"
+    },
+    "gemini-flash": {
+      "context": 1048576,
+      "output": 65536,
+      "tools": true,
+      "vision": true,
+      "reasoning": true,
+      "source": "Nous Portal ~google/gemini-flash-latest pointer"
+    },
+    "gemini-3.5-flash": {
+      "context": 1048576,
+      "output": 65536,
+      "tools": true,
+      "vision": true,
+      "reasoning": true,
+      "source": "Nous Portal google/gemini-3.5-flash"
+    },
+    "grok-4.3": {
+      "context": 1000000,
+      "output": 16384,
+      "tools": true,
+      "vision": true,
+      "reasoning": true,
+      "source": "Nous Portal x-ai/grok-4.3"
     }
   }
 }

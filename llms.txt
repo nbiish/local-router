@@ -4,7 +4,7 @@ This is the project-wide Product Requirements Document (PRD) and root DOX contra
 
 ## Purpose
 
-Point VS Code Copilot Chat, Claude Code, Cline, Roo Code, Continue, Codex, or scripts at `http://127.0.0.1:11434` and route to **18 built-in catalog providers** (16 static-key + 2 OAuth-subscription: Google Antigravity, GitHub Copilot) plus **any custom OpenAI-compatible API** you register—using one model namespace and one configuration UI.
+Point VS Code Copilot Chat, Claude Code, Cline, Roo Code, Continue, Codex, or scripts at `http://127.0.0.1:11434` and route to **19 built-in catalog providers** (17 static-key + 2 OAuth-subscription: Google Antigravity, GitHub Copilot) plus **any custom OpenAI-compatible API** you register—using one model namespace and one configuration UI.
 
 ### Capabilities & Topology
 - **Port:** `11434` (Ollama default — drop-in). `develop` verification build uses `11436` (the main server port + 2) to avoid colliding with the running main server. Override with the `PORT` env var.
@@ -13,7 +13,7 @@ Point VS Code Copilot Chat, Claude Code, Cline, Roo Code, Continue, Codex, or sc
 - **Catalog:** `providers.txt` (16 providers, **~110** presented models in custom mode) + runtime edits in `provider-models.json` + **custom providers** in `custom-providers.json`.
 - **Custom providers:** `/config` → **Add custom provider…** or `POST /api/providers` (HTTPS `/v1` upstream; loopback HTTP allowed for dev).
 - **Auto-router:** `local-router/auto-router-main` — expanded curated set (`src/routing-defaults.ts`): free → subscription (`opencode-go` → Z.ai → Xiaomi) → OAuth subscription (`antigravity-gemini-3.5-flash` → `github-copilot-gemini-3.1-pro`) → paid (Wafer → ZenMux → OpenRouter → Nebius → Cline → Kilo + NIM/Modal/Zen extras); exhaustion-sorted at bootstrap; routes based on coding ability, context length, and price (includes free-tier boost; latency metrics deprecated).
-- **System fallback:** `local-router/fallback-models` — **18** fixed steps (`DEFAULT_FALLBACK_ORDERED_IDS`): Ollama → NIM → Modal → Kilo/Cline free → OpenCode Zen free → OpenRouter free → **OAuth subscription (antigravity-gemini-3.5-flash at step 7, github-copilot-gemini-3.1-pro at step 8)** → Go/Z.ai/Xiaomi subscription → six paid anchors (no exhaustion re-sort on bootstrap).
+- **System fallback:** `local-router/fallback-models` — **19** fixed steps (`DEFAULT_FALLBACK_ORDERED_IDS`): Ollama → NIM → Modal → Kilo/Cline free → OpenCode Zen free → OpenRouter free → **OAuth subscription (antigravity-gemini-3.5-flash at step 7, github-copilot-gemini-3.1-pro at step 8)** → Go/Z.ai/Xiaomi subscription → six paid anchors (no exhaustion re-sort on bootstrap).
 - **Preset routes** (4 built-in, bootstrapped on first run from `src/routing-defaults.ts`):
   - `local-router/multimodal` — **fallback** chain of 16 vision-capable models (NIM Kimi K2.6 → Antigravity → Copilot → Pioneer → ZenMux → Wafer).
   - `local-router/performance` — **auto-local** router, 15 top-quality candidates (text + multimodal union, deduped), `minCodingScore=0.88`, max quality (`costQualityTradeoff=10`).
@@ -194,7 +194,7 @@ Setting files reside at `~/.config/local-router/` (or legacy `~/.config/fvs-code
 | `tool-routing.json` | No | local JSON | Ollama shim routing configuration |
 
 ### Provider Catalog Contracts
-The catalog contains **17 active providers** (15 static-key + 2 OAuth-subscription) with **104+ presented models** as of 2026-06-10:
+The catalog contains **18 active providers** (16 static-key + 2 OAuth-subscription) with **129+ presented models** as of 2026-06-12:
 
 | Provider | Catalog Models | Upstream Endpoint | Key Env Variable | Auth |
 |---|---|---|---|---|
@@ -215,6 +215,7 @@ The catalog contains **17 active providers** (15 static-key + 2 OAuth-subscripti
 | `commandcode` | 1 | `https://api.commandcode.ai/alpha/generate` | `COMMANDCODE_API_KEY` | static |
 | `antigravity` | 6 | Google Cloud Code Assist (`https://cloudcode-pa.googleapis.com/v1internal`) | `ANTIGRAVITY_OAUTH_TOKEN` | **oauth-pkce** |
 | `github-copilot` | 5 | `https://api.githubcopilot.com` | `COPILOT_GITHUB_TOKEN` | **oauth-device** |
+| `nous-portal` | 25 | `https://inference-api.nousresearch.com/v1` | `NOUS_API_KEY` | static |
 
 **Auth legend:** `static` = long-lived API key in the PQC bundle. `oauth-pkce` = browser-based OAuth 2.0 authorization-code + PKCE flow. `oauth-device` = OAuth 2.0 device flow (RFC 8628).
 **Note:** `antigravity` and `github-copilot` are **fully implemented** OAuth-subscription providers with active PKCE (Antigravity) and device flow (Copilot) auth, dynamic model discovery, and concurrent-refresh deduplication. Tokens persist to `~/.config/local-router/oauth-credentials.json` (chmod 600). See the "OAuth / Subscription Providers" section below for the full authentication contract, oh-my-pi design references, and integration architecture.
