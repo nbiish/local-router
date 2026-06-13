@@ -301,49 +301,7 @@ export type PresetRouterRoute = {
 
 export const PRESET_ROUTER_ROUTES: readonly PresetRouterRoute[] = [
   {
-    id: 'preferred-text',
-    type: 'auto-local',
-    minCodingScore: 0.85,
-    costQualityTradeoff: 9,
-    candidateIds: [
-      'antigravity-gemini-3.5-flash',
-      'antigravity-gemini-3.1-pro',
-      'github-copilot-gpt-5',
-      'github-copilot-gemini-3.1-pro',
-      'opencode-go-deepseek-v4-pro',
-      'antigravity-claude-opus-4-6',
-      'pioneer-minimax-m3',
-      'antigravity-claude-sonnet-4-6',
-      'zenmux-minimax-m3',
-      'wafer-ai-minimax-m3',
-      'commandcode-deepseek-v4-pro',
-      'zai-code-pass-glm-5.1',
-      'wafer-ai-glm-5.1',
-      'nebius-deepseek-v4-pro',
-    ] as const,
-  },
-  {
-    id: 'preferred-multimodal',
-    type: 'auto-local',
-    minCodingScore: 0.84,
-    costQualityTradeoff: 9,
-    candidateIds: [
-      'antigravity-gemini-3.5-flash',
-      'antigravity-gemini-3.1-pro',
-      'github-copilot-gpt-5',
-      'github-copilot-gemini-3.1-pro',
-      'antigravity-claude-opus-4-6',
-      'antigravity-claude-sonnet-4-6',
-      'pioneer-minimax-m3',
-      'zenmux-minimax-m3',
-      'nvidia-nim-kimi-k2.6',
-      'nvidia-nim-minimax-m3',
-      'nvidia-nim-step-3.7-flash',
-      'openrouter-chain-of-draft',
-    ] as const,
-  },
-  {
-    id: 'performance-text',
+    id: 'performance',
     type: 'auto-local',
     minCodingScore: 0.88,
     costQualityTradeoff: 10,
@@ -366,23 +324,7 @@ export const PRESET_ROUTER_ROUTES: readonly PresetRouterRoute[] = [
     ] as const,
   },
   {
-    id: 'performance-multimodal',
-    type: 'auto-local',
-    minCodingScore: 0.88,
-    costQualityTradeoff: 10,
-    candidateIds: [
-      'antigravity-gemini-3.5-flash',
-      'antigravity-gemini-3.1-pro',
-      'github-copilot-gpt-5',
-      'github-copilot-gemini-3.1-pro',
-      'antigravity-claude-opus-4-6',
-      'pioneer-minimax-m3',
-      'antigravity-claude-sonnet-4-6',
-      'zenmux-minimax-m3',
-    ] as const,
-  },
-  {
-    id: 'low-cost-text',
+    id: 'low-cost',
     type: 'auto-local',
     minCodingScore: 0.75,
     costQualityTradeoff: 2,
@@ -399,18 +341,6 @@ export const PRESET_ROUTER_ROUTES: readonly PresetRouterRoute[] = [
       'nvidia-nim-minimax-m3',
       'nvidia-nim-step-3.7-flash',
       'wafer-ai-deepseek-v4-flash',
-    ] as const,
-  },
-  {
-    id: 'low-cost-multimodal',
-    type: 'auto-local',
-    minCodingScore: 0.75,
-    costQualityTradeoff: 2,
-    candidateIds: [
-      'cline-minimax-minimax-m3-free',
-      'kilo-stepfun-step-3.7-flash-free',
-      'nvidia-nim-minimax-m3',
-      'nvidia-nim-step-3.7-flash',
       'nvidia-nim-kimi-k2.6',
       'openrouter-chain-of-draft',
       'zenmux-minimax-m3',
@@ -433,3 +363,21 @@ export const PRESET_ROUTER_ROUTES: readonly PresetRouterRoute[] = [
 export function buildPresetRouterCandidatesText(preset: PresetRouterRoute): string {
   return preset.candidateIds.map((id) => candidateLine(id)).join('\n');
 }
+
+/**
+ * One-time migration list: preset route IDs that have been removed from
+ * `PRESET_ROUTER_ROUTES` / `PRESET_FALLBACK_ROUTES`. `ensurePresetRoutes()`
+ * deletes any persisted router/fallback matching these IDs on startup so
+ * that historical configurations converge to the current preset set.
+ *
+ * Add a route ID here when a preset is removed or merged; do not remove
+ * IDs once added (older deployments may still have them on disk).
+ */
+export const OBSOLETE_PRESET_ROUTE_IDS: readonly string[] = [
+  'preferred-text',
+  'preferred-multimodal',
+  'performance-text',
+  'performance-multimodal',
+  'low-cost-text',
+  'low-cost-multimodal',
+] as const;

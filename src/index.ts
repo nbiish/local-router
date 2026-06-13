@@ -82,6 +82,7 @@ import {
   isAllowedAutoRouterGatewayFreeModel,
   PRESET_FALLBACK_ROUTES,
   PRESET_ROUTER_ROUTES,
+  OBSOLETE_PRESET_ROUTE_IDS,
   buildPresetRouterCandidatesText,
   type PresetFallbackRoute,
   type PresetRouterRoute
@@ -3651,6 +3652,19 @@ ensurePresetRoutes();
 function ensurePresetRoutes() {
   let fallbackChanged = false;
   let routerChanged = false;
+
+  for (const obsoleteId of OBSOLETE_PRESET_ROUTE_IDS) {
+    if (fallbackModelStore[obsoleteId]) {
+      delete fallbackModelStore[obsoleteId];
+      fallbackChanged = true;
+      console.log(`[router] Removed obsolete preset fallback "${obsoleteId}".`);
+    }
+    if (routerModelStore[obsoleteId]) {
+      delete routerModelStore[obsoleteId];
+      routerChanged = true;
+      console.log(`[router] Removed obsolete preset router "${obsoleteId}".`);
+    }
+  }
 
   for (const preset of PRESET_FALLBACK_ROUTES) {
     if (fallbackModelStore[preset.id]) continue;
