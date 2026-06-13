@@ -263,6 +263,7 @@ const ENDPOINT_MODELS_CACHE_PATH = path.join(LOCAL_ROUTER_CONFIG_DIR, 'endpoint-
 const LEGACY_ENDPOINT_MODELS_CACHE_PATH = path.join(LEGACY_FVS_CONFIG_DIR, 'endpoint-models-cache.json');
 const CUSTOM_PROVIDERS_PATH = path.join(LOCAL_ROUTER_CONFIG_DIR, 'custom-providers.json');
 const WAFER_CONFIG_PATH = path.join(LOCAL_ROUTER_CONFIG_DIR, 'wafer-config.json');
+const HEADROOM_CONFIG_PATH = path.join(LOCAL_ROUTER_CONFIG_DIR, 'headroom-config.json');
 const RESERVED_PROVIDER_SLUGS = new Set([
   FALLBACK_PROVIDER_NAME,
   ...FALLBACK_PROVIDER_LEGACY_NAMES,
@@ -1785,6 +1786,73 @@ function waferZdrApiPayload() {
   return { zdrEnabled: waferZdrEnabled };
 }
 
+// ── Headroom Compression Configuration ─────────────────────────────────────
+
+const DEFAULT_HEADROOM_PROXY_URL = 'http://localhost:8787';
+let headroomEnabled = true;
+let headroomProxyUrl = DEFAULT_HEADROOM_PROXY_URL;
+
+function loadHeadroomConfig(): void {
+  if (!fs.existsSync(HEADROOM_CONFIG_PATH)) return;
+  try {
+    const parsed = JSON.parse(fs.readFileSync(HEADROOM_CONFIG_PATH, 'utf8'));
+    if (typeof parsed?.enabled === 'boolean') {
+      headroomEnabled = parsed.enabled;
+    }
+    if (typeof parsed?.proxyUrl === 'string' && parsed.proxyUrl.trim()) {
+      headroomProxyUrl = parsed.proxyUrl.trim();
+    }
+  } catch (error: any) {
+    console.error('Failed to load headroom config:', sanitizeDiagnosticText(String(error?.message || error)));
+  }
+}
+
+function persistHeadroomConfig(): void {
+  ensureLocalRouterConfigDir();
+  const payload = { enabled: headroomEnabled, proxyUrl: headroomProxyUrl };
+  const temporaryPath = `${HEADROOM_CONFIG_PATH}.${process.pid}.tmp`;
+  fs.writeFileSync(temporaryPath, `${JSON.stringify(payload, null, 2)}\n`, {
+    encoding: 'utf8',
+    mode: 0o600
+  });
+  fs.renameSync(temporaryPath, HEADROOM_CONFIG_PATH);
+  fs.chmodSync(HEADROOM_CONFIG_PATH, 0o600);
+}
+
+function headroomApiPayload() {
+  return { enabled: headroomEnabled, proxyUrl: headroomProxyUrl };
+}
+
+/**
+ * Compress messages via the Headroom proxy before forwarding upstream.
+ * On failure (proxy unavailable, timeout, etc.) returns the original body unchanged —
+ * headroom is an optimization layer and must never block the request pipeline.
+ */
+async function compressWithHeadroom(body: any, model: string): Promise<any> {
+  if (!headroomEnabled || !Array.isArray(body?.messages) || body.messages.length === 0) {
+    return body;
+  }
+  try {
+    const { compress } = await import('headroom-ai');
+    const result = await compress(body.messages, {
+      model,
+      baseUrl: headroomProxyUrl,
+      timeout: 10_000,
+      fallback: true,
+      retries: 1,
+      stack: 'local_router'
+    });
+    if (result.compressed && result.tokensSaved > 0) {
+      console.log(`[Headroom] ${result.tokensBefore} → ${result.tokensAfter} tokens (saved ${result.tokensSaved}, ${Math.round(result.compressionRatio * 100)}% ratio)`);
+      return { ...body, messages: result.messages };
+    }
+    return body;
+  } catch {
+    // Headroom proxy not running or unreachable — silently pass through
+    return body;
+  }
+}
+
 function getEffectiveThinkingLevel(providerName: string): ThinkingLevel {
   return thinkingLevelStore[providerName] ?? systemPromptConfig.thinkingLevel ?? DEFAULT_THINKING_LEVEL;
 }
@@ -3236,6 +3304,10 @@ const configState = {
   set thinkingProxyEnabled(val) { thinkingProxyEnabled = val; },
   get waferZdrEnabled() { return waferZdrEnabled; },
   set waferZdrEnabled(val) { waferZdrEnabled = val; },
+  get headroomEnabled() { return headroomEnabled; },
+  set headroomEnabled(val) { headroomEnabled = val; },
+  get headroomProxyUrl() { return headroomProxyUrl; },
+  set headroomProxyUrl(val) { headroomProxyUrl = val; },
   get endpointModelsCache() { return endpointModelsCache; },
   set endpointModelsCache(val) { endpointModelsCache = val; }
 };
@@ -3305,6 +3377,8 @@ const configApiDeps = {
   persistThinkingConfig,
   persistWaferConfig,
   waferZdrApiPayload,
+  persistHeadroomConfig,
+  headroomApiPayload,
   DEFAULT_FALLBACK_MODELS_TEXT,
   resolvedDefaultAutoRouterCandidatesText,
   DEFAULT_CHAIN_OF_DRAFT_PROMPT,
@@ -3552,6 +3626,10 @@ loadProviderPricingStore();
 loadPersistedSystemPrompt();
 loadPersistedThinkingConfig();
 loadWaferConfig();
+loadHeadroomConfig();
+if (headroomEnabled) {
+  console.log(`[Headroom] Context compression enabled (proxy: ${headroomProxyUrl})`);
+}
 loadModelSourceConfig();
 loadEndpointModelsCache();
 
@@ -4990,7 +5068,8 @@ async function proxyModelAttempt(
     thinkingLevel: getEffectiveThinkingLevel(target.providerName),
     applyProxyThinking: thinkingProxyEnabled
   });
-  const cachedRequestBody = injectPromptCaching(safeRequestBody, target.providerName);
+  const compressedRequestBody = await compressWithHeadroom(safeRequestBody, target.actualModel);
+  const cachedRequestBody = injectPromptCaching(compressedRequestBody, target.providerName);
   const finalBody = provider.formatBody ? provider.formatBody(cachedRequestBody) : cachedRequestBody;
 
   pushDiagnostic({

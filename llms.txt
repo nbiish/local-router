@@ -195,6 +195,7 @@ Setting files reside at `~/.config/local-router/` (or legacy `~/.config/fvs-code
 | `fallback-models.json` | No | local JSON | Fallback chain ordered routes |
 || `thinking-config.json` | No | local JSON | Thinking levels (none/low/medium/high/xhigh) |
 || `wafer-config.json` | No | local JSON | Wafer AI ZDR enhancement toggle (enabled by default) |
+|| `headroom-config.json` | No | local JSON | Headroom context compression toggle and proxy URL (enabled by default, proxy at `http://localhost:8787`) |
 | `system-prompt.json` | No | local JSON | User system prompt injection configuration |
 | `model-source-config.json` | No | local JSON | Configured source: `custom` vs `endpoints` |
 | `endpoint-models-cache.json` | No | local JSON | Cached upstream `/models` query data |
@@ -251,6 +252,12 @@ As of June 2026, Local Router enforces universal caching across all providers an
 - **No Length Constraints:** Caching applies to all requests regardless of the input token size or message count (the `isLargePrompt` length filter is bypassed).
 - **Maximum Caching Length (non-OpenAI):** For all non-OpenAI models, prompt cache breakpoints are injected (`cache_control: { type: "ephemeral", ttl: "1h" }`) on the system message and the second-to-last message to maximize prefix cache hits.
 - **Maximum Caching Duration (OpenAI):** OpenAI family models are configured with maximum retention (`prompt_cache_retention: "24h"`).
+
+##### Headroom Context Compression (pre-caching optimization)
+Local Router integrates [Headroom](https://github.com/chopratejas/headroom) (`headroom-ai` npm package) as an optional context compression layer that runs **before** prompt caching injection. When enabled (default), outgoing requests are compressed via the Headroom proxy (`POST /v1/compress` at `http://localhost:8787`), reducing token counts by 60–95% while preserving answer quality. The compression pipeline: `sanitize → headroom compress → cache inject → provider formatBody`.
+- **Toggle:** `PUT /api/headroom-config { enabled: true|false, proxyUrl: "http://..." }`. Persisted to `~/.config/local-router/headroom-config.json`.
+- **Graceful degradation:** If the Headroom proxy is unreachable, requests pass through uncompressed — headroom is an optimization layer and never blocks the pipeline.
+- **Cache synergy:** Headroom's CacheAligner stabilizes message prefixes, improving cache hit rates from downstream provider caching (`cache_control`, `prompt_cache_retention`). The two layers are complementary: Headroom compresses content, then Local Router's `injectPromptCaching` adds provider-specific cache directives on the already-compressed messages.
 
 ##### OpenAI (`openrouter-presets`, plus any direct OpenAI candidate)
 - **Mode:** Automatic — no code changes required to enable.
@@ -631,7 +638,7 @@ Run tests sequentially with isolated context:
 ```bash
 npm install
 npm run build
-npm test             # executes all unit and integration tests (82 cases, 16 files)
+npm test             # executes all unit and integration tests (90 cases, 17 files)
 ```
 *Note: To skip local Ollama daemon auto-start, set `LOCAL_ROUTER_SKIP_OLLAMA_ENSURE=true`.*
 
@@ -652,6 +659,7 @@ npm test             # executes all unit and integration tests (82 cases, 16 fil
 - `tests/gateway-response.test.mjs`: Cline gateway data envelope unwrap translation.
 - `tests/prompt-caching.test.mjs`: Universal cache directive injection across all 15 providers — OpenAI 24h retention, Anthropic ephemeral breakpoints (1h/5m TTL), Gemini implicit/explicit, DeepSeek automatic prefix, OpenRouter sticky routing, Moonshot K2 series (50% cache hit discount), Groq 50% discount + 2h expiry, Xiaomi MiMo GCache (93–95% hit rate), Z.ai implicit, plus cross-provider failover contract.
 - `tests/router-disabled-candidates.test.mjs`: Router disabled-candidate pruning, scoring, and execution plan integration.
+- `tests/headroom-compression.test.mjs`: Headroom context compression toggle config validation, pipeline position (after sanitize, before caching), graceful degradation on proxy unavailable, config payload shape contract.
 
 ### Operator Manual Verification Script
 Run the verification tool and inspect the bootsrapped fallback routes:
@@ -695,6 +703,8 @@ curl -s http://127.0.0.1:11434/api/fallback-models | jq '.data[] | select(.route
 
 - **2026-06-13 (multimodal catalog fix):** Operator reported that the two new multimodal anchors `zai-code-pass-glm-4.6v` and `commandcode-minimax-m3` showed Unavailable in the models page even though `providers/zai` and `providers/commandcode` had keys configured. Root cause: the 2026-06-13 multimodal-expansion commit added the new `providers.txt` rows with letter-suffixed row numbers `64a│ zai` and `72a│ commandcode` (intended as "variant of row 64/72" notation), but `readProviderModels()` in [src/index.ts:3421](src/index.ts) uses `if (!/^\d+$/.test(rowNumber)) continue;` to skip rows, so both new entries were silently dropped from the catalog. The zai row also used the upstream-namespace model name `zai-org/GLM-4.6v`; after `modelAliasSegment()` normalization that would have produced presented ID `zai-glm-4.6v` — not the `zai-code-pass-glm-4.6v` the multimodal route and pricing entry expect. Fix: renumbered `64a → 80` and `72a → 137` (free integers) and switched the zai model from `zai-org/GLM-4.6v` to `code-pass-glm-4.6v` to match the sibling `zai-code-pass-glm-5.1` convention and produce the correct presented ID. Verified: `scripts/validate-model-specs.mts` 0 errors / 117 rows parsed (was 115), `npx tsc --noEmit` clean, 65/66 unit tests pass (the 1 cancelled is a pre-existing ollama-backend test), smoke on `:11436` shows `resolved: true, keyConfigured: true, status: "ready"` for both anchors; full 15-anchor availability dump: 13 ready + 2 no_key (antigravity + github-copilot, OAuth subscription requiring user sign-in). Merged `fix/multimodal-zai-commandcode-unavailable` → `develop` (merge `90f04bc`) → `main` (release `e733527`). Worktree `fix/multimodal-zai-commandcode-unavailable`.
 
+
+- **2026-06-13 (headroom integration):** Integrated [Headroom](https://github.com/chopratejas/headroom) (`headroom-ai` npm package) as a toggleable context compression layer. Added `headroom-config.json` config file (`{ enabled, proxyUrl }`) with load/persist/toggle following the Wafer ZDR pattern. Wired `compressWithHeadroom()` into the `proxyModelAttempt` pipeline between `sanitizeProviderRequestBody` and `injectPromptCaching` — the compression reduces tokens before cache directives are injected, so both layers are complementary. Added `GET/PUT /api/headroom-config` routes, `ConfigApiDeps` interface extension, configState getter/setter, and startup log message. Enabled by default; graceful degradation if the Headroom proxy (`http://localhost:8787`) is unreachable. Added 8 test cases in `tests/headroom-compression.test.mjs`.
 ---
 
 ### Future Items
