@@ -32,9 +32,12 @@ node .agents/skills/provider-models-list/scripts/probe.mjs --free
 # Only 1M+ context models
 node .agents/skills/provider-models-list/scripts/probe.mjs --context 1000000
 
+
+# Audit model drift: compare live provider API models against providers.txt
+node .agents/skills/provider-models-list/scripts/probe.mjs --compare
+
 # Machine-readable output
 node .agents/skills/provider-models-list/scripts/probe.mjs --json > models.json
-```
 
 The probe fires all requests in parallel with a 10 s timeout per provider. Missing keys surface as `no key (<ENV_VAR> not in env)` in the status column — they do not abort the run.
 

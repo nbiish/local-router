@@ -18,7 +18,11 @@
  * No secrets are written to disk or echoed to the log. Bearer tokens are
  * only used in-process for the fetch.
  */
-'use strict';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const PROVIDERS = [
   { slug: 'wafer-serverless',   baseUrl: 'https://pass.wafer.ai/v1',              envVar: 'WAFER_SERVERLESS_API_KEY', modelsPath: '/models' },
@@ -42,11 +46,12 @@ const PROVIDERS = [
 const OAUTH_SKIPS = new Set(['antigravity', 'github-copilot']);
 
 function parseArgs(argv) {
-  const opts = { providers: [], filter: null, json: false, free: false, minContext: 0 };
+  const opts = { providers: [], filter: null, json: false, free: false, minContext: 0, compare: false };
   for (let i = 0; i < argv.length; i += 1) {
     const a = argv[i];
     if (a === '--json') { opts.json = true; continue; }
     if (a === '--free') { opts.free = true; continue; }
+    if (a === '--compare') { opts.compare = true; continue; }
     if (a === '--filter') { opts.filter = new RegExp(argv[++i] || '', 'i'); continue; }
     if (a === '--context') { opts.minContext = Number.parseInt(argv[++i] || '0', 10); continue; }
     if (a.startsWith('--')) { console.error(`Unknown flag: ${a}`); process.exit(1); }
@@ -116,6 +121,84 @@ function pad(s, n) {
   return s.length >= n ? s.slice(0, n) : s + ' '.repeat(n - s.length);
 }
 
+function readBaselineModels() {
+  const providersPath = fs.existsSync(path.resolve(process.cwd(), 'providers.txt'))
+    ? path.resolve(process.cwd(), 'providers.txt')
+    : path.resolve(__dirname, '../../../../providers.txt');
+
+  if (!fs.existsSync(providersPath)) {
+    return [];
+  }
+
+  const content = fs.readFileSync(providersPath, 'utf8');
+  const models = [];
+  for (const rawLine of content.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line.startsWith('# │')) continue;
+
+    const columns = line
+      .replace(/^#\s*/, '')
+      .split('│')
+      .map((part) => part.trim())
+      .filter(Boolean);
+
+    if (columns.length < 3) continue;
+
+    const [rowNumber, provider, model] = columns;
+    if (!/^\d+$/.test(rowNumber)) continue;
+    if (!provider || !model) continue;
+    if (provider.toLowerCase() === 'provider') continue;
+
+    models.push({ provider, model });
+  }
+  return models;
+}
+
+function renderComparison(results) {
+  const baseline = readBaselineModels();
+  const baselineMap = new Map();
+  for (const b of baseline) {
+    if (!baselineMap.has(b.provider)) {
+      baselineMap.set(b.provider, new Set());
+    }
+    baselineMap.get(b.provider).add(b.model.toLowerCase());
+  }
+
+  const reports = [];
+  for (const { provider, result } of results) {
+    if (!result.ok) continue;
+
+    const liveIds = new Set(result.models.map(m => m.id.toLowerCase()));
+    const baselineIds = baselineMap.get(provider.slug) || new Set();
+
+    const added = result.models.filter(m => !baselineIds.has(m.id.toLowerCase()));
+    const retired = [...baselineIds].filter(bId => !liveIds.has(bId));
+
+    if (added.length > 0 || retired.length > 0) {
+      reports.push(`\nProvider: ${provider.slug}`);
+      if (added.length > 0) {
+        reports.push(`  + ADDED UPSTREAM (missing in providers.txt):`);
+        for (const m of added) {
+          const freeSuffix = isFreeHeuristic(m) ? ' (FREE)' : '';
+          reports.push(`    - ${m.id}${freeSuffix}`);
+        }
+      }
+      if (retired.length > 0) {
+        reports.push(`  - RETIRED UPSTREAM (present in providers.txt but missing live):`);
+        for (const bId of retired) {
+          reports.push(`    - ${bId}`);
+        }
+      }
+    }
+  }
+
+  if (reports.length === 0) {
+    return '\n✅ No model drift detected. All live provider models match providers.txt exactly.';
+  }
+
+  return '\n=== MODEL DRIFT AUDIT REPORT ===' + reports.join('\n');
+}
+
 function renderTable(rows) {
   const cols = [
     { name: 'PROVIDER', width: 22 },
@@ -152,6 +235,11 @@ async function main() {
       targets.map(async (p) => ({ provider: p, result: await fetchProviderModels(p, ac.signal) }))
     );
     clearTimeout(timer);
+
+    if (opts.compare) {
+      console.log(renderComparison(results));
+      return;
+    }
 
     if (opts.json) {
       const out = results.map(({ provider, result }) => ({
