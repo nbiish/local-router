@@ -90,13 +90,13 @@
 # │ 59 │ zenmux             │ moonshotai/kimi-k2.7-code           │ zenm:kimi-k2.7-code           │ 262,144  │ 262,144  │ YES   │ YES  │ YES   │ NO*       │
 # │ 60 │ zenmux             │ moonshotai/kimi-k2.7-code-free      │ zenm:kimi-k2.7-code-free     │ 262,144  │ 262,144  │ YES   │ YES  │ YES   │ NO*  free │
 # │ 64 │ zai                │ code-pass-glm-5.1                   │ zai:code-pass-glm-5.1         │ 200,000  │ 128,000  │ YES   │ NO   │ YES   │ NO*       │
-# │ 64a│ zai                │ zai-org/GLM-4.6v                    │ zai:code-pass-glm-4.6v        │ 200,000  │ 128,000  │ YES   │ YES  │ YES   │ NO*  sub  │
+# │ 80 │ zai                │ code-pass-glm-4.6v                   │ zai:code-pass-glm-4.6v         │ 200,000  │ 128,000  │ YES   │ YES  │ YES   │ NO*  sub  │
 # │ 65 │ nvidia-nim         │ stepfun-ai/step-3.7-flash           │ nvnm:step-3.7-flash           │ 256,000  │ 256,000  │ YES   │ YES  │ YES   │ YES       │
 # │ 66 │ zenmux             │ minimax/minimax-m3                  │ zenm:minimax-m3               │1,000,000 │ 512,000  │ YES   │ YES  │ YES   │ YES*      │
 # │ 67 │ openrouter-presets │ minimax/minimax-m3                  │ orps:minimax-m3               │1,048,576 │ 512,000  │ YES   │ YES  │ YES   │ YES*  paid│
 # │ 68 │ opencode-go      │ minimax-m3                          │ opc:minimax-m3                │1,000,000 │ 512,000  │ YES   │ YES  │ YES   │ YES*      │
 # │ 72 │ commandcode        │ deepseek-v4-pro                     │ cmdc:deepseek-v4-pro          │1,000,000 │ 384,000  │ YES   │ NO   │ YES   │ NO*  sub  │
-# │ 72a│ commandcode        │ minimax/minimax-m3                  │ cmdc:minimax-m3               │1,000,000 │ 512,000  │ YES   │ YES  │ YES   │ NO*  sub  │
+# │137 │ commandcode        │ minimax/minimax-m3                  │ cmdc:minimax-m3               │1,000,000 │ 512,000  │ YES   │ YES  │ YES   │ NO*  sub  │
 # │ 69 │ nvidia-nim         │ minimaxai/minimax-m3                │ nvnm:minimax-m3               │1,000,000 │ 512,000  │ YES   │ YES  │ YES   │ YES* free │
 # │ 70 │ openrouter-presets │ qwen/qwen3.7-max                    │ orps:qwen3.7-max              │1,000,000 │ 65,536   │ YES   │ NO   │ YES   │ NO*       │
 # │ 71 │ opencode-zen       │ deepseek-v4-flash                   │ ozen:deepseek-v4-flash        │1,000,000 │ 384,000  │ YES   │ NO   │ YES   │ NO*       │
