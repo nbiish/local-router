@@ -34,10 +34,13 @@ export function isAllowedAutoRouterGatewayFreeModel(presentedId: string): boolea
   return AUTO_ROUTER_GATEWAY_FREE_SET.has(String(presentedId || '').trim());
 }
 
-// User-curated 19-step fallback chain. The order places OAuth/subscription
-// providers (Antigravity, GitHub Copilot) in the top half so the proxy
-// hits a free- or subscription-backed model before the paid-tier fallbacks
-// kick in.
+// User-curated 23-step fallback chain. The order places the Nous Portal
+// free Step 3.7 Flash above the subscription band (so a free model is
+// always tried before any subscription bucket), keeps the OAuth /
+// subscription band in the middle (Antigravity, GitHub Copilot, Z.ai,
+// Xiaomi, OpenCode Go, CommandCode), and places the remaining Nous
+// Portal MiniMax M3 just after the Cline DeepSeek V4 Pro paid anchor
+// in the paid tail.
 export const DEFAULT_FALLBACK_ORDERED_IDS: readonly string[] = [
   'ollama-nemotron-3-ultra-cloud',
   'nvidia-nim-minimax-m3',
@@ -45,6 +48,7 @@ export const DEFAULT_FALLBACK_ORDERED_IDS: readonly string[] = [
   'kilo-stepfun-step-3.7-flash-free',
   'opencode-zen-minimax-m3-free',
   'modal-glm-5.1-fp8',
+  'nous-portal-step-3.7-flash-free',
   'antigravity-gemini-3.5-flash',
   'github-copilot-gemini-3.1-pro',
   'zai-code-pass-glm-5.1',
@@ -53,17 +57,10 @@ export const DEFAULT_FALLBACK_ORDERED_IDS: readonly string[] = [
   'opencode-go-deepseek-v4-pro',
   'nebius-nemotron-3-ultra-550b-a55b',
   'commandcode-deepseek-v4-pro',
-  'nous-portal-hermes-4-70b',
-  'nous-portal-hermes-4-405b',
-  'nous-portal-minimax-m3',
-  'nous-portal-deepseek-v4-pro',
-  'nous-portal-kimi-k2.7-code',
-  'nous-portal-mimo-v2.5-pro',
-  'nous-portal-step-3.7-flash-free',
-  'nous-portal-nemotron-3-ultra-free',
   'wafer-ai-deepseek-v4-flash',
   'kilo-minimax-minimax-m3-paid',
   'cline-deepseek-deepseek-v4-pro-paid',
+  'nous-portal-minimax-m3',
   'zenmux-mimo-v2.5-pro',
   'openrouter-chain-of-draft',
   'openrouter-kimi-k2.7-code',
@@ -73,14 +70,8 @@ export const DEFAULT_FALLBACK_ORDERED_IDS: readonly string[] = [
 
 const CANDIDATE_DEFAULTS: Record<string, string> = {
   'pioneer-minimax-m3': 'coding=0.90, input=0.1, output=0.3, latency=650, notes=Pioneer Minimax M3',
-  'nous-portal-hermes-4-70b': 'coding=0.86, input=0, output=0, latency=900, notes=Nous Portal Hermes-4-70B subscription (Hermes Desktop/CLI plan)',
-  'nous-portal-hermes-4-405b': 'coding=0.88, input=0, output=0, latency=1100, notes=Nous Portal Hermes-4-405B subscription (Hermes Desktop/CLI plan)',
   'nous-portal-step-3.7-flash-free': 'coding=0.84, input=0, output=0, latency=800, notes=Nous Portal stepfun/step-3.7-flash:free (free tier via subscription)',
   'nous-portal-minimax-m3': 'coding=0.91, input=0, output=0, latency=750, notes=Nous Portal minimax/minimax-m3 subscription (1M ctx)',
-  'nous-portal-deepseek-v4-pro': 'coding=0.90, input=0, output=0, latency=900, notes=Nous Portal deepseek/deepseek-v4-pro subscription (1M ctx)',
-  'nous-portal-kimi-k2.7-code': 'coding=0.89, input=0, output=0, latency=850, notes=Nous Portal moonshotai/kimi-k2.7-code subscription (coding, vision)',
-  'nous-portal-nemotron-3-ultra-free': 'coding=0.85, input=0, output=0, latency=900, notes=Nous Portal nvidia/nemotron-3-ultra:free (free tier via subscription)',
-  'nous-portal-mimo-v2.5-pro': 'coding=0.84, input=0, output=0, latency=900, notes=Nous Portal xiaomi/mimo-v2.5-pro subscription',
   'openrouter-kimi-k2.7-code': 'coding=0.86, input=0.95, output=4, latency=850, notes=OpenRouter moonshotai/kimi-k2.7-code paid',
   'ollama-nemotron-3-ultra-cloud': 'coding=0.86, input=0, output=0, latency=850, notes=Ollama Cloud Nemotron 3 Ultra (free tier)',
   'ollama-minimax-m3-cloud': 'coding=0.82, input=0, output=0, latency=950, notes=Ollama Cloud MiniMax M3 (free tier)',
@@ -184,13 +175,7 @@ function dedupeLines(lines: readonly string[]): string[] {
 const AUTO_ROUTER_EXTRA_CANDIDATE_IDS = [
   'pioneer-minimax-m3',
   'nous-portal-minimax-m3',
-  'nous-portal-deepseek-v4-pro',
-  'nous-portal-kimi-k2.7-code',
-  'nous-portal-mimo-v2.5-pro',
-  'nous-portal-hermes-4-405b',
-  'nous-portal-hermes-4-70b',
   'nous-portal-step-3.7-flash-free',
-  'nous-portal-nemotron-3-ultra-free',
   'openrouter-kimi-k2.7-code',
   'antigravity-gemini-3.5-flash',
   'github-copilot-gemini-3.1-pro',
@@ -243,14 +228,8 @@ const AUTO_ROUTER_EXTRA_CANDIDATE_IDS = [
   'kilo-xiaomi-mimo-v2.5-pro-paid',
   'kilo-xiaomi-mimo-v2.5-paid',
   'kilo-moonshotai-kimi-k2.7-code-paid',
-  'nous-portal-hermes-4-70b',
-  'nous-portal-hermes-4-405b',
   'nous-portal-minimax-m3',
-  'nous-portal-deepseek-v4-pro',
-  'nous-portal-kimi-k2.7-code',
-  'nous-portal-mimo-v2.5-pro',
   'nous-portal-step-3.7-flash-free',
-  'nous-portal-nemotron-3-ultra-free',
   'openrouter-kimi-k2.7-code',
 ] as const;
 
@@ -308,22 +287,21 @@ export const PRESET_FALLBACK_ROUTES: readonly PresetFallbackRoute[] = [
   {
     id: 'multimodal',
     models: [
-      'nvidia-nim-kimi-k2.6',
-      'antigravity-gemini-3.5-flash',
-      'antigravity-gemini-3.1-pro',
-      'github-copilot-gemini-3.1-pro',
-      'antigravity-claude-opus-4-6',
-      'antigravity-claude-sonnet-4-6',
-      'github-copilot-gpt-5',
-      'github-copilot-gpt-4o',
       'nvidia-nim-minimax-m3',
-      'pioneer-minimax-m3',
-      'nvidia-nim-step-3.7-flash',
-      'openrouter-chain-of-draft',
       'cline-minimax-minimax-m3-free',
       'kilo-stepfun-step-3.7-flash-free',
-      'zenmux-minimax-m3',
+      'opencode-zen-minimax-m3-free',
+      'nous-portal-step-3.7-flash-free',
+      'antigravity-gemini-3.5-flash',
+      'github-copilot-gemini-3.1-pro',
+      'zai-code-pass-glm-4.6v',
+      'xiaomi-mimo-mimo-v2.5',
+      'commandcode-minimax-m3',
+      'pioneer-minimax-m3',
       'wafer-ai-minimax-m3',
+      'kilo-minimax-minimax-m3-paid',
+      'openrouter-chain-of-draft',
+      'openrouter-kimi-k2.7-code',
     ] as const,
   },
 ] as const;

@@ -153,20 +153,6 @@ export const BASELINE_PROVIDER_PRICING: Record<string, ProviderPricingEntry> = {
     outputPricePerM: 2.5,
     label: 'Cline API moonshotai/kimi-k2.6 paid'
   },
-  'nous-portal-hermes-4-70b': {
-    inputPricePerM: 0,
-    outputPricePerM: 0,
-    label: 'Nous Portal Hermes-4-70B subscription (Hermes Desktop/CLI plan)',
-    sourceUrl: 'https://inference-api.nousresearch.com/v1/models',
-    validUntil: '2026-12-31'
-  },
-  'nous-portal-hermes-4-405b': {
-    inputPricePerM: 0,
-    outputPricePerM: 0,
-    label: 'Nous Portal Hermes-4-405B subscription (Hermes Desktop/CLI plan)',
-    sourceUrl: 'https://inference-api.nousresearch.com/v1/models',
-    validUntil: '2026-12-31'
-  },
   'nous-portal-step-3.7-flash-free': {
     inputPricePerM: 0,
     outputPricePerM: 0,
@@ -180,31 +166,18 @@ export const BASELINE_PROVIDER_PRICING: Record<string, ProviderPricingEntry> = {
     sourceUrl: 'https://inference-api.nousresearch.com/v1/models',
     validUntil: '2026-12-31'
   },
-  'nous-portal-deepseek-v4-pro': {
+  'zai-code-pass-glm-4.6v': {
     inputPricePerM: 0,
     outputPricePerM: 0,
-    label: 'Nous Portal deepseek/deepseek-v4-pro (subscription, plan-billed)',
-    sourceUrl: 'https://inference-api.nousresearch.com/v1/models',
+    label: 'Z.ai zai-org/GLM-4.6v (vision variant, subscription via Z.ai coding plan)',
+    sourceUrl: 'https://api.z.ai/api/coding/paas/v4/models',
     validUntil: '2026-12-31'
   },
-  'nous-portal-kimi-k2.7-code': {
+  'commandcode-minimax-m3': {
     inputPricePerM: 0,
     outputPricePerM: 0,
-    label: 'Nous Portal moonshotai/kimi-k2.7-code (subscription, plan-billed)',
-    sourceUrl: 'https://inference-api.nousresearch.com/v1/models',
-    validUntil: '2026-12-31'
-  },
-  'nous-portal-nemotron-3-ultra-free': {
-    inputPricePerM: 0,
-    outputPricePerM: 0,
-    label: 'Nous Portal nvidia/nemotron-3-ultra:free (free tier on subscription)',
-    sourceUrl: 'https://inference-api.nousresearch.com/v1/models'
-  },
-  'nous-portal-mimo-v2.5-pro': {
-    inputPricePerM: 0,
-    outputPricePerM: 0,
-    label: 'Nous Portal xiaomi/mimo-v2.5-pro (subscription, plan-billed)',
-    sourceUrl: 'https://inference-api.nousresearch.com/v1/models',
+    label: 'CommandCode minimax/minimax-m3 (subscription via 4x-deal plan)',
+    sourceUrl: 'https://api.commandcode.ai/alpha/generate',
     validUntil: '2026-12-31'
   },
   'openrouter-kimi-k2.7-code': {
