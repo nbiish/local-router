@@ -44,6 +44,14 @@
       "reasoning": true,
       "source": "OpenRouter, Moonshot docs"
     },
+    "kimi-k2.7": {
+      "context": 262144,
+      "output": 262144,
+      "tools": true,
+      "vision": true,
+      "reasoning": true,
+      "source": "Moonshot/ZenMux docs (June 2026)"
+    },
     "glm-5.1": {
       "context": 200000,
       "output": 128000,

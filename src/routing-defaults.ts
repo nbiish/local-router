@@ -107,6 +107,7 @@ const CANDIDATE_DEFAULTS: Record<string, string> = {
   'zenmux-mimo-v2.5-pro': 'coding=0.84, input=0.44, output=0.88, latency=700, notes=ZenMux xiaomi/mimo-v2.5-pro paid tail',
   'zenmux-minimax-m3': 'coding=0.90, input=0.3, output=1.2, latency=700, notes=ZenMux MiniMax M3',
   'zenmux-deepseek-v4-flash': 'coding=0.86, input=0.5, output=1, latency=650, notes=ZenMux DeepSeek V4 Flash',
+  'zenmux-kimi-k2.7-code-free': 'coding=0.87, input=0, output=0, latency=800, notes=ZenMux Moonshot Kimi K2.7 Code Free',
   'openrouter-chain-of-draft': 'coding=0.82, input=0, output=0, latency=900, notes=OpenRouter @preset/chain-of-draft',
   'openrouter-deepseek-v4-flash': 'coding=0.86, input=0.5, output=1, latency=700, notes=OpenRouter deepseek-v4-flash',
   'openrouter-minimax-m3': 'coding=0.88, input=0.3, output=1.2, latency=750, notes=OpenRouter minimax-m3',
@@ -192,6 +193,7 @@ const AUTO_ROUTER_EXTRA_CANDIDATE_IDS = [
   'wafer-ai-glm-5.1',
   'zenmux-minimax-m3',
   'zenmux-deepseek-v4-flash',
+  'zenmux-kimi-k2.7-code-free',
   'openrouter-minimax-m3',
   'openrouter-qwen3.7-max',
   'openrouter-deepseek-v4-flash',
@@ -335,6 +337,7 @@ export const PRESET_ROUTER_ROUTES: readonly PresetRouterRoute[] = [
       'kilo-nvidia-nemotron-3-ultra-550b-a55b-free',
       'opencode-zen-minimax-m3-free',
       'openrouter-free',
+      'zenmux-kimi-k2.7-code-free',
     ] as const,
   },
   {

@@ -123,7 +123,7 @@ Open `http://localhost:11434/config` → **Router Models**. Each type selects fr
 4 built-in preset routes are auto-bootstrapped on first startup:
 - `local-router/multimodal` — fallback chain of 16 vision-capable models (NIM Kimi K2.6 → Antigravity → Copilot → Pioneer → ZenMux → Wafer).
 - `local-router/performance` — auto-local router, 15 top-quality candidates (text + multimodal union, deduped), `minCodingScore=0.88`, max quality (`costQualityTradeoff=10`).
-- `local-router/low-cost` — auto-local router, 6 free candidates (one from each provider with free models), `minCodingScore=0.75`, cost-optimized (`costQualityTradeoff=2`).
+- `local-router/low-cost` — auto-local router, 7 free candidates (one from each provider with free models), `minCodingScore=0.75`, cost-optimized (`costQualityTradeoff=2`).
 - `local-router/nanoboozhoo` — auto-local SOTA router, 64 candidates (full candidate pool), quality=10, `minCodingScore=0.86`. Implements reasoning-aware routing principles from NeurIPS/ACL 2025 SOTA papers (broad candidate pool + aggressive quality gating to guarantee the best selection at runtime).
 
 ### Universal Prompt Caching Policy

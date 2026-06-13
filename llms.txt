@@ -17,7 +17,7 @@ Point VS Code Copilot Chat, Claude Code, Cline, Roo Code, Continue, Codex, or sc
 - **Preset routes** (4 built-in, bootstrapped on first run from `src/routing-defaults.ts`):
   - `local-router/multimodal` — **fallback** chain of 16 vision-capable models (NIM Kimi K2.6 → Antigravity → Copilot → Pioneer → ZenMux → Wafer).
   - `local-router/performance` — **auto-local** router, 15 top-quality candidates (text + multimodal union, deduped), `minCodingScore=0.88`, max quality (`costQualityTradeoff=10`).
-  - `local-router/low-cost` — **auto-local** router, 6 free candidates (one from each provider with free models), `minCodingScore=0.75`, cost-optimized (`costQualityTradeoff=2`).
+  - `local-router/low-cost` — **auto-local** router, 7 free candidates (one from each provider with free models), `minCodingScore=0.75`, cost-optimized (`costQualityTradeoff=2`).
   - `local-router/nanoboozhoo` — **auto-local** SOTA router, 64 candidates (full superset of auto-router-main + all fallback models), `minCodingScore=0.86`, max quality. Named for the Anishinaabe trickster-teacher; implements reasoning-aware routing principles from RADAR/ODAR/PILOT/IRT-Router academic research (NeurIPS 2025, EMNLP 2025, ACL 2025) — uses the broadest candidate pool with aggressive quality gating so the auto-local scorer always picks the best available model at runtime.
 - **Ollama Cloud:** Shared quota — router/fallback/pull use **nemotron-3-ultra**, **minimax-m3**, **deepseek-v4-flash** only unless a real `ollama.com` API key is set (Pro tags gated).
 - **Ollama shim:** `local-router route set` → `ollama serve` starts real Ollama on `11435` and Local Router on `11434`.
@@ -582,7 +582,7 @@ Presented as `local-router/<router-name>` (saved to `router-models.json`):
 |---|---|---|---|---|---|
 | `multimodal` | fallback | 16 | — | — | Vision-capable ordered retry chain |
 | `performance` | auto-local | 15 | 0.88 | 10 | Maximum coding quality, text + vision union (top paid) |
-| `low-cost` | auto-local | 6 | 0.75 | 2 | Free models only (one from each provider) |
+| `low-cost` | auto-local | 7 | 0.75 | 2 | Free models only (one from each provider) |
 | `nanoboozhoo` | auto-local | 64 | 0.86 | 10 | SOTA routing — full candidate superset with aggressive quality gating |
 
 #### Statistical Outlier Tiering (Auto Exacto)
