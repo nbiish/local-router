@@ -65,7 +65,7 @@ export function renderThinkingPage(params: {
         <div class="catalog-meta">
           <div>
             <h2>Wafer AI ZDR Enhancement</h2>
-            <p class="muted">Zero Delay Reduction inference optimization for GLM-5.1 and Kimi-K2.6 models via <code>Wafer-ZDR: required</code> header.</p>
+            <p class="muted">Zero Delay Reduction inference optimization for GLM-5.1, Kimi-K2.6, and deepseek-v4-pro models via <code>Wafer-ZDR: required</code> header.</p>
           </div>
           <div class="muted" id="waferZdrStatus">Loading...</div>
         </div>
@@ -73,6 +73,29 @@ export function renderThinkingPage(params: {
           <label style="display:inline-flex;align-items:center;gap:8px;font-weight:bold;cursor:pointer;">
             <input type="checkbox" id="waferZdrToggle" onchange="toggleWaferZdr()"> Enable ZDR enhancement for eligible Wafer AI models
           </label>
+        </div>
+      </div>
+      <div class="card">
+        <div class="catalog-meta">
+          <div>
+            <h2>Headroom Context Compression</h2>
+            <p class="muted">Intelligent context compression layer utilizing the <code>headroom-ai</code> SDK to compress prompt histories before forwarding upstream, optimizing token caching and cost.</p>
+          </div>
+          <div class="muted" id="headroomStatus">Loading...</div>
+        </div>
+        <div style="margin-top:12px;">
+          <label style="display:inline-flex;align-items:center;gap:8px;font-weight:bold;cursor:pointer;">
+            <input type="checkbox" id="headroomToggle" onchange="toggleHeadroom()"> Enable Headroom context compression
+          </label>
+        </div>
+        <div id="headroomFields" style="margin-top:12px; display:none;">
+          <div class="form-group">
+            <label for="headroomProxyUrlInput">Headroom Proxy URL</label>
+            <input type="text" id="headroomProxyUrlInput" placeholder="http://localhost:8787" style="width:100%;max-width:400px;" />
+          </div>
+          <div class="button-row">
+            <button onclick="saveHeadroomProxyUrl()">Save</button>
+          </div>
         </div>
       </div>
 `;

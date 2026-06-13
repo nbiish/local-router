@@ -3618,7 +3618,7 @@ loadPersistedProviderModels();
 mergeBaselineProviderModelOverrides();
 loadPersistedFallbackModels();
 if (waferZdrEnabled) {
-  console.log('[Wafer] ZDR enabled for GLM-5.1, Kimi-K2.6');
+  console.log('[Wafer] ZDR enabled for GLM-5.1, Kimi-K2.6, deepseek-v4-pro');
 }
 loadPersistedRouterModels();
 loadPersistedRouterSettings();
@@ -5050,7 +5050,7 @@ async function proxyModelAttempt(
   }
 
   // Inject Wafer AI ZDR header for eligible models
-  const ZDR_ELIGIBLE_MODELS = new Set(['GLM-5.1', 'Kimi-K2.6']);
+  const ZDR_ELIGIBLE_MODELS = new Set(['GLM-5.1', 'Kimi-K2.6', 'deepseek-v4-pro']);
   if (target.providerName === 'wafer-serverless' && waferZdrEnabled && ZDR_ELIGIBLE_MODELS.has(target.actualModel)) {
     providerHeaders['Wafer-ZDR'] = 'required';
   }

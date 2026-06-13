@@ -2376,6 +2376,73 @@ export function renderLayout(
           if (statusEl) statusEl.textContent = waferZdrEnabled ? 'ZDR active for GLM-5.1 and Kimi-K2.6' : 'ZDR disabled';
           setMessage('Wafer ZDR enhancement ' + (waferZdrEnabled ? 'enabled' : 'disabled') + '.', 'success');
         }
+        let headroomEnabled = true;
+        let headroomProxyUrl = 'http://localhost:8787';
+        async function loadHeadroomConfig() {
+          try {
+            const res = await fetch('/api/headroom-config');
+            if (!res.ok) throw new Error('HTTP ' + res.status);
+            const data = await res.json();
+            headroomEnabled = Boolean(data.enabled);
+            headroomProxyUrl = data.proxyUrl || 'http://localhost:8787';
+            const toggleEl = document.getElementById('headroomToggle');
+            const statusEl = document.getElementById('headroomStatus');
+            const fieldsEl = document.getElementById('headroomFields');
+            const urlInputEl = document.getElementById('headroomProxyUrlInput') as HTMLInputElement;
+            if (toggleEl) toggleEl.checked = headroomEnabled;
+            if (statusEl) statusEl.textContent = headroomEnabled ? 'Context compression active (' + escapeHtml(headroomProxyUrl) + ')' : 'Context compression disabled';
+            if (fieldsEl) fieldsEl.style.display = headroomEnabled ? 'block' : 'none';
+            if (urlInputEl) urlInputEl.value = headroomProxyUrl;
+          } catch (err) {
+            console.error('loadHeadroomConfig failed:', err);
+            const statusEl = document.getElementById('headroomStatus');
+            if (statusEl) statusEl.textContent = 'Failed to load';
+          }
+        }
+        async function toggleHeadroom() {
+          const toggleEl = document.getElementById('headroomToggle');
+          const fieldsEl = document.getElementById('headroomFields');
+          const enabled = Boolean(toggleEl?.checked);
+          if (fieldsEl) fieldsEl.style.display = enabled ? 'block' : 'none';
+          const res = await fetch('/api/headroom-config', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ enabled })
+          });
+          const payload = await res.json().catch(() => ({}));
+          if (!res.ok) {
+            setMessage(payload?.error || 'Failed to update Headroom config.', 'error');
+            if (toggleEl) toggleEl.checked = !enabled;
+            if (fieldsEl) fieldsEl.style.display = !enabled ? 'block' : 'none';
+            return;
+          }
+          headroomEnabled = payload.enabled;
+          const statusEl = document.getElementById('headroomStatus');
+          if (statusEl) statusEl.textContent = headroomEnabled ? 'Context compression active (' + escapeHtml(headroomProxyUrl) + ')' : 'Context compression disabled';
+          setMessage('Headroom context compression ' + (headroomEnabled ? 'enabled' : 'disabled') + '.', 'success');
+        }
+        async function saveHeadroomProxyUrl() {
+          const urlInputEl = document.getElementById('headroomProxyUrlInput') as HTMLInputElement;
+          const proxyUrl = urlInputEl?.value?.trim();
+          if (!proxyUrl) {
+            setMessage('Proxy URL cannot be empty.', 'error');
+            return;
+          }
+          const res = await fetch('/api/headroom-config', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ proxyUrl })
+          });
+          const payload = await res.json().catch(() => ({}));
+          if (!res.ok) {
+            setMessage(payload?.error || 'Failed to update Headroom proxy URL.', 'error');
+            return;
+          }
+          headroomProxyUrl = payload.proxyUrl;
+          const statusEl = document.getElementById('headroomStatus');
+          if (statusEl) statusEl.textContent = headroomEnabled ? 'Context compression active (' + escapeHtml(headroomProxyUrl) + ')' : 'Context compression disabled';
+          setMessage('Headroom proxy URL updated successfully.', 'success');
+        }
         async function toggleSystemPrompt() {
           const toggleEl = document.getElementById('systemPromptToggle');
           const fieldsEl = document.getElementById('systemPromptFields');
@@ -2732,6 +2799,7 @@ export function renderLayout(
         loadSystemPrompt();
         loadThinkingConfig();
         loadWaferZdrConfig();
+        loadHeadroomConfig();
         loadModelSource();
 
         async function loadProviderPricingPanel() {
