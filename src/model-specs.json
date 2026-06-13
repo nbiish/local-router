@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated": "2026-06-05",
+  "updated": "2026-06-12",
   "description": "Authoritative model specifications for CI/CD validation. Sources: provider API docs, OpenRouter metadata, model cards. Used by scripts/validate-model-specs.mts to detect metadata drift in providers.txt.",
   "models": {
     "deepseek-v4-pro": {
@@ -172,6 +172,14 @@
       "vision": false,
       "reasoning": false,
       "source": "OpenRouter"
+    },
+    "kimi-k2.7-code": {
+      "context": 262144,
+      "output": 262144,
+      "tools": true,
+      "vision": true,
+      "reasoning": true,
+      "source": "Nous Portal (inference-api.nousresearch.com/v1/models)"
     }
   }
 }

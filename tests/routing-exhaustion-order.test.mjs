@@ -59,14 +59,15 @@ test('subscription band for OpenCode Go, Z.ai, Xiaomi (not OpenCode Zen paid)', 
   );
 });
 
-test('subscription sub-order: opencode-go → zai → xiaomi-mimo → commandcode → antigravity → github-copilot', () => {
+test('subscription sub-order: opencode-go → zai → xiaomi-mimo → commandcode → antigravity → github-copilot → nous-portal', () => {
   assert.deepEqual(SUBSCRIPTION_PROVIDER_SUB_ORDER, [
     'opencode-go',
     'zai',
     'xiaomi-mimo',
     'commandcode',
     'antigravity',
-    'github-copilot'
+    'github-copilot',
+    'nous-portal'
   ]);
   const catalog = new Map([
     ['xiaomi-mimo-mimo-v2.5-pro', { provider: 'xiaomi-mimo', model: 'mimo-v2.5-pro' }],

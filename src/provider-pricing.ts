@@ -6,6 +6,8 @@ import { resolveGatewayPresentedLegacyId } from './gateway-provider-catalog';
 export type ProviderPricingEntry = {
   inputPricePerM: number;
   outputPricePerM: number;
+  /** USD per 1M tokens for cached input reads (e.g. ZDR enhanced inference). */
+  cacheReadPricePerM?: number;
   label?: string;
   validUntil?: string;
   sourceUrl?: string;
@@ -41,6 +43,13 @@ export const BASELINE_PROVIDER_PRICING: Record<string, ProviderPricingEntry> = {
     label: 'Wafer serverless MiniMax-M3 promo (live API 2026-06-04)',
     sourceUrl: 'https://pass.wafer.ai/v1/models',
     validUntil: '2026-06-11'
+  },
+  'wafer-ai-deepseek-v4-pro': {
+    inputPricePerM: 1.2,
+    outputPricePerM: 2.4,
+    cacheReadPricePerM: 0.1,
+    label: 'Wafer serverless DeepSeek V4 Pro (ZDR enhanced inference, 2026-06-12)',
+    sourceUrl: 'https://pass.wafer.ai/v1/models'
   },
   'zenmux-minimax-m3': {
     inputPricePerM: 0.3,
@@ -143,6 +152,66 @@ export const BASELINE_PROVIDER_PRICING: Record<string, ProviderPricingEntry> = {
     inputPricePerM: 0.6,
     outputPricePerM: 2.5,
     label: 'Cline API moonshotai/kimi-k2.6 paid'
+  },
+  'nous-portal-hermes-4-70b': {
+    inputPricePerM: 0,
+    outputPricePerM: 0,
+    label: 'Nous Portal Hermes-4-70B subscription (Hermes Desktop/CLI plan)',
+    sourceUrl: 'https://inference-api.nousresearch.com/v1/models',
+    validUntil: '2026-12-31'
+  },
+  'nous-portal-hermes-4-405b': {
+    inputPricePerM: 0,
+    outputPricePerM: 0,
+    label: 'Nous Portal Hermes-4-405B subscription (Hermes Desktop/CLI plan)',
+    sourceUrl: 'https://inference-api.nousresearch.com/v1/models',
+    validUntil: '2026-12-31'
+  },
+  'nous-portal-step-3.7-flash-free': {
+    inputPricePerM: 0,
+    outputPricePerM: 0,
+    label: 'Nous Portal stepfun/step-3.7-flash:free (free tier on subscription)',
+    sourceUrl: 'https://inference-api.nousresearch.com/v1/models'
+  },
+  'nous-portal-minimax-m3': {
+    inputPricePerM: 0,
+    outputPricePerM: 0,
+    label: 'Nous Portal minimax/minimax-m3 (subscription, plan-billed)',
+    sourceUrl: 'https://inference-api.nousresearch.com/v1/models',
+    validUntil: '2026-12-31'
+  },
+  'nous-portal-deepseek-v4-pro': {
+    inputPricePerM: 0,
+    outputPricePerM: 0,
+    label: 'Nous Portal deepseek/deepseek-v4-pro (subscription, plan-billed)',
+    sourceUrl: 'https://inference-api.nousresearch.com/v1/models',
+    validUntil: '2026-12-31'
+  },
+  'nous-portal-kimi-k2.7-code': {
+    inputPricePerM: 0,
+    outputPricePerM: 0,
+    label: 'Nous Portal moonshotai/kimi-k2.7-code (subscription, plan-billed)',
+    sourceUrl: 'https://inference-api.nousresearch.com/v1/models',
+    validUntil: '2026-12-31'
+  },
+  'nous-portal-nemotron-3-ultra-free': {
+    inputPricePerM: 0,
+    outputPricePerM: 0,
+    label: 'Nous Portal nvidia/nemotron-3-ultra:free (free tier on subscription)',
+    sourceUrl: 'https://inference-api.nousresearch.com/v1/models'
+  },
+  'nous-portal-mimo-v2.5-pro': {
+    inputPricePerM: 0,
+    outputPricePerM: 0,
+    label: 'Nous Portal xiaomi/mimo-v2.5-pro (subscription, plan-billed)',
+    sourceUrl: 'https://inference-api.nousresearch.com/v1/models',
+    validUntil: '2026-12-31'
+  },
+  'openrouter-kimi-k2.7-code': {
+    inputPricePerM: 0.95,
+    outputPricePerM: 4,
+    label: 'OpenRouter moonshotai/kimi-k2.7-code paid',
+    sourceUrl: 'https://openrouter.ai/api/v1/models'
   },
   'openrouter-free': {
     inputPricePerM: 0,
@@ -329,10 +398,18 @@ export function loadProviderPricingStore(): void {
       if (!entry || typeof entry !== 'object') continue;
       const inputPricePerM = Number(entry.inputPricePerM);
       const outputPricePerM = Number(entry.outputPricePerM);
+      const cacheReadPricePerM =
+        entry.cacheReadPricePerM === undefined || entry.cacheReadPricePerM === null
+          ? undefined
+          : Number(entry.cacheReadPricePerM);
       if (!Number.isFinite(inputPricePerM) || !Number.isFinite(outputPricePerM)) continue;
       providerPricingStore[modelId] = {
         inputPricePerM,
         outputPricePerM,
+        cacheReadPricePerM:
+          cacheReadPricePerM !== undefined && Number.isFinite(cacheReadPricePerM) && cacheReadPricePerM >= 0
+            ? cacheReadPricePerM
+            : undefined,
         label: typeof entry.label === 'string' ? entry.label : undefined,
         validUntil: typeof entry.validUntil === 'string' ? entry.validUntil : undefined,
         sourceUrl: typeof entry.sourceUrl === 'string' ? entry.sourceUrl : undefined,
@@ -406,6 +483,13 @@ export function upsertProviderPricingEntry(
   const next: ProviderPricingEntry = {
     inputPricePerM,
     outputPricePerM,
+    cacheReadPricePerM:
+      entry.cacheReadPricePerM === undefined || entry.cacheReadPricePerM === null
+        ? undefined
+        : (() => {
+            const n = Number(entry.cacheReadPricePerM);
+            return Number.isFinite(n) && n >= 0 ? n : undefined;
+          })(),
     label: typeof entry.label === 'string' ? entry.label.trim() : undefined,
     validUntil: typeof entry.validUntil === 'string' ? entry.validUntil.trim() : undefined,
     sourceUrl: typeof entry.sourceUrl === 'string' ? entry.sourceUrl.trim() : undefined,

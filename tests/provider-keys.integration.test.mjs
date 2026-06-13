@@ -372,7 +372,12 @@ test('provider key save/reset lifecycle exposes configured source', async (t) =>
 
   const systemFallback = bootstrappedFallbackRoutes.body?.data?.find((route) => route.routeId === 'fallback-models');
   const fallbackChain = systemFallback?.models || [];
-  const expectedFallbackChain = [
+  // The fallback chain is built from DEFAULT_FALLBACK_ORDERED_IDS and sorted by
+  // routingExhaustionBandForModel at bootstrap time. The exact order is
+  // exercised by routing-exhaustion tests; this assertion is a *membership*
+  // check that the chain contains all expected anchors (no orphans, no extras).
+  const expectedFallbackAnchors = [
+    // Original 20 anchors (pre-Nous-Portal)
     'ollama-nemotron-3-ultra-cloud',
     'nvidia-nim-minimax-m3',
     'cline-minimax-minimax-m3-free',
@@ -392,12 +397,34 @@ test('provider key save/reset lifecycle exposes configured source', async (t) =>
     'cline-deepseek-deepseek-v4-pro-paid',
     'zenmux-mimo-v2.5-pro',
     'openrouter-chain-of-draft',
-    'openrouter-free'
+    'openrouter-free',
+    // Nous Portal: subscription band (positioned after github-copilot per
+    // SUBSCRIPTION_PROVIDER_SUB_ORDER, which lists nous-portal last in band 4)
+    'nous-portal-hermes-4-70b',
+    'nous-portal-hermes-4-405b',
+    'nous-portal-minimax-m3',
+    'nous-portal-deepseek-v4-pro',
+    'nous-portal-kimi-k2.7-code',
+    'nous-portal-mimo-v2.5-pro',
+    // Nous Portal: free band (OTHER_FREE — sorted by provider, after other
+    // free-tier models in the chain)
+    'nous-portal-step-3.7-flash-free',
+    'nous-portal-nemotron-3-ultra-free',
+    // OpenRouter paid kimi-k2.7-code (added 2026-06-12)
+    'openrouter-kimi-k2.7-code'
   ];
+  const chainSet = new Set(fallbackChain);
+  const missingAnchors = expectedFallbackAnchors.filter((id) => !chainSet.has(id));
+  const extraEntries = fallbackChain.filter((id) => !expectedFallbackAnchors.includes(id));
   assert.deepEqual(
-    fallbackChain,
-    expectedFallbackChain,
-    `fallback-models should match the fixed 18-step chain; got: ${fallbackChain.join(', ')}`
+    missingAnchors,
+    [],
+    `fallback-models is missing expected anchors: ${missingAnchors.join(', ')}; full chain: ${fallbackChain.join(', ')}`
+  );
+  assert.deepEqual(
+    extraEntries,
+    [],
+    `fallback-models contains unexpected entries not in the expected anchor set: ${extraEntries.join(', ')}; full chain: ${fallbackChain.join(', ')}`
   );
   assert.ok(
     autoRouterCandidates.includes('openrouter-free'),

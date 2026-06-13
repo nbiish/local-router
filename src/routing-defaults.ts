@@ -53,17 +53,35 @@ export const DEFAULT_FALLBACK_ORDERED_IDS: readonly string[] = [
   'opencode-go-deepseek-v4-pro',
   'nebius-nemotron-3-ultra-550b-a55b',
   'commandcode-deepseek-v4-pro',
+  'nous-portal-hermes-4-70b',
+  'nous-portal-hermes-4-405b',
+  'nous-portal-minimax-m3',
+  'nous-portal-deepseek-v4-pro',
+  'nous-portal-kimi-k2.7-code',
+  'nous-portal-mimo-v2.5-pro',
+  'nous-portal-step-3.7-flash-free',
+  'nous-portal-nemotron-3-ultra-free',
   'wafer-ai-deepseek-v4-flash',
   'kilo-minimax-minimax-m3-paid',
   'cline-deepseek-deepseek-v4-pro-paid',
   'zenmux-mimo-v2.5-pro',
   'openrouter-chain-of-draft',
+  'openrouter-kimi-k2.7-code',
   'openrouter-free'
 ] as const;
 
 
 const CANDIDATE_DEFAULTS: Record<string, string> = {
   'pioneer-minimax-m3': 'coding=0.90, input=0.1, output=0.3, latency=650, notes=Pioneer Minimax M3',
+  'nous-portal-hermes-4-70b': 'coding=0.86, input=0, output=0, latency=900, notes=Nous Portal Hermes-4-70B subscription (Hermes Desktop/CLI plan)',
+  'nous-portal-hermes-4-405b': 'coding=0.88, input=0, output=0, latency=1100, notes=Nous Portal Hermes-4-405B subscription (Hermes Desktop/CLI plan)',
+  'nous-portal-step-3.7-flash-free': 'coding=0.84, input=0, output=0, latency=800, notes=Nous Portal stepfun/step-3.7-flash:free (free tier via subscription)',
+  'nous-portal-minimax-m3': 'coding=0.91, input=0, output=0, latency=750, notes=Nous Portal minimax/minimax-m3 subscription (1M ctx)',
+  'nous-portal-deepseek-v4-pro': 'coding=0.90, input=0, output=0, latency=900, notes=Nous Portal deepseek/deepseek-v4-pro subscription (1M ctx)',
+  'nous-portal-kimi-k2.7-code': 'coding=0.89, input=0, output=0, latency=850, notes=Nous Portal moonshotai/kimi-k2.7-code subscription (coding, vision)',
+  'nous-portal-nemotron-3-ultra-free': 'coding=0.85, input=0, output=0, latency=900, notes=Nous Portal nvidia/nemotron-3-ultra:free (free tier via subscription)',
+  'nous-portal-mimo-v2.5-pro': 'coding=0.84, input=0, output=0, latency=900, notes=Nous Portal xiaomi/mimo-v2.5-pro subscription',
+  'openrouter-kimi-k2.7-code': 'coding=0.86, input=0.95, output=4, latency=850, notes=OpenRouter moonshotai/kimi-k2.7-code paid',
   'ollama-nemotron-3-ultra-cloud': 'coding=0.86, input=0, output=0, latency=850, notes=Ollama Cloud Nemotron 3 Ultra (free tier)',
   'ollama-minimax-m3-cloud': 'coding=0.82, input=0, output=0, latency=950, notes=Ollama Cloud MiniMax M3 (free tier)',
   'ollama-deepseek-v4-flash-cloud': 'coding=0.84, input=0, output=0, latency=900, notes=Ollama Cloud DeepSeek V4 Flash (free tier)',
@@ -138,7 +156,7 @@ const CANDIDATE_DEFAULTS: Record<string, string> = {
   'kilo-poolside-laguna-m.1-free': 'coding=0.78, input=0, output=0, latency=900, notes=Kilo Poolside Laguna M.1 free',
   'kilo-poolside-laguna-xs.2-free': 'coding=0.76, input=0, output=0, latency=950, notes=Kilo Poolside Laguna XS.2 free',
   'wafer-ai-minimax-m3': 'coding=0.90, input=0.33, output=1.32, latency=650, notes=Wafer MiniMax-M3 promo',
-  'wafer-ai-deepseek-v4-pro': 'coding=0.90, input=0.5, output=1, latency=650, notes=Wafer DeepSeek V4 Pro',
+  'wafer-ai-deepseek-v4-pro': 'coding=0.90, input=1.2, output=2.4, cacheRead=0.1, latency=650, notes=Wafer DeepSeek V4 Pro (ZDR enhanced inference)',
   'wafer-ai-glm-5.1': 'coding=0.88, input=0.5, output=1, latency=700, notes=Wafer GLM-5.1',
   'opencode-zen-deepseek-v4-flash': 'coding=0.87, input=0.5, output=1, latency=900, notes=OpenCode Zen DeepSeek V4 Flash paid'
 };
@@ -165,6 +183,15 @@ function dedupeLines(lines: readonly string[]): string[] {
 // Assist). Place it at the top of the auto-router-main candidate list so
 const AUTO_ROUTER_EXTRA_CANDIDATE_IDS = [
   'pioneer-minimax-m3',
+  'nous-portal-minimax-m3',
+  'nous-portal-deepseek-v4-pro',
+  'nous-portal-kimi-k2.7-code',
+  'nous-portal-mimo-v2.5-pro',
+  'nous-portal-hermes-4-405b',
+  'nous-portal-hermes-4-70b',
+  'nous-portal-step-3.7-flash-free',
+  'nous-portal-nemotron-3-ultra-free',
+  'openrouter-kimi-k2.7-code',
   'antigravity-gemini-3.5-flash',
   'github-copilot-gemini-3.1-pro',
   'ollama-minimax-m3-cloud',
@@ -212,10 +239,19 @@ const AUTO_ROUTER_EXTRA_CANDIDATE_IDS = [
   'kilo-qwen-qwen3.7-max-paid',
   'kilo-minimax-minimax-m3-paid',
 
-  'kilo-stepfun-step-3.7-flash-paid',
+  'kilo-stepfun-step-3.7-flash-free',
   'kilo-xiaomi-mimo-v2.5-pro-paid',
   'kilo-xiaomi-mimo-v2.5-paid',
   'kilo-moonshotai-kimi-k2.7-code-paid',
+  'nous-portal-hermes-4-70b',
+  'nous-portal-hermes-4-405b',
+  'nous-portal-minimax-m3',
+  'nous-portal-deepseek-v4-pro',
+  'nous-portal-kimi-k2.7-code',
+  'nous-portal-mimo-v2.5-pro',
+  'nous-portal-step-3.7-flash-free',
+  'nous-portal-nemotron-3-ultra-free',
+  'openrouter-kimi-k2.7-code',
 ] as const;
 
 const AUTO_ROUTER_CANDIDATE_LINES = dedupeLines([
