@@ -41,6 +41,7 @@ function getOAuthStateSafe(name: string): OAuthProviderState | undefined {
 }
 import { sanitizeProviderRequestBody, stripReasoningMetadata, ThinkingLevel, DEFAULT_THINKING_LEVEL } from './reasoning';
 import { loadSessions, loadFeedback, recordRequest, getSessions, getSessionById, recordFeedback, saveSessions } from './sessions';
+import { loadExpertLogs, LogEntryTracker, createUsageSpyStream } from './expert-logs';
 import { computeTiers } from './tiers';
 import { buildWraparoundExecutionPlan } from './execution-plan';
 import { stableSortModelIdsByRoutingExhaustion } from './routing-exhaustion-order';
@@ -5215,7 +5216,8 @@ async function sendSuccessfulProxyResponse(
   requestStartedAt: number,
   outputFormat: CompletionOutputFormat,
   success: AttemptSuccess,
-  diagnosticsExtra?: Record<string, unknown>
+  diagnosticsExtra?: Record<string, unknown>,
+  logTracker?: LogEntryTracker
 ) {
   const fetchResponse = success.response;
 
@@ -5247,14 +5249,34 @@ async function sendSuccessfulProxyResponse(
     if (fetchResponse.body) {
       // @ts-ignore
       const nodeStream = Readable.fromWeb(fetchResponse.body);
+      const spyStream = logTracker ? createUsageSpyStream((data) => logTracker.onUsage(data)) : null;
+
       if (outputFormat.startsWith('ollama')) {
         const isGenerate = outputFormat === 'ollama_generate';
         const transform = createOllamaStreamTransform(model, isGenerate);
-        nodeStream.pipe(transform).pipe(res);
+        if (spyStream) {
+          nodeStream.pipe(transform).pipe(spyStream).pipe(res);
+        } else {
+          nodeStream.pipe(transform).pipe(res);
+        }
       } else {
-        nodeStream.pipe(createOpenAIReasoningStripTransform()).pipe(res);
+        const stripTransform = createOpenAIReasoningStripTransform();
+        if (spyStream) {
+          nodeStream.pipe(stripTransform).pipe(spyStream).pipe(res);
+        } else {
+          nodeStream.pipe(stripTransform).pipe(res);
+        }
       }
+
+      res.on('finish', () => {
+        if (logTracker) {
+          logTracker.onFinish(Date.now() - requestStartedAt);
+        }
+      });
     } else {
+      if (logTracker) {
+        logTracker.onFinish(Date.now() - requestStartedAt);
+      }
       res.end();
     }
     return;
@@ -5262,7 +5284,7 @@ async function sendSuccessfulProxyResponse(
 
   const upstreamData = await fetchResponse.json();
   const normalizedUpstream = normalizeGatewayChatCompletionBody(success.providerName, upstreamData);
-  const data = stripReasoningMetadata(normalizedUpstream) as Record<string, any>;
+  const data = stripReasoningMetadata(normalizedUpstream) as Record<string, unknown>;
 
   pushDiagnostic({
     event: 'proxy_response',
@@ -5280,14 +5302,20 @@ async function sendSuccessfulProxyResponse(
     }
   });
 
+  if (logTracker) {
+    logTracker.onUsage(data);
+    logTracker.onFinish(Date.now() - requestStartedAt);
+  }
+
   if (outputFormat.startsWith('ollama')) {
-    const message = data.choices?.[0]?.message || {};
-    const content = message.content || '';
+    const choices = data.choices as Record<string, unknown>[] | undefined;
+    const message = (choices?.[0]?.message as Record<string, unknown> | undefined) || {};
+    const content = String(message.content || '');
     const toolCalls = openAIToolCallsToOllama(message.tool_calls);
     if (outputFormat === 'ollama_generate') {
       res.json({ model, created_at: new Date().toISOString(), response: content, done: true, done_reason: 'stop' });
     } else {
-      const responseMessage: any = { role: 'assistant', content };
+      const responseMessage: Record<string, unknown> = { role: 'assistant', content };
       if (toolCalls.length > 0) responseMessage.tool_calls = toolCalls;
       res.json({ model, created_at: new Date().toISOString(), message: responseMessage, done: true, done_reason: 'stop' });
     }
@@ -5330,8 +5358,16 @@ async function handleChatCompletion(req: Request, res: Response, bodyOverrides?:
   const rawClient = req.headers['x-local-router-client'];
   const clientName = typeof rawClient === 'string' ? rawClient : Array.isArray(rawClient) ? rawClient[0] : 'unknown';
   recordRequest(clientName, String(model));
-
   const routerRoute = findRouterModel(model);
+  const fallbackRoute = findFallbackModel(model);
+  const logTracker = new LogEntryTracker(
+    clientName,
+    String(model),
+    routerRoute ? 'router' : (fallbackRoute ? 'fallback' : 'direct'),
+    routerRoute?.id
+  );
+  logTracker.setRequestDetails(body);
+
   if (routerRoute) {
     const decision = selectRouterCandidate(routerRoute, body);
     if ('error' in decision) {
@@ -5370,6 +5406,7 @@ async function handleChatCompletion(req: Request, res: Response, bodyOverrides?:
             cascadingToSystemFallback: systemFallbackForEligibility.id
           }
         });
+        logTracker.onFailure(400, 'no_eligible_candidates', decision.error);
         return executeFallbackRoute(
           systemFallbackForEligibility,
           body,
@@ -5378,10 +5415,13 @@ async function handleChatCompletion(req: Request, res: Response, bodyOverrides?:
           requestRoute,
           outputFormat,
           requestStartedAt,
-          res
+          res,
+          logTracker
         );
       }
 
+      logTracker.onFailure(400, 'no_eligible_candidates', decision.error);
+      logTracker.onFinish(Date.now() - requestStartedAt);
       return res.status(400).json({
         error: decision.error,
         router: {
@@ -5434,6 +5474,7 @@ async function handleChatCompletion(req: Request, res: Response, bodyOverrides?:
 
         if (result.ok) {
           candidateSucceeded = true;
+          logTracker.onSuccess(result.value.providerName, result.value.actualModel, result.value.response.status);
           const features = requestFeatureSummary(body);
           const eventFeatures = routerEventFeatures(features, body);
           const attemptDuration = Date.now() - requestStartedAt;
@@ -5482,7 +5523,8 @@ async function handleChatCompletion(req: Request, res: Response, bodyOverrides?:
                 executionStage: stage.stage,
                 failedAttemptsBeforeSuccess: attemptLog.length
               }
-            }
+            },
+            logTracker
           );
         }
 
@@ -5573,7 +5615,16 @@ async function handleChatCompletion(req: Request, res: Response, bodyOverrides?:
           cascadingToSystemFallback: systemFallback.id
         }
       });
-      return executeFallbackRoute(systemFallback, body, model, stream, requestRoute, outputFormat, requestStartedAt, res);
+      return executeFallbackRoute(systemFallback, body, model, stream, requestRoute, outputFormat, requestStartedAt, res, logTracker);
+    }
+
+    if (logTracker) {
+      logTracker.onFailure(
+        status,
+        terminalFailure?.errorType || 'router_exhausted',
+        `Router model "${routerRoute.id}" exhausted all eligible candidates. No system fallback configured.`
+      );
+      logTracker.onFinish(Date.now() - requestStartedAt);
     }
 
     return res.status(status).json({
@@ -5589,9 +5640,8 @@ async function handleChatCompletion(req: Request, res: Response, bodyOverrides?:
     });
   }
 
-  const fallbackRoute = findFallbackModel(model);
   if (fallbackRoute) {
-    return executeFallbackRoute(fallbackRoute, body, model, stream, requestRoute, outputFormat, requestStartedAt, res);
+    return executeFallbackRoute(fallbackRoute, body, model, stream, requestRoute, outputFormat, requestStartedAt, res, logTracker);
   }
 
   // Direct model — try it, then cascade to system fallback on failure
@@ -5606,6 +5656,7 @@ async function handleChatCompletion(req: Request, res: Response, bodyOverrides?:
   );
 
   if (directModelResult.ok) {
+    logTracker.onSuccess(directModelResult.value.providerName, directModelResult.value.actualModel, directModelResult.value.response.status);
     const features = requestFeatureSummary(body);
     const eventFeatures = routerEventFeatures(features, body);
     recordProxyTelemetry({
@@ -5626,7 +5677,9 @@ async function handleChatCompletion(req: Request, res: Response, bodyOverrides?:
       requestRoute,
       requestStartedAt,
       outputFormat,
-      directModelResult.value
+      directModelResult.value,
+      undefined,
+      logTracker
     );
   }
 
@@ -5668,11 +5721,14 @@ async function handleChatCompletion(req: Request, res: Response, bodyOverrides?:
         cascadingToSystemFallback: sysFallback.id
       }
     });
-    return executeFallbackRoute(sysFallback, body, model, stream, requestRoute, outputFormat, requestStartedAt, res);
+    return executeFallbackRoute(sysFallback, body, model, stream, requestRoute, outputFormat, requestStartedAt, res, logTracker);
   }
   if (directModelResult.error.errorType === 'upstream_http') {
     const errorBody = directModelResult.error.responseText || directModelResult.error.message;
-    return res.status(directModelResult.error.status || 502).send(errorBody);
+    const errStatus = directModelResult.error.status || 502;
+    logTracker.onFailure(errStatus, directModelResult.error.errorType, directModelResult.error.message);
+    logTracker.onFinish(Date.now() - requestStartedAt);
+    return res.status(errStatus).send(errorBody);
   }
 
   const directStatus = directModelResult.error.errorType === 'unknown_model'
@@ -5682,6 +5738,9 @@ async function handleChatCompletion(req: Request, res: Response, bodyOverrides?:
       : directModelResult.error.errorType === 'provider_config'
         ? 400
         : 500;
+
+  logTracker.onFailure(directStatus, directModelResult.error.errorType, directModelResult.error.message);
+  logTracker.onFinish(Date.now() - requestStartedAt);
 
   return res.status(directStatus).json({
     error: directModelResult.error.message,
@@ -5698,7 +5757,8 @@ async function executeFallbackRoute(
   requestRoute: string,
   outputFormat: CompletionOutputFormat,
   requestStartedAt: number,
-  res: Response
+  res: Response,
+  logTracker?: LogEntryTracker
 ) {
   const plan = fallbackExecutionPlan(fallbackRoute);
   const attemptLog: Array<Record<string, unknown>> = [];
@@ -5753,6 +5813,9 @@ async function executeFallbackRoute(
       );
 
       if (result.ok) {
+        if (logTracker) {
+          logTracker.onSuccess(result.value.providerName, result.value.actualModel, result.value.response.status);
+        }
         recordProxyTelemetry({
           routeKind: 'fallback',
           routerId: fallbackRoute.id,
@@ -5782,7 +5845,8 @@ async function executeFallbackRoute(
               stageAttempts: stage.attempts,
               totalFailedAttemptsBeforeSuccess: attemptLog.length
             }
-          }
+          },
+          logTracker
         );
       }
 
@@ -5848,6 +5912,14 @@ async function executeFallbackRoute(
   });
 
   const status = terminalFailure?.status || 502;
+  if (logTracker) {
+    logTracker.onFailure(
+      status,
+      terminalFailure?.errorType || 'fallback_exhaustion',
+      terminalFailure?.message || `Fallback model "${fallbackRoute.id}" exhausted all configured targets.`
+    );
+    logTracker.onFinish(Date.now() - requestStartedAt);
+  }
   return res.status(status).json({
     error: `Fallback model "${fallbackRoute.id}" exhausted all configured targets.`,
     fallback: {
@@ -6563,6 +6635,7 @@ app.post('/api/generate', async (req: Request, res: Response) => {
 
 const isDevMode = process.env.LOCAL_ROUTER_DEV === 'true' || process.env.NODE_ENV === 'development';
 
+loadExpertLogs();
 loadSessions();
 loadFeedback();
 loadPqcSecrets();

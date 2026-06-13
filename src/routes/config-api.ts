@@ -29,6 +29,7 @@ import {
 } from '../index';
 import type { RouterSettings } from '../config-persistence';
 import { loadRouterSettings, saveRouterSettings } from '../config-persistence';
+import { getExpertLogs, importExpertLogs, clearExpertLogs, analyzeLogs } from '../expert-logs';
 
 export interface ConfigApiDeps {
   state: {
@@ -1514,6 +1515,35 @@ app.delete('/api/router-settings', (req: Request, res: Response) => {
   }
 
   return res.json({ success: true });
+});
+
+// ── Expert Logs Tracking ──
+app.get('/api/logs', (req: Request, res: Response) => {
+  return res.json({ logs: getExpertLogs() });
+});
+
+app.get('/api/logs/export', (req: Request, res: Response) => {
+  res.setHeader('Content-Type', 'application/json');
+  res.setHeader('Content-Disposition', 'attachment; filename="expert-logs.json"');
+  return res.json(getExpertLogs());
+});
+
+app.post('/api/logs/import', (req: Request, res: Response) => {
+  const payload: unknown = req.body;
+  const result = importExpertLogs(payload);
+  if (!result.success) {
+    return res.status(400).json({ error: result.error });
+  }
+  return res.json({ success: true, count: result.count });
+});
+
+app.delete('/api/logs', (req: Request, res: Response) => {
+  clearExpertLogs();
+  return res.json({ success: true });
+});
+
+app.get('/api/logs/analyze', (req: Request, res: Response) => {
+  return res.json(analyzeLogs());
 });
 
 // ── Session Tracking ──
