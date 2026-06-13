@@ -4763,6 +4763,21 @@ export function stripCacheControl(body: any): any {
   return newBody;
 }
 
+export function getPromptCacheKey(messages: any[]): string | undefined {
+  if (!Array.isArray(messages) || messages.length === 0) return undefined;
+  const firstSystem = messages.find(m => m?.role === 'system')?.content;
+  const firstUser = messages.find(m => m?.role === 'user')?.content;
+  const contentToHash = String(firstSystem || '') + '|' + String(firstUser || '');
+  if (!contentToHash.trim()) return undefined;
+  let hash = 0;
+  for (let i = 0; i < contentToHash.length; i++) {
+    const char = contentToHash.charCodeAt(i);
+    hash = (hash << 5) - hash + char;
+    hash |= 0;
+  }
+  return 'lr_' + Math.abs(hash).toString(16);
+}
+
 export function injectPromptCaching(body: any, providerName: string): any {
   const modelLower = String(body.model || '').toLowerCase();
   const isOpenAiFamily = modelLower.startsWith('gpt-') || 
@@ -4775,6 +4790,10 @@ export function injectPromptCaching(body: any, providerName: string): any {
   if (isOpenAiFamily) {
     const newBody = stripCacheControl(body);
     newBody.prompt_cache_retention = "24h";
+    const cacheKey = getPromptCacheKey(newBody.messages);
+    if (cacheKey) {
+      newBody.prompt_cache_key = cacheKey;
+    }
     return newBody;
   }
 
@@ -4829,6 +4848,13 @@ export function injectPromptCaching(body: any, providerName: string): any {
     }
 
     newBody.messages = newMessages;
+  }
+
+  if (modelLower.includes('kimi') || modelLower.includes('moonshot')) {
+    const cacheKey = getPromptCacheKey(newBody.messages);
+    if (cacheKey) {
+      newBody.prompt_cache_key = cacheKey;
+    }
   }
 
   return newBody;

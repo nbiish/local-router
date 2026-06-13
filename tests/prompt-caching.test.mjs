@@ -130,3 +130,38 @@ test('Cache_control is preserved and updated when falling back to supported prov
     { type: 'text', text: 'You are a helpful assistant.', cache_control: { type: 'ephemeral', ttl: '1h' } }
   ]);
 });
+
+test('OpenAI model gets prompt_cache_key parameter for sticky routing', () => {
+  const body = {
+    model: 'pioneer/gpt-4o',
+    messages: [
+      { role: 'system', content: 'You are a coding assistant.' },
+      { role: 'user', content: 'Explain prompt caching.' }
+    ]
+  };
+
+  const result = injectPromptCaching(body, 'pioneer');
+  assert.equal(result.prompt_cache_retention, '24h');
+  assert.ok(result.prompt_cache_key.startsWith('lr_'));
+  
+  // Verify stability (same prompt must yield same cache key)
+  const result2 = injectPromptCaching(body, 'pioneer');
+  assert.equal(result2.prompt_cache_key, result.prompt_cache_key);
+});
+
+test('Kimi model gets prompt_cache_key parameter for sticky routing', () => {
+  const body = {
+    model: 'openrouter/moonshotai/kimi-k2.6',
+    messages: [
+      { role: 'system', content: 'You are a coding assistant.' },
+      { role: 'user', content: 'Explain prompt caching.' }
+    ]
+  };
+
+  const result = injectPromptCaching(body, 'openrouter');
+  assert.ok(result.prompt_cache_key.startsWith('lr_'));
+  
+  // Verify stability
+  const result2 = injectPromptCaching(body, 'openrouter');
+  assert.equal(result2.prompt_cache_key, result.prompt_cache_key);
+});
