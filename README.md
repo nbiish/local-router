@@ -117,7 +117,28 @@ Open `http://localhost:11434/config` → **Router Models**. Each type selects fr
 | `priority` | Predictable top-to-bottom order after capability checks. |
 | `bandit-local` | Learns from your usage over time (dLinUCB). Needs ~10 samples per candidate. |
 
-**Out-of-box recommendation:** use `local-router/auto-router-main` as your model (legacy alias: `auto-local-main`). The system fallback chain `local-router/fallback-models` is bootstrapped automatically and catches failures when providers are missing or upstream calls fail. Limited-time provider promos (ZenMux matched Qwen pricing, Wafer MiniMax-M3 weekly rates, etc.) are editable under `/config` → **Model Pricing Overrides** and persist to `~/.config/local-router/provider-pricing.json`.
+**Out-of-box recommendation:** use `local-router/auto-router-main` or `local-router/nanoboozhoo` as your model. The system fallback chain `local-router/fallback-models` is bootstrapped automatically and catches failures when providers are missing or upstream calls fail.
+
+### Preset Routes (built-in)
+8 built-in preset routes are auto-bootstrapped on first startup:
+- `local-router/multimodal` — fallback chain of 16 vision-capable models (NIM Kimi K2.6 → Antigravity → Copilot → Pioneer → ZenMux → Wafer).
+- `local-router/preferred-text` — auto-local router, 14 curated top-quality text candidates (`minCodingScore=0.85`, quality=9).
+- `local-router/preferred-multimodal` — auto-local router, 12 curated top-quality vision candidates (`minCodingScore=0.84`, quality=9).
+- `local-router/performance-text` — auto-local router, 15 highest-scoring text candidates (`minCodingScore=0.88`, quality=10).
+- `local-router/performance-multimodal` — auto-local router, 8 highest-scoring multimodal candidates (`minCodingScore=0.88`, quality=10).
+- `local-router/low-cost-text` — auto-local router, 12 free/cheap text candidates (`minCodingScore=0.75`, quality=2).
+- `local-router/low-cost-multimodal` — auto-local router, 8 free/cheap vision candidates (`minCodingScore=0.75`, quality=2).
+- `local-router/nanoboozhoo` — auto-local SOTA router, 64 candidates (full candidate pool), quality=10, `minCodingScore=0.86`. Implements reasoning-aware routing principles from NeurIPS/ACL 2025 SOTA papers (broad candidate pool + aggressive quality gating to guarantee the best selection at runtime).
+
+### Universal Prompt Caching Policy
+Local Router enforces maximum caching and savings across all providers and models automatically, preventing any IDE/client tool from disabling it:
+- **Universal Caching:** Active across all providers and models, with no input/output token length restrictions.
+- **Max Caching Length:** Non-OpenAI models use max TTL (`cache_control: { type: "ephemeral", ttl: "1h" }`) injected on the system message and conversation history.
+- **Max Caching Retention:** OpenAI family models use max retention (`prompt_cache_retention: "24h"`).
+- **Sticky Routing Keys:** Automatically injects conversation-specific hashes as `prompt_cache_key` for Kimi/Moonshot and OpenAI models to pin traffic to the same cache servers.
+- **Cache Safeguards:** Automatically strips cache-disabling flags (`cache: false`, `use_cache: false`, etc.) sent by client IDEs, and removes `provider.order` for OpenRouter requests to preserve sticky routing.
+
+Limited-time provider promos (ZenMux matched Qwen pricing, Wafer MiniMax-M3 weekly rates, etc.) are editable under `/config` → **Model Pricing Overrides** and persist to `~/.config/local-router/provider-pricing.json`.
 
 ## Configuration Storage
 
