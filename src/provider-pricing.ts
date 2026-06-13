@@ -144,6 +144,179 @@ export const BASELINE_PROVIDER_PRICING: Record<string, ProviderPricingEntry> = {
     outputPricePerM: 2.5,
     label: 'Cline API moonshotai/kimi-k2.6 paid'
   },
+  'nous-portal-hermes-4-70b': {
+    inputPricePerM: 0,
+    outputPricePerM: 0,
+    label: 'Nous Portal Hermes-4-70B subscription (Hermes Desktop/CLI plan)',
+    sourceUrl: 'https://inference-api.nousresearch.com/v1/models',
+    validUntil: '2026-12-31'
+  },
+  'nous-portal-hermes-4-405b': {
+    inputPricePerM: 0,
+    outputPricePerM: 0,
+    label: 'Nous Portal Hermes-4-405B subscription (Hermes Desktop/CLI plan)',
+    sourceUrl: 'https://inference-api.nousresearch.com/v1/models',
+    validUntil: '2026-12-31'
+  },
+  'nous-portal-step-3.7-flash-free': {
+    inputPricePerM: 0,
+    outputPricePerM: 0,
+    label: 'Nous Portal stepfun/step-3.7-flash:free (free tier on subscription)',
+    sourceUrl: 'https://inference-api.nousresearch.com/v1/models'
+  },
+  'nous-portal-minimax-m3': {
+    inputPricePerM: 0,
+    outputPricePerM: 0,
+    label: 'Nous Portal minimax/minimax-m3 (subscription, plan-billed)',
+    sourceUrl: 'https://inference-api.nousresearch.com/v1/models',
+    validUntil: '2026-12-31'
+  },
+  'nous-portal-deepseek-v4-pro': {
+    inputPricePerM: 0,
+    outputPricePerM: 0,
+    label: 'Nous Portal deepseek/deepseek-v4-pro (subscription, plan-billed)',
+    sourceUrl: 'https://inference-api.nousresearch.com/v1/models',
+    validUntil: '2026-12-31'
+  },
+  'nous-portal-deepseek-v4-flash': {
+    inputPricePerM: 0,
+    outputPricePerM: 0,
+    label: 'Nous Portal deepseek/deepseek-v4-flash (subscription, plan-billed)',
+    sourceUrl: 'https://inference-api.nousresearch.com/v1/models',
+    validUntil: '2026-12-31'
+  },
+  'nous-portal-qwen3.7-max': {
+    inputPricePerM: 0,
+    outputPricePerM: 0,
+    label: 'Nous Portal qwen/qwen3.7-max (subscription, plan-billed)',
+    sourceUrl: 'https://inference-api.nousresearch.com/v1/models',
+    validUntil: '2026-12-31'
+  },
+  'nous-portal-qwen3.7-plus': {
+    inputPricePerM: 0,
+    outputPricePerM: 0,
+    label: 'Nous Portal qwen/qwen3.7-plus (subscription, plan-billed)',
+    sourceUrl: 'https://inference-api.nousresearch.com/v1/models',
+    validUntil: '2026-12-31'
+  },
+  'nous-portal-qwen3.6-plus': {
+    inputPricePerM: 0,
+    outputPricePerM: 0,
+    label: 'Nous Portal qwen/qwen3.6-plus (subscription, plan-billed)',
+    sourceUrl: 'https://inference-api.nousresearch.com/v1/models',
+    validUntil: '2026-12-31'
+  },
+  'nous-portal-qwen3-coder': {
+    inputPricePerM: 0,
+    outputPricePerM: 0,
+    label: 'Nous Portal qwen/qwen3-coder (subscription, plan-billed)',
+    sourceUrl: 'https://inference-api.nousresearch.com/v1/models',
+    validUntil: '2026-12-31'
+  },
+  'nous-portal-glm-5.1': {
+    inputPricePerM: 0,
+    outputPricePerM: 0,
+    label: 'Nous Portal z-ai/glm-5.1 (subscription, plan-billed)',
+    sourceUrl: 'https://inference-api.nousresearch.com/v1/models',
+    validUntil: '2026-12-31'
+  },
+  'nous-portal-kimi-k2.7-code': {
+    inputPricePerM: 0,
+    outputPricePerM: 0,
+    label: 'Nous Portal moonshotai/kimi-k2.7-code (subscription, plan-billed)',
+    sourceUrl: 'https://inference-api.nousresearch.com/v1/models',
+    validUntil: '2026-12-31'
+  },
+  'nous-portal-kimi-latest': {
+    inputPricePerM: 0,
+    outputPricePerM: 0,
+    label: 'Nous Portal ~moonshotai/kimi-latest pointer (subscription, plan-billed)',
+    sourceUrl: 'https://inference-api.nousresearch.com/v1/models',
+    validUntil: '2026-12-31'
+  },
+  'nous-portal-nemotron-3-ultra-550b': {
+    inputPricePerM: 0,
+    outputPricePerM: 0,
+    label: 'Nous Portal nvidia/nemotron-3-ultra-550b-a55b (subscription, plan-billed)',
+    sourceUrl: 'https://inference-api.nousresearch.com/v1/models',
+    validUntil: '2026-12-31'
+  },
+  'nous-portal-nemotron-3-ultra-free': {
+    inputPricePerM: 0,
+    outputPricePerM: 0,
+    label: 'Nous Portal nvidia/nemotron-3-ultra:free (free tier on subscription)',
+    sourceUrl: 'https://inference-api.nousresearch.com/v1/models'
+  },
+  'nous-portal-step-3.5-flash': {
+    inputPricePerM: 0,
+    outputPricePerM: 0,
+    label: 'Nous Portal stepfun/step-3.5-flash (subscription, plan-billed)',
+    sourceUrl: 'https://inference-api.nousresearch.com/v1/models',
+    validUntil: '2026-12-31'
+  },
+  'nous-portal-minimax-m2.7': {
+    inputPricePerM: 0,
+    outputPricePerM: 0,
+    label: 'Nous Portal minimax/minimax-m2.7 (subscription, plan-billed)',
+    sourceUrl: 'https://inference-api.nousresearch.com/v1/models',
+    validUntil: '2026-12-31'
+  },
+  'nous-portal-claude-opus-4.8': {
+    inputPricePerM: 0,
+    outputPricePerM: 0,
+    label: 'Nous Portal anthropic/claude-opus-4.8 (subscription, plan-billed)',
+    sourceUrl: 'https://inference-api.nousresearch.com/v1/models',
+    validUntil: '2026-12-31'
+  },
+  'nous-portal-claude-opus-latest': {
+    inputPricePerM: 0,
+    outputPricePerM: 0,
+    label: 'Nous Portal ~anthropic/claude-opus-latest pointer (subscription, plan-billed)',
+    sourceUrl: 'https://inference-api.nousresearch.com/v1/models',
+    validUntil: '2026-12-31'
+  },
+  'nous-portal-claude-sonnet-latest': {
+    inputPricePerM: 0,
+    outputPricePerM: 0,
+    label: 'Nous Portal ~anthropic/claude-sonnet-latest pointer (subscription, plan-billed)',
+    sourceUrl: 'https://inference-api.nousresearch.com/v1/models',
+    validUntil: '2026-12-31'
+  },
+  'nous-portal-gpt-latest': {
+    inputPricePerM: 0,
+    outputPricePerM: 0,
+    label: 'Nous Portal ~openai/gpt-latest pointer (subscription, plan-billed)',
+    sourceUrl: 'https://inference-api.nousresearch.com/v1/models',
+    validUntil: '2026-12-31'
+  },
+  'nous-portal-gemini-pro-latest': {
+    inputPricePerM: 0,
+    outputPricePerM: 0,
+    label: 'Nous Portal ~google/gemini-pro-latest pointer (subscription, plan-billed)',
+    sourceUrl: 'https://inference-api.nousresearch.com/v1/models',
+    validUntil: '2026-12-31'
+  },
+  'nous-portal-gemini-flash-latest': {
+    inputPricePerM: 0,
+    outputPricePerM: 0,
+    label: 'Nous Portal ~google/gemini-flash-latest pointer (subscription, plan-billed)',
+    sourceUrl: 'https://inference-api.nousresearch.com/v1/models',
+    validUntil: '2026-12-31'
+  },
+  'nous-portal-gemini-3.5-flash': {
+    inputPricePerM: 0,
+    outputPricePerM: 0,
+    label: 'Nous Portal google/gemini-3.5-flash (subscription, plan-billed)',
+    sourceUrl: 'https://inference-api.nousresearch.com/v1/models',
+    validUntil: '2026-12-31'
+  },
+  'nous-portal-grok-4.3': {
+    inputPricePerM: 0,
+    outputPricePerM: 0,
+    label: 'Nous Portal x-ai/grok-4.3 (subscription, plan-billed)',
+    sourceUrl: 'https://inference-api.nousresearch.com/v1/models',
+    validUntil: '2026-12-31'
+  },
   'openrouter-free': {
     inputPricePerM: 0,
     outputPricePerM: 0,

@@ -34,7 +34,7 @@ export const DEEPSEEK_V4_FLASH_PAID_PRESENTED_IDS = FALLBACK_PAID_TAIL_IDS;
 
 export type RoutingExhaustionBand = typeof ROUTING_EXHAUSTION_BAND[keyof typeof ROUTING_EXHAUSTION_BAND];
 
-/** Subscription endpoints (OpenCode Go, Z.ai, Xiaomi, CommandCode, Antigravity, GitHub Copilot).
+/** Subscription endpoints (OpenCode Go, Z.ai, Xiaomi, CommandCode, Antigravity, GitHub Copilot, Nous Portal).
  *  OpenCode Zen paid is in PAID band. OAuth providers are subscription-based
  *  and live in band 4 alongside the other subscription providers. */
 export const SUBSCRIPTION_PROVIDERS = [
@@ -43,7 +43,8 @@ export const SUBSCRIPTION_PROVIDERS = [
   'xiaomi-mimo',
   'commandcode',
   'antigravity',
-  'github-copilot'
+  'github-copilot',
+  'nous-portal'
 ] as const;
 
 /** Subscription try order within band 4. */
@@ -53,7 +54,8 @@ export const SUBSCRIPTION_PROVIDER_SUB_ORDER = [
   'xiaomi-mimo',
   'commandcode',
   'antigravity',
-  'github-copilot'
+  'github-copilot',
+  'nous-portal'
 ] as const;
 
 /** API-paid provider try order after subscription exhaustion band. */
@@ -102,7 +104,10 @@ const PRESENTATION_PREFIX_TO_PROVIDER: Record<string, string> = {
   antigravity: 'antigravity',
   anti: 'antigravity',
   'github-copilot': 'github-copilot',
-  copi: 'github-copilot'
+  copi: 'github-copilot',
+  'nous-portal': 'nous-portal',
+  portal: 'nous-portal',
+  nous: 'nous-portal'
 };
 
 export type CatalogModelRef = {

@@ -298,6 +298,7 @@ const DEFAULT_PROVIDER_TIER_ORDER = [
   'wafer-serverless',
   'zenmux',
   'pioneer',
+  'nous-portal',
   'openrouter-presets'
 ] as const;
 
@@ -317,6 +318,9 @@ const PRESENTATION_PREFIX_TO_PROVIDER: Record<string, string> = {
   'wafer-serverless': 'wafer-serverless',
   zenmux: 'zenmux',
   pioneer: 'pioneer',
+  'nous-portal': 'nous-portal',
+  portal: 'nous-portal',
+  nous: 'nous-portal',
   openrouter: 'openrouter-presets',
   'openrouter-presets': 'openrouter-presets'
 };
@@ -4848,6 +4852,7 @@ export function injectPromptCaching(body: any, providerName: string): any {
     'openrouter',
     'openrouter-presets',
     'pioneer',
+    'nous-portal',
     'cline',
     'kilo'
   ].includes(providerName);

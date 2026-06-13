@@ -38,6 +38,7 @@
 # │ antigravity        │ https://generativelanguage.googleapis.com/v1beta│ ANTIGRAVITY_API_KEY│
 # │ github-copilot     │ https://api.githubcopilot.com        │ GITHUB_COPILOT_API_KEY   │
 # │ pioneer            │ https://api.pioneer.ai/v1             │ PIONEER_API_KEY          │
+# │ nous-portal        │ https://inference-api.nousresearch.com/v1│ NOUS_API_KEY          │
 
 # =============================================================================
 # MASTER MODEL SPECIFICATION
@@ -150,6 +151,31 @@
 # │128 │ pioneer            │ deepseek-ai/DeepSeek-V4-Pro         │ pio:deepseek-v4-pro            │1,000,000 │ 384,000  │ YES   │ NO   │ YES   │ NO   paid │
 # │129 │ pioneer            │ moonshotai/Kimi-K2.6                │ pio:kimi-k2.6                  │ 262,144  │ 262,144  │ YES   │ YES  │ YES   │ NO   paid │
 # │130 │ pioneer            │ zai-org/GLM-5.1                     │ pio:glm-5.1                    │ 200,000  │ 128,000  │ YES   │ NO   │ YES   │ NO   paid │
+# │131 │ nous-portal        │ nousresearch/hermes-4-70b           │ portal:hermes-4-70b            │ 131,072  │ 32,768   │ YES   │ NO   │ NO    │ NO*  sub  │
+# │132 │ nous-portal        │ nousresearch/hermes-4-405b          │ portal:hermes-4-405b           │ 131,072  │ 32,768   │ YES   │ NO   │ NO    │ NO*  sub  │
+# │133 │ nous-portal        │ stepfun/step-3.7-flash:free         │ portal:step-3.7-flash-free     │ 256,000  │ 256,000  │ YES   │ YES  │ YES   │ YES* free │
+# │134 │ nous-portal        │ minimax/minimax-m3                  │ portal:minimax-m3              │1,048,576 │ 512,000  │ YES   │ NO   │ YES   │ YES  sub  │
+# │135 │ nous-portal        │ deepseek/deepseek-v4-pro            │ portal:deepseek-v4-pro         │1,048,576 │ 384,000  │ YES   │ NO   │ YES   │ YES  sub  │
+# │136 │ nous-portal        │ deepseek/deepseek-v4-flash          │ portal:deepseek-v4-flash       │1,048,576 │ 384,000  │ YES   │ NO   │ YES   │ YES  sub  │
+# │137 │ nous-portal        │ qwen/qwen3.7-max                    │ portal:qwen3.7-max             │1,000,000 │ 65,536   │ YES   │ NO   │ YES   │ NO*  sub  │
+# │138 │ nous-portal        │ qwen/qwen3.7-plus                   │ portal:qwen3.7-plus            │1,000,000 │ 65,536   │ YES   │ NO   │ YES   │ NO*  sub  │
+# │139 │ nous-portal        │ qwen/qwen3.6-plus                   │ portal:qwen3.6-plus            │1,000,000 │ 65,536   │ YES   │ YES  │ YES   │ YES  sub  │
+# │140 │ nous-portal        │ qwen/qwen3-coder                    │ portal:qwen3-coder             │1,048,576 │ 65,536   │ YES   │ NO   │ YES   │ NO   sub  │
+# │141 │ nous-portal        │ z-ai/glm-5.1                        │ portal:glm-5.1                 │ 202,752  │ 128,000  │ YES   │ NO   │ YES   │ NO*  sub  │
+# │142 │ nous-portal        │ moonshotai/kimi-k2.7-code           │ portal:kimi-k2.7-code          │ 262,144  │ 262,144  │ YES   │ YES  │ YES   │ YES  sub  │
+# │143 │ nous-portal        │ ~moonshotai/kimi-latest             │ portal:kimi-latest             │ 262,144  │ 262,142  │ YES   │ YES  │ YES   │ YES  sub  │
+# │144 │ nous-portal        │ nvidia/nemotron-3-ultra-550b-a55b   │ portal:nemotron-3-ultra-550b   │1,000,000 │ 16,384   │ YES   │ NO   │ YES   │ YES  sub  │
+# │145 │ nous-portal        │ nvidia/nemotron-3-ultra:free        │ portal:nemotron-3-ultra-free   │1,000,000 │ 16,384   │ YES   │ NO   │ YES   │ YES* free │
+# │146 │ nous-portal        │ stepfun/step-3.5-flash              │ portal:step-3.5-flash          │ 262,144  │ 16,384   │ YES   │ NO   │ YES   │ YES  sub  │
+# │147 │ nous-portal        │ minimax/minimax-m2.7                │ portal:minimax-m2.7            │ 204,800  │ 131,072  │ YES   │ NO   │ YES   │ YES  sub  │
+# │148 │ nous-portal        │ anthropic/claude-opus-4.8           │ portal:claude-opus-4.8         │1,000,000 │ 128,000  │ YES   │ YES  │ YES   │ YES  sub  │
+# │149 │ nous-portal        │ ~anthropic/claude-opus-latest        │ portal:claude-opus-latest      │1,000,000 │ 128,000  │ YES   │ YES  │ YES   │ YES  sub  │
+# │150 │ nous-portal        │ ~anthropic/claude-sonnet-latest     │ portal:claude-sonnet-latest    │1,000,000 │ 128,000  │ YES   │ YES  │ YES   │ YES  sub  │
+# │151 │ nous-portal        │ ~openai/gpt-latest                  │ portal:gpt-latest              │1,050,000 │ 128,000  │ YES   │ YES  │ YES   │ YES  sub  │
+# │152 │ nous-portal        │ ~google/gemini-pro-latest           │ portal:gemini-pro-latest       │1,048,576 │ 65,536   │ YES   │ YES  │ YES   │ YES  sub  │
+# │153 │ nous-portal        │ ~google/gemini-flash-latest         │ portal:gemini-flash-latest     │1,048,576 │ 65,536   │ YES   │ YES  │ YES   │ YES  sub  │
+# │154 │ nous-portal        │ google/gemini-3.5-flash             │ portal:gemini-3.5-flash        │1,048,576 │ 65,536   │ YES   │ YES  │ YES   │ YES  sub  │
+# │155 │ nous-portal        │ x-ai/grok-4.3                       │ portal:grok-4.3                │1,000,000 │ 16,384   │ YES   │ YES  │ YES   │ YES  sub  │
 # #
 # * Native reasoning DISABLED — VS Code/Copilot Chat and Zed cannot reliably
 #   preserve provider-native reasoning metadata across turns. FVS-CODE strips
@@ -175,6 +201,7 @@
 # │ zai                │ automatic    │ Implicit context caching, preserved thinking  │
 # │ ollama             │ N/A          │ Local inference, no network caching           │
 # │ pioneer            │ explicit/auto│ Claude requires cache_control; GPT is auto    │
+# │ nous-portal        │ pass-through │ Passes through upstream model cache pricing  │
 #
 # DETAILS:
 # - DeepSeek models (all providers): Automatic KV caching. No request parameters
@@ -567,6 +594,42 @@
 # - Pioneer: Caching is automatic for server-managed models and explicit
 #   (cache_control with ttl: "1h") for all other models (e.g. Minimax M3).
 
+## nous-portal ________________________________________________________________
+# Tier:        Nous Portal (subscription / Hermes Desktop-CLI plan)
+# Endpoint:    https://inference-api.nousresearch.com/v1
+# Key env:     NOUS_API_KEY
+# Zed prefix:  portal
+# Cross-tool:  All agents (openai_compatible format)
+# Models:      25  —  Hermes 4 (70B/405B), Step 3.7 Flash free, plus a curated
+#                     set of frontier models from Anthropic, OpenAI, Google,
+#                     Moonshot, Qwen, DeepSeek, MiniMax, NVIDIA, xAI, StepFun.
+#                     `~<provider>/<model>-latest` IDs are Portal "latest
+#                     snapshot" pointer aliases that always resolve to the most
+#                     recent revision of that family.
+# Notes:       Nous Portal is Nous Research's unified subscription gateway
+#              exposing Hermes 4 chat models plus a curated selection of
+#              proxied frontier models. Org-scoped billing at
+#              https://portal.nousresearch.com/orgs/<id> — this row assumes
+#              the operator's Hermes Desktop/CLI plan. Static bearer auth
+#              (NOUS_API_KEY env var, format sk-nous-...).
+#              /v1/chat/completions is the canonical surface;
+#              /v1/completions is also exposed for legacy clients.
+#              The 25 onboarded models mirror the local-router preferred set
+#              (Step 3.7 Flash free + Hermes 4 + 1M-context flagships from
+#              each family). The Portal exposes 265 total models; the
+#              remaining 240 can be added via /config custom models or a
+#              follow-up PR — deliberately out of scope to keep the auto-
+#              router signal-to-noise clean.
+#              Do not store NOUS_API_KEY in providers.txt, .env, git, shell
+#              history, logs, or tool output.
+#
+## nous-portal-caching-details
+# - Nous Portal: Passes through the underlying model's caching behavior.
+#   Anthropic-routed models (when added later) honor cache_control breakpoints;
+#   DeepSeek-routed models use automatic disk-based prefix caching; OpenAI-
+#   routed models use server-managed 24h cache. The current Hermes 4 + Step
+#   3.7 Flash free initial set does not use prompt caching in this build.
+
 # │ 55 │ github-copilot     │ claude-sonnet-4.6                   │ copi:claude-sonnet-4.6     │ 200,000  │ 64,000   │ YES   │ YES  │ NO    │ YES       │
 # │ 56 │ github-copilot     │ gpt-4o                              │ copi:gpt-4o                │ 128,000  │ 16,000   │ YES   │ YES  │ NO    │ NO        │
 # │ 57 │ github-copilot     │ gpt-5                               │ copi:gpt-5                 │ 400,000  │ 64,000   │ YES   │ YES  │ NO    │ YES       │
@@ -591,6 +654,7 @@
 # │ cline              │ YES    │ YES        │ YES custom│ YES  │ YES   │ YES │ YES   │ YES   │ YES   │ YES       │
 # │ kilo               │ YES    │ YES        │ YES custom│ YES  │ YES   │ YES │ YES   │ YES   │ YES   │ YES       │
 # │ pioneer            │ YES    │ YES        │ YES custom│ YES  │ YES   │ YES │ YES   │ YES   │ YES   │ YES       │
+# │ nous-portal        │ YES    │ NO         │ YES custom│ YES  │ YES   │ YES │ YES   │ YES   │ YES   │ YES       │
 #
 # All providers use standard OpenAI-compatible API format (POST /v1/chat/completions).
 # Any tool that supports custom OpenAI-compatible endpoints can use these configs.
