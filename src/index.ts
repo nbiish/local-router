@@ -4740,6 +4740,29 @@ export function buildFailoverPreservedBody(body: any, preservedModel: string): a
   return prepared;
 }
 
+export function stripCacheControl(body: any): any {
+  if (!body || !Array.isArray(body.messages)) return body;
+  const newBody = { ...body };
+  newBody.messages = newBody.messages.map((msg: any) => {
+    if (!msg) return msg;
+    if (Array.isArray(msg.content)) {
+      const cleanedContent = msg.content.map((part: any) => {
+        if (part && typeof part === 'object') {
+          const { cache_control, ...rest } = part;
+          return rest;
+        }
+        return part;
+      });
+      if (cleanedContent.length === 1 && cleanedContent[0]?.type === 'text' && typeof cleanedContent[0]?.text === 'string') {
+        return { ...msg, content: cleanedContent[0].text };
+      }
+      return { ...msg, content: cleanedContent };
+    }
+    return msg;
+  });
+  return newBody;
+}
+
 export function injectPromptCaching(body: any, providerName: string): any {
   const modelLower = String(body.model || '').toLowerCase();
   const isOpenAiFamily = modelLower.startsWith('gpt-') || 
@@ -4750,9 +4773,26 @@ export function injectPromptCaching(body: any, providerName: string): any {
                          modelLower.includes('gpt-5');
 
   if (isOpenAiFamily) {
-    const newBody = { ...body };
+    const newBody = stripCacheControl(body);
     newBody.prompt_cache_retention = "24h";
     return newBody;
+  }
+
+  const supportsExplicitCacheControl = [
+    'zenmux',
+    'opencode-go',
+    'opencode-zen',
+    'xiaomi-mimo',
+    'wafer-serverless',
+    'openrouter',
+    'openrouter-presets',
+    'pioneer',
+    'cline',
+    'kilo'
+  ].includes(providerName);
+
+  if (!supportsExplicitCacheControl) {
+    return stripCacheControl(body);
   }
 
   const cacheControlValue = { type: 'ephemeral', ttl: '1h' };

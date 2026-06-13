@@ -78,3 +78,55 @@ test('Tiny prompts are modified under new protocol', () => {
     { type: 'text', text: 'Short prompt', cache_control: { type: 'ephemeral', ttl: '1h' } }
   ]);
 });
+
+test('Leftover cache_control is stripped and simplified when falling back to OpenAI-family models', () => {
+  const body = {
+    model: 'pioneer/gpt-4o',
+    messages: [
+      { role: 'system', content: [
+        { type: 'text', text: 'You are a helpful assistant.', cache_control: { type: 'ephemeral', ttl: '1h' } }
+      ]},
+      { role: 'user', content: 'hello' }
+    ]
+  };
+
+  const result = injectPromptCaching(body, 'pioneer');
+  assert.equal(result.prompt_cache_retention, '24h');
+  assert.equal(result.messages[0].content, 'You are a helpful assistant.');
+  assert.equal(typeof result.messages[0].content, 'string');
+});
+
+test('Leftover cache_control is stripped and simplified when falling back to unsupported providers (e.g. Nebius)', () => {
+  const body = {
+    model: 'nebius/deepseek-v4-pro',
+    messages: [
+      { role: 'system', content: [
+        { type: 'text', text: 'You are a helpful assistant.', cache_control: { type: 'ephemeral', ttl: '1h' } }
+      ]},
+      { role: 'user', content: 'hello' }
+    ]
+  };
+
+  const result = injectPromptCaching(body, 'nebius');
+  assert.equal(result.prompt_cache_retention, undefined);
+  assert.equal(result.messages[0].content, 'You are a helpful assistant.');
+  assert.equal(typeof result.messages[0].content, 'string');
+});
+
+test('Cache_control is preserved and updated when falling back to supported providers (e.g. ZenMux)', () => {
+  const body = {
+    model: 'zenmux/deepseek-v4-pro',
+    messages: [
+      { role: 'system', content: [
+        { type: 'text', text: 'You are a helpful assistant.', cache_control: { type: 'ephemeral', ttl: '5m' } }
+      ]},
+      { role: 'user', content: 'hello' }
+    ]
+  };
+
+  const result = injectPromptCaching(body, 'zenmux');
+  assert.equal(result.prompt_cache_retention, undefined);
+  assert.deepEqual(result.messages[0].content, [
+    { type: 'text', text: 'You are a helpful assistant.', cache_control: { type: 'ephemeral', ttl: '1h' } }
+  ]);
+});
