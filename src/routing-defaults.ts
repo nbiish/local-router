@@ -269,7 +269,7 @@ const AUTO_ROUTER_EXTRA_CANDIDATE_IDS = [
   'nous-portal-qwen3.7-plus',
   'nous-portal-qwen3.6-plus',
   'nous-portal-qwen3-coder',
-  'nous-portal-nemotron-3-ultra-550b',
+  'nous-portal-nemotron-3-ultra-550b-a55b',
   'nous-portal-step-3.5-flash',
   'nous-portal-minimax-m2.7',
   'nous-portal-deepseek-v4-flash',

@@ -164,7 +164,7 @@
 # │141 │ nous-portal        │ z-ai/glm-5.1                        │ portal:glm-5.1                 │ 202,752  │ 128,000  │ YES   │ NO   │ YES   │ NO*  sub  │
 # │142 │ nous-portal        │ moonshotai/kimi-k2.7-code           │ portal:kimi-k2.7-code          │ 262,144  │ 262,144  │ YES   │ YES  │ YES   │ YES  sub  │
 # │143 │ nous-portal        │ ~moonshotai/kimi-latest             │ portal:kimi-latest             │ 262,144  │ 262,142  │ YES   │ YES  │ YES   │ YES  sub  │
-# │144 │ nous-portal        │ nvidia/nemotron-3-ultra-550b-a55b   │ portal:nemotron-3-ultra-550b   │1,000,000 │ 16,384   │ YES   │ NO   │ YES   │ YES  sub  │
+# │144 │ nous-portal        │ nvidia/nemotron-3-ultra-550b-a55b   │ portal:nemotron-3-ultra-550b-a55b │1,000,000 │ 16,384   │ YES   │ NO   │ YES   │ YES  sub  │
 # │145 │ nous-portal        │ nvidia/nemotron-3-ultra:free        │ portal:nemotron-3-ultra-free   │1,000,000 │ 16,384   │ YES   │ NO   │ YES   │ YES* free │
 # │146 │ nous-portal        │ stepfun/step-3.5-flash              │ portal:step-3.5-flash          │ 262,144  │ 16,384   │ YES   │ NO   │ YES   │ YES  sub  │
 # │147 │ nous-portal        │ minimax/minimax-m2.7                │ portal:minimax-m2.7            │ 204,800  │ 131,072  │ YES   │ NO   │ YES   │ YES  sub  │

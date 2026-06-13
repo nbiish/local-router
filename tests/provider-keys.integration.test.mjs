@@ -412,7 +412,7 @@ test('provider key save/reset lifecycle exposes configured source', async (t) =>
     'nous-portal-glm-5.1',
     'nous-portal-kimi-k2.7-code',
     'nous-portal-kimi-latest',
-    'nous-portal-nemotron-3-ultra-550b',
+    'nous-portal-nemotron-3-ultra-550b-a55b',
     'nous-portal-step-3.5-flash',
     'nous-portal-minimax-m2.7',
     'nous-portal-claude-opus-4.8',

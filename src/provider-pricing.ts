@@ -234,7 +234,7 @@ export const BASELINE_PROVIDER_PRICING: Record<string, ProviderPricingEntry> = {
     sourceUrl: 'https://inference-api.nousresearch.com/v1/models',
     validUntil: '2026-12-31'
   },
-  'nous-portal-nemotron-3-ultra-550b': {
+  'nous-portal-nemotron-3-ultra-550b-a55b': {
     inputPricePerM: 0,
     outputPricePerM: 0,
     label: 'Nous Portal nvidia/nemotron-3-ultra-550b-a55b (subscription, plan-billed)',
