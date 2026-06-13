@@ -346,8 +346,10 @@ const UPSTREAM_MODEL_ID_ALIASES: Record<string, string> = {
   'opencode/minimax-m3-free': 'opencode-zen-minimax-m3-free',
   'opencode-go/minimax-m3-free': 'opencode-zen-minimax-m3-free',
   'opencode-code/minimax-m3-free': 'opencode-zen-minimax-m3-free',
-  'opencode/kimi-k2.6': 'opencode-go-kimi-k2.6',
-  'opencode-go/kimi-k2.6': 'opencode-go-kimi-k2.6',
+  'opencode/kimi-k2.6': 'opencode-go-kimi-k2.7-code',
+  'opencode-go/kimi-k2.6': 'opencode-go-kimi-k2.7-code',
+  'opencode/kimi-k2.7-code': 'opencode-go-kimi-k2.7-code',
+  'opencode-go/kimi-k2.7-code': 'opencode-go-kimi-k2.7-code',
   'opencode/glm-5.1': 'opencode-go-glm-5.1',
   'opencode-go/glm-5.1': 'opencode-go-glm-5.1',
   'opencode/deepseek-v4-flash': 'opencode-go-deepseek-v4-flash',
@@ -362,14 +364,16 @@ const UPSTREAM_MODEL_ID_ALIASES: Record<string, string> = {
   'opencode-minimax-m3-free': 'opencode-zen-minimax-m3-free',
   'opencode-code-minimax-m3': 'opencode-go-minimax-m3',
   'opencode-code-minimax-m3-free': 'opencode-zen-minimax-m3-free',
-  'opencode-code-kimi-k2.6': 'opencode-go-kimi-k2.6',
+  'opencode-code-kimi-k2.6': 'opencode-go-kimi-k2.7-code',
+  'opencode-code-kimi-k2.7-code': 'opencode-go-kimi-k2.7-code',
   'opencode-code-glm-5.1': 'opencode-go-glm-5.1',
   'opencode-code-deepseek-v4-pro': 'opencode-go-deepseek-v4-pro',
   'opencode-code-deepseek-v4-flash': 'opencode-go-deepseek-v4-flash',
   'opencode-code-qwen3.7-max': 'opencode-go-qwen3.7-max',
   'opencode-code-mimo-v2.5-pro': 'opencode-go-mimo-v2.5-pro',
   'opencode-code-mimo-v2.5': 'opencode-go-mimo-v2.5',
-  'opencode-kimi-k2.6': 'opencode-go-kimi-k2.6',
+  'opencode-kimi-k2.6': 'opencode-go-kimi-k2.7-code',
+  'opencode-kimi-k2.7-code': 'opencode-go-kimi-k2.7-code',
   'opencode-glm-5.1': 'opencode-go-glm-5.1',
   'opencode-deepseek-v4-pro': 'opencode-go-deepseek-v4-pro',
   'opencode-deepseek-v4-flash': 'opencode-go-deepseek-v4-flash',
@@ -406,7 +410,7 @@ const UPSTREAM_MODEL_ID_ALIASES: Record<string, string> = {
   'kilo/stepfun/step-3.7-flash': 'kilo-stepfun-step-3.7-flash-paid',
   'kilo/xiaomi/mimo-v2.5-pro': 'kilo-xiaomi-mimo-v2.5-pro-paid',
   'kilo/xiaomi/mimo-v2.5': 'kilo-xiaomi-mimo-v2.5-paid',
-  'kilo/moonshotai/kimi-k2.6': 'kilo-moonshotai-kimi-k2.6-paid'
+  'kilo/moonshotai/kimi-k2.7-code': 'kilo-moonshotai-kimi-k2.7-code-paid'
 };
 
 function providerTierIndex(providerSlug: string): number {
@@ -4088,7 +4092,7 @@ function isImmediateRouterSkipError(errorType: AttemptFailure['errorType']) {
 function inferredCodingScore(model: ProviderModel, candidate: RouterCandidate) {
   if (typeof candidate.codingScore === 'number') return candidate.codingScore;
   const haystack = `${model.id} ${model.model} ${model.display}`.toLowerCase();
-  if (/(deepseek.*v4-pro|qwen3\.7|max|gemini.*pro|glm-5\.1|kimi-k2\.6)/.test(haystack)) return 0.82;
+  if (/(deepseek.*v4-pro|qwen3\.7|max|gemini.*pro|glm-5\.1|kimi-k2\.[67])/.test(haystack)) return 0.82;
   if (/(pro|sonnet|opus|coder|coding)/.test(haystack)) return 0.72;
   if (/(flash|mini|max|m2\.5|mimo|glm)/.test(haystack)) return 0.48;
   return 0.34;

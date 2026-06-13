@@ -215,10 +215,10 @@ export const BASELINE_PROVIDER_PRICING: Record<string, ProviderPricingEntry> = {
     outputPricePerM: 0.29,
     label: 'Kilo Gateway xiaomi/mimo-v2.5 paid'
   },
-  'kilo-moonshotai-kimi-k2.6-paid': {
+  'kilo-moonshotai-kimi-k2.7-code-paid': {
     inputPricePerM: 0.6,
     outputPricePerM: 2.5,
-    label: 'Kilo Gateway moonshotai/kimi-k2.6 paid'
+    label: 'Kilo Gateway moonshotai/kimi-k2.7-code paid'
   },
   'kilo-nvidia-nemotron-3-nano-omni-30b-a3b-reasoning-free': {
     inputPricePerM: 0,

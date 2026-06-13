@@ -151,7 +151,7 @@ test('OpenAI model gets prompt_cache_key parameter for sticky routing', () => {
 
 test('Kimi model gets prompt_cache_key parameter for sticky routing', () => {
   const body = {
-    model: 'openrouter/moonshotai/kimi-k2.6',
+    model: 'openrouter/moonshotai/kimi-k2.7',
     messages: [
       { role: 'system', content: 'You are a coding assistant.' },
       { role: 'user', content: 'Explain prompt caching.' }

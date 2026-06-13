@@ -57,7 +57,7 @@ export const KILO_PAID_ROUTING_IDS: readonly string[] = [
   'stepfun/step-3.7-flash',
   'xiaomi/mimo-v2.5-pro',
   'xiaomi/mimo-v2.5',
-  'moonshotai/kimi-k2.6'
+  'moonshotai/kimi-k2.7-code'
 ] as const;
 
 const KILO_PAID_SET = new Set<string>(KILO_PAID_ROUTING_IDS);
@@ -166,6 +166,7 @@ const GATEWAY_UPSTREAM_FRIENDLY_LABELS: Record<string, string> = {
   'stepfun/step-3.7-flash:free': 'Step 3.7 Flash',
   'xiaomi/mimo-v2.5-pro': 'MiMo V2.5 Pro',
   'moonshotai/kimi-k2.6': 'Kimi K2.6',
+  'moonshotai/kimi-k2.7-code': 'Kimi K2.7',
   'openrouter/free': 'OpenRouter Free',
   'nvidia/nemotron-3-super-120b-a12b:free': 'Nemotron Super 120B',
   'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free': 'Nemotron Nano Omni',

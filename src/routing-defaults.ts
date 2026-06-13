@@ -82,7 +82,7 @@ const CANDIDATE_DEFAULTS: Record<string, string> = {
   'opencode-zen-minimax-m3-free': 'coding=0.80, input=0, output=0, latency=900, notes=OpenCode Zen MiniMax M3 free',
   'opencode-zen-deepseek-v4-flash-free': 'coding=0.78, input=0, output=0, latency=950, notes=OpenCode Zen DeepSeek V4 Flash free',
   'opencode-go-minimax-m3': 'coding=0.85, input=0.3, output=1.2, latency=650, notes=OpenCode Go MiniMax M3 subscription',
-  'opencode-go-kimi-k2.6': 'coding=0.86, input=0.6, output=2.5, latency=850, notes=OpenCode Go Kimi K2.6 subscription',
+  'opencode-go-kimi-k2.7-code': 'coding=0.86, input=0.6, output=2.5, latency=850, notes=OpenCode Go Kimi K2.7 Code',
   'opencode-go-glm-5.1': 'coding=0.88, input=0.88, output=3.51, latency=750, notes=OpenCode Go GLM-5.1 subscription',
 
   'opencode-go-deepseek-v4-pro': 'coding=0.91, input=0.5, output=1, latency=800, notes=OpenCode Go DeepSeek V4 Pro subscription',
@@ -133,7 +133,7 @@ const CANDIDATE_DEFAULTS: Record<string, string> = {
   'kilo-stepfun-step-3.7-flash-paid': 'coding=0.84, input=0.1, output=0.3, latency=700, notes=Kilo Step 3.7 Flash paid',
   'kilo-xiaomi-mimo-v2.5-pro-paid': 'coding=0.84, input=0.44, output=0.88, latency=700, notes=Kilo MiMo V2.5 Pro paid',
   'kilo-xiaomi-mimo-v2.5-paid': 'coding=0.80, input=0.15, output=0.29, latency=900, notes=Kilo MiMo V2.5 paid',
-  'kilo-moonshotai-kimi-k2.6-paid': 'coding=0.86, input=0.6, output=2.5, latency=850, notes=Kilo Kimi K2.6 paid',
+  'kilo-moonshotai-kimi-k2.7-code-paid': 'coding=0.86, input=0.6, output=2.5, latency=850, notes=Kilo Kimi K2.7 Code paid',
   'kilo-nvidia-nemotron-3-nano-omni-30b-a3b-reasoning-free': 'coding=0.80, input=0, output=0, latency=850, notes=Kilo Nemotron 3 Nano Omni free',
   'kilo-poolside-laguna-m.1-free': 'coding=0.78, input=0, output=0, latency=900, notes=Kilo Poolside Laguna M.1 free',
   'kilo-poolside-laguna-xs.2-free': 'coding=0.76, input=0, output=0, latency=950, notes=Kilo Poolside Laguna XS.2 free',
@@ -171,7 +171,7 @@ const AUTO_ROUTER_EXTRA_CANDIDATE_IDS = [
   'ollama-deepseek-v4-flash-cloud',
   ...AUTO_ROUTER_GATEWAY_FREE_PRESENTED_IDS,
   'opencode-go-minimax-m3',
-  'opencode-go-kimi-k2.6',
+  'opencode-go-kimi-k2.7-code',
   'opencode-go-glm-5.1',
 
   'opencode-go-deepseek-v4-flash',
@@ -215,7 +215,7 @@ const AUTO_ROUTER_EXTRA_CANDIDATE_IDS = [
   'kilo-stepfun-step-3.7-flash-paid',
   'kilo-xiaomi-mimo-v2.5-pro-paid',
   'kilo-xiaomi-mimo-v2.5-paid',
-  'kilo-moonshotai-kimi-k2.6-paid'
+  'kilo-moonshotai-kimi-k2.7-code-paid',
 ] as const;
 
 const AUTO_ROUTER_CANDIDATE_LINES = dedupeLines([

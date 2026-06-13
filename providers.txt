@@ -57,7 +57,7 @@
 # │13 │ nebius             │ nvidia/Nemotron-3-Nano-Omni         │ nebs:nvidia/Nemotron-3-Nano-Omni│ 256,000│ 65,536   │ YES   │ YES  │ NO    │ NO*       │
 # │14 │ nebius             │ zai-org/GLM-5.1                     │ nebs:zai-org/GLM-5.1         │ 200,000  │ 128,000  │ YES   │ NO   │ NO    │ NO*       │
 
-# │18 │ moonshot           │ kimi-k2.6                           │ mons:kimi-k2.6               │ 256,000  │ 262,144  │ YES   │ YES  │ YES   │ NO*       │
+# │18 │ moonshot           │ kimi-k2.7-code                      │ mons:kimi-k2.7-code          │ 262,144  │ 262,144  │ YES   │ YES  │ YES   │ NO*       │
 # │19 │ nvidia-nim         │ nvidia/nemotron-3-nano-omni-30b-a3b-reasoning │ nvnm:nemotron-omni │ 256,000 │ 65,536   │ YES   │ YES  │ NO    │ NO*       │
 
 # │22 │ modal              │ zai-org/GLM-5.1-FP8                 │ modl:GLM-5.1-FP8             │ 200,000  │ 128,000  │ YES   │ NO   │ NO    │ NO*       │
@@ -75,7 +75,7 @@
 # │35 │ zenmux             │ xiaomi/mimo-v2.5                     │ zenm:mimo-v2.5                │1,048,576 │ 131,072  │ YES   │ YES  │ YES   │ NO*       │
 # │36 │ xiaomi-mimo        │ mimo-v2.5-pro                       │ mimo:mimo-v2.5-pro           │1,000,000 │ 128,000  │ YES   │ NO   │ YES   │ NO        │
 # │37 │ xiaomi-mimo        │ mimo-v2.5                           │ mimo:mimo-v2.5               │1,000,000 │ 128,000  │ YES   │ YES  │ YES   │ NO        │
-# │40 │ opencode-go      │ kimi-k2.6                           │ opc:kimi-k2.6                 │ 256,000  │ 262,144  │ YES   │ YES  │ YES   │ NO*       │
+# │40 │ opencode-go      │ kimi-k2.7-code                      │ opc:kimi-k2.7-code            │ 262,144  │ 262,144  │ YES   │ YES  │ YES   │ NO*       │
 # │42 │ opencode-go      │ glm-5.1                             │ opc:glm-5.1                   │ 200,000  │ 128,000  │ YES   │ NO   │ YES   │ NO*       │
 
 # │44 │ opencode-go      │ deepseek-v4-pro                     │ opc:deepseek-v4-pro           │1,000,000 │ 384,000  │ YES   │ NO   │ YES   │ NO*       │
@@ -86,7 +86,7 @@
 # │ 54 │ nebius             │ nvidia/Cosmos3-Super-Reasoner       │ nebs:Cosmos3-Super-Reasoner   │ 262,144  │ 65,536   │ YES   │ NO   │ NO    │ NO        │
 
 # │ 57 │ zenmux             │ deepseek/deepseek-v4-flash          │ zenm:deepseek-v4-flash        │1,000,000 │ 131,072  │ YES   │ NO   │ YES   │ NO*       │
-# │ 59 │ zenmux             │ moonshotai/kimi-k2.6                │ zenm:kimi-k2.6                │ 262,144  │ 262,144  │ YES   │ YES  │ YES   │ NO*       │
+# │ 59 │ zenmux             │ moonshotai/kimi-k2.7-code           │ zenm:kimi-k2.7-code           │ 262,144  │ 262,144  │ YES   │ YES  │ YES   │ NO*       │
 # │ 60 │ zenmux             │ moonshotai/kimi-k2.7-code-free      │ zenm:kimi-k2.7-code-free     │ 262,144  │ 262,144  │ YES   │ YES  │ YES   │ NO*  free │
 # │ 64 │ zai                │ code-pass-glm-5.1                   │ zai:code-pass-glm-5.1         │ 200,000  │ 128,000  │ YES   │ NO   │ YES   │ NO*       │
 # │ 65 │ nvidia-nim         │ stepfun-ai/step-3.7-flash           │ nvnm:step-3.7-flash           │ 256,000  │ 256,000  │ YES   │ YES  │ YES   │ YES       │
@@ -144,7 +144,7 @@
 # │122 │ kilo               │ stepfun/step-3.7-flash              │ kilo:step-3.7-flash            │ 256,000  │ 256,000  │ YES   │ YES  │ YES   │ YES* paid │
 # │123 │ kilo               │ xiaomi/mimo-v2.5-pro                │ kilo:mimo-v2.5-pro             │1,048,576 │ 131,072  │ YES   │ NO   │ YES   │ NO* paid  │
 # │124 │ kilo               │ xiaomi/mimo-v2.5                    │ kilo:mimo-v2.5                 │1,048,576 │ 131,072  │ YES   │ YES  │ YES   │ NO* paid  │
-# │125 │ kilo               │ moonshotai/kimi-k2.6                │ kilo:kimi-k2.6                 │ 262,144  │ 262,144  │ YES   │ YES  │ YES   │ NO* paid  │
+# │125 │ kilo               │ moonshotai/kimi-k2.7-code           │ kilo:kimi-k2.7-code            │ 262,144  │ 262,144  │ YES   │ YES  │ YES   │ NO* paid  │
 # │126 │ pioneer            │ minimax/minimax-m3                  │ pio:minimax-m3                 │1,000,000 │ 512,000  │ YES   │ YES  │ YES   │ YES  paid │
 # │127 │ pioneer            │ XiaomiMiMo/MiMo-V2.5-Pro            │ pio:mimo-v2.5-pro              │1,048,576 │ 131,072  │ YES   │ NO   │ YES   │ NO   paid │
 # │128 │ pioneer            │ deepseek-ai/DeepSeek-V4-Pro         │ pio:deepseek-v4-pro            │1,000,000 │ 384,000  │ YES   │ NO   │ YES   │ NO   paid │
@@ -259,7 +259,7 @@
 #                     qwen/qwen3.7-max, minimax/minimax-m3,
 #                     stepfun/step-3.7-flash, sapiens-ai/agnes-2.0-flash,
 #                     xiaomi/mimo-v2.5-pro, xiaomi/mimo-v2.5,
-#                     moonshotai/kimi-k2.6
+#                     moonshotai/kimi-k2.7
 # Notes:       qwen/qwen3.7-max and deepseek/deepseek-v4-pro are
 #              1,000,000-token context models.
 #              qwen/qwen3.7-max pricing (2026-06-04, USD/1M tokens): $1.25 in /
@@ -279,7 +279,7 @@
 #              xiaomi/mimo-v2.5-pro and mimo-v2.5 are 1,048,576 context,
 #              131,072 output with tool calling and prompt caching.
 #              mimo-v2.5-pro is text-only; mimo-v2.5 has full-modal input.
-#              deepseek/deepseek-v4-flash and moonshotai/kimi-k2.6 expand
+#              deepseek/deepseek-v4-flash and moonshotai/kimi-k2.7 expand
 #              the catalog for coding and tool-use scenarios.
 
 ## nebius __________________________________________________________________
@@ -305,11 +305,11 @@
 # Key env:     MOONSHOT_API_KEY
 # Zed prefix:  mons
 # Cross-tool:  All agents
-# Models:      1  —  kimi-k2.6
-# Notes:       kimi-k2.6 is the flagship reasoning model. Moonshot's model
-#              docs list Kimi-K2.6 at 256K context with text/image/video/file
+# Models:      1  —  kimi-k2.7
+# Notes:       kimi-k2.7 is the flagship reasoning model. Moonshot's model
+#              docs list Kimi-K2.7 at 256K context with text/image/video/file
 #              multimodal input.
-#              Kimi K2.6 supports implicit prompt caching (confirmed via
+#              Kimi K2.7 supports implicit prompt caching (confirmed via
 #              ZenMux model docs and OpenRouter cache_read pricing).
 
 ## nvidia-nim ______________________________________________________________
@@ -320,7 +320,7 @@
 # Cross-tool:  All agents. Hermes: custom provider.
 # Models:      4  —  nvidia/nemotron-3-nano-omni-30b-a3b-reasoning,
 #                     stepfun-ai/step-3.7-flash, minimaxai/minimax-m3,
-#                     moonshotai/kimi-k2.6
+#                     moonshotai/kimi-k2.7
 # Notes:       IDs and context values are taken from NVIDIA NIM public API
 #              reference pages. Nemotron-3-Nano-Omni is multimodal
 #              (video/audio/image/text) with 256K context.
@@ -330,10 +330,10 @@
 #              minimaxai/minimax-m3 is the NVIDIA NIM-hosted MiniMax M3
 #              (1M context, 512K output, multimodal, tool calling, prompt
 #              caching, native reasoning stripped for VS Code).
-#              moonshotai/kimi-k2.6 is the NVIDIA NIM-hosted Moonshot Kimi
-#              K2.6 (256K context, 262K output, multimodal image input,
+#              moonshotai/kimi-k2.7 is the NVIDIA NIM-hosted Moonshot Kimi
+#              K2.7 (256K context, 262K output, multimodal image input,
 #              tool calling, implicit prompt caching). Reference:
-#              https://docs.api.nvidia.com/nim/reference/moonshotai-kimi-k2-6
+#              https://docs.api.nvidia.com/nim/reference/moonshotai-kimi-k2-7
 
 ## modal ___________________________________________________________________
 # Tier:        Modal Direct Inference
@@ -391,7 +391,7 @@
 # Key env:     OPENCODE_API_KEY
 # Zed prefix:  opc
 # Cross-tool:  All agents (openai_compatible format)
-# Models:      8 — minimax-m3, kimi-k2.6, glm-5.1, deepseek-v4-pro,
+# Models:      8 — minimax-m3, kimi-k2.7, glm-5.1, deepseek-v4-pro,
 #                     deepseek-v4-flash, qwen3.7-max, mimo-v2.5-pro, mimo-v2.5
 # Notes:       OpenCode Go subscription endpoint (shared OPENCODE_API_KEY with opencode-zen).
 #              Curated Hermes subscription set providing
@@ -416,7 +416,7 @@
 # Cross-tool:  All agents (openai_compatible format)
 # Models:      10 — claude-opus-4-8, claude-opus-4-7, deepseek-v4-flash,
 #                     deepseek-v4-flash-free, glm-5.1, minimax-m3-free,
-#                     kimi-k2.6, kimi-k2.5, mimo-v2.5-free,
+#                     kimi-k2.7, kimi-k2.5, mimo-v2.5-free,
 #                     nemotron-3-super-free
 # Notes:       OpenCode Zen provides a unified subscription to models
 #              from Anthropic, Google, OpenAI, xAI, DeepSeek, Z.AI,
@@ -474,7 +474,7 @@
 # Zed prefix:  ollama
 # Cross-tool:  All Ollama-native clients via Local Router on :11434
 # Models:      7 catalog cloud tags (free: nemotron-3-ultra, minimax-m3, deepseek-v4-flash;
-#              Pro-only: deepseek-v4-pro, kimi-k2.6, glm-5.1, qwen3.5)
+#              Pro-only: deepseek-v4-pro, kimi-k2.7, glm-5.1, qwen3.5)
 # Routing:     Auto-router/fallback use only the 3 free tags (shared quota — no 8-model burn).
 #              Pro tags route when OLLAMA_API_KEY is a real ollama.com key (not placeholder).
 # Notes:       Local Router starts `ollama serve` on 11435 and pulls free-tier routing tags.

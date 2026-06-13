@@ -329,12 +329,12 @@ As of June 2026, Local Router enforces universal caching across all providers an
 
 ##### Moonshot / Kimi (`moonshot`, plus any Kimi route via OpenRouter or Groq)
 - **Mode:** Two mechanisms depending on model series:
-  - **K2 series (kimi-k2.5, kimi-k2.6):** Automatic prefix caching — no code changes required. 50% discount on cached tokens. Requires exact prefix preservation; the model's `reasoning_content` from prior responses must be included verbatim or the cache is invalidated. Optional `prompt_cache_key` request field for sticky routing to ensure repeated requests hit the same cache server.
+  - **K2 series (kimi-k2.5, kimi-k2.6, kimi-k2.7):** Automatic prefix caching — no code changes required. 50% discount on cached tokens. Requires exact prefix preservation; the model's `reasoning_content` from prior responses must be included verbatim or the cache is invalidated. Optional `prompt_cache_key` request field for sticky routing to ensure repeated requests hit the same cache server.
   - **moonshot-v1 (legacy):** Explicit context caching via `/v1/caching` API with `role: cache` + `cache_id` reference.
-- **K2 series cost:** Cached input tokens at ~50% discount (e.g. cache hit $0.20/M vs miss $0.40/M for kimi-k2.6). Zero write premium.
+- **K2 series cost:** Cached input tokens at ~50% discount (e.g. cache hit $0.20/M vs miss $0.40/M for kimi-k2.7). Zero write premium.
 - **K2 series cache persistence:** Prefix cache survives across multi-turn conversations as long as the identical prefix (including prior `reasoning_content`) is preserved.
 - **Legacy moonshot-v1 cost:** ~75% discount on cached tokens. Requires explicit cache lifecycle management.
-- **Context window:** Kimi K2.5/K2.6 support 256K context. The cache covers the full prefix within that window.
+- **Context window:** Kimi K2.5/K2.6/K2.7 support 256K context. The cache covers the full prefix within that window.
 - **Observability:** Token usage via `/api/estimate`; K2 series returns standard `usage.prompt_tokens_details.cached_tokens`.
 - **Invalidation rules (both mechanisms):** Invalidate when system prompt changes, tool definitions/schema change, model changes, or the provider returns "unknown/expired" reference. For K2 series, any edit/reorder to prior messages (including removal of `reasoning_content`) invalidates the cache.
 - **Implementation guidance for Local Router:**
@@ -495,7 +495,7 @@ Update parent docs when parent-level structure, ownership, workflow, or child in
 #### Ollama Cloud Gating (Free vs Pro)
 Ollama Cloud uses a shared quota. Free cloud tags use `ollama signin` session key (`local-router-ollama`), whereas Pro-only tags are skipped unless a real `OLLAMA_API_KEY` is present.
 - Curated Free: `nemotron-3-ultra:cloud`, `minimax-m3:cloud`, `deepseek-v4-flash:cloud`.
-- Pro-Only (gated): `deepseek-v4-pro:cloud`, `kimi-k2.6:cloud`, `glm-5.1:cloud`, `qwen3.5:cloud`, `minimax-m2.7:cloud`.
+- Pro-Only (gated): `deepseek-v4-pro:cloud`, `kimi-k2.7:cloud`, `glm-5.1:cloud`, `qwen3.5:cloud`, `minimax-m2.7:cloud`.
 - persisted routes are run through `pruneDisallowedOllamaCloudRouting()` on start to remove unauthorized Pro tags.
 
 #### Cline & Kilo Gateway Allowlisting
