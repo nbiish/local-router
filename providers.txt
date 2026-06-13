@@ -152,14 +152,12 @@
 # │128 │ pioneer            │ deepseek-ai/DeepSeek-V4-Pro         │ pio:deepseek-v4-pro            │1,000,000 │ 384,000  │ YES   │ NO   │ YES   │ NO   paid │
 # │129 │ pioneer            │ moonshotai/Kimi-K2.6                │ pio:kimi-k2.6                  │ 262,144  │ 262,144  │ YES   │ YES  │ YES   │ NO   paid │
 # │130 │ pioneer            │ zai-org/GLM-5.1                     │ pio:glm-5.1                    │ 200,000  │ 128,000  │ YES   │ NO   │ YES   │ NO   paid │
-# │131 │ nous-portal        │ nousresearch/hermes-4-70b           │ portal:hermes-4-70b            │ 131,072  │ 32,768   │ YES   │ NO   │ NO    │ NO*  sub  │
-# │132 │ nous-portal        │ nousresearch/hermes-4-405b          │ portal:hermes-4-405b           │ 131,072  │ 32,768   │ YES   │ NO   │ NO    │ NO*  sub  │
-# │133 │ nous-portal        │ stepfun/step-3.7-flash:free         │ portal:step-3.7-flash-free     │ 256,000  │ 256,000  │ YES   │ YES  │ YES   │ YES* free │
-# │134 │ nous-portal        │ minimax/minimax-m3                  │ portal:minimax-m3              │1,048,576 │ 512,000  │ YES   │ NO   │ YES   │ YES  sub  │
-# │135 │ nous-portal        │ deepseek/deepseek-v4-pro            │ portal:deepseek-v4-pro         │1,048,576 │ 384,000  │ YES   │ NO   │ YES   │ YES  sub  │
-# │136 │ nous-portal        │ moonshotai/kimi-k2.7-code           │ portal:kimi-k2.7-code          │ 262,144  │ 262,144  │ YES   │ YES  │ YES   │ YES  sub  │
-# │137 │ nous-portal        │ nvidia/nemotron-3-ultra:free        │ portal:nemotron-3-ultra-free   │1,000,000 │ 65,536   │ YES   │ NO   │ NO    │ YES* free │
-# │138 │ nous-portal        │ xiaomi/mimo-v2.5-pro                │ portal:mimo-v2.5-pro           │ 128,000  │ 128,000  │ YES   │ YES  │ YES   │ NO*  sub  │
+# │131 │ nous-portal        │ stepfun/step-3.7-flash:free         │ portal:step-3.7-flash-free     │ 256,000  │ 256,000  │ YES   │ YES  │ YES   │ YES* free │
+# │132 │ nous-portal        │ minimax/minimax-m3                  │ portal:minimax-m3              │1,048,576 │ 512,000  │ YES   │ NO   │ YES   │ YES  sub  │
+# │133 │ nous-portal        │ deepseek/deepseek-v4-pro            │ portal:deepseek-v4-pro         │1,048,576 │ 384,000  │ YES   │ NO   │ YES   │ YES  sub  │
+# │134 │ nous-portal        │ moonshotai/kimi-k2.7-code           │ portal:kimi-k2.7-code          │ 262,144  │ 262,144  │ YES   │ YES  │ YES   │ YES  sub  │
+# │135 │ nous-portal        │ nvidia/nemotron-3-ultra:free        │ portal:nemotron-3-ultra-free   │1,000,000 │ 65,536   │ YES   │ NO   │ NO    │ YES* free │
+# │136 │ nous-portal        │ xiaomi/mimo-v2.5-pro                │ portal:mimo-v2.5-pro           │ 128,000  │ 128,000  │ YES   │ YES  │ YES   │ NO*  sub  │
 # #
 # * Native reasoning DISABLED — VS Code/Copilot Chat and Zed cannot reliably
 #   preserve provider-native reasoning metadata across turns. FVS-CODE strips
@@ -584,17 +582,17 @@
 # Key env:     NOUS_API_KEY
 # Zed prefix:  portal
 # Cross-tool:  All agents (openai_compatible format)
-# Models:      8  —  Hermes 4 (70B/405B), Step 3.7 Flash free, MiniMax M3,
-#                    DeepSeek V4 Pro, Kimi K2.7 Code, Nemotron 3 Ultra free,
+# Models:      6  —  Step 3.7 Flash free, MiniMax M3, DeepSeek V4 Pro,
+#                    Kimi K2.7 Code, Nemotron 3 Ultra free,
 #                    Xiaomi MiMo V2.5 Pro. Curated to match the operator's
-#                    local-router preferred set across all key families.
+#                    local-router preferred set across key families.
 # Notes:       Nous Portal is Nous Research's unified subscription gateway
 #              exposed at https://portal.nousresearch.com/orgs/<id>. Static
 #              bearer auth (NOUS_API_KEY env var, format sk-nous-...).
 #              The Portal exposes 265 total models (with `~<provider>/<model>-
 #              latest` pointer aliases for always-latest snapshots); only the
-#              8 most operationally relevant are onboarded here. The
-#              remaining 257 can be added via /config custom models.
+#              6 most operationally relevant are onboarded here. The
+#              remaining 259 can be added via /config custom models.
 #              Do not store NOUS_API_KEY in providers.txt, .env, git, shell
 #              history, logs, or tool output.
 #
@@ -602,8 +600,8 @@
 # - Nous Portal: Passes through the underlying model's caching behavior.
 #   Anthropic-routed models (when added later) honor cache_control breakpoints;
 #   DeepSeek-routed models use automatic disk-based prefix caching; OpenAI-
-#   routed models use server-managed 24h cache. The current Hermes 4 + Step
-#   3.7 Flash free initial set does not use prompt caching in this build.
+#   routed models use server-managed 24h cache. The current Step 3.7 Flash
+#   free + MiniMax M3 curated set does not use prompt caching in this build.
 
 # │ 55 │ github-copilot     │ claude-sonnet-4.6                   │ copi:claude-sonnet-4.6     │ 200,000  │ 64,000   │ YES   │ YES  │ NO    │ YES       │
 # │ 56 │ github-copilot     │ gpt-4o                              │ copi:gpt-4o                │ 128,000  │ 16,000   │ YES   │ YES  │ NO    │ NO        │
