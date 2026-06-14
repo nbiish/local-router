@@ -93,7 +93,7 @@ export async function fetchLiveOllamaModels(): Promise<RawModel[]> {
 const provider: ProxyProvider = {
   name: 'ollama',
   baseUrl: ollamaBackendBaseUrl(),
-  getHeaders: () => ollamaAuthHeaders(false),
+  getHeaders: () => ollamaAuthHeaders(true),
   getModels: fetchLiveOllamaModels
 };
 
