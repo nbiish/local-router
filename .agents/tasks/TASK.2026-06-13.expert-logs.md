@@ -16,7 +16,7 @@ Create expert logging system for local-router to track modalities, caching, and 
 # Target
 - `src/expert-logs.ts` (New module)
 - `src/routes/config-api.ts` (API registration)
-- `src/index.ts` (Wired into requests)
+- `src/index.ts` (Wired into requests, active fallback models filtering, fetch timeout)
 - `src/providers/ollama.ts` (Ollama headers fix)
 
 # Change
@@ -25,6 +25,7 @@ Create expert logging system for local-router to track modalities, caching, and 
 3. Call logging functions in `src/index.ts` proxy pipeline (extract request details, caching metrics, duration, error types).
 4. Add unit/integration tests to verify.
 5. Update `src/providers/ollama.ts` to pass the real Ollama API key from process environment / PQC secrets bundle to the local Ollama backend for Cloud models.
+6. Filter the active models in `fallbackExecutionPlan` to only include those for which provider keys are configured, and add an abort timeout (15s stream, 30s non-stream) to `fetch` in `proxyModelAttempt` to prevent hangs.
 
 # Acceptance
 - Clean compile.
@@ -37,12 +38,14 @@ Create expert logging system for local-router to track modalities, caching, and 
 - Intercepted stream using spy.
 - Calculated cost and savings.
 - Passed Ollama API key.
+- Filtered active fallback models.
+- Added request fetch timeout.
 - Tested and verified server.
 
 ####
 Implementation complete. All integration and unit tests pass successfully.
 - `src/expert-logs.ts`: Logs modalities, tools, thinking content, pricing details, and cache miss diagnostics.
 - `src/routes/config-api.ts`: Registers GET `/api/logs`, GET `/api/logs/export`, POST `/api/logs/import`, DELETE `/api/logs`, GET `/api/logs/analyze`.
-- `src/index.ts`: Hooked `LogEntryTracker` into both streaming and non-streaming proxy request pipelines.
+- `src/index.ts`: Hooked `LogEntryTracker` into both streaming and non-streaming proxy request pipelines. Added `providerHasConfiguredKey` filtering to `activeFallbackModels` and added `AbortSignal.timeout` to `fetch` in `proxyModelAttempt` to prevent hangs.
 - `src/providers/ollama.ts`: Fixed the `ollama` provider configuration to pass the real Ollama API key to the backend, enabling cloud model authentication from the PQC bundle.
 - `tests/expert-logs.test.mjs`: Tests modality detection, cost calculation, stream spy merging, failures, log aggregation and analyze, and import/export lifecycle.

@@ -5093,7 +5093,8 @@ async function proxyModelAttempt(
     const response = await fetch(`${provider.baseUrl}/chat/completions`, {
       method: 'POST',
       headers: providerHeaders,
-      body: JSON.stringify(finalBody)
+      body: JSON.stringify(finalBody),
+      signal: AbortSignal.timeout(stream ? 15000 : 30000)
     });
 
     if (!response.ok) {
@@ -5330,11 +5331,13 @@ export function isFallbackStageEnabled(fallbackRoute: FallbackModel, modelName: 
 }
 
 export function activeFallbackModels(fallbackRoute: FallbackModel): string[] {
-  if (!fallbackRoute.disabledModels || fallbackRoute.disabledModels.length === 0) {
-    return [...fallbackRoute.models];
-  }
-  const disabled = new Set(fallbackRoute.disabledModels);
-  return fallbackRoute.models.filter((model) => !disabled.has(model));
+  const disabled = new Set(fallbackRoute.disabledModels || []);
+  return fallbackRoute.models.filter((model) => {
+    if (disabled.has(model)) return false;
+    const target = resolveModelTarget(model);
+    if (!target) return false;
+    return providerHasConfiguredKey(target.providerName);
+  });
 }
 
 export function fallbackExecutionPlan(fallbackRoute: FallbackModel) {
