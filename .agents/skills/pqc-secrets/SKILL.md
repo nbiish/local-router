@@ -85,9 +85,9 @@ The settings file keeps everything **except** the secret value:
 ```json
 {
   "env": {
-    "ANTHROPIC_BASE_URL": "https://zenmux.ai/api/anthropic",
+    "ANTHROPIC_BASE_URL": "http://localhost:11436",
     "ANTHROPIC_API_KEY": "",
-    "ANTHROPIC_DEFAULT_HAIKU_MODEL": "deepseek/deepseek-v4-flash"
+    "MSWEA_MODEL_NAME": "openai/local-router/fallback-models"
   }
 }
 ```
