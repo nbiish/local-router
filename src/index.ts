@@ -5250,11 +5250,23 @@ async function sendSuccessfulProxyResponse(
     if (fetchResponse.body) {
       // @ts-ignore
       const nodeStream = Readable.fromWeb(fetchResponse.body);
+      nodeStream.on('error', (err: unknown) => {
+        console.error('[proxy] nodeStream error:', err instanceof Error ? err.message : String(err));
+      });
+
       const spyStream = logTracker ? createUsageSpyStream((data) => logTracker.onUsage(data)) : null;
+      if (spyStream) {
+        spyStream.on('error', (err: unknown) => {
+          console.error('[proxy] spyStream error:', err instanceof Error ? err.message : String(err));
+        });
+      }
 
       if (outputFormat.startsWith('ollama')) {
         const isGenerate = outputFormat === 'ollama_generate';
         const transform = createOllamaStreamTransform(model, isGenerate);
+        transform.on('error', (err: unknown) => {
+          console.error('[proxy] transform stream error:', err instanceof Error ? err.message : String(err));
+        });
         if (spyStream) {
           nodeStream.pipe(transform).pipe(spyStream).pipe(res);
         } else {
@@ -5262,6 +5274,9 @@ async function sendSuccessfulProxyResponse(
         }
       } else {
         const stripTransform = createOpenAIReasoningStripTransform();
+        stripTransform.on('error', (err: unknown) => {
+          console.error('[proxy] stripTransform stream error:', err instanceof Error ? err.message : String(err));
+        });
         if (spyStream) {
           nodeStream.pipe(stripTransform).pipe(spyStream).pipe(res);
         } else {
