@@ -20,6 +20,13 @@ import { AddressInfo } from 'node:net';
  * OAuth tokens need structured fields (expiresAt, accountId, refreshToken)
  * and a small JSON file fits them better. Tokens never leave the local
  * filesystem except in the Authorization header on outbound requests.
+ *
+ * TODO(PQC): Per PRD (llms.txt ~line 779), migrate OAuth credentials into
+ * the PQC secrets bundle alongside static API keys. The bundle schema needs
+ * extending with per-provider structured fields (authType, accessToken,
+ * refreshToken, expiresAt) and an `authType: 'oauth' | 'static'`
+ * discriminator. Until then, oauth-credentials.json persists at 0600 and is
+ * redacted from all logs and telemetry.
  */
 
 export type OAuthProviderId = 'antigravity' | 'github-copilot';

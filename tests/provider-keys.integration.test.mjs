@@ -276,6 +276,7 @@ test.before(async () => {
     LOCAL_ROUTER_SKIP_PQC_LOAD: 'true',
     LOCAL_ROUTER_SKIP_OLLAMA_ENSURE: 'true',
     LOCAL_ROUTER_FALLBACK_BASE_RETRY_SECONDS: '0',
+    LOCAL_ROUTER_DEV: 'true',
     [selectedProvider.keyEnvVar]: 'integration-test-provider-key',
     [providerBaseUrlEnvVar(selectedProvider.name)]: upstreamBaseUrl
   };

@@ -24,8 +24,9 @@ export function loadRouterSettings(): RouterSettings {
 
 export function saveRouterSettings(settings: RouterSettings): void {
   try {
-    fs.mkdirSync(path.dirname(ROUTER_SETTINGS_PATH), { recursive: true });
-    fs.writeFileSync(ROUTER_SETTINGS_PATH, JSON.stringify(settings, null, 2), 'utf8');
+    fs.mkdirSync(path.dirname(ROUTER_SETTINGS_PATH), { recursive: true, mode: 0o700 });
+    fs.writeFileSync(ROUTER_SETTINGS_PATH, JSON.stringify(settings, null, 2), { encoding: 'utf8', mode: 0o600 });
+    fs.chmodSync(ROUTER_SETTINGS_PATH, 0o600);
   } catch (error) {
     console.error('[config] failed to save router settings', error);
     throw error;
