@@ -3078,6 +3078,21 @@ function configureVSCodeModelPicker(hostUrl: string) {
 
 // ── PQC Secrets Persistence ────────────────────────────────────────────────
 
+/**
+ * Resolve a platform-appropriate PATH for spawned PQC child processes.
+ * process.env.PATH is essentially always set; the fallback only triggers when it is unset
+ * (stripped/minimal environments). POSIX gets the classic bin dirs; Windows gets System32 so
+ * `python`/`where` resolve. Replaces the previous POSIX-only `/usr/local/bin:/usr/bin:/bin`.
+ */
+function defaultChildPathEnv(): string {
+  if (process.env.PATH) return process.env.PATH;
+  if (process.platform === 'win32') {
+    const root = process.env.SystemRoot || 'C:\\Windows';
+    return [`${root}\\System32`, root, `${root}\\System32\\Wbem`].join(';');
+  }
+  return '/usr/local/bin:/usr/bin:/bin';
+}
+
 function getPqcConfigDir(): string {
   if (process.env.PQC_CONFIG_DIR) return process.env.PQC_CONFIG_DIR;
   const noDot = path.join(os.homedir(), 'config', 'pqc-secrets');
@@ -3093,16 +3108,31 @@ function getPqcPubkeyPath(): string {
   return path.join(getPqcConfigDir(), 'recipient.pub');
 }
 
+/**
+ * Locate the native pqc-secrets binary, platform-aware.
+ *
+ * `bin/pqc-secrets` is a platform-specific native binary (the shipped build is a macOS arm64
+ * Mach-O executable). On Windows we look for `bin/pqc-secrets.exe` (then the extensionless name);
+ * executability on Windows is determined by PATHEXT, not the POSIX exec bit, so we use F_OK
+ * (existence) there. On POSIX we keep the X_OK check. This is the single place native-binary
+ * selection lives — to support a new OS/arch, add its candidate name here and ship the binary.
+ */
 function getPqcBinPath(): string {
-  const candidates = [
-    path.resolve(__dirname, '..', 'bin', 'pqc-secrets'),
-    path.resolve(process.cwd(), 'bin', 'pqc-secrets'),
+  const isWindows = process.platform === 'win32';
+  const baseNames = isWindows ? ['pqc-secrets.exe', 'pqc-secrets'] : ['pqc-secrets'];
+  const roots = [
+    path.resolve(__dirname, '..', 'bin'),
+    path.resolve(process.cwd(), 'bin')
   ];
-  for (const candidate of candidates) {
-    try {
-      fs.accessSync(candidate, fs.constants.X_OK);
-      return candidate;
-    } catch (_) { /* not found */ }
+  const accessMode = isWindows ? fs.constants.F_OK : fs.constants.X_OK;
+  for (const root of roots) {
+    for (const base of baseNames) {
+      const candidate = path.join(root, base);
+      try {
+        fs.accessSync(candidate, accessMode);
+        return candidate;
+      } catch { /* not found */ }
+    }
   }
   return '';
 }
@@ -3119,7 +3149,7 @@ function ensurePqcKeypair(bin: string): boolean {
         ...process.env,
         PQC_CONFIG_DIR: getPqcConfigDir(),
         PQC_USE_KEYCHAIN: process.env.PQC_USE_KEYCHAIN || 'false',
-        PATH: process.env.PATH || '/usr/local/bin:/usr/bin:/bin'
+        PATH: defaultChildPathEnv()
       }
     });
     console.log(`[PQC] Generated new ML-KEM-768 keypair at ${getPqcConfigDir()}/`);
@@ -3193,7 +3223,7 @@ function loadPqcSecrets(): void {
         ...process.env,
         PQC_CONFIG_DIR: getPqcConfigDir(),
         PQC_USE_KEYCHAIN: process.env.PQC_USE_KEYCHAIN || 'false',
-        PATH: process.env.PATH || '/usr/local/bin:/usr/bin:/bin'
+        PATH: defaultChildPathEnv()
       }
     });
     const loadedProviders: string[] = [];
@@ -3306,7 +3336,7 @@ function persistPqcSecrets(): void {
         ...process.env,
         PQC_CONFIG_DIR: getPqcConfigDir(),
         PQC_USE_KEYCHAIN: process.env.PQC_USE_KEYCHAIN || 'false',
-        PATH: process.env.PATH || '/usr/local/bin:/usr/bin:/bin'
+        PATH: defaultChildPathEnv()
       }
     });
     if (process.env.LOCAL_ROUTER_DEV === 'true') {

@@ -1,4 +1,5 @@
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
 
 export type Session = {
@@ -23,18 +24,15 @@ const SESSION_WINDOW_MS = 2 * 60 * 60 * 1000;
 let sessions: Session[] = [];
 let feedbackEntries: SessionFeedback[] = [];
 
+// os.homedir() resolves to %USERPROFILE% on Windows and $HOME on POSIX, so the session store
+// lands under ~/.config/local-router on every platform. The previous HOME/USERPROFILE/'/tmp'
+// fallback used a POSIX-only '/tmp' that does not exist on Windows.
 function sessionFilePath(): string {
-  return path.join(
-    process.env.HOME || process.env.USERPROFILE || '/tmp',
-    '.config', 'local-router', 'sessions.json'
-  );
+  return path.join(os.homedir(), '.config', 'local-router', 'sessions.json');
 }
 
 function feedbackFilePath(): string {
-  return path.join(
-    process.env.HOME || process.env.USERPROFILE || '/tmp',
-    '.config', 'local-router', 'session-feedback.json'
-  );
+  return path.join(os.homedir(), '.config', 'local-router', 'session-feedback.json');
 }
 
 function ensureConfigDir(): void {
