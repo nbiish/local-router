@@ -90,6 +90,7 @@ test('Headroom Context Compression + Wafer ZDR Integration', async (t) => {
     PORT: routerPort,
     LOCAL_ROUTER_SKIP_PQC_LOAD: 'true',
     LOCAL_ROUTER_SKIP_OLLAMA_ENSURE: 'true',
+    LOCAL_ROUTER_DEV: 'true',
     LOCAL_ROUTER_PROVIDER_WAFER_SERVERLESS_BASE_URL: `http://127.0.0.1:${waferPort}`,
     WAFER_SERVERLESS_API_KEY: 'mock-wafer-key'
   };

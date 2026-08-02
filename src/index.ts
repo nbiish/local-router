@@ -1,4 +1,4 @@
-import express, { Request, Response } from 'express';
+import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import { Readable, Transform, Writable } from 'stream';
@@ -95,6 +95,9 @@ import {
   isRealOllamaComApiKey,
   resolveOllamaApiKey
 } from './ollama-keys';
+import { assertSafeUpstreamUrl, safeFetch } from './ssrf-guard';
+import helmet from 'helmet';
+import rateLimit from 'express-rate-limit';
 
 export type ProviderModel = {
   id: string;
@@ -483,8 +486,35 @@ const PORT = Number.isInteger(parsedPort) && parsedPort > 0 && parsedPort <= 655
   ? parsedPort
   : DEFAULT_PORT;
 
+app.disable('x-powered-by');
+app.use(helmet({ contentSecurityPolicy: false }));
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
+
+// Stricter rate limiting for config mutations and OAuth login.
+const oauthLoginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many OAuth login attempts, please try again later.' }
+});
+const configMutationLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 50,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many config mutation requests, please try again later.' }
+});
+
+// Apply stricter limits to sensitive endpoints.
+app.use('/api/oauth/login', oauthLoginLimiter);
+app.use('/api', (req: Request, res: Response, next: NextFunction) => {
+  if (['POST', 'PUT', 'DELETE', 'PATCH'].includes(req.method)) {
+    return configMutationLimiter(req as any, res as any, next as any);
+  }
+  next();
+});
 
 // In-memory Key Store
 const keyStore: Record<string, string> = {};
@@ -2087,7 +2117,7 @@ async function fetchLiveProviderModels(providerName: string): Promise<Array<{ id
   if (key) {
     try {
       const url = providerBaseUrl(summary);
-      const response = await fetch(`${url}/models`, {
+      const response = await safeFetch(`${url}/models`, {
         headers: {
           Authorization: `Bearer ${key}`
         },
@@ -2829,12 +2859,14 @@ function vscodeUserDir() {
 }
 
 function writeJsonWithBackup(filePath: string, value: any) {
-  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  fs.mkdirSync(path.dirname(filePath), { recursive: true, mode: 0o700 });
   if (fs.existsSync(filePath)) {
     const backupPath = `${filePath}.${new Date().toISOString().replace(/[:.]/g, '-')}.bak`;
     fs.copyFileSync(filePath, backupPath);
+    fs.chmodSync(backupPath, 0o600);
   }
-  fs.writeFileSync(filePath, `${JSON.stringify(value, null, 2)}\n`, 'utf8');
+  fs.writeFileSync(filePath, `${JSON.stringify(value, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
+  fs.chmodSync(filePath, 0o600);
 }
 
 function sqliteJsonSelect(dbPath: string, key: string): any {
@@ -2912,7 +2944,7 @@ function configureVSCodeModelPicker(hostUrl: string) {
     }
   }
 
-  fs.mkdirSync(path.dirname(statePath), { recursive: true });
+  fs.mkdirSync(path.dirname(statePath), { recursive: true, mode: 0o700 });
 
   let entries: any[] = [];
   if (fs.existsSync(chatLanguageModelsPath)) {
@@ -4597,8 +4629,12 @@ export function selectRouterCandidate(router: RouterModel, body: any): RouterDec
 }
 
 function csvEscape(value: unknown) {
-  const text = String(value ?? '');
-  if (/[",\r\n]/.test(text)) {
+  let text = String(value ?? '');
+  // Redact sensitive values before writing to telemetry CSV.
+  text = text
+    .replace(/(Bearer\s+)[A-Za-z0-9._~+/=-]+/gi, '$1[REDACTED]')
+    .replace(/([A-Za-z0-9_]*(?:api[_-]?key|token|secret|password|authorization)[A-Za-z0-9_]*\s*[:=]\s*)([^,\s]+)/gi, '$1[REDACTED]');
+  if (/[,\r\n]/.test(text)) {
     return `"${text.replace(/"/g, '""')}"`;
   }
   return text;
@@ -5090,12 +5126,17 @@ async function proxyModelAttempt(
 
   const attemptStartedAt = Date.now();
   try {
-    const response = await fetch(`${provider.baseUrl}/chat/completions`, {
+    const chatUrl = `${provider.baseUrl}/chat/completions`;
+    const chatFetchInit: RequestInit = {
       method: 'POST',
       headers: providerHeaders,
       body: JSON.stringify(finalBody),
       signal: AbortSignal.timeout(stream ? 15000 : 30000)
-    });
+    };
+    // SSRF guard: custom providers have user-controlled endpoints.
+    const response = isCustomProvider(target.providerName)
+      ? await safeFetch(chatUrl, chatFetchInit)
+      : await fetch(chatUrl, chatFetchInit);
 
     if (!response.ok) {
       const responseText = await response.text();
@@ -6653,13 +6694,31 @@ app.post('/api/generate', async (req: Request, res: Response) => {
 
 const isDevMode = process.env.LOCAL_ROUTER_DEV === 'true' || process.env.NODE_ENV === 'development';
 
+// Central error handler — never leak stack traces to clients.
+app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
+  const status = typeof err?.status === 'number'
+    ? err.status
+    : (typeof err?.statusCode === 'number' ? err.statusCode : 500);
+  const message = status >= 500 && !isDevMode
+    ? 'Internal server error'
+    : (err?.message || 'Request failed');
+  if (status >= 500) {
+    console.error('[error-handler]', err?.stack || err?.message || err);
+  }
+  res.status(status).json({
+    error: { message, type: err?.type || 'server_error' }
+  });
+});
+
 loadExpertLogs();
 loadSessions();
 loadFeedback();
 loadPqcSecrets();
 
-const server = app.listen(PORT, () => {
+const bindHost = process.env.LOCAL_ROUTER_BIND_ALL === 'true' ? '0.0.0.0' : '127.0.0.1';
+const server = app.listen(PORT, bindHost, () => {
   console.log(`Local Router OpenAI-compatible proxy running on http://localhost:${PORT}`);
+  console.log(`[Security] Bound to ${bindHost}${bindHost === '127.0.0.1' ? ' (loopback only — set LOCAL_ROUTER_BIND_ALL=true for all interfaces)' : ' (all interfaces)'}`);
   console.log(`Point your VS Code extension to: http://localhost:${PORT}/v1`);
   if (isDevMode) {
     console.log(`[DEV] Hot reload enabled — file changes will restart the server automatically.`);

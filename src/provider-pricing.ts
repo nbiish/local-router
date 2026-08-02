@@ -282,7 +282,7 @@ export const BASELINE_PROVIDER_PRICING: Record<string, ProviderPricingEntry> = {
 const providerPricingStore: Record<string, ProviderPricingEntry> = {};
 
 function ensureConfigDir() {
-  fs.mkdirSync(LOCAL_ROUTER_CONFIG_DIR, { recursive: true });
+  fs.mkdirSync(LOCAL_ROUTER_CONFIG_DIR, { recursive: true, mode: 0o700 });
 }
 
 function isPricingEntryExpired(entry: ProviderPricingEntry): boolean {
