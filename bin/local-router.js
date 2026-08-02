@@ -5,6 +5,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { spawn, spawnSync } = require('child_process');
+const IS_WIN = process.platform === 'win32';
 
 const DEFAULT_HOST = '127.0.0.1';
 const DEFAULT_PORT = 11434;
@@ -152,6 +153,24 @@ function readStateFile(filePath) {
  * Returns an array of unique integer PIDs (may be empty).
  */
 function findPidsOnPort(port) {
+  if (IS_WIN) {
+    // Windows: `netstat -ano` prints proto/local/foreign/state/PID. The local address ends with
+    // `:PORT` for listeners on both IPv4 (1.2.3.4:PORT) and IPv6 ([::]:PORT); last column is PID.
+    const result = spawnSync('netstat', ['-ano', '-p', 'tcp'], { encoding: 'utf8', timeout: 3000 });
+    if (!result.stdout) return [];
+    const suffix = `:${port}`;
+    const pids = [];
+    for (const line of result.stdout.split(/\r?\n/)) {
+      const cols = line.trim().split(/\s+/);
+      if (cols.length < 5) continue;
+      if (!/^tcp$/i.test(cols[0])) continue;
+      if (cols[3] !== 'LISTENING') continue;
+      if (!cols[1].endsWith(suffix)) continue;
+      const pid = Number.parseInt(cols[cols.length - 1], 10);
+      if (Number.isInteger(pid) && pid > 0) pids.push(pid);
+    }
+    return [...new Set(pids)];
+  }
   try {
     const result = spawnSync(
       'lsof',
@@ -178,12 +197,20 @@ function findPidsOnPort(port) {
  * spawned by `tsx watch` or `npm exec` are also terminated.
  * Falls back to killing just the pid if the group kill fails.
  */
-function killProcessTree(pid) {
+function killProcessTree(pid, force) {
+  if (IS_WIN) {
+    // Windows has no process groups; `taskkill /T` walks the child tree, `/F` force-terminates.
+    const args = ['/PID', String(pid), '/T'];
+    if (force) args.push('/F');
+    spawnSync('taskkill', args, { encoding: 'utf8', timeout: 3000 });
+    return;
+  }
+  const signal = force ? 'SIGKILL' : 'SIGTERM';
   try {
-    process.kill(-pid, 'SIGTERM');
+    process.kill(-pid, signal);
   } catch {
     try {
-      process.kill(pid, 'SIGTERM');
+      process.kill(pid, signal);
     } catch {
       // process already gone
     }
@@ -331,12 +358,10 @@ async function cmdStop(options) {
     await new Promise((resolve) => setTimeout(resolve, 200));
   }
 
-  // Final attempt: lsof one more time with SIGKILL
+  // Final attempt: discover port PIDs and force-kill their process trees
   const finalPids = findPidsOnPort(options.port);
   for (const pid of finalPids) {
-    try { process.kill(-pid, 'SIGKILL'); } catch {
-      try { process.kill(pid, 'SIGKILL'); } catch { /* gone */ }
-    }
+    killProcessTree(pid, true);
   }
 
   // Brief wait for SIGKILL to take effect
@@ -358,6 +383,15 @@ function bashSingleQuote(value) {
 }
 
 function whichAll(commandName) {
+  if (IS_WIN) {
+    // Windows: `where` prints each match on its own line (CRLF); exits 1 when nothing matches.
+    const result = spawnSync('where', [commandName], { encoding: 'utf8', shell: true });
+    const lines = (result.stdout || '')
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean);
+    return Array.from(new Set(lines));
+  }
   const result = spawnSync('sh', ['-lc', `which -a ${commandName} 2>/dev/null || true`], { encoding: 'utf8' });
   const lines = (result.stdout || '')
     .split(/\r?\n/)
@@ -435,7 +469,7 @@ function renderOllamaShim(realOllamaPath, routeMode, target) {
 
 function routeStatusSummary() {
   const routingState = readStateFile(ROUTING_STATE_PATH) || readStateFile(LEGACY_ROUTING_STATE_PATH) || {};
-  const activeOllamaPath = spawnSync('sh', ['-lc', 'command -v ollama || true'], { encoding: 'utf8' }).stdout.trim();
+  const activeOllamaPath = whichAll('ollama')[0] || '';
   const shimExists = fs.existsSync(OLLAMA_SHIM_PATH);
   const shimContent = shimExists ? fs.readFileSync(OLLAMA_SHIM_PATH, 'utf8') : '';
   const enabled = shimExists && (shimContent.includes(SHIM_MARKER) || shimContent.includes(LEGACY_SHIM_MARKER));
@@ -456,7 +490,7 @@ function cmdRouteStatus() {
   console.log(`Route shim: ${summary.enabled ? 'enabled' : 'disabled'}`);
   console.log(`Route mode: ${summary.mode}`);
   console.log(`Shim path: ${summary.shimPath}`);
-  console.log(`command -v ollama: ${summary.activeOllamaPath || 'not found'}`);
+  console.log(`ollama path: ${summary.activeOllamaPath || 'not found'}`);
   if (summary.realOllamaPath) {
     console.log(`Recorded real ollama: ${summary.realOllamaPath}`);
   }
@@ -470,6 +504,11 @@ function cmdRouteStatus() {
 }
 
 async function cmdRouteSet(routeMode = 'ollama', customTarget = null) {
+  if (IS_WIN) {
+    console.error('The ollama route shim is a POSIX bash feature and is not supported on Windows.');
+    console.error('On Windows, run `local-router start` directly (and start the ollama backend separately if needed).');
+    return 1;
+  }
   const candidates = whichAll('ollama');
   const realOllamaPath = candidates.find((candidate) => path.resolve(candidate) !== path.resolve(OLLAMA_SHIM_PATH));
   if (!realOllamaPath) {

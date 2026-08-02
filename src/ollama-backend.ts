@@ -11,12 +11,26 @@ const OLLAMA_BACKEND_BASE_URL = process.env.LOCAL_ROUTER_PROVIDER_OLLAMA_BASE_UR
 const OLLAMA_BACKEND_TAGS_URL = `http://${OLLAMA_BACKEND_HOST}/api/tags`;
 const SHIM_MARKER = '# local-router ollama shim';
 const LEGACY_SHIM_MARKER = '# fvs-code ollama shim';
+// POSIX-only bash shim path (see bin/local-router.js renderOllamaShim). On Windows the shim is
+// never installed, so resolveRealOllamaBinary simply finds nothing here and moves on.
 const SHIM_PATH = path.join(os.homedir(), '.local/bin/ollama');
 
 let ollamaBackendProcess: ReturnType<typeof spawn> | null = null;
 let ollamaBackendShutdownRegistered = false;
 
 function whichAll(commandName: string): string[] {
+  if (process.platform === 'win32') {
+    // Windows: `where` prints each match on its own line (CRLF); exits 1 when nothing matches.
+    const result = spawnSync('where', [commandName], { encoding: 'utf8', shell: true });
+    if (result.status !== 0 || !result.stdout) return [];
+    return Array.from(new Set(
+      result.stdout
+        .split(/\r?\n/)
+        .map((entry) => entry.trim())
+        .filter(Boolean)
+    ));
+  }
+  // POSIX: `which -a` via a login shell so the user PATH (e.g. homebrew) is respected.
   const result = spawnSync('sh', ['-lc', `which -a ${commandName} 2>/dev/null || true`], {
     encoding: 'utf8'
   });
