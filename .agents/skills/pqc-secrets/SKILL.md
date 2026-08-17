@@ -152,15 +152,30 @@ System Keychain / File            ~/.config/pqc-secrets/
 
 ---
 
-## 3. Cryptographic Standards
+## 3. Cryptographic Standards (verified 2026-08-08)
 
 For all secrets operations, only NIST-approved post-quantum algorithms are permitted. Traditional classical algorithms are strictly forbidden for protecting key material:
 
 | Use Case | Permitted Algorithms (FIPS) | Forbidden Algorithms |
 |---|---|---|
-| Key Encapsulation (KEM) | ML-KEM-768, ML-KEM-1024 | RSA, ECDH, ECDSA, Ed25519 |
-| Symmetric Encryption | AES-256-GCM | AES-CBC, DES, 3DES, Blowfish, RC4 |
-| Digital Signatures | ML-DSA-65/87, SLH-DSA-SHA2-128s | MD5, SHA-1, RSA, DSA |
+| Key Encapsulation (KEM) | ML-KEM-768, ML-KEM-1024 (FIPS 203) | RSA key transport, DH, ECDH, DSA |
+| Symmetric Encryption | AES-256-GCM (SP 800-38D) | AES-CBC, AES-ECB, DES, 3DES, Blowfish, RC4 |
+| Digital Signatures | ML-DSA-65/87 (FIPS 204), SLH-DSA-SHA2-128s (FIPS 205) | RSA-PSS, ECDSA, Ed25519, EdDSA, DSA, MD5, SHA-1 |
+| Hash / Fingerprint | SHA3-256, SHA3-512 | MD5, SHA-1 |
+| Key Derivation | HKDF-SHA3-256, Argon2id (passphrases) | PBKDF2 < 600k iterations, plain SHA-256 of password |
+
+**Status boundary (as of 2026-08-08 — do not overstate):**
+
+| Item | Status | Production? |
+|---|---|---|
+| FIPS 203 (ML-KEM), FIPS 204 (ML-DSA), FIPS 205 (SLH-DSA) | **Final** (Aug 13, 2024) | ✅ baseline |
+| SP 800-227 (KEM recommendations, hybrids) | **Final** (Sept 18, 2025) | ✅ use approved key combiners for any hybrid KEM |
+| FIPS 206 (FN-DSA, ex-FALCON) | **Draft** — submitted for NIST/DoC clearance Aug 28, 2025; final expected late 2026–2027 | ⚠️ track only; NOT approved for production baseline; **not in CNSA 2.0** |
+| HQC (code-based backup KEM) | Selected Mar 11, 2025 (NIST IR 8545); draft FIPS expected ~2026, final ~2027 | ⚠️ crypto-agility reserve only; **not in CNSA 2.0** |
+
+**CNSA 2.0 (NSS / military-contract work):** NSA mandates **ML-KEM-1024** for key establishment and **ML-DSA-87** for signatures in National Security Systems (with AES-256, SHA-384/512). SLH-DSA is **not** approved for NSS, and NSA has stated FN-DSA and HQC will **not** be added. All new NSS acquisitions must be CNSA 2.0 compliant starting **Jan 1, 2027**; full enforcement Dec 31, 2031 (DoW PQC Strategy, June 23, 2026; CNSSP 15).
+
+**Classical deprecation (NIST IR 8547 + EO 14412 + OMB M-26-15, 2026):** classical public-key algorithms at 112-bit security (RSA-2048, ECDSA P-256, ECDH P-256, EdDSA) are **deprecated after 2030** and all RSA/ECC is **disallowed after 2035**. Federal HVAs must complete PQC key-establishment transition by **Dec 31, 2030**. This ML-KEM-768 default satisfies the civilian Level-3 baseline; for anything touching defense/NSS scopes, step up to ML-KEM-1024.
 
 ---
 
@@ -198,10 +213,10 @@ PQC_KEYCHAIN_ACCOUNT_OLD=default PQC_KEYCHAIN_ACCOUNT_NEW=pqc-secrets-key bin/pq
 
 ### Implementation Details
 
-- **Rust Primary Engine:** `fips203` crate (rust-fips203, NSA CNSA 2.0 / FIPS 203 compliant ML-KEM-768).
+- **Rust Primary Engine:** `fips203` crate v0.4.x (pure Rust, no `unsafe`, no C FFI; implements final FIPS 203 ML-KEM-768 with ACVP KATs). Alternatives verified 2026-08: RustCrypto `ml-kem` crate (type-safe param sets, no FFI), Cryspen/libcrux `libcrux-ml-kem` (formally verified).
 - **Rust Primary Dependencies:** `security-framework` (macOS Keychain), `aes-gcm`, `serde`, `serde_json`, `sha3`.
-- **Python Fallback Engine:** `kyber-py` (pure Python ML-KEM-768) + `cryptography` (AES-256-GCM).
-- **Python Fallback Dependencies:** Managed inline via UV script metadata — `kyber-py>=0.2.0`, `cryptography>=44.0` (auto-resolved by `uv run`).
+- **Python Fallback Engine:** `kyber-py` (pure Python ML-KEM-768) + `cryptography` (AES-256-GCM). ⚠️ **Migration note (2026-06):** `pyca/cryptography` now ships **native ML-KEM-768 and ML-DSA-65** (`cryptography.hazmat.primitives.asymmetric.mlkem` / `.mldsa`) on OpenSSL 3.5+/AWS-LC/BoringSSL backends — OpenSSL 3.5.0 added PQC in March 2026 and the first CMVP ML-DSA module certificates issued the same month. Prefer the native `cryptography` implementation over `kyber-py` for any new or refreshed fallback work; `kyber-py` remains acceptable for the legacy script but should not be extended.
+- **Python Fallback Dependencies:** Managed inline via UV script metadata — `kyber-py>=0.2.0`, `cryptography>=44.0` (auto-resolved by `uv run`). For the native path: `cryptography>=45.0`.
 
 ---
 

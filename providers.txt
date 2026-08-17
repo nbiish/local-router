@@ -3,7 +3,7 @@
 # =============================================================================
 # Path:    ~/.config/providers.txt  (source of truth)
 #          agents-research/providers.txt (project copy)
-# Updated: 2026-06-05 (model metadata audit: MiniMax M3 1M ctx, Kimi K2.6 262K out, M2.7 196K out)
+# Updated: 2026-08-17 (add modal-proxy: Nbiish Kimi-K3 own deployment, 262K ctx/out)
 # Purpose: Master config reference for ALL agentic tools.
 #          kilo, crush, pi, goose, dcode, hermes, cline, qwen-code, Zed, etc.
 #
@@ -26,6 +26,7 @@
 # │ moonshot           │ https://api.moonshot.ai/v1            │ MOONSHOT_API_KEY         │
 # │ nvidia-nim         │ https://integrate.api.nvidia.com/v1   │ NVIDIA_NIM_API_KEY       │
 # │ modal              │ https://api.us-west-2.modal.direct/v1 │ MODAL_API_KEY            │
+# │ modal-proxy        │ https://nbiish--ep-kimi-k3-nbiish-server.us-west.modal.direct/v1 │ MODAL_PROXY_API_KEY  │
 # │ openrouter-presets │ https://openrouter.ai/api/v1          │ OPENROUTER_API_KEY       │
 # │ xiaomi-mimo        │ https://token-plan-sgp.xiaomimimo.com/v1│ XIAOMI_MIMO_API_KEY     │
 # │ opencode-go      │ https://opencode.ai/zen/go/v1          │ OPENCODE_API_KEY        │
@@ -159,7 +160,8 @@
 # │133 │ nous-portal        │ deepseek/deepseek-v4-pro            │ portal:deepseek-v4-pro         │1,048,576 │ 384,000  │ YES   │ NO   │ YES   │ YES  sub  │
 # │134 │ nous-portal        │ moonshotai/kimi-k2.7-code           │ portal:kimi-k2.7-code          │ 262,144  │ 262,144  │ YES   │ YES  │ YES   │ YES  sub  │
 # │135 │ nous-portal        │ nvidia/nemotron-3-ultra:free        │ portal:nemotron-3-ultra-free   │1,000,000 │ 65,536   │ YES   │ NO   │ NO    │ YES* free │
-# │136 │ nous-portal        │ xiaomi/mimo-v2.5-pro                │ portal:mimo-v2.5-pro           │ 128,000  │ 128,000  │ YES   │ YES  │ YES   │ NO*  sub  │
+# │136 │ nous-portal        │ xiaomi/mimo-v2.5-pro                │ portal:mimo-v2.5-pro         │ 128,000  │ 128,000  │ YES   │ YES  │ YES   │ NO*  sub  │
+# │157 │ modal-proxy        │ moonshotai/Kimi-K3                 │ mdpx:Kimi-K3                 │ 262,144  │ 262,144  │ YES   │ NO   │ NO    │ NO*  own  │
 # #
 # * Native reasoning DISABLED — VS Code/Copilot Chat and Zed cannot reliably
 #   preserve provider-native reasoning metadata across turns. FVS-CODE strips

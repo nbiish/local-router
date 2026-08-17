@@ -19,11 +19,13 @@ AI agents using this skill are equipped to:
 ## 1. Core Philosophy: Hemispheric Protection
 
 Every cryptographic implementation exists to protect data and sovereignty. Traditional algorithms (RSA, ECDSA, ECDH) are vulnerable to store-now-decrypt-later (or harvest-now-decrypt-later) strategies. The reduction in quantum attack resources requires proactive migration to NIST FIPS 204/203 standards:
-- **Digital Signatures**: ML-DSA-65 (Module-Lattice-Based Digital Signature Algorithm).
-- **Key Encapsulation / Encryption**: ML-KEM-768 or ML-KEM-1024.
+- **Digital Signatures**: ML-DSA-65 (Module-Lattice-Based Digital Signature Algorithm, FIPS 204). For NSS / CNSA 2.0 scopes: **ML-DSA-87**.
+- **Key Encapsulation / Encryption**: ML-KEM-768 or ML-KEM-1024 (FIPS 203). For NSS / CNSA 2.0 scopes: **ML-KEM-1024**.
 - **Integrity Hashing**: SHA3-256 or SHA3-512.
 - **Symmetric Encryption**: AES-256-GCM.
 - **Key Derivation**: HKDF using SHA3-256.
+
+> **2026 implementation-maturity note:** June 2026 research (D. J. Bernstein, *"Exploiting ML-DSA bugs"*) quantified that current ML-DSA implementations remain fragile — new-code bug risk presently exceeds near-term quantum risk. Where a trust path can tolerate two signatures, **hybrid classical + ML-DSA signing is an approved transitional hedge**; where size forbids it, ML-DSA-only is acceptable but implementations must pin audited versions and track upstream CVEs. This hedging posture replaces any "rip out ECC today" reading of the mandate — NIST IR 8547 sets deprecation at 2030 and disallowance at 2035, not immediate removal.
 
 ---
 
@@ -60,7 +62,7 @@ echo ".signing/" >> .gitignore
 ```
 
 ### Step 2: Generate ML-DSA-65 Keypair
-Using OpenSSL 3.5+ (or OpenSSL 3.x compiled with the `oqs-provider`):
+Using **OpenSSL 3.5+ (released March 2026 with native ML-KEM/ML-DSA/SLH-DSA support — no `oqs-provider` needed anymore; first CMVP ML-DSA module certificates issued March 2026)**:
 ```bash
 # Generate the private key
 openssl genpkey -algorithm ML-DSA-65 -out .signing/agent_privkey.pem
@@ -69,7 +71,7 @@ chmod 600 .signing/agent_privkey.pem
 # Extract the public key to the repo root
 openssl pkey -in .signing/agent_privkey.pem -pubout -out AGENT_PUBKEY.pem
 ```
-*Note: In production environments, store the private key in a KMS (e.g. AWS KMS, HashiCorp Vault) or HSM.*
+*Note: In production environments, store the private key in a KMS (e.g. AWS KMS, HashiCorp Vault) or HSM. For CNSA 2.0 / NSS scopes, use ML-DSA-87.*
 
 ### Step 3: Identify Files to Sign
 Sign all executable scripts, shell scripts, system configuration files, and critical agent policies. Common files include:

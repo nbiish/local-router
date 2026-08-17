@@ -6,7 +6,7 @@ CLI entry points and launcher scripts for local-router and PQC secrets.
 
 - `bin/local-router.js` — primary start/stop/status CLI.
 - `bin/localrouter.js` — legacy router script.
-- `bin/pqc-secrets` — PQC secrets wrapper.
+- `bin/pqc-secrets` — PQC secrets dispatcher: native `pqc-secrets.darwin-arm64` on macOS arm64, otherwise the Python (uv) engine at `.agents/skills/pqc-secrets/scripts/pqc_secrets.py`. Both write the same bundle JSON format.
 - `bin/fvs-code.js`, `bin/lib/localrouter-client.js` — launcher/client utilities.
 
 ## Ownership

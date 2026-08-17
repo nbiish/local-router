@@ -276,6 +276,12 @@ export const BASELINE_PROVIDER_PRICING: Record<string, ProviderPricingEntry> = {
     inputPricePerM: 0,
     outputPricePerM: 0,
     label: 'Kilo Gateway poolside/laguna-xs.2:free'
+  },
+  'modal-proxy-kimi-k3': {
+    inputPricePerM: 0,
+    outputPricePerM: 0,
+    label: 'Modal Nbiish moonshotai/Kimi-K3 (own deployment, compute-billed)',
+    sourceUrl: 'https://nbiish--ep-kimi-k3-nbiish-server.us-west.modal.direct/v1'
   }
 };
 
