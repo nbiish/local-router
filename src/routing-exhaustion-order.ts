@@ -75,6 +75,7 @@ export const ROUTING_PAID_PROVIDER_SUB_ORDER = [
 /** Sub-order within free bands (Ollama → gateway free → OpenCode Zen free). */
 export const ROUTING_FREE_PROVIDER_SUB_ORDER = [
   'ollama',
+  'modal-proxy',
   'kilo',
   'cline',
   'openrouter-presets',
@@ -87,6 +88,7 @@ const PRESENTATION_PREFIX_TO_PROVIDER: Record<string, string> = {
   cline: 'cline',
   'nvidia-nim': 'nvidia-nim',
   modal: 'modal',
+  'modal-proxy': 'modal-proxy',
   nebius: 'nebius',
   'opencode-zen': 'opencode-zen',
   'opencode-go': 'opencode-go',

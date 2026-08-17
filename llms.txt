@@ -205,7 +205,7 @@ Setting files reside at `~/.config/local-router/` (or legacy `~/.config/fvs-code
 | `tool-routing.json` | No | local JSON | Ollama shim routing configuration |
 
 ### Provider Catalog Contracts
-The catalog contains **18 active providers** (16 static-key + 2 OAuth-subscription) with **112 presented models** as of 2026-06-13 (after `zai-code-pass-glm-4.6v` and `commandcode-minimax-m3` joined the multimodal expansion of `local-router/multimodal` to 15 entries; earlier 110 was the pre-expansion count):
+The catalog contains **19 active providers** (17 static-key + 2 OAuth-subscription) with **113 presented models** as of 2026-08-17 (`modal-proxy`/`moonshotai/Kimi-K3` own-deployment endpoint added; the 2026-06-13 count of 112 included the multimodal expansion of `local-router/multimodal` to 15 entries):
 
 | Provider | Catalog Models | Upstream Endpoint | Key Env Variable | Auth |
 |---|---|---|---|---|
@@ -215,6 +215,7 @@ The catalog contains **18 active providers** (16 static-key + 2 OAuth-subscripti
 | `moonshot` | 5 | Moonshot/Kimi API | `MOONSHOT_API_KEY` | static |
 | `nvidia-nim` | 6 | NVIDIA NIM API | `NVIDIA_NIM_API_KEY` | static |
 | `modal` | 1 | Modal GLM endpoint | `MODAL_API_KEY` | static |
+| `modal-proxy` | 1 | Nbiish Modal Kimi-K3 deployment (`nbiish--ep-kimi-k3-nbiish-server.us-west.modal.direct/v1`) | `MODAL_PROXY_API_KEY` | static |
 | `openrouter-presets` | 9 | `https://openrouter.ai/api/v1` | `OPENROUTER_API_KEY` | static |
 | `xiaomi-mimo` | 2 | `https://token-plan-sgp.xiaomimimo.com/v1` | `XIAOMI_MIMO_API_KEY` | static |
 | `opencode-go` | 9 | `https://opencode.ai/zen/go/v1` | `OPENCODE_API_KEY` | static |
@@ -239,6 +240,7 @@ The catalog contains **18 active providers** (16 static-key + 2 OAuth-subscripti
 - **GLM-5.1:** 200K context, 128K output (Z.AI coding pass, modal FP8).
 - **GLM-4.6v:** 200K context, 128K output (Z.AI coding pass, vision variant of GLM-4.6 with preserved thinking — multimodal anchor `zai-code-pass-glm-4.6v`).
 - **NVIDIA NIM Kimi K2.6:** 256K context, 262K output, multimodal image, implicit prompt cache.
+- **Kimi-K3 (modal-proxy):** 262K context, 262K output, tools yes, vision no. Own-deployment presented ID `modal-proxy-kimi-k3`; native reasoning stripped for IDE compatibility per Kimi family policy.
 - **OpenCode MiniMax M3 free tier:** 1M context, 512K output. Mapped only under `opencode-zen/minimax-m3-free`.
 - **Z.ai:** `code-pass-glm-5.1` (presented model for coding GLM-5.1); `code-pass-glm-4.6v` (presented model for vision-capable GLM-4.6v — multimodal anchor).
 
