@@ -163,6 +163,17 @@ npm install
 npm run dev
 ```
 
+**Windows drives via WSL (or other filesystems without symlink support):** npm cannot
+create `node_modules/.bin` symlinks there and a plain `npm install` fails with
+`EPERM: operation not permitted, symlink`. Use:
+
+```bash
+npm install --no-bin-links
+```
+
+The `postinstall` hook (`scripts/setup-bin-shims.mjs`) then writes executable
+`.bin` shims so `npm run` scripts work normally.
+
 `npm run dev` starts the server with **hot reload** via `tsx watch` — edit TypeScript files and the server restarts automatically.
 
 ### Dev Server (Hot Reload)

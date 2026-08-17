@@ -18,6 +18,7 @@
     "dev:once": "tsx src/index.ts",
     "build": "tsc",
     "build:watch": "tsc --watch",
+    "postinstall": "node scripts/setup-bin-shims.mjs",
     "cli": "node bin/local-router.js",
     "cli:operator": "node bin/localrouter.js",
     "verify:cli": "node bin/localrouter.js verify",
@@ -51,5 +52,8 @@
     "ts-node": "^10.9.2",
     "tsx": "^4.22.3",
     "typescript": "^6.0.3"
+  },
+  "allowScripts": {
+    "esbuild@0.28.0": true
   }
 }
