@@ -3109,13 +3109,15 @@ function getPqcPubkeyPath(): string {
 }
 
 /**
- * Locate the native pqc-secrets binary, platform-aware.
+ * Locate the pqc-secrets entry point, platform-aware.
  *
- * `bin/pqc-secrets` is a platform-specific native binary (the shipped build is a macOS arm64
- * Mach-O executable). On Windows we look for `bin/pqc-secrets.exe` (then the extensionless name);
- * executability on Windows is determined by PATHEXT, not the POSIX exec bit, so we use F_OK
- * (existence) there. On POSIX we keep the X_OK check. This is the single place native-binary
- * selection lives — to support a new OS/arch, add its candidate name here and ship the binary.
+ * `bin/pqc-secrets` is a dispatch wrapper: it execs the native Rust binary
+ * (`bin/pqc-secrets.darwin-arm64`) on macOS arm64 and otherwise delegates to the Python
+ * engine (`.agents/skills/pqc-secrets/scripts/pqc_secrets.py`) via `uv run`. On Windows we
+ * look for `bin/pqc-secrets.exe` (then the extensionless name); executability on Windows is
+ * determined by PATHEXT, not the POSIX exec bit, so we use F_OK (existence) there. On POSIX
+ * we keep the X_OK check. This is the single place native-binary selection lives — to support
+ * a new OS/arch, add its candidate name here and ship the binary.
  */
 function getPqcBinPath(): string {
   const isWindows = process.platform === 'win32';
@@ -3143,7 +3145,8 @@ function ensurePqcKeypair(bin: string): boolean {
   try {
     execFileSync(bin, ['keygen'], {
       encoding: 'utf8',
-      timeout: 10000,
+      // uv-based pqc-secrets engine cold start can exceed 10s on first dependency resolution
+      timeout: 30000,
       stdio: 'pipe',
       env: {
         ...process.env,
@@ -3218,7 +3221,7 @@ function loadPqcSecrets(): void {
   try {
     const output = execFileSync(bin, ['export'], {
       encoding: 'utf8',
-      timeout: 10000,
+      timeout: 30000,
       env: {
         ...process.env,
         PQC_CONFIG_DIR: getPqcConfigDir(),
@@ -3331,7 +3334,7 @@ function persistPqcSecrets(): void {
     execFileSync(bin, ['pack'], {
       input: lines.join('\n') + '\n',
       encoding: 'utf8',
-      timeout: 10000,
+      timeout: 30000,
       env: {
         ...process.env,
         PQC_CONFIG_DIR: getPqcConfigDir(),
