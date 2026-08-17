@@ -681,7 +681,15 @@ function diagnosticsSnapshot(limit = 120) {
   };
 }
 
+let catalogProviderSummariesCache: ProviderSummary[] | null = null;
+
 function readCatalogProviderSummaries(): ProviderSummary[] {
+  // providers.txt is static at runtime (changes require a repo edit + restart),
+  // so parse it once per process. Without this cache, every catalog lookup
+  // re-read the file, making startup O(models × providers) file reads —
+  // minutes on network/9p filesystems (WSL /mnt) instead of milliseconds.
+  if (catalogProviderSummariesCache) return catalogProviderSummariesCache;
+
   const providersPath = path.resolve(process.cwd(), 'providers.txt');
 
   try {
@@ -715,6 +723,7 @@ function readCatalogProviderSummaries(): ProviderSummary[] {
       });
     }
 
+    catalogProviderSummariesCache = summaries;
     return summaries;
   } catch (error) {
     console.error('Failed to read providers.txt provider summary table:', error);
@@ -3528,7 +3537,14 @@ async function loadProvider(name: string): Promise<ProxyProvider | null> {
   }
 }
 
+let providerModelsCache: ProviderModel[] | null = null;
+
 function readProviderModels(): ProviderModel[] {
+  // Parsed once per process (see readCatalogProviderSummaries). Router and
+  // fallback validation resolve every candidate through the catalog; without
+  // caching, each lookup re-parsed the full providers.txt master table.
+  if (providerModelsCache) return providerModelsCache;
+
   const providersPath = path.resolve(process.cwd(), 'providers.txt');
 
   try {
@@ -3581,6 +3597,7 @@ function readProviderModels(): ProviderModel[] {
       });
     }
 
+    providerModelsCache = models;
     return models;
   } catch (error) {
     console.error('Failed to read providers.txt, falling back to built-in model list:', error);
@@ -5426,7 +5443,12 @@ export function activeFallbackModels(fallbackRoute: FallbackModel): string[] {
   return fallbackRoute.models.filter((model) => {
     if (disabled.has(model)) return false;
     const target = resolveModelTarget(model);
-    if (!target) return false;
+    // Key-presence filtering applies to resolvable catalog providers only.
+    // Unknown/unresolvable entries stay in the plan so execution-shaped logic
+    // (wraparound, disabled stages) holds for direct/arbitrary model ids;
+    // they fail-and-cascade at execution time instead of vanishing here.
+    if (!target) return true;
+    if (!getProviderSummary(target.providerName)) return true;
     return providerHasConfiguredKey(target.providerName);
   });
 }
@@ -6750,8 +6772,24 @@ loadSessions();
 loadFeedback();
 loadPqcSecrets();
 
+function isMainModule(): boolean {
+  const entry = process.argv[1];
+  if (!entry) return false;
+  try {
+    return fs.realpathSync(__filename) === fs.realpathSync(path.resolve(entry));
+  } catch {
+    return false;
+  }
+}
+
+// Serve only when run as the process entrypoint (node build/index.js,
+// tsx src/index.ts, bin/local-router.js child). Library consumers — e.g.
+// tests importing build/index.js for pure helpers — bind nothing so the
+// importing process can exit when its work is done.
+const shouldServe = isMainModule() || process.env.LOCAL_ROUTER_FORCE_SERVE === 'true';
+
 const bindHost = process.env.LOCAL_ROUTER_BIND_ALL === 'true' ? '0.0.0.0' : '127.0.0.1';
-const server = app.listen(PORT, bindHost, () => {
+const server = shouldServe ? app.listen(PORT, bindHost, () => {
   console.log(`Local Router OpenAI-compatible proxy running on http://localhost:${PORT}`);
   console.log(`[Security] Bound to ${bindHost}${bindHost === '127.0.0.1' ? ' (loopback only — set LOCAL_ROUTER_BIND_ALL=true for all interfaces)' : ' (all interfaces)'}`);
   console.log(`Point your VS Code extension to: http://localhost:${PORT}/v1`);
@@ -6770,7 +6808,7 @@ const server = app.listen(PORT, bindHost, () => {
     );
     await pullOllamaCloudModels(ollamaTags);
   })();
-});
+}) : null;
 
 const wss = new WebSocketServer({ noServer: true });
 
@@ -6859,7 +6897,7 @@ wss.on('connection', (ws: WebSocket) => {
   });
 });
 
-server.on('upgrade', (request, socket, head) => {
+server?.on('upgrade', (request, socket, head) => {
   const urlObj = new URL(request.url || '', `http://${request.headers.host || 'localhost'}`);
   const pathname = urlObj.pathname;
   if (pathname === '/v1/responses') {
