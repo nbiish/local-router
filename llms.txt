@@ -20,7 +20,7 @@ Point VS Code Copilot Chat, Claude Code, Cline, Roo Code, Continue, Codex, or sc
   - `local-router/low-cost` — **auto-local** router, 7 free candidates (one from each provider with free models), `minCodingScore=0.75`, cost-optimized (`costQualityTradeoff=2`).
   - `local-router/nanoboozhoo` — **auto-local** SOTA router, 64 candidates (full superset of auto-router-main + all fallback models), `minCodingScore=0.86`, max quality. Named for the Anishinaabe trickster-teacher; implements reasoning-aware routing principles from RADAR/ODAR/PILOT/IRT-Router academic research (NeurIPS 2025, EMNLP 2025, ACL 2025) — uses the broadest candidate pool with aggressive quality gating so the auto-local scorer always picks the best available model at runtime.
 - **Ollama Cloud:** Shared quota — router/fallback/pull use **nemotron-3-ultra**, **minimax-m3**, **deepseek-v4-flash** only unless a real `ollama.com` API key is set (Pro tags gated).
-- **Ollama shim:** `local-router route set` → `ollama serve` starts real Ollama on `11435` and Local Router on `11434`.
+- **Service shims:** `local-router route set` → drop-in shims for `ollama`, `llama-server` (llama.cpp), and `unsloth` in `~/.local/bin`; service starts launch Local Router on `11434` (real Ollama on `11435`) and self-register llama.cpp/unsloth as keyless loopback custom providers; other commands pass through to the real binaries. `LOCAL_ROUTER_NO_SHIM=1` bypasses any shim.
 - **Operator CLI:** `localrouter list`, `keys`, `router export|import|list|show|check`, `verify`, `config --open`.
 - **Thinking:** Proxy toggle default **OFF** (IDE passthrough); optional levels when enabled. Responses strip `reasoning_content` for VS Code safety; requests preserve it for multi-turn tools.
 
@@ -202,7 +202,7 @@ Setting files reside at `~/.config/local-router/` (or legacy `~/.config/fvs-code
 | `provider-pricing.json` | No | local JSON | Cost scoring overrides |
 | `sessions.json` | No | Redacted | client-grouped requests within 2-hour windows |
 | `session-feedback.json` | No | Redacted | Session thumbs up/down user votes |
-| `tool-routing.json` | No | local JSON | Ollama shim routing configuration |
+| `tool-routing.json` | No | local JSON | Service drop-in shim configuration (ollama, llama-server, unsloth) |
 
 ### Provider Catalog Contracts
 The catalog contains **19 active providers** (17 static-key + 2 OAuth-subscription) with **113 presented models** as of 2026-08-18 (`modal-proxy`/`moonshotai/Kimi-K3` own-deployment endpoint added; on 2026-08-18 the `openrouter-presets` provider was renamed to `openrouter` with the legacy slug kept as a canonical alias; the 2026-06-13 count of 112 included the multimodal expansion of `local-router/multimodal` to 15 entries):
@@ -429,15 +429,30 @@ When Local Router fails over from provider A to provider B:
 4. **Cost tracking:** Surface provider-specific usage fields (`prompt_cache_hit_tokens`, `cached_tokens`, `cache_write_tokens`) in a normalized form in telemetry so operators can compare effective costs across providers.
 5. **Tool definitions:** Tool definitions are part of the cacheable prefix for OpenAI and Anthropic. Do not reorder, rename, or restructure tool definitions between turns — even a single character change invalidates the cache.
 
-### Ollama Intercept Shim Contracts
-`local-router route set` installs a shim at `~/.local/bin/ollama` (first in PATH) that intercepts `ollama serve`:
+### Service Drop-in Shim Contracts
+`local-router route set` installs drop-in shims in `~/.local/bin` (first in PATH) for `ollama`, `llama-server` (llama.cpp), and `unsloth` (when present in PATH). Service starts ensure Local Router is running first; other invocations pass through to the real binary (which then talks to Local Router on `11434` when a router is up).
+
+**ollama** (dedicated shim, intercepts `ollama serve`):
 1. Sets `OLLAMA_HOST=127.0.0.1:11435`.
 2. Starts real Ollama on port `11435` in the background.
 3. Sets `LOCAL_ROUTER_PROVIDER_OLLAMA_BASE_URL` to local server.
 4. Starts Local Router on `11434` in the foreground.
-5. Other commands (pull, run, show) pass through directly to real `/usr/local/bin/ollama`.
-6. Marker comment line: `# local-router ollama shim`.
+5. Other commands (list, pull, run, show) pass through to the real ollama binary and hit Local Router on `11434` when it is running.
+6. Marker comment line `# local-router ollama shim` is load-bearing: `src/ollama-backend.ts` `resolveRealOllamaBinary()` skips any PATH candidate containing it.
 7. Trap cleans up the real Ollama process PID on exit.
+
+**llama-server** (llama.cpp; every invocation is a service start):
+8. Ensures Local Router is running, then execs the real binary with all arguments.
+9. Background subshell registers the `llama-cpp` custom provider (`http://127.0.0.1:8080/v1`, `LLAMA_CPP_API_KEY`, display "llama.cpp (local llama-server)") via POST-then-PUT `/api/providers`, honoring a `--port`/`--port=` argument, then triggers `/api/refresh-endpoint-models`. Best-effort — failures are ignored.
+
+**unsloth** (`serve`/`server` subcommands only):
+10. Same ensure-router + self-registration pattern, provider slug `unsloth` (port 8000, `UNSLOTH_API_KEY`). Skipped with a note at `route set` time when not installed.
+
+**Shared rules:**
+11. Generic marker `# local-router service shim`; `route unset` removes only marker shims and refuses foreign files; `route status` lists per-service state.
+12. `LOCAL_ROUTER_NO_SHIM=1` execs the real binary directly, bypassing every shim.
+13. Real-binary discovery skips marker shims; a symlink at a shim path (e.g. `llama-server` → miniforge) is replaced by the shim while its target is recorded as the real binary.
+14. Loopback custom providers (`llama-cpp`, `unsloth`) need no API key: `isLocalLoopbackProvider()` marks them configured and `/api/refresh-endpoint-models` probes their `/models` without an Authorization header.
 
 ### OpenAI Responses API Shim Contract
 - Maps Responses requests (`POST /v1/responses`) to standard chat-completion payloads (prepends `instructions` as system prompt).
@@ -534,7 +549,7 @@ Ollama Cloud uses a shared quota. Free cloud tags use `ollama signin` session ke
 #### CLI Reference Cheat Sheet
 ```bash
 local-router start|stop|status                      # daemon lifecycle
-local-router route set|unset|custom|status           # Ollama serve shim settings
+local-router route set|unset|custom|status           # service drop-in shims (ollama/llama-server/unsloth)
 localrouter list --custom                            # lists custom catalog (providers.txt)
 localrouter list --all                               # lists catalog + endpoint cache
 localrouter keys list|set|unset                      # key management via PQC endpoints

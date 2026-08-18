@@ -19,6 +19,45 @@ const SHIM_DIR = path.join(os.homedir(), '.local', 'bin');
 const OLLAMA_SHIM_PATH = path.join(SHIM_DIR, 'ollama');
 const SHIM_MARKER = '# local-router ollama shim';
 const LEGACY_SHIM_MARKER = '# fvs-code ollama shim';
+const SERVICE_SHIM_MARKER = '# local-router service shim';
+const LLAMA_SERVER_SHIM_PATH = path.join(SHIM_DIR, 'llama-server');
+const UNSLOTH_SHIM_PATH = path.join(SHIM_DIR, 'unsloth');
+
+// Drop-in service shims installed by `route set`. Any invocation that starts a
+// service first ensures Local Router is running, then hands off to the real
+// binary; other invocations pass straight through to the real binary (which
+// then talks to Local Router on the standard port when one is running).
+// - ollama keeps its dedicated renderer: the SHIM_MARKER line in that file is
+//   what src/ollama-backend.ts resolveRealOllamaBinary() looks for when it
+//   needs to skip the shim and locate the real ollama install.
+// - llama-server (llama.cpp) always serves, so every invocation is treated as
+//   a service start; it also self-registers the `llama-cpp` custom provider.
+// - unsloth: only `serve`/`server` subcommands are treated as service starts;
+//   it self-registers the `unsloth` custom provider.
+const SERVICE_TARGETS = [
+  {
+    command: 'ollama',
+    shimPath: OLLAMA_SHIM_PATH
+  },
+  {
+    command: 'llama-server',
+    shimPath: LLAMA_SERVER_SHIM_PATH,
+    providerSlug: 'llama-cpp',
+    keyEnvVar: 'LLAMA_CPP_API_KEY',
+    displayName: 'llama.cpp (local llama-server)',
+    backendPort: 8080,
+    interceptAllArgs: true
+  },
+  {
+    command: 'unsloth',
+    shimPath: UNSLOTH_SHIM_PATH,
+    providerSlug: 'unsloth',
+    keyEnvVar: 'UNSLOTH_API_KEY',
+    displayName: 'Unsloth (local)',
+    backendPort: 8000,
+    serveSubcommands: ['serve', 'server']
+  }
+];
 
 function usage() {
   console.log([
@@ -35,9 +74,10 @@ function usage() {
     '',
     'Behavior:',
     '  - start: launches proxy only when nothing else is listening on the target port.',
-    '  - route set: installs ~/.local/bin/ollama shim so `ollama serve` starts Local Router.',
-    '  - route custom: same shim, but `ollama serve` starts Local Router on a custom localhost port.',
-    '  - route unset: removes that shim.',
+    '  - route set: installs drop-in shims (ollama, llama-server, unsloth) in ~/.local/bin so',
+    '    service starts go through Local Router (preferred + provider model catalog).',
+    '  - route custom: ollama shim only, but `ollama serve` starts Local Router on a custom localhost port.',
+    '  - route unset: removes all Local Router service shims.',
     '',
     'Compatibility:',
     '  - fvs-code remains available as a deprecated CLI alias for this release.',
@@ -320,12 +360,10 @@ async function cmdStatus(options) {
   }
 
   const route = routeStatusSummary();
-  console.log(`Route shim: ${route.enabled ? 'enabled' : 'disabled'}`);
-  if (route.enabled) {
-    console.log(`Shim path: ${route.shimPath}`);
-    console.log(`Real ollama: ${route.realOllamaPath || 'unknown'}`);
-    console.log(`command -v ollama: ${route.activeOllamaPath || 'not found'}`);
-  }
+  const enabledServices = route.services
+    .filter((service) => service.enabled)
+    .map((service) => service.command);
+  console.log(`Route shims: ${enabledServices.length > 0 ? enabledServices.join(', ') : 'none'}`);
   return 0;
 }
 
@@ -452,6 +490,11 @@ function renderOllamaShim(realOllamaPath, routeMode, target) {
     `REAL_OLLAMA=${bashSingleQuote(realOllamaPath)}`,
     'LOCAL_ROUTER_BIN="${LOCAL_ROUTER_BIN:-${FVS_CODE_BIN:-local-router}}"',
     '',
+    '# Escape hatch: LOCAL_ROUTER_NO_SHIM=1 runs the real binary directly.',
+    'if [[ "${LOCAL_ROUTER_NO_SHIM:-0}" == "1" ]]; then',
+    '  exec "$REAL_OLLAMA" "$@"',
+    'fi',
+    '',
     'if [[ "${1:-}" == "serve" ]]; then',
     '  export OLLAMA_HOST="127.0.0.1:11435"',
     '  "$REAL_OLLAMA" serve &',
@@ -467,19 +510,184 @@ function renderOllamaShim(realOllamaPath, routeMode, target) {
   ].join('\n');
 }
 
+function shimFileContainsMarker(filePath) {
+  try {
+    const fd = fs.openSync(filePath, 'r');
+    try {
+      const buffer = Buffer.alloc(4096);
+      const bytesRead = fs.readSync(fd, buffer, 0, buffer.length, 0);
+      const head = buffer.subarray(0, bytesRead).toString('utf8');
+      return head.includes(SHIM_MARKER) || head.includes(LEGACY_SHIM_MARKER) || head.includes(SERVICE_SHIM_MARKER);
+    } finally {
+      fs.closeSync(fd);
+    }
+  } catch {
+    return false;
+  }
+}
+
+function resolveRealServiceBinary(serviceTarget) {
+  const shimPathResolved = path.resolve(serviceTarget.shimPath);
+  for (const candidate of whichAll(serviceTarget.command)) {
+    const candidateResolved = path.resolve(candidate);
+    if (candidateResolved === shimPathResolved) {
+      if (shimFileContainsMarker(candidate)) {
+        continue; // our own previous shim — look further down PATH
+      }
+      try {
+        const realTarget = fs.realpathSync(candidate);
+        if (path.resolve(realTarget) !== shimPathResolved) {
+          // A symlink lives at the shim path (e.g. ~/.local/bin/llama-server ->
+          // miniforge3/bin/llama-server): the link target survives replacing
+          // the symlink with our shim.
+          return realTarget;
+        }
+      } catch {
+        // Fall through and keep looking.
+      }
+      continue;
+    }
+    if (shimFileContainsMarker(candidate)) {
+      continue; // stale Local Router shim elsewhere in PATH
+    }
+    return candidate;
+  }
+  return null;
+}
+
+function pushProviderRegistration(lines, serviceTarget, routerHost, routerPort) {
+  if (!serviceTarget.providerSlug) {
+    return;
+  }
+  const payloadFormat = `{"name":"${serviceTarget.providerSlug}","endpoint":"http://127.0.0.1:%s","keyEnvVar":"${serviceTarget.keyEnvVar}","displayName":"${serviceTarget.displayName}"}`;
+  lines.push(
+    '# Best-effort: register this backend as a Local Router custom provider',
+    '# and refresh its model list once it has had time to boot.',
+    `SERVICE_PORT=${serviceTarget.backendPort}`,
+    'for ((i=1; i<=$#; i++)); do',
+    '  if [[ "${!i}" == "--port" ]]; then',
+    '    __next=$((i+1)); SERVICE_PORT="${!__next}"',
+    '  elif [[ "${!i}" == --port=* ]]; then',
+    '    SERVICE_PORT="${!i#--port=}"',
+    '  fi',
+    'done',
+    '(',
+    '  sleep 3',
+    `  payload="$(printf ${bashSingleQuote(payloadFormat)} "$SERVICE_PORT")"`,
+    `  curl -sf -m 5 -X POST http://${routerHost}:${routerPort}/api/providers -H 'Content-Type: application/json' -d "$payload" >/dev/null 2>&1 \\`,
+    `    || curl -sf -m 5 -X PUT http://${routerHost}:${routerPort}/api/providers/${serviceTarget.providerSlug} -H 'Content-Type: application/json' -d "$payload" >/dev/null 2>&1 || true`,
+    '  sleep 12',
+    `  curl -sf -m 60 -X POST http://${routerHost}:${routerPort}/api/refresh-endpoint-models >/dev/null 2>&1 || true`,
+    ') &'
+  );
+}
+
+function renderServiceShim(serviceTarget, realPath, routeTarget) {
+  const host = routeTarget ? routeTarget.host : '127.0.0.1';
+  const port = routeTarget ? routeTarget.port : DEFAULT_PORT;
+  const startArgs = routeTarget ? `start --host ${host} --port ${port}` : 'start';
+  const realVar = `REAL_${serviceTarget.command.toUpperCase().replace(/-/g, '_')}`;
+
+  const lines = [
+    '#!/usr/bin/env bash',
+    'set -euo pipefail',
+    SERVICE_SHIM_MARKER,
+    `${realVar}=${bashSingleQuote(realPath)}`,
+    'LOCAL_ROUTER_BIN="${LOCAL_ROUTER_BIN:-${FVS_CODE_BIN:-local-router}}"',
+    '',
+    '# Escape hatch: LOCAL_ROUTER_NO_SHIM=1 runs the real binary directly.',
+    'if [[ "${LOCAL_ROUTER_NO_SHIM:-0}" == "1" ]]; then',
+    `  exec "$${realVar}" "$@"`,
+    'fi',
+    ''
+  ];
+
+  if (serviceTarget.interceptAllArgs) {
+    // llama-server always serves: every invocation is a service start.
+    lines.push(
+      `"$LOCAL_ROUTER_BIN" ${startArgs} >/dev/null 2>&1 || true`,
+      ''
+    );
+    pushProviderRegistration(lines, serviceTarget, host, port);
+    lines.push(
+      `exec "$${realVar}" "$@"`,
+      ''
+    );
+    return lines.join('\n');
+  }
+
+  const subcommands = (serviceTarget.serveSubcommands || []).join('|');
+  lines.push(
+    'case "${1:-}" in',
+    `  ${subcommands})`,
+    `    "$LOCAL_ROUTER_BIN" ${startArgs} >/dev/null 2>&1 || true`
+  );
+  const registration = [];
+  pushProviderRegistration(registration, serviceTarget, host, port);
+  for (const line of registration) {
+    lines.push(`  ${line}`);
+  }
+  lines.push(
+    '    ;;',
+    'esac',
+    '',
+    `exec "$${realVar}" "$@"`,
+    ''
+  );
+  return lines.join('\n');
+}
+
+function installShim(serviceTarget, realPath, routeMode, routeTarget) {
+  if (fs.existsSync(serviceTarget.shimPath)) {
+    let isSymlink = false;
+    try {
+      isSymlink = fs.lstatSync(serviceTarget.shimPath).isSymbolicLink();
+    } catch {
+      // Fall through to the marker check.
+    }
+    const replaceable = isSymlink || shimFileContainsMarker(serviceTarget.shimPath);
+    if (!replaceable) {
+      console.error(`Refusing to overwrite existing non-Local Router file at ${serviceTarget.shimPath}.`);
+      return false;
+    }
+    if (isSymlink) {
+      console.log(`Replacing symlink at ${serviceTarget.shimPath} with the Local Router shim (real binary stays at ${realPath}).`);
+    }
+    fs.unlinkSync(serviceTarget.shimPath);
+  }
+  const shimScript = serviceTarget.command === 'ollama'
+    ? renderOllamaShim(realPath, routeMode, routeTarget)
+    : renderServiceShim(serviceTarget, realPath, routeTarget);
+  fs.writeFileSync(serviceTarget.shimPath, shimScript, 'utf8');
+  fs.chmodSync(serviceTarget.shimPath, 0o755);
+  return true;
+}
+
 function routeStatusSummary() {
   const routingState = readStateFile(ROUTING_STATE_PATH) || readStateFile(LEGACY_ROUTING_STATE_PATH) || {};
   const activeOllamaPath = whichAll('ollama')[0] || '';
-  const shimExists = fs.existsSync(OLLAMA_SHIM_PATH);
-  const shimContent = shimExists ? fs.readFileSync(OLLAMA_SHIM_PATH, 'utf8') : '';
-  const enabled = shimExists && (shimContent.includes(SHIM_MARKER) || shimContent.includes(LEGACY_SHIM_MARKER));
+  const services = SERVICE_TARGETS.map((serviceTarget) => ({
+    command: serviceTarget.command,
+    shimPath: serviceTarget.shimPath,
+    enabled: fs.existsSync(serviceTarget.shimPath) && shimFileContainsMarker(serviceTarget.shimPath),
+    realPath: null
+  }));
+  const recorded = Array.isArray(routingState.services) ? routingState.services : [];
+  for (const entry of recorded) {
+    const service = services.find((item) => item.command === entry.command);
+    if (service && entry.realPath) {
+      service.realPath = entry.realPath;
+    }
+  }
+  const ollamaService = services.find((service) => service.command === 'ollama') || {};
 
   return {
-    enabled,
+    enabled: Boolean(ollamaService.enabled),
+    services,
     shimPath: OLLAMA_SHIM_PATH,
     activeOllamaPath: activeOllamaPath || null,
-    realOllamaPath: routingState.realOllamaPath || null,
-    mode: routingState.mode || (enabled ? 'ollama' : 'none'),
+    realOllamaPath: ollamaService.realPath || routingState.realOllamaPath || null,
+    mode: routingState.mode || (ollamaService.enabled ? 'ollama' : 'none'),
     targetHost: routingState.targetHost || null,
     targetPort: routingState.targetPort || null
   };
@@ -487,73 +695,107 @@ function routeStatusSummary() {
 
 function cmdRouteStatus() {
   const summary = routeStatusSummary();
-  console.log(`Route shim: ${summary.enabled ? 'enabled' : 'disabled'}`);
   console.log(`Route mode: ${summary.mode}`);
-  console.log(`Shim path: ${summary.shimPath}`);
-  console.log(`ollama path: ${summary.activeOllamaPath || 'not found'}`);
-  if (summary.realOllamaPath) {
-    console.log(`Recorded real ollama: ${summary.realOllamaPath}`);
+  for (const service of summary.services) {
+    console.log(`${service.command} shim: ${service.enabled ? 'enabled' : 'not installed'}`);
+    if (service.enabled) {
+      console.log(`  Shim path: ${service.shimPath}`);
+      if (service.realPath) {
+        console.log(`  Real ${service.command}: ${service.realPath}`);
+      }
+    }
   }
+  console.log(`ollama path: ${summary.activeOllamaPath || 'not found'}`);
   if (summary.mode === 'custom' && summary.targetHost && summary.targetPort) {
     console.log(`Custom target: ${summary.targetHost}:${summary.targetPort}`);
   }
   if (summary.enabled && summary.activeOllamaPath !== OLLAMA_SHIM_PATH) {
-    console.log('Warning: shim exists but is not first in PATH. Place ~/.local/bin earlier in PATH.');
+    console.log('Warning: ollama shim exists but is not first in PATH. Place ~/.local/bin earlier in PATH.');
   }
   return 0;
 }
 
-async function cmdRouteSet(routeMode = 'ollama', customTarget = null) {
+async function cmdRouteSet(routeMode = 'services', customTarget = null) {
   if (IS_WIN) {
-    console.error('The ollama route shim is a POSIX bash feature and is not supported on Windows.');
+    console.error('The service shims are POSIX bash features and are not supported on Windows.');
     console.error('On Windows, run `local-router start` directly (and start the ollama backend separately if needed).');
     return 1;
   }
-  const candidates = whichAll('ollama');
-  const realOllamaPath = candidates.find((candidate) => path.resolve(candidate) !== path.resolve(OLLAMA_SHIM_PATH));
-  if (!realOllamaPath) {
-    console.error('Could not locate the real ollama binary. Install Ollama first.');
-    return 1;
-  }
 
-  let target = null;
+  let routeTarget = null;
   if (routeMode === 'custom') {
-    target = parseCustomRouteTarget(customTarget);
-    await validateCustomRouteTarget(target);
+    routeTarget = parseCustomRouteTarget(customTarget);
+    await validateCustomRouteTarget(routeTarget);
   }
 
   fs.mkdirSync(SHIM_DIR, { recursive: true });
-  const shimScript = renderOllamaShim(realOllamaPath, routeMode, target);
 
-  fs.writeFileSync(OLLAMA_SHIM_PATH, shimScript, 'utf8');
-  fs.chmodSync(OLLAMA_SHIM_PATH, 0o755);
+  const installed = [];
+  let sawError = false;
+
+  for (const serviceTarget of SERVICE_TARGETS) {
+    const realPath = resolveRealServiceBinary(serviceTarget);
+    if (!realPath) {
+      if (serviceTarget.command === 'ollama') {
+        console.error('Could not locate the real ollama binary. Install Ollama first.');
+        sawError = true;
+      } else {
+        console.log(`Note: ${serviceTarget.command} not found in PATH — skipping its shim. Re-run \`local-router route set\` after installing it.`);
+      }
+      continue;
+    }
+
+    if (!installShim(serviceTarget, realPath, routeMode, routeTarget)) {
+      sawError = true;
+      continue;
+    }
+
+    installed.push({ command: serviceTarget.command, shimPath: serviceTarget.shimPath, realPath });
+    console.log(`Installed ${serviceTarget.command} service shim: ${serviceTarget.shimPath}`);
+    console.log(`  Real ${serviceTarget.command}: ${realPath}`);
+    if (serviceTarget.providerSlug) {
+      console.log(`  Registers custom provider "${serviceTarget.providerSlug}" when the service starts.`);
+    }
+  }
+
   writeStateFile(ROUTING_STATE_PATH, {
-    enabled: true,
+    enabled: installed.length > 0,
     mode: routeMode,
     shimPath: OLLAMA_SHIM_PATH,
-    realOllamaPath,
-    targetHost: target?.host || null,
-    targetPort: target?.port || null,
+    realOllamaPath: (installed.find((entry) => entry.command === 'ollama') || {}).realPath || null,
+    services: installed,
+    targetHost: routeTarget?.host || null,
+    targetPort: routeTarget?.port || null,
     updatedAt: new Date().toISOString()
   });
 
-  console.log(`Installed ollama route shim: ${OLLAMA_SHIM_PATH}`);
-  console.log(`Real ollama path: ${realOllamaPath}`);
-  if (routeMode === 'custom' && target) {
-    console.log(`Custom route target: ${target.host}:${target.port}`);
+  if (routeTarget) {
+    console.log(`Custom route target: ${routeTarget.host}:${routeTarget.port}`);
+  }
+  if (installed.length > 0) {
+    console.log('Service starts (ollama serve, llama-server, unsloth serve) now go through Local Router.');
+    console.log('Other invocations pass through to the real binary and talk to Local Router on its port.');
+    console.log('Set LOCAL_ROUTER_NO_SHIM=1 to bypass a shim and use the real binary directly.');
   }
   console.log('Ensure ~/.local/bin is before other paths in PATH for this to take effect.');
-  return 0;
+  return sawError ? 1 : 0;
 }
 
 function cmdRouteUnset() {
-  if (fs.existsSync(OLLAMA_SHIM_PATH)) {
-    const content = fs.readFileSync(OLLAMA_SHIM_PATH, 'utf8');
-    if (!content.includes(SHIM_MARKER) && !content.includes(LEGACY_SHIM_MARKER)) {
-      console.error(`Refusing to remove non-Local Router shim at ${OLLAMA_SHIM_PATH}`);
-      return 1;
+  let refused = false;
+  let removedAny = false;
+  for (const serviceTarget of SERVICE_TARGETS) {
+    if (!fs.existsSync(serviceTarget.shimPath)) {
+      continue;
     }
-    fs.unlinkSync(OLLAMA_SHIM_PATH);
+    if (!shimFileContainsMarker(serviceTarget.shimPath)) {
+      console.error(`Refusing to remove non-Local Router file at ${serviceTarget.shimPath}`);
+      refused = true;
+      continue;
+    }
+    fs.unlinkSync(serviceTarget.shimPath);
+    console.log(`Removed ${serviceTarget.command} service shim: ${serviceTarget.shimPath}`);
+    removedAny = true;
   }
 
   const routingState = readStateFile(ROUTING_STATE_PATH) || {};
@@ -561,13 +803,16 @@ function cmdRouteUnset() {
     ...routingState,
     enabled: false,
     mode: 'none',
+    services: [],
     targetHost: null,
     targetPort: null,
     updatedAt: new Date().toISOString()
   });
 
-  console.log(`Removed ollama route shim: ${OLLAMA_SHIM_PATH}`);
-  return 0;
+  if (!removedAny) {
+    console.log('No Local Router service shims found.');
+  }
+  return refused ? 1 : 0;
 }
 
 async function main() {
@@ -582,7 +827,7 @@ async function main() {
   if (command === 'route') {
     const subcommand = argv[1] || 'status';
     if (subcommand === 'set') {
-      process.exitCode = await cmdRouteSet('ollama');
+      process.exitCode = await cmdRouteSet('services');
       return;
     }
     if (subcommand === 'custom') {

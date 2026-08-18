@@ -91,3 +91,16 @@ test('assertSafeUpstreamUrl rejects unsupported protocols', async () => {
     SsrfBlockedError
   );
 });
+
+test('assertSafeUpstreamUrl allows loopback HTTP (local service backends)', async () => {
+  await assertSafeUpstreamUrl('http://127.0.0.1:8080/v1/models');
+  await assertSafeUpstreamUrl('http://[::1]:8080/v1/models');
+  await assertSafeUpstreamUrl('http://localhost:8080/v1/models');
+});
+
+test('assertSafeUpstreamUrl still blocks non-loopback HTTP without DEV mode', async () => {
+  await assert.rejects(
+    () => assertSafeUpstreamUrl('http://127.0.0.1.evil.example/v1'),
+    SsrfBlockedError
+  );
+});
