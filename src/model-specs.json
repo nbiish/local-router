@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated": "2026-06-12",
+  "updated": "2026-08-17",
   "description": "Authoritative model specifications for CI/CD validation. Sources: provider API docs, OpenRouter metadata, model cards. Used by scripts/validate-model-specs.mts to detect metadata drift in providers.txt.",
   "models": {
     "deepseek-v4-pro": {
@@ -51,6 +51,14 @@
       "vision": true,
       "reasoning": true,
       "source": "Moonshot/ZenMux docs (June 2026)"
+    },
+    "kimi-k3": {
+      "context": 262144,
+      "output": 262144,
+      "tools": true,
+      "vision": false,
+      "reasoning": true,
+      "source": "Moonshot Kimi K3 via Nbiish Modal deployment (August 2026)"
     },
     "glm-5.1": {
       "context": 200000,

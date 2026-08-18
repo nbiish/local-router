@@ -168,6 +168,19 @@ export function renderProvidersPage(params: {
                 <span style="font-weight: 500;">Only show models from configured providers in Ollama proxy</span>
               </label>
             </div>
+            <div id="curationControls" style="display: none; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border-color, #333);">
+              <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+                <label class="flag-toggle">
+                  <input id="curationToggle" type="checkbox" onchange="toggleCuration(this.checked)">
+                  <span style="font-weight: 500;">Curate endpoint models (serve only checked)</span>
+                </label>
+                <input id="catalogSearch" type="search" placeholder="Search ported models…" oninput="renderCurationCatalog()" style="flex: 1; min-width: 160px;">
+                <button type="button" class="button-secondary" onclick="selectAllShownCatalog()" style="padding: 4px 10px; font-size: 13px;">Select shown</button>
+                <button type="button" class="button-secondary" onclick="clearCatalogSelection()" style="padding: 4px 10px; font-size: 13px;">Clear all</button>
+                <button type="button" onclick="saveCuration()" style="padding: 4px 10px; font-size: 13px;">Save Curation</button>
+              </div>
+              <div class="muted" id="curationStatus" style="margin-top: 6px;"></div>
+            </div>
           </div>
           <div class="muted" id="catalogCount">Loading catalog...</div>
         </div>

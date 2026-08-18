@@ -51,8 +51,14 @@ export interface ConfigApiDeps {
   providerSummariesForEnvVar: (envVar: string) => ProviderSummary[];
   DEFAULT_OLLAMA_API_KEY: string;
   clearProviderKeyForProvider: (provider: string) => void;
-  modelSourceConfig: { source: 'custom' | 'endpoints'; filterConfigured: boolean };
+  modelSourceConfig: {
+    source: 'custom' | 'endpoints';
+    filterConfigured: boolean;
+    curationEnabled: boolean;
+    curatedEndpointModelKeys: string[];
+  };
   persistModelSourceConfig: () => void;
+  canonicalProviderSlug: (name: string) => string;
   filterConfiguredModels: (models: ProviderModel[]) => ProviderModel[];
   ensureOllamaBackend: () => Promise<boolean>;
   queryAllProviderEndpoints: () => Promise<ProviderModel[]>;
@@ -146,6 +152,7 @@ export function registerConfigApiRoutes(app: express.Express, deps: ConfigApiDep
     clearProviderKeyForProvider,
     modelSourceConfig,
     persistModelSourceConfig,
+    canonicalProviderSlug,
     filterConfiguredModels,
     ensureOllamaBackend,
     queryAllProviderEndpoints,
@@ -512,6 +519,52 @@ app.put('/api/model-source', (req: Request, res: Response) => {
   res.json({ success: true, ...modelSourceConfig });
 });
 
+app.get('/api/model-curation', (req: Request, res: Response) => {
+  const grouped = providerModelsGroupedByProvider(state.endpointModelsCache);
+  res.json({
+    source: modelSourceConfig.source,
+    curationEnabled: modelSourceConfig.curationEnabled,
+    selectedKeys: modelSourceConfig.curatedEndpointModelKeys,
+    selectedCount: modelSourceConfig.curatedEndpointModelKeys.length,
+    totalModels: state.endpointModelsCache.length,
+    data: grouped
+  });
+});
+
+app.put('/api/model-curation', (req: Request, res: Response) => {
+  const { enabled, selectedKeys } = req.body || {};
+
+  if (enabled !== undefined && typeof enabled !== 'boolean') {
+    return res.status(400).json({ error: 'enabled must be a boolean.' });
+  }
+
+  if (selectedKeys !== undefined) {
+    if (!Array.isArray(selectedKeys)) {
+      return res.status(400).json({ error: 'selectedKeys must be an array of "provider::model" strings.' });
+    }
+    const invalidEntry = selectedKeys.find((key: unknown) => typeof key !== 'string' || !key.includes('::'));
+    if (invalidEntry !== undefined) {
+      return res.status(400).json({ error: 'selectedKeys entries must be "provider::model" strings.' });
+    }
+    modelSourceConfig.curatedEndpointModelKeys = Array.from(new Set(
+      selectedKeys.map((key: string) => key.trim()).filter(Boolean)
+    )).slice(0, 5000);
+  }
+
+  if (typeof enabled === 'boolean') {
+    modelSourceConfig.curationEnabled = enabled;
+  }
+
+  persistModelSourceConfig();
+
+  return res.json({
+    success: true,
+    curationEnabled: modelSourceConfig.curationEnabled,
+    selectedCount: modelSourceConfig.curatedEndpointModelKeys.length,
+    selectedKeys: modelSourceConfig.curatedEndpointModelKeys
+  });
+});
+
 app.post('/api/refresh-endpoint-models', async (req: Request, res: Response) => {
   try {
     await ensureOllamaBackend();
@@ -548,7 +601,7 @@ app.get('/api/provider-models', (req: Request, res: Response) => {
 });
 
 app.get('/api/provider-models/:provider', async (req: Request, res: Response) => {
-  const providerName = String(req.params.provider || '').trim();
+  const providerName = canonicalProviderSlug(String(req.params.provider || '').trim());
   const summary = getProviderSummary(providerName);
   if (!summary) {
     return res.status(404).json({ error: `Unknown provider: ${providerName}` });
@@ -565,7 +618,7 @@ app.get('/api/provider-models/:provider', async (req: Request, res: Response) =>
 });
 
 app.put('/api/provider-models/:provider', (req: Request, res: Response) => {
-  const providerName = String(req.params.provider || '').trim();
+  const providerName = canonicalProviderSlug(String(req.params.provider || '').trim());
   const summary = getProviderSummary(providerName);
   if (!summary) {
     return res.status(404).json({ error: `Unknown provider: ${providerName}` });
@@ -593,7 +646,7 @@ app.put('/api/provider-models/:provider', (req: Request, res: Response) => {
 });
 
 app.post('/api/provider-models/:provider/models', (req: Request, res: Response) => {
-  const providerName = String(req.params.provider || '').trim();
+  const providerName = canonicalProviderSlug(String(req.params.provider || '').trim());
   const summary = getProviderSummary(providerName);
   if (!summary) {
     return res.status(404).json({ error: `Unknown provider: ${providerName}` });
@@ -630,7 +683,7 @@ app.post('/api/provider-models/:provider/models', (req: Request, res: Response) 
 });
 
 app.delete('/api/provider-models/:provider/models/:modelId', (req: Request, res: Response) => {
-  const providerName = String(req.params.provider || '').trim();
+  const providerName = canonicalProviderSlug(String(req.params.provider || '').trim());
   const summary = getProviderSummary(providerName);
   if (!summary) {
     return res.status(404).json({ error: `Unknown provider: ${providerName}` });
@@ -661,7 +714,7 @@ app.delete('/api/provider-models/:provider/models/:modelId', (req: Request, res:
 });
 
 app.delete('/api/provider-models/:provider', (req: Request, res: Response) => {
-  const providerName = String(req.params.provider || '').trim();
+  const providerName = canonicalProviderSlug(String(req.params.provider || '').trim());
   const summary = getProviderSummary(providerName);
   if (!summary) {
     return res.status(404).json({ error: `Unknown provider: ${providerName}` });

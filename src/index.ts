@@ -295,6 +295,7 @@ const DEFAULT_PROVIDER_TIER_ORDER = [
   'cline',
   'nvidia-nim',
   'modal',
+  'modal-proxy',
   'nebius',
   'opencode-zen',
   'opencode-go',
@@ -304,7 +305,7 @@ const DEFAULT_PROVIDER_TIER_ORDER = [
   'zenmux',
   'pioneer',
   'nous-portal',
-  'openrouter-presets'
+  'openrouter'
 ] as const;
 
 const PRESENTATION_PREFIX_TO_PROVIDER: Record<string, string> = {
@@ -313,6 +314,7 @@ const PRESENTATION_PREFIX_TO_PROVIDER: Record<string, string> = {
   cline: 'cline',
   'nvidia-nim': 'nvidia-nim',
   modal: 'modal',
+  'modal-proxy': 'modal-proxy',
   nebius: 'nebius',
   'opencode-zen': 'opencode-zen',
   'opencode-go': 'opencode-go',
@@ -326,8 +328,8 @@ const PRESENTATION_PREFIX_TO_PROVIDER: Record<string, string> = {
   'nous-portal': 'nous-portal',
   portal: 'nous-portal',
   nous: 'nous-portal',
-  openrouter: 'openrouter-presets',
-  'openrouter-presets': 'openrouter-presets'
+  openrouter: 'openrouter',
+  'openrouter-presets': 'openrouter'
 };
 
 function resolvedDefaultAutoRouterCandidatesText(): string {
@@ -394,11 +396,14 @@ const UPSTREAM_MODEL_ID_ALIASES: Record<string, string> = {
   'zenmux/xiaomi/mimo-v2.5-pro': 'zenmux-mimo-v2.5-pro',
   'nebius/nvidia/Nemotron-3-Ultra-550b-a55b': 'nebius-nemotron-3-ultra-550b-a55b',
   'openrouter-presets/@preset/chain-of-draft': 'openrouter-chain-of-draft',
+  'openrouter/@preset/chain-of-draft': 'openrouter-chain-of-draft',
   'wafer-serverless/deepseek-v4-flash': 'wafer-ai-deepseek-v4-flash',
   'wafer-serverless/MiniMax-M3': 'wafer-ai-minimax-m3',
   'wafer-serverless/minimax-m3': 'wafer-ai-minimax-m3',
   'openrouter-presets/openrouter/free': 'openrouter-free',
+  'openrouter/openrouter/free': 'openrouter-free',
   'openrouter-presets/deepseek/deepseek-v4-flash': 'openrouter-deepseek-v4-flash',
+  'openrouter/deepseek/deepseek-v4-flash': 'openrouter-deepseek-v4-flash',
   'zenmux/deepseek/deepseek-v4-flash': 'zenmux-deepseek-v4-flash',
   'kilo/openrouter/free': 'kilo-openrouter-free',
   'kilo/nvidia/nemotron-3-ultra-550b-a55b:free': 'kilo-nvidia-nemotron-3-ultra-550b-a55b-free',
@@ -481,6 +486,20 @@ const PROVIDER_PRESENTATION_PREFIXES: Record<string, string> = {
   'wafer-serverless': 'wafer-ai',
   'openrouter-presets': 'openrouter'
 };
+
+/**
+ * Legacy provider slugs → canonical provider names. `openrouter-presets` was
+ * renamed to `openrouter` (2026-08-18); persisted overrides, routing configs,
+ * and older API calls may still reference the legacy slug.
+ */
+const LEGACY_PROVIDER_SLUG_ALIASES: Record<string, string> = {
+  'openrouter-presets': 'openrouter'
+};
+
+export function canonicalProviderSlug(providerName: string): string {
+  const trimmed = String(providerName || '').trim();
+  return LEGACY_PROVIDER_SLUG_ALIASES[trimmed] || trimmed;
+}
 const parsedPort = Number.parseInt(process.env.PORT || String(DEFAULT_PORT), 10);
 const PORT = Number.isInteger(parsedPort) && parsedPort > 0 && parsedPort <= 65535
   ? parsedPort
@@ -523,7 +542,13 @@ const persistedProviderModelOverrides = new Set<string>();
 let customProviderStore: CustomProviderRecord[] = [];
 const fallbackModelStore: Record<string, FallbackModel> = {};
 const routerModelStore: Record<string, RouterModel> = {};
-const modelSourceConfig: { source: 'custom' | 'endpoints'; filterConfigured: boolean } = { source: 'custom', filterConfigured: true };
+const modelSourceConfig: {
+  source: 'custom' | 'endpoints';
+  filterConfigured: boolean;
+  curationEnabled: boolean;
+  curatedEndpointModelKeys: string[];
+} = { source: 'custom', filterConfigured: true, curationEnabled: false, curatedEndpointModelKeys: [] };
+const MAX_CURATED_ENDPOINT_MODEL_KEYS = 5000;
 let endpointModelsCache: ProviderModel[] = [];
 const DEFAULT_CHAIN_OF_DRAFT_PROMPT = `Think step by step, but only keep a minimum draft for each thinking step, with 5 words at most. Return the answer after your thinking.`;
 const systemPromptConfig: { enabled: boolean; prompt: string; thinkingLevel: ThinkingLevel } = {
@@ -679,7 +704,15 @@ function diagnosticsSnapshot(limit = 120) {
   };
 }
 
+let catalogProviderSummariesCache: ProviderSummary[] | null = null;
+
 function readCatalogProviderSummaries(): ProviderSummary[] {
+  // providers.txt is static at runtime (changes require a repo edit + restart),
+  // so parse it once per process. Without this cache, every catalog lookup
+  // re-read the file, making startup O(models × providers) file reads —
+  // minutes on network/9p filesystems (WSL /mnt) instead of milliseconds.
+  if (catalogProviderSummariesCache) return catalogProviderSummariesCache;
+
   const providersPath = path.resolve(process.cwd(), 'providers.txt');
 
   try {
@@ -713,6 +746,7 @@ function readCatalogProviderSummaries(): ProviderSummary[] {
       });
     }
 
+    catalogProviderSummariesCache = summaries;
     return summaries;
   } catch (error) {
     console.error('Failed to read providers.txt provider summary table:', error);
@@ -948,7 +982,8 @@ function providerReferencedInRouting(providerName: string): string[] {
 }
 
 function getProviderSummary(name: string): ProviderSummary | undefined {
-  return allProviderSummaries().find((provider) => provider.name === name);
+  const canonicalName = canonicalProviderSlug(name);
+  return allProviderSummaries().find((provider) => provider.name === canonicalName);
 }
 
 function cloneProviderModel(model: ProviderModel): ProviderModel {
@@ -957,7 +992,8 @@ function cloneProviderModel(model: ProviderModel): ProviderModel {
   };
 }
 
-function baselineProviderModels(providerName: string): ProviderModel[] {
+function baselineProviderModels(rawProviderName: string): ProviderModel[] {
+  const providerName = canonicalProviderSlug(rawProviderName);
   if (isCustomProvider(providerName)) {
     return [];
   }
@@ -966,14 +1002,16 @@ function baselineProviderModels(providerName: string): ProviderModel[] {
     .map((model) => cloneProviderModel(model));
 }
 
-function editableProviderModels(providerName: string): ProviderModel[] {
+function editableProviderModels(rawProviderName: string): ProviderModel[] {
+  const providerName = canonicalProviderSlug(rawProviderName);
   if (!modelStore[providerName]) {
     modelStore[providerName] = baselineProviderModels(providerName);
   }
   return modelStore[providerName];
 }
 
-function effectiveProviderModels(providerName: string): ProviderModel[] {
+function effectiveProviderModels(rawProviderName: string): ProviderModel[] {
+  const providerName = canonicalProviderSlug(rawProviderName);
   return modelStore[providerName] || readProviderModels().filter((model) => model.provider === providerName);
 }
 
@@ -1965,14 +2003,14 @@ function loadPersistedProviderModels() {
       : [];
 
     for (const entry of entries) {
-      const providerName = String(entry?.provider || '').trim();
+      const providerName = canonicalProviderSlug(String(entry?.provider || '').trim());
       if (!providerName) continue;
       const modelList = Array.isArray(entry?.models) ? entry.models : [];
       if (modelList.length === 0) continue;
 
-      modelStore[providerName] = modelList.map((raw: any) => ({
+      const migratedModels = modelList.map((raw: any) => ({
         id: String(raw?.id || ''),
-        provider: String(raw?.provider || providerName),
+        provider: canonicalProviderSlug(String(raw?.provider || providerName)),
         model: String(raw?.model || ''),
         display: String(raw?.display || ''),
         contextLength: Number.isInteger(raw?.contextLength) ? raw.contextLength : DEFAULT_CONTEXT_LENGTH,
@@ -1982,6 +2020,17 @@ function loadPersistedProviderModels() {
         supportsCache: Boolean(raw?.supportsCache),
         supportsReasoning: Boolean(raw?.supportsReasoning)
       }));
+      const existingModels = modelStore[providerName];
+      if (existingModels) {
+        const knownIds = new Set(existingModels.map((model) => model.id));
+        for (const model of migratedModels) {
+          if (knownIds.has(model.id)) continue;
+          existingModels.push(model);
+          knownIds.add(model.id);
+        }
+      } else {
+        modelStore[providerName] = migratedModels;
+      }
       persistedProviderModelOverrides.add(providerName);
     }
   } catch (error: any) {
@@ -1999,6 +2048,16 @@ function loadModelSourceConfig(): void {
     }
     if (typeof parsed.filterConfigured === 'boolean') {
       modelSourceConfig.filterConfigured = parsed.filterConfigured;
+    }
+    if (typeof parsed.curationEnabled === 'boolean') {
+      modelSourceConfig.curationEnabled = parsed.curationEnabled;
+    }
+    if (Array.isArray(parsed.curatedEndpointModelKeys)) {
+      const curatedKeys: string[] = parsed.curatedEndpointModelKeys
+        .map((key: unknown) => String(key || '').trim())
+        .filter((key: string) => key.length > 0);
+      modelSourceConfig.curatedEndpointModelKeys = Array.from(new Set(curatedKeys))
+        .slice(0, MAX_CURATED_ENDPOINT_MODEL_KEYS);
     }
   } catch (error: any) {
     console.error('Failed to load persisted model source config:', sanitizeDiagnosticText(String(error?.message || error)));
@@ -2027,6 +2086,27 @@ function filterConfiguredModels(models: ProviderModel[]): ProviderModel[] {
     }
     return providerHasConfiguredKey(model.provider);
   });
+}
+
+function endpointModelCurationKey(model: ProviderModel): string {
+  return `${model.provider}::${model.model}`;
+}
+
+function endpointCurationActive(): boolean {
+  return modelSourceConfig.source === 'endpoints' && modelSourceConfig.curationEnabled;
+}
+
+/**
+ * Endpoint Models curation: when enabled, discovery (/v1/models, /api/tags)
+ * serves only endpoint models the operator checked in the /config catalog
+ * (port-all → search → curate). Local Router fallback/router routes and
+ * custom-mode providers.txt models are unaffected.
+ */
+function applyEndpointCuration(models: ProviderModel[]): ProviderModel[] {
+  if (!endpointCurationActive()) return models;
+  const curatedKeys = new Set(modelSourceConfig.curatedEndpointModelKeys);
+  if (curatedKeys.size === 0) return [];
+  return models.filter((model) => curatedKeys.has(endpointModelCurationKey(model)));
 }
 
 function loadEndpointModelsCache(): void {
@@ -2170,7 +2250,7 @@ type CatalogResolveOptions = {
 async function resolveCatalogModels(options: CatalogResolveOptions = {}): Promise<ProviderModel[]> {
   const mode = options.mode ?? modelSourceConfig.source;
   const live = Boolean(options.live);
-  const providerFilter = String(options.provider || '').trim();
+  const providerFilter = canonicalProviderSlug(String(options.provider || '').trim());
   const endpointsActive = mode === 'endpoints' && endpointModelsCache.length > 0;
 
   if (live) {
@@ -2187,7 +2267,7 @@ async function resolveCatalogModels(options: CatalogResolveOptions = {}): Promis
     if (!endpointsActive) {
       return modelPresentationList();
     }
-    return queryAllProviderEndpoints();
+    return applyEndpointCuration(await queryAllProviderEndpoints());
   }
 
   if (endpointsActive) {
@@ -2195,9 +2275,9 @@ async function resolveCatalogModels(options: CatalogResolveOptions = {}): Promis
       if (isLocalRouterProviderName(providerFilter)) {
         return [...fallbackModelList(), ...routerModelList()];
       }
-      return endpointModelsCache.filter((model) => model.provider === providerFilter);
+      return applyEndpointCuration(endpointModelsCache.filter((model) => model.provider === providerFilter));
     }
-    return endpointModelsCache;
+    return applyEndpointCuration(endpointModelsCache);
   }
 
   if (providerFilter) {
@@ -2212,7 +2292,7 @@ async function resolveCatalogModels(options: CatalogResolveOptions = {}): Promis
 
 function providerCatalogModels(): ProviderModel[] {
   if (modelSourceConfig.source === 'endpoints' && endpointModelsCache.length > 0) {
-    return endpointModelsCache;
+    return applyEndpointCuration(endpointModelsCache);
   }
   return modelPresentationList();
 }
@@ -2267,14 +2347,14 @@ function resolveModelTarget(modelName: string): ModelTarget | null {
     };
   }
 
-  const [providerName, ...actualModelParts] = modelName.split('/');
+  const [rawProviderName, ...actualModelParts] = modelName.split('/');
   const actualModel = actualModelParts.join('/');
-  if (!providerName || !actualModel) {
+  if (!rawProviderName || !actualModel) {
     return null;
   }
 
   return {
-    providerName,
+    providerName: canonicalProviderSlug(rawProviderName),
     actualModel
   };
 }
@@ -2459,7 +2539,7 @@ function normalizeCatalogModelId(raw: string): string {
 
   if (trimmed.includes('/')) {
     const slashIndex = trimmed.indexOf('/');
-    const providerName = trimmed.slice(0, slashIndex);
+    const providerName = canonicalProviderSlug(trimmed.slice(0, slashIndex));
     const upstreamModel = trimmed.slice(slashIndex + 1);
     const catalogMatch = activeProviderModelList().find((model) => (
       model.provider === providerName && model.model === upstreamModel
@@ -3109,13 +3189,15 @@ function getPqcPubkeyPath(): string {
 }
 
 /**
- * Locate the native pqc-secrets binary, platform-aware.
+ * Locate the pqc-secrets entry point, platform-aware.
  *
- * `bin/pqc-secrets` is a platform-specific native binary (the shipped build is a macOS arm64
- * Mach-O executable). On Windows we look for `bin/pqc-secrets.exe` (then the extensionless name);
- * executability on Windows is determined by PATHEXT, not the POSIX exec bit, so we use F_OK
- * (existence) there. On POSIX we keep the X_OK check. This is the single place native-binary
- * selection lives — to support a new OS/arch, add its candidate name here and ship the binary.
+ * `bin/pqc-secrets` is a dispatch wrapper: it execs the native Rust binary
+ * (`bin/pqc-secrets.darwin-arm64`) on macOS arm64 and otherwise delegates to the Python
+ * engine (`.agents/skills/pqc-secrets/scripts/pqc_secrets.py`) via `uv run`. On Windows we
+ * look for `bin/pqc-secrets.exe` (then the extensionless name); executability on Windows is
+ * determined by PATHEXT, not the POSIX exec bit, so we use F_OK (existence) there. On POSIX
+ * we keep the X_OK check. This is the single place native-binary selection lives — to support
+ * a new OS/arch, add its candidate name here and ship the binary.
  */
 function getPqcBinPath(): string {
   const isWindows = process.platform === 'win32';
@@ -3143,7 +3225,8 @@ function ensurePqcKeypair(bin: string): boolean {
   try {
     execFileSync(bin, ['keygen'], {
       encoding: 'utf8',
-      timeout: 10000,
+      // uv-based pqc-secrets engine cold start can exceed 10s on first dependency resolution
+      timeout: 30000,
       stdio: 'pipe',
       env: {
         ...process.env,
@@ -3218,7 +3301,7 @@ function loadPqcSecrets(): void {
   try {
     const output = execFileSync(bin, ['export'], {
       encoding: 'utf8',
-      timeout: 10000,
+      timeout: 30000,
       env: {
         ...process.env,
         PQC_CONFIG_DIR: getPqcConfigDir(),
@@ -3331,7 +3414,7 @@ function persistPqcSecrets(): void {
     execFileSync(bin, ['pack'], {
       input: lines.join('\n') + '\n',
       encoding: 'utf8',
-      timeout: 10000,
+      timeout: 30000,
       env: {
         ...process.env,
         PQC_CONFIG_DIR: getPqcConfigDir(),
@@ -3391,6 +3474,7 @@ const configApiDeps = {
   clearProviderKeyForProvider,
   modelSourceConfig,
   persistModelSourceConfig,
+  canonicalProviderSlug,
   filterConfiguredModels,
   ensureOllamaBackend,
   queryAllProviderEndpoints,
@@ -3523,7 +3607,14 @@ async function loadProvider(name: string): Promise<ProxyProvider | null> {
   }
 }
 
+let providerModelsCache: ProviderModel[] | null = null;
+
 function readProviderModels(): ProviderModel[] {
+  // Parsed once per process (see readCatalogProviderSummaries). Router and
+  // fallback validation resolve every candidate through the catalog; without
+  // caching, each lookup re-parsed the full providers.txt master table.
+  if (providerModelsCache) return providerModelsCache;
+
   const providersPath = path.resolve(process.cwd(), 'providers.txt');
 
   try {
@@ -3576,6 +3667,7 @@ function readProviderModels(): ProviderModel[] {
       });
     }
 
+    providerModelsCache = models;
     return models;
   } catch (error) {
     console.error('Failed to read providers.txt, falling back to built-in model list:', error);
@@ -5421,7 +5513,12 @@ export function activeFallbackModels(fallbackRoute: FallbackModel): string[] {
   return fallbackRoute.models.filter((model) => {
     if (disabled.has(model)) return false;
     const target = resolveModelTarget(model);
-    if (!target) return false;
+    // Key-presence filtering applies to resolvable catalog providers only.
+    // Unknown/unresolvable entries stay in the plan so execution-shaped logic
+    // (wraparound, disabled stages) holds for direct/arbitrary model ids;
+    // they fail-and-cascade at execution time instead of vanishing here.
+    if (!target) return true;
+    if (!getProviderSummary(target.providerName)) return true;
     return providerHasConfiguredKey(target.providerName);
   });
 }
@@ -6745,8 +6842,24 @@ loadSessions();
 loadFeedback();
 loadPqcSecrets();
 
+function isMainModule(): boolean {
+  const entry = process.argv[1];
+  if (!entry) return false;
+  try {
+    return fs.realpathSync(__filename) === fs.realpathSync(path.resolve(entry));
+  } catch {
+    return false;
+  }
+}
+
+// Serve only when run as the process entrypoint (node build/index.js,
+// tsx src/index.ts, bin/local-router.js child). Library consumers — e.g.
+// tests importing build/index.js for pure helpers — bind nothing so the
+// importing process can exit when its work is done.
+const shouldServe = isMainModule() || process.env.LOCAL_ROUTER_FORCE_SERVE === 'true';
+
 const bindHost = process.env.LOCAL_ROUTER_BIND_ALL === 'true' ? '0.0.0.0' : '127.0.0.1';
-const server = app.listen(PORT, bindHost, () => {
+const server = shouldServe ? app.listen(PORT, bindHost, () => {
   console.log(`Local Router OpenAI-compatible proxy running on http://localhost:${PORT}`);
   console.log(`[Security] Bound to ${bindHost}${bindHost === '127.0.0.1' ? ' (loopback only — set LOCAL_ROUTER_BIND_ALL=true for all interfaces)' : ' (all interfaces)'}`);
   console.log(`Point your VS Code extension to: http://localhost:${PORT}/v1`);
@@ -6765,7 +6878,7 @@ const server = app.listen(PORT, bindHost, () => {
     );
     await pullOllamaCloudModels(ollamaTags);
   })();
-});
+}) : null;
 
 const wss = new WebSocketServer({ noServer: true });
 
@@ -6854,7 +6967,7 @@ wss.on('connection', (ws: WebSocket) => {
   });
 });
 
-server.on('upgrade', (request, socket, head) => {
+server?.on('upgrade', (request, socket, head) => {
   const urlObj = new URL(request.url || '', `http://${request.headers.host || 'localhost'}`);
   const pathname = urlObj.pathname;
   if (pathname === '/v1/responses') {

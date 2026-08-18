@@ -63,7 +63,7 @@ export const ROUTING_PAID_PROVIDER_SUB_ORDER = [
   'wafer-serverless',
   'zenmux',
   'pioneer',
-  'openrouter-presets',
+  'openrouter',
   'nebius',
   'cline',
   'kilo',
@@ -75,9 +75,10 @@ export const ROUTING_PAID_PROVIDER_SUB_ORDER = [
 /** Sub-order within free bands (Ollama → gateway free → OpenCode Zen free). */
 export const ROUTING_FREE_PROVIDER_SUB_ORDER = [
   'ollama',
+  'modal-proxy',
   'kilo',
   'cline',
-  'openrouter-presets',
+  'openrouter',
   'opencode-zen'
 ] as const;
 
@@ -87,6 +88,7 @@ const PRESENTATION_PREFIX_TO_PROVIDER: Record<string, string> = {
   cline: 'cline',
   'nvidia-nim': 'nvidia-nim',
   modal: 'modal',
+  'modal-proxy': 'modal-proxy',
   nebius: 'nebius',
   'opencode-zen': 'opencode-zen',
   'opencode-go': 'opencode-go',
@@ -99,8 +101,8 @@ const PRESENTATION_PREFIX_TO_PROVIDER: Record<string, string> = {
   zenmux: 'zenmux',
   pioneer: 'pioneer',
   pio: 'pioneer',
-  openrouter: 'openrouter-presets',
-  'openrouter-presets': 'openrouter-presets',
+  openrouter: 'openrouter',
+  'openrouter-presets': 'openrouter',
   antigravity: 'antigravity',
   anti: 'antigravity',
   'github-copilot': 'github-copilot',
@@ -114,6 +116,16 @@ export type CatalogModelRef = {
   provider: string;
   model: string;
 };
+
+/** `openrouter-presets` was renamed to `openrouter` (2026-08-18). */
+const LEGACY_PROVIDER_SLUG_ALIASES: Record<string, string> = {
+  'openrouter-presets': 'openrouter'
+};
+
+export function canonicalProviderSlug(providerSlug: string | null | undefined): string {
+  const trimmed = String(providerSlug || '').trim();
+  return LEGACY_PROVIDER_SLUG_ALIASES[trimmed] || trimmed;
+}
 
 export function inferProviderSlugFromPresentedId(modelId: string): string | null {
   const trimmed = String(modelId || '').trim();
@@ -192,7 +204,7 @@ export function routingExhaustionBandForModel(
   modelId: string,
   catalog?: CatalogModelRef | null
 ): RoutingExhaustionBand {
-  const provider = catalog?.provider ?? inferProviderSlugFromPresentedId(modelId);
+  const provider = canonicalProviderSlug(catalog?.provider ?? inferProviderSlugFromPresentedId(modelId));
   const upstream = catalog?.model ?? '';
 
   if (provider === 'ollama' && isOllamaFreeRoutingModel(modelId, upstream)) {
@@ -234,7 +246,9 @@ export function routingExhaustionSortKey(
   originalIndex: number,
   catalog?: CatalogModelRef | null
 ): number {
-  const provider = catalog?.provider ?? inferProviderSlugFromPresentedId(modelId) ?? '';
+  const provider = canonicalProviderSlug(
+    catalog?.provider ?? inferProviderSlugFromPresentedId(modelId) ?? ''
+  );
   const band = routingExhaustionBandForModel(modelId, catalog);
 
   if (band === ROUTING_EXHAUSTION_BAND.PAID) {

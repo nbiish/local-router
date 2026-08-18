@@ -405,7 +405,9 @@ test('provider key save/reset lifecycle exposes configured source', async (t) =>
     'nous-portal-step-3.7-flash-free',
     'nous-portal-minimax-m3',
     // OpenRouter paid kimi-k2.7-code (added 2026-06-12)
-    'openrouter-kimi-k2.7-code'
+    'openrouter-kimi-k2.7-code',
+    // Modal Nbiish Kimi-K3 own deployment (added 2026-08-17)
+    'modal-proxy-kimi-k3'
   ];
   const chainSet = new Set(fallbackChain);
   const missingAnchors = expectedFallbackAnchors.filter((id) => !chainSet.has(id));
