@@ -782,6 +782,23 @@ function isLoopbackHostname(hostname: string): boolean {
   return normalized === 'localhost' || normalized === '127.0.0.1' || normalized === '::1';
 }
 
+/**
+ * Custom providers whose endpoint is a local loopback service (llama.cpp
+ * `llama-server`, Unsloth, and similar local backends registered by the
+ * Local Router service shims) require no API key — the local HTTP endpoint
+ * has no auth, so they count as configured and are probed on refresh.
+ */
+function isLocalLoopbackProvider(providerName: string): boolean {
+  const record = customProviderStore.find((entry) => entry.name === providerName);
+  if (!record) return false;
+  try {
+    const parsed = new URL(record.endpoint);
+    return parsed.protocol === 'http:' && isLoopbackHostname(parsed.hostname);
+  } catch {
+    return false;
+  }
+}
+
 function normalizeCustomProviderEndpoint(rawEndpoint: string): { ok: true; endpoint: string } | { ok: false; error: string } {
   const trimmed = String(rawEndpoint || '').trim();
   if (!trimmed) {
@@ -2194,13 +2211,16 @@ async function fetchLiveProviderModels(providerName: string): Promise<Array<{ id
   }
 
   const key = keyStore[summary.name] || process.env[summary.keyEnvVar];
-  if (key) {
+  const isLocalService = isLocalLoopbackProvider(providerName);
+  if (key || isLocalService) {
     try {
       const url = providerBaseUrl(summary);
+      const headers: Record<string, string> = {};
+      if (key) {
+        headers.Authorization = `Bearer ${key}`;
+      }
       const response = await safeFetch(`${url}/models`, {
-        headers: {
-          Authorization: `Bearer ${key}`
-        },
+        headers,
         signal: AbortSignal.timeout(6000)
       });
       if (response.ok) {
@@ -4225,6 +4245,11 @@ function ollamaCloudRoutingAllowsPro(): boolean {
 
 function providerHasConfiguredKey(providerName: string) {
   if (providerName === 'ollama') {
+    return true;
+  }
+  // Local loopback custom providers (llama-server/unsloth service shims)
+  // have no auth — always considered configured.
+  if (isLocalLoopbackProvider(providerName)) {
     return true;
   }
   // OAuth providers are considered "configured" when they have a stored

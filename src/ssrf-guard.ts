@@ -3,7 +3,9 @@
  *
  * Every outbound fetch to a custom-provider or live-discovered endpoint is
  * routed through `safeFetch()`, which:
- *   1. Enforces HTTPS (loopback HTTP allowed only in dev mode).
+ *   1. Enforces HTTPS for non-loopback upstreams (loopback HTTP is always
+ *      allowed for locally registered service backends such as llama.cpp
+ *      `llama-server` or Unsloth; any other HTTP is dev-mode only).
  *   2. Resolves the hostname and rejects private/loopback/link-local/
  *      cloud-metadata/ULA destinations.
  *   3. Follows redirects manually, re-validating every hop so a public URL
@@ -98,12 +100,33 @@ function isLoopbackIp(ip: string): boolean {
 
 /**
  * Hostnames that are always considered loopback and therefore exempt from the
- * HTTPS-only rule in dev mode but still validated through DNS resolution.
+ * HTTPS-only rule but still validated through DNS resolution.
  */
 const LOOPBACK_HOSTNAMES = new Set(['localhost', 'localhost.',]);
 
 function isLoopbackHostname(hostname: string): boolean {
   return LOOPBACK_HOSTNAMES.has(hostname.toLowerCase());
+}
+
+/** WHATWG URLs keep brackets on IPv6 literals (`[::1]`); strip them for IP checks. */
+function normalizeIpv6Hostname(hostname: string): string {
+  if (hostname.startsWith('[') && hostname.endsWith(']')) {
+    return hostname.slice(1, -1);
+  }
+  return hostname;
+}
+
+/**
+ * True for plain-HTTP URLs whose destination is loopback (literal loopback IP
+ * or `localhost`). Local service backends registered by the Local Router
+ * service shims (llama.cpp `llama-server`, Unsloth) and other loopback custom
+ * providers are exempt from the HTTPS-only rule: the destination is the local
+ * machine itself and the operator registered the endpoint explicitly.
+ * Non-loopback HTTP remains forbidden outside dev mode.
+ */
+function isLoopbackHttpUrl(hostname: string, protocol: string): boolean {
+  const host = normalizeIpv6Hostname(hostname);
+  return protocol === 'http:' && (isLoopbackHostname(host) || isLoopbackIp(host));
 }
 
 export interface SafeFetchOptions extends RequestInit {
@@ -132,19 +155,22 @@ function assertSchemeAndHost(rawUrl: string): URL {
 
   const { hostname, protocol } = parsed;
   if (protocol === 'http:') {
-    // Plain HTTP is only permitted for loopback and only in dev mode.
-    if (!DEV_MODE) {
-      throw new SsrfBlockedError(
-        `HTTP upstreams are forbidden; use HTTPS (url=${rawUrl}). ` +
-          `Set LOCAL_ROUTER_DEV=true to allow loopback HTTP in development.`,
-        { hostname, url: rawUrl }
-      );
-    }
-    if (!isLoopbackHostname(hostname) && !net.isIP(hostname)) {
-      throw new SsrfBlockedError(
-        `HTTP upstreams are only permitted on loopback in dev mode (url=${rawUrl}).`,
-        { hostname, url: rawUrl }
-      );
+    // Plain HTTP is always permitted for loopback destinations (local service
+    // backends). Any other HTTP is dev-mode only.
+    if (!isLoopbackHttpUrl(hostname, protocol)) {
+      if (!DEV_MODE) {
+        throw new SsrfBlockedError(
+          `HTTP upstreams are forbidden; use HTTPS (url=${rawUrl}). ` +
+            `Set LOCAL_ROUTER_DEV=true to allow loopback HTTP in development.`,
+          { hostname, url: rawUrl }
+        );
+      }
+      if (!isLoopbackHostname(hostname) && !net.isIP(hostname)) {
+        throw new SsrfBlockedError(
+          `HTTP upstreams are only permitted on loopback in dev mode (url=${rawUrl}).`,
+          { hostname, url: rawUrl }
+        );
+      }
     }
   } else if (protocol !== 'https:') {
     throw new SsrfBlockedError(
@@ -157,11 +183,12 @@ function assertSchemeAndHost(rawUrl: string): URL {
 }
 
 /** Resolve a hostname and confirm every returned address is safe. */
-async function assertSafeResolvedAddress(hostname: string, url: string): Promise<void> {
+async function assertSafeResolvedAddress(rawHostname: string, url: string, allowLoopback = false): Promise<void> {
+  const hostname = normalizeIpv6Hostname(rawHostname);
   // Literal IPs bypass DNS but still need blocklist checks.
   if (net.isIP(hostname)) {
-    // In dev mode, allow loopback IPs (for local development upstreams).
-    if (DEV_MODE && isLoopbackIp(hostname)) return;
+    // Allow loopback IPs for dev mode and for loopback-HTTP service URLs.
+    if ((DEV_MODE || allowLoopback) && isLoopbackIp(hostname)) return;
     if (isBlockedIp(hostname)) {
       throw new SsrfBlockedError(
         `Resolved/literal address ${hostname} is in a blocked range.`,
@@ -192,8 +219,8 @@ async function assertSafeResolvedAddress(hostname: string, url: string): Promise
   }
 
   for (const address of addresses) {
-    // In dev mode, allow loopback addresses.
-    if (DEV_MODE && isLoopbackIp(address)) continue;
+    // Allow loopback addresses for dev mode and loopback-HTTP service URLs.
+    if ((DEV_MODE || allowLoopback) && isLoopbackIp(address)) continue;
     if (isBlockedIp(address)) {
       throw new SsrfBlockedError(
         `Hostname "${hostname}" resolves to blocked address ${address}.`,
@@ -210,7 +237,8 @@ async function assertSafeResolvedAddress(hostname: string, url: string): Promise
  */
 export async function assertSafeUpstreamUrl(rawUrl: string): Promise<void> {
   const parsed = assertSchemeAndHost(rawUrl);
-  await assertSafeResolvedAddress(parsed.hostname, rawUrl);
+  const allowLoopback = isLoopbackHttpUrl(parsed.hostname, parsed.protocol);
+  await assertSafeResolvedAddress(parsed.hostname, rawUrl, allowLoopback);
 }
 
 /**
