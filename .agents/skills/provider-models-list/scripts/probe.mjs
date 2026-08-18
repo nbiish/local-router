@@ -5,7 +5,7 @@
  *
  * Usage:
  *   node probe.mjs                              # all providers, all models
- *   node probe.mjs zenmux openrouter-presets    # specific providers
+ *   node probe.mjs zenmux openrouter           # specific providers
  *   node probe.mjs --filter "step|kimi"          # regex filter on model id
  *   node probe.mjs --json                       # JSON output
  *   node probe.mjs --free                       # only free-tier models (heuristic)
@@ -31,7 +31,7 @@ const PROVIDERS = [
   { slug: 'moonshot',           baseUrl: 'https://api.moonshot.ai/v1',            envVar: 'MOONSHOT_API_KEY',         modelsPath: '/models' },
   { slug: 'nvidia-nim',         baseUrl: 'https://integrate.api.nvidia.com/v1',   envVar: 'NVIDIA_NIM_API_KEY',       modelsPath: '/models' },
   { slug: 'modal',              baseUrl: 'https://api.us-west-2.modal.direct/v1', envVar: 'MODAL_API_KEY',            modelsPath: '/models' },
-  { slug: 'openrouter-presets', baseUrl: 'https://openrouter.ai/api/v1',          envVar: 'OPENROUTER_API_KEY',       modelsPath: '/models' },
+  { slug: 'openrouter',         baseUrl: 'https://openrouter.ai/api/v1',          envVar: 'OPENROUTER_API_KEY',       modelsPath: '/models' },
   { slug: 'xiaomi-mimo',        baseUrl: 'https://token-plan-sgp.xiaomimimo.com/v1', envVar: 'XIAOMI_MIMO_API_KEY',   modelsPath: '/models' },
   { slug: 'opencode-go',        baseUrl: 'https://opencode.ai/zen/go/v1',          envVar: 'OPENCODE_API_KEY',         modelsPath: '/models' },
   { slug: 'opencode-zen',       baseUrl: 'https://opencode.ai/zen/v1',             envVar: 'OPENCODE_ZEN_API_KEY',     modelsPath: '/models' },

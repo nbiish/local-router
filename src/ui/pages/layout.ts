@@ -2607,23 +2607,205 @@ export function renderLayout(
           setMessage('VS Code model picker refreshed. Reload the VS Code window if the dropdown is already open.', 'success');
         }
 
+        let curationCatalogData = [];
+        let curationSelectedKeys = new Set();
+        let curationEnabled = false;
+
+        function catalogRowKey(provider, model) {
+          return provider + '::' + model;
+        }
+
+        function totalCurationModelCount() {
+          return curationCatalogData.reduce((total, group) => total + ((group && group.models) ? group.models.length : 0), 0);
+        }
+
+        function setCurationControlsVisible(visible) {
+          const controlsEl = document.getElementById('curationControls');
+          if (controlsEl) controlsEl.style.display = visible ? 'block' : 'none';
+        }
+
+        async function loadCurationCatalog() {
+          const catalogEl = document.getElementById('catalog');
+          const countEl = document.getElementById('catalogCount');
+          try {
+            const [servedRes, curationRes] = await Promise.all([
+              fetch('/v1/models'),
+              fetch('/api/model-curation')
+            ]);
+            const servedPayload = await servedRes.json().catch(() => ({}));
+            const servedData = Array.isArray(servedPayload?.data) ? servedPayload.data : [];
+            const payload = await curationRes.json();
+
+            curationCatalogData = Array.isArray(payload?.data) ? payload.data : [];
+            curationEnabled = Boolean(payload?.curationEnabled);
+            curationSelectedKeys = new Set(Array.isArray(payload?.selectedKeys) ? payload.selectedKeys : []);
+
+            if (curationEnabled && curationSelectedKeys.size === 0 && totalCurationModelCount() > 0) {
+              // Safety pre-select: enabled curation with no keys would serve nothing.
+              for (const group of curationCatalogData) {
+                for (const model of (group.models || [])) {
+                  curationSelectedKeys.add(catalogRowKey(group.provider, model.model));
+                }
+              }
+            }
+
+            const toggleEl = document.getElementById('curationToggle');
+            if (toggleEl) toggleEl.checked = curationEnabled;
+
+            countEl.innerText = servedData.length + ' models served'
+              + (curationEnabled
+                ? ' (curated: ' + curationSelectedKeys.size + ' of ' + totalCurationModelCount() + ' ported)'
+                : ' from ' + curationCatalogData.length + ' endpoint providers');
+            renderCurationCatalog();
+          } catch (error) {
+            countEl.innerText = 'Unable to load curation catalog';
+            catalogEl.innerHTML = '<div class="muted">The endpoint model curation catalog could not be loaded.</div>';
+          }
+        }
+
+        function renderCurationCatalog() {
+          const catalogEl = document.getElementById('catalog');
+          const statusEl = document.getElementById('curationStatus');
+          const searchEl = document.getElementById('catalogSearch');
+          if (!catalogEl || !Array.isArray(curationCatalogData)) return;
+
+          const search = String((searchEl && searchEl.value) || '').trim().toLowerCase();
+          let shown = 0;
+          let html = '';
+
+          for (let p = 0; p < curationCatalogData.length; p++) {
+            const group = curationCatalogData[p];
+            const models = (group && Array.isArray(group.models)) ? group.models : [];
+            const matching = [];
+            for (let m = 0; m < models.length; m++) {
+              const model = models[m];
+              const haystack = [model.id, model.display, model.model]
+                .map((part) => String(part || '').toLowerCase())
+                .join('\n');
+              if (search && !haystack.includes(search)) continue;
+              matching.push(m);
+            }
+            if (matching.length === 0) continue;
+
+            html += '<section class="provider-group">'
+              + '<h3>' + escapeHtml(group.provider) + ' <span class="muted">(' + matching.length + ')</span></h3>'
+              + '<ul class="model-list">';
+            for (const m of matching) {
+              const model = models[m];
+              const key = catalogRowKey(group.provider, model.model);
+              const checked = curationSelectedKeys.has(key) ? ' checked' : '';
+              html += '<li><label class="flag-toggle" style="display: flex; gap: 8px; align-items: flex-start;">'
+                + '<input type="checkbox"' + checked + ' onchange="toggleCatalogRow(' + p + ', ' + m + ', this.checked)">'
+                + '<span><strong>' + escapeHtml(model.id) + '</strong><br><span class="muted">' + escapeHtml(model.display || model.model || '') + '</span></span>'
+                + '</label></li>';
+              shown++;
+            }
+            html += '</ul></section>';
+          }
+
+          catalogEl.innerHTML = html
+            || '<div class="muted">No ported endpoint models match. Use 🔄 Refresh Endpoints to port models from every provider.</div>';
+
+          if (statusEl) {
+            statusEl.innerText = curationSelectedKeys.size + ' of ' + totalCurationModelCount() + ' models selected for serving'
+              + (curationEnabled ? '' : ' (curation off — all ported models served)')
+              + (shown > 0 ? ' — ' + shown + ' shown' : '');
+          }
+        }
+
+        function toggleCatalogRow(pIdx, mIdx, checked) {
+          const group = curationCatalogData[pIdx];
+          const model = group && group.models ? group.models[mIdx] : null;
+          if (!model) return;
+          const key = catalogRowKey(group.provider, model.model);
+          if (checked) {
+            curationSelectedKeys.add(key);
+          } else {
+            curationSelectedKeys.delete(key);
+          }
+          renderCurationCatalog();
+        }
+
+        function selectAllShownCatalog() {
+          const searchEl = document.getElementById('catalogSearch');
+          const search = String((searchEl && searchEl.value) || '').trim().toLowerCase();
+          for (const group of curationCatalogData) {
+            for (const model of (group.models || [])) {
+              const haystack = [model.id, model.display, model.model]
+                .map((part) => String(part || '').toLowerCase())
+                .join('\n');
+              if (search && !haystack.includes(search)) continue;
+              curationSelectedKeys.add(catalogRowKey(group.provider, model.model));
+            }
+          }
+          renderCurationCatalog();
+        }
+
+        function clearCatalogSelection() {
+          curationSelectedKeys.clear();
+          renderCurationCatalog();
+        }
+
+        function toggleCuration(checked) {
+          curationEnabled = Boolean(checked);
+          if (curationEnabled && curationSelectedKeys.size === 0 && totalCurationModelCount() > 0) {
+            for (const group of curationCatalogData) {
+              for (const model of (group.models || [])) {
+                curationSelectedKeys.add(catalogRowKey(group.provider, model.model));
+              }
+            }
+          }
+          renderCurationCatalog();
+        }
+
+        async function saveCuration() {
+          try {
+            const res = await fetch('/api/model-curation', {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                enabled: curationEnabled,
+                selectedKeys: Array.from(curationSelectedKeys)
+              })
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) {
+              setMessage(data?.error || 'Failed to save curation.', 'error');
+              return;
+            }
+            curationEnabled = Boolean(data.curationEnabled);
+            curationSelectedKeys = new Set(Array.isArray(data.selectedKeys) ? data.selectedKeys : curationSelectedKeys);
+            setMessage('Model curation saved: ' + data.selectedCount + ' models will be served.', 'success');
+            await loadCatalog();
+            await buildModelDropdown();
+          } catch (e) {
+            setMessage('Failed to save curation: ' + e.message, 'error');
+          }
+        }
+
         async function loadCatalog() {
           const catalogEl = document.getElementById('catalog');
           const countEl = document.getElementById('catalogCount');
+
+          const descEl = document.getElementById('catalogDescription');
+          if (descEl) {
+            if (modelSource === 'endpoints') {
+              descEl.innerHTML = 'Ported from every provider endpoint. Search and check the models you want served; save curation to apply.';
+            } else {
+              descEl.innerHTML = 'This list is generated from providers.txt (with any edits) and powers both the OpenAI-compatible and Ollama-compatible endpoints.';
+            }
+          }
+
+          setCurationControlsVisible(modelSource === 'endpoints');
+          if (modelSource === 'endpoints') {
+            await loadCurationCatalog();
+            return;
+          }
 
           try {
             const res = await fetch('/v1/models');
             const payload = await res.json();
             const data = Array.isArray(payload?.data) ? payload.data : [];
-
-            const descEl = document.getElementById('catalogDescription');
-            if (descEl) {
-              if (modelSource === 'endpoints') {
-                descEl.innerHTML = 'This list is fetched from active provider endpoints and powers both the OpenAI-compatible and Ollama-compatible endpoints.';
-              } else {
-                descEl.innerHTML = 'This list is generated from providers.txt (with any edits) and powers both the OpenAI-compatible and Ollama-compatible endpoints.';
-              }
-            }
 
             const grouped = data.reduce((acc, model) => {
               const provider = model.owned_by || 'unknown';
@@ -2676,6 +2858,7 @@ export function renderLayout(
               if (refreshBtn) refreshBtn.style.display = 'none';
             }
             if (filterToggle) filterToggle.checked = filterConfigured;
+            await loadCatalog();
           } catch (e) {
             console.error('Failed to load model source setting:', e);
           }

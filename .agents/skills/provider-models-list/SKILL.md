@@ -53,7 +53,7 @@ PROVIDER               | MODEL ID                                               
 zenmux                 | stepfun/step-3.7-flash:free                            | 256,000    | in 0 / out 0   | FREE
 zenmux                 | moonshotai/kimi-k2.7-code-free                          | 131,072    | in 0 / out 0   | FREE
 zenmux                 | minimax/minimax-m3                                      | 1,000,000  | in 0.3 / out 1.2 | paid
-openrouter-presets     | stepfun/step-3.7-flash                                  | 256,000    | in 0.1 / out 0.3 | paid
+openrouter             | stepfun/step-3.7-flash                                  | 256,000    | in 0.1 / out 0.3 | paid
 …
 ```
 
@@ -91,7 +91,7 @@ The `raw` field preserves the upstream response for downstream tooling (validati
 | Moonshot | `moonshot` | `https://api.moonshot.ai/v1/models` | `MOONSHOT_API_KEY` |
 | NVIDIA NIM | `nvidia-nim` | `https://integrate.api.nvidia.com/v1/models` | `NVIDIA_NIM_API_KEY` |
 | Modal | `modal` | `https://api.us-west-2.modal.direct/v1/models` | `MODAL_API_KEY` |
-| OpenRouter | `openrouter-presets` | `https://openrouter.ai/api/v1/models` | `OPENROUTER_API_KEY` |
+| OpenRouter | `openrouter` | `https://openrouter.ai/api/v1/models` | `OPENROUTER_API_KEY` |
 | Xiaomi MiMo | `xiaomi-mimo` | `https://token-plan-sgp.xiaomimimo.com/v1/models` | `XIAOMI_MIMO_API_KEY` |
 | OpenCode Go | `opencode-go` | `https://opencode.ai/zen/go/v1/models` | `OPENCODE_API_KEY` |
 | OpenCode Zen | `opencode-zen` | `https://opencode.ai/zen/v1/models` | `OPENCODE_ZEN_API_KEY` |
