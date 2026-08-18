@@ -197,7 +197,7 @@ Setting files reside at `~/.config/local-router/` (or legacy `~/.config/fvs-code
 || `wafer-config.json` | No | local JSON | Wafer AI ZDR enhancement toggle (enabled by default) |
 || `headroom-config.json` | No | local JSON | Headroom context compression toggle and proxy URL (enabled by default, proxy at `http://localhost:8787`) |
 | `system-prompt.json` | No | local JSON | User system prompt injection configuration |
-| `model-source-config.json` | No | local JSON | Configured source: `custom` vs `endpoints` |
+| `model-source-config.json` | No | local JSON | Configured source: `custom` vs `endpoints`, plus endpoint model curation (`curationEnabled`, `curatedEndpointModelKeys`, max 5000 `provider::model` keys) |
 | `endpoint-models-cache.json` | No | local JSON | Cached upstream `/models` query data |
 | `provider-pricing.json` | No | local JSON | Cost scoring overrides |
 | `sessions.json` | No | Redacted | client-grouped requests within 2-hour windows |
@@ -205,7 +205,7 @@ Setting files reside at `~/.config/local-router/` (or legacy `~/.config/fvs-code
 | `tool-routing.json` | No | local JSON | Ollama shim routing configuration |
 
 ### Provider Catalog Contracts
-The catalog contains **19 active providers** (17 static-key + 2 OAuth-subscription) with **113 presented models** as of 2026-08-17 (`modal-proxy`/`moonshotai/Kimi-K3` own-deployment endpoint added; the 2026-06-13 count of 112 included the multimodal expansion of `local-router/multimodal` to 15 entries):
+The catalog contains **19 active providers** (17 static-key + 2 OAuth-subscription) with **113 presented models** as of 2026-08-18 (`modal-proxy`/`moonshotai/Kimi-K3` own-deployment endpoint added; on 2026-08-18 the `openrouter-presets` provider was renamed to `openrouter` with the legacy slug kept as a canonical alias; the 2026-06-13 count of 112 included the multimodal expansion of `local-router/multimodal` to 15 entries):
 
 | Provider | Catalog Models | Upstream Endpoint | Key Env Variable | Auth |
 |---|---|---|---|---|
@@ -216,7 +216,7 @@ The catalog contains **19 active providers** (17 static-key + 2 OAuth-subscripti
 | `nvidia-nim` | 6 | NVIDIA NIM API | `NVIDIA_NIM_API_KEY` | static |
 | `modal` | 1 | Modal GLM endpoint | `MODAL_API_KEY` | static |
 | `modal-proxy` | 1 | Nbiish Modal Kimi-K3 deployment (`nbiish--ep-kimi-k3-nbiish-server.us-west.modal.direct/v1`) | `MODAL_PROXY_API_KEY` | static |
-| `openrouter-presets` | 9 | `https://openrouter.ai/api/v1` | `OPENROUTER_API_KEY` | static |
+| `openrouter` | 9 | `https://openrouter.ai/api/v1` | `OPENROUTER_API_KEY` | static |
 | `xiaomi-mimo` | 2 | `https://token-plan-sgp.xiaomimimo.com/v1` | `XIAOMI_MIMO_API_KEY` | static |
 | `opencode-go` | 9 | `https://opencode.ai/zen/go/v1` | `OPENCODE_API_KEY` | static |
 | `opencode-zen` | 8 | `https://opencode.ai/zen/v1` | `OPENCODE_API_KEY` | static |
@@ -233,7 +233,7 @@ The catalog contains **19 active providers** (17 static-key + 2 OAuth-subscripti
 **Note:** `antigravity` and `github-copilot` are **fully implemented** OAuth-subscription providers with active PKCE (Antigravity) and device flow (Copilot) auth, dynamic model discovery, and concurrent-refresh deduplication. Tokens persist to `~/.config/local-router/oauth-credentials.json` (chmod 600). See the "OAuth / Subscription Providers" section below for the full authentication contract, oh-my-pi design references, and integration architecture.
 
 #### Key Model Metadata Specifications
-- **1M-Context Models:** wafer-serverless (deepseek-v4-flash/pro, qwen3.7-max), zenmux (qwen3.7-max, deepseek-v4-pro), nebius (DeepSeek-V4-Pro, Nemotron-3-Ultra), openrouter-presets (@preset/chain-of-draft, @preset/1-million-main/chain-of-draft), xiaomi-mimo (mimo-v2.5-pro/v2.5), minimax/minimax-m3 (all providers).
+- **1M-Context Models:** wafer-serverless (deepseek-v4-flash/pro, qwen3.7-max), zenmux (qwen3.7-max, deepseek-v4-pro), nebius (DeepSeek-V4-Pro, Nemotron-3-Ultra), openrouter (@preset/chain-of-draft, @preset/1-million-main/chain-of-draft), xiaomi-mimo (mimo-v2.5-pro/v2.5), minimax/minimax-m3 (all providers).
 - **MiniMax M3:** 1M context, 512K output, MSA Sparse Attention architecture ($0.30/$1.20 per 1M pricing).
 - **Step-3.7-flash:** 256K context, 256K output.
 - **Qwen3.7-max:** 1M context, 64K output.
@@ -261,7 +261,7 @@ Local Router integrates [Headroom](https://github.com/chopratejas/headroom) (`he
 - **Graceful degradation:** If the Headroom proxy is unreachable, requests pass through uncompressed — headroom is an optimization layer and never blocks the pipeline.
 - **Cache synergy:** Headroom's CacheAligner stabilizes message prefixes, improving cache hit rates from downstream provider caching (`cache_control`, `prompt_cache_retention`). The two layers are complementary: Headroom compresses content, then Local Router's `injectPromptCaching` adds provider-specific cache directives on the already-compressed messages.
 
-##### OpenAI (`openrouter-presets`, plus any direct OpenAI candidate)
+##### OpenAI (`openrouter`, plus any direct OpenAI candidate)
 - **Mode:** Automatic — no code changes required to enable.
 - **Minimum tokens:** 1,024 tokens in the prompt prefix; first 1,024 tokens must be identical across requests. After the first 1,024, cache hits occur every 128 additional identical tokens.
 - **Cache duration (in-memory):** Cached prefixes remain active for 5–10 minutes of inactivity, up to a maximum of 1 hour. Only held in volatile GPU memory. Default for gpt-4.1 and older models.
@@ -298,7 +298,7 @@ Local Router integrates [Headroom](https://github.com/chopratejas/headroom) (`he
   - When a failover hops from one Anthropic-backed provider to another, the new provider starts cold. Preserve the full messages array; the new provider will rebuild the cache on the next request.
   - Do not insert dynamic content (timestamps, user IDs) into cached blocks — it breaks prefix matching.
 
-##### Google Gemini (`openrouter-presets` Gemini routes, plus any direct Gemini candidate)
+##### Google Gemini (`openrouter` Gemini routes, plus any direct Gemini candidate)
 - **Mode:** Two tiers — implicit (automatic) and explicit (manual).
 - **Minimum tokens for implicit caching:**
   - Gemini 3.5 Flash: 1,024 tokens.
@@ -332,7 +332,7 @@ Local Router integrates [Headroom](https://github.com/chopratejas/headroom) (`he
   - Across failover hops, preserve the full `messages` array so the next provider (if also DeepSeek-backed) can reuse the same prefix.
   - Note: the legacy aliases `deepseek-chat` and `deepseek-reasoner` are scheduled for deprecation on 2026-07-24 and route to V4 Flash today. Use `deepseek-v4-flash` and `deepseek-v4-pro` IDs for new integrations.
 
-##### OpenRouter (`openrouter-presets`)
+##### OpenRouter (`openrouter`)
 - **Mode:** Provider sticky routing + pass-through of each upstream provider's caching mechanism.
 - **Mechanism:**
   - After a request that uses prompt caching, OpenRouter remembers which provider served the request.
@@ -364,7 +364,7 @@ Local Router integrates [Headroom](https://github.com/chopratejas/headroom) (`he
   - For legacy moonshot-v1, store `context_id` per session in `sessions.json`. Invalidate on any prefix change.
   - On provider failover, cache state is provider-specific. Start fresh on the new provider but preserve the full messages array.
 
-##### Groq (Kimi K2-Instruct route, GPT-OSS models via `openrouter-presets` or direct)
+##### Groq (Kimi K2-Instruct route, GPT-OSS models via `openrouter` or direct)
 - **Mode:** Automatic prefix matching — no code changes required.
 - **Minimum tokens:** No explicit minimum published; prefix matching works across all request sizes, but cache hits require sufficient shared prefix length.
 - **Cache mechanics:**
@@ -500,7 +500,7 @@ Update parent docs when parent-level structure, ownership, workflow, or child in
 3. `cline` free gateway (curated to Nemotron Ultra + MiniMax M3 only).
 4. Other free models (e.g. `openrouter/free`, `opencode-zen-*-free`).
 5. **Subscription band:** `opencode-go` → `zai` → `xiaomi-mimo` → `commandcode`.
-6. **Paid API order:** `wafer-serverless` → `zenmux` → `openrouter-presets` → `nebius` → `cline` → `kilo` → `opencode-zen` → `nvidia-nim` → `modal`.
+6. **Paid API order:** `wafer-serverless` → `zenmux` → `openrouter` → `nebius` → `cline` → `kilo` → `opencode-zen` → `nvidia-nim` → `modal`.
    - **Fallback paid tail (fixed seven):** `wafer-ai-deepseek-v4-flash` → `zenmux-mimo-v2.5-pro` → `openrouter-chain-of-draft` → `nebius-nemotron-3-ultra-550b-a55b` → `cline-deepseek-deepseek-v4-flash-free` → `kilo-deepseek-deepseek-v4-flash-paid` → `commandcode-deepseek-v4-pro`.
 
 #### Candidate Selection & Execution Plan
@@ -549,6 +549,8 @@ localrouter config --open                            # launch browser config pag
 - `POST /api/providers` — register custom OpenAI-compatible provider metadata.
 - `GET /api/provider-models` — retrieve full catalog model data.
 - `POST /api/refresh-endpoint-models` — live upstream fetch of `/models` (6s timeout).
+- `GET /api/model-curation` — endpoint model curation state: enabled flag, selected `provider::model` keys, totals, and the full catalog grouped by provider.
+- `PUT /api/model-curation` — persist `{ enabled: boolean, selectedKeys: string[] }`; keys are `provider::model` strings (deduped, max 5000). With curation enabled, `/v1/models` and `/api/tags` serve only the selected models; the Providers page exposes port-all → search → curate controls.
 - `GET /api/thinking-level` / `PUT /api/thinking-level` — configuration of thinking levels.
 - `GET /api/wafer-config` / `PUT /api/wafer-config` — Wafer AI ZDR enhancement toggle (enabled by default).
 - `GET /api/system-prompt` / `PUT /api/system-prompt` — system prompt configuration.

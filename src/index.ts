@@ -305,7 +305,7 @@ const DEFAULT_PROVIDER_TIER_ORDER = [
   'zenmux',
   'pioneer',
   'nous-portal',
-  'openrouter-presets'
+  'openrouter'
 ] as const;
 
 const PRESENTATION_PREFIX_TO_PROVIDER: Record<string, string> = {
@@ -328,8 +328,8 @@ const PRESENTATION_PREFIX_TO_PROVIDER: Record<string, string> = {
   'nous-portal': 'nous-portal',
   portal: 'nous-portal',
   nous: 'nous-portal',
-  openrouter: 'openrouter-presets',
-  'openrouter-presets': 'openrouter-presets'
+  openrouter: 'openrouter',
+  'openrouter-presets': 'openrouter'
 };
 
 function resolvedDefaultAutoRouterCandidatesText(): string {
@@ -396,11 +396,14 @@ const UPSTREAM_MODEL_ID_ALIASES: Record<string, string> = {
   'zenmux/xiaomi/mimo-v2.5-pro': 'zenmux-mimo-v2.5-pro',
   'nebius/nvidia/Nemotron-3-Ultra-550b-a55b': 'nebius-nemotron-3-ultra-550b-a55b',
   'openrouter-presets/@preset/chain-of-draft': 'openrouter-chain-of-draft',
+  'openrouter/@preset/chain-of-draft': 'openrouter-chain-of-draft',
   'wafer-serverless/deepseek-v4-flash': 'wafer-ai-deepseek-v4-flash',
   'wafer-serverless/MiniMax-M3': 'wafer-ai-minimax-m3',
   'wafer-serverless/minimax-m3': 'wafer-ai-minimax-m3',
   'openrouter-presets/openrouter/free': 'openrouter-free',
+  'openrouter/openrouter/free': 'openrouter-free',
   'openrouter-presets/deepseek/deepseek-v4-flash': 'openrouter-deepseek-v4-flash',
+  'openrouter/deepseek/deepseek-v4-flash': 'openrouter-deepseek-v4-flash',
   'zenmux/deepseek/deepseek-v4-flash': 'zenmux-deepseek-v4-flash',
   'kilo/openrouter/free': 'kilo-openrouter-free',
   'kilo/nvidia/nemotron-3-ultra-550b-a55b:free': 'kilo-nvidia-nemotron-3-ultra-550b-a55b-free',
@@ -483,6 +486,20 @@ const PROVIDER_PRESENTATION_PREFIXES: Record<string, string> = {
   'wafer-serverless': 'wafer-ai',
   'openrouter-presets': 'openrouter'
 };
+
+/**
+ * Legacy provider slugs → canonical provider names. `openrouter-presets` was
+ * renamed to `openrouter` (2026-08-18); persisted overrides, routing configs,
+ * and older API calls may still reference the legacy slug.
+ */
+const LEGACY_PROVIDER_SLUG_ALIASES: Record<string, string> = {
+  'openrouter-presets': 'openrouter'
+};
+
+export function canonicalProviderSlug(providerName: string): string {
+  const trimmed = String(providerName || '').trim();
+  return LEGACY_PROVIDER_SLUG_ALIASES[trimmed] || trimmed;
+}
 const parsedPort = Number.parseInt(process.env.PORT || String(DEFAULT_PORT), 10);
 const PORT = Number.isInteger(parsedPort) && parsedPort > 0 && parsedPort <= 65535
   ? parsedPort
@@ -525,7 +542,13 @@ const persistedProviderModelOverrides = new Set<string>();
 let customProviderStore: CustomProviderRecord[] = [];
 const fallbackModelStore: Record<string, FallbackModel> = {};
 const routerModelStore: Record<string, RouterModel> = {};
-const modelSourceConfig: { source: 'custom' | 'endpoints'; filterConfigured: boolean } = { source: 'custom', filterConfigured: true };
+const modelSourceConfig: {
+  source: 'custom' | 'endpoints';
+  filterConfigured: boolean;
+  curationEnabled: boolean;
+  curatedEndpointModelKeys: string[];
+} = { source: 'custom', filterConfigured: true, curationEnabled: false, curatedEndpointModelKeys: [] };
+const MAX_CURATED_ENDPOINT_MODEL_KEYS = 5000;
 let endpointModelsCache: ProviderModel[] = [];
 const DEFAULT_CHAIN_OF_DRAFT_PROMPT = `Think step by step, but only keep a minimum draft for each thinking step, with 5 words at most. Return the answer after your thinking.`;
 const systemPromptConfig: { enabled: boolean; prompt: string; thinkingLevel: ThinkingLevel } = {
@@ -959,7 +982,8 @@ function providerReferencedInRouting(providerName: string): string[] {
 }
 
 function getProviderSummary(name: string): ProviderSummary | undefined {
-  return allProviderSummaries().find((provider) => provider.name === name);
+  const canonicalName = canonicalProviderSlug(name);
+  return allProviderSummaries().find((provider) => provider.name === canonicalName);
 }
 
 function cloneProviderModel(model: ProviderModel): ProviderModel {
@@ -968,7 +992,8 @@ function cloneProviderModel(model: ProviderModel): ProviderModel {
   };
 }
 
-function baselineProviderModels(providerName: string): ProviderModel[] {
+function baselineProviderModels(rawProviderName: string): ProviderModel[] {
+  const providerName = canonicalProviderSlug(rawProviderName);
   if (isCustomProvider(providerName)) {
     return [];
   }
@@ -977,14 +1002,16 @@ function baselineProviderModels(providerName: string): ProviderModel[] {
     .map((model) => cloneProviderModel(model));
 }
 
-function editableProviderModels(providerName: string): ProviderModel[] {
+function editableProviderModels(rawProviderName: string): ProviderModel[] {
+  const providerName = canonicalProviderSlug(rawProviderName);
   if (!modelStore[providerName]) {
     modelStore[providerName] = baselineProviderModels(providerName);
   }
   return modelStore[providerName];
 }
 
-function effectiveProviderModels(providerName: string): ProviderModel[] {
+function effectiveProviderModels(rawProviderName: string): ProviderModel[] {
+  const providerName = canonicalProviderSlug(rawProviderName);
   return modelStore[providerName] || readProviderModels().filter((model) => model.provider === providerName);
 }
 
@@ -1976,14 +2003,14 @@ function loadPersistedProviderModels() {
       : [];
 
     for (const entry of entries) {
-      const providerName = String(entry?.provider || '').trim();
+      const providerName = canonicalProviderSlug(String(entry?.provider || '').trim());
       if (!providerName) continue;
       const modelList = Array.isArray(entry?.models) ? entry.models : [];
       if (modelList.length === 0) continue;
 
-      modelStore[providerName] = modelList.map((raw: any) => ({
+      const migratedModels = modelList.map((raw: any) => ({
         id: String(raw?.id || ''),
-        provider: String(raw?.provider || providerName),
+        provider: canonicalProviderSlug(String(raw?.provider || providerName)),
         model: String(raw?.model || ''),
         display: String(raw?.display || ''),
         contextLength: Number.isInteger(raw?.contextLength) ? raw.contextLength : DEFAULT_CONTEXT_LENGTH,
@@ -1993,6 +2020,17 @@ function loadPersistedProviderModels() {
         supportsCache: Boolean(raw?.supportsCache),
         supportsReasoning: Boolean(raw?.supportsReasoning)
       }));
+      const existingModels = modelStore[providerName];
+      if (existingModels) {
+        const knownIds = new Set(existingModels.map((model) => model.id));
+        for (const model of migratedModels) {
+          if (knownIds.has(model.id)) continue;
+          existingModels.push(model);
+          knownIds.add(model.id);
+        }
+      } else {
+        modelStore[providerName] = migratedModels;
+      }
       persistedProviderModelOverrides.add(providerName);
     }
   } catch (error: any) {
@@ -2010,6 +2048,16 @@ function loadModelSourceConfig(): void {
     }
     if (typeof parsed.filterConfigured === 'boolean') {
       modelSourceConfig.filterConfigured = parsed.filterConfigured;
+    }
+    if (typeof parsed.curationEnabled === 'boolean') {
+      modelSourceConfig.curationEnabled = parsed.curationEnabled;
+    }
+    if (Array.isArray(parsed.curatedEndpointModelKeys)) {
+      const curatedKeys: string[] = parsed.curatedEndpointModelKeys
+        .map((key: unknown) => String(key || '').trim())
+        .filter((key: string) => key.length > 0);
+      modelSourceConfig.curatedEndpointModelKeys = Array.from(new Set(curatedKeys))
+        .slice(0, MAX_CURATED_ENDPOINT_MODEL_KEYS);
     }
   } catch (error: any) {
     console.error('Failed to load persisted model source config:', sanitizeDiagnosticText(String(error?.message || error)));
@@ -2038,6 +2086,27 @@ function filterConfiguredModels(models: ProviderModel[]): ProviderModel[] {
     }
     return providerHasConfiguredKey(model.provider);
   });
+}
+
+function endpointModelCurationKey(model: ProviderModel): string {
+  return `${model.provider}::${model.model}`;
+}
+
+function endpointCurationActive(): boolean {
+  return modelSourceConfig.source === 'endpoints' && modelSourceConfig.curationEnabled;
+}
+
+/**
+ * Endpoint Models curation: when enabled, discovery (/v1/models, /api/tags)
+ * serves only endpoint models the operator checked in the /config catalog
+ * (port-all → search → curate). Local Router fallback/router routes and
+ * custom-mode providers.txt models are unaffected.
+ */
+function applyEndpointCuration(models: ProviderModel[]): ProviderModel[] {
+  if (!endpointCurationActive()) return models;
+  const curatedKeys = new Set(modelSourceConfig.curatedEndpointModelKeys);
+  if (curatedKeys.size === 0) return [];
+  return models.filter((model) => curatedKeys.has(endpointModelCurationKey(model)));
 }
 
 function loadEndpointModelsCache(): void {
@@ -2181,7 +2250,7 @@ type CatalogResolveOptions = {
 async function resolveCatalogModels(options: CatalogResolveOptions = {}): Promise<ProviderModel[]> {
   const mode = options.mode ?? modelSourceConfig.source;
   const live = Boolean(options.live);
-  const providerFilter = String(options.provider || '').trim();
+  const providerFilter = canonicalProviderSlug(String(options.provider || '').trim());
   const endpointsActive = mode === 'endpoints' && endpointModelsCache.length > 0;
 
   if (live) {
@@ -2198,7 +2267,7 @@ async function resolveCatalogModels(options: CatalogResolveOptions = {}): Promis
     if (!endpointsActive) {
       return modelPresentationList();
     }
-    return queryAllProviderEndpoints();
+    return applyEndpointCuration(await queryAllProviderEndpoints());
   }
 
   if (endpointsActive) {
@@ -2206,9 +2275,9 @@ async function resolveCatalogModels(options: CatalogResolveOptions = {}): Promis
       if (isLocalRouterProviderName(providerFilter)) {
         return [...fallbackModelList(), ...routerModelList()];
       }
-      return endpointModelsCache.filter((model) => model.provider === providerFilter);
+      return applyEndpointCuration(endpointModelsCache.filter((model) => model.provider === providerFilter));
     }
-    return endpointModelsCache;
+    return applyEndpointCuration(endpointModelsCache);
   }
 
   if (providerFilter) {
@@ -2223,7 +2292,7 @@ async function resolveCatalogModels(options: CatalogResolveOptions = {}): Promis
 
 function providerCatalogModels(): ProviderModel[] {
   if (modelSourceConfig.source === 'endpoints' && endpointModelsCache.length > 0) {
-    return endpointModelsCache;
+    return applyEndpointCuration(endpointModelsCache);
   }
   return modelPresentationList();
 }
@@ -2278,14 +2347,14 @@ function resolveModelTarget(modelName: string): ModelTarget | null {
     };
   }
 
-  const [providerName, ...actualModelParts] = modelName.split('/');
+  const [rawProviderName, ...actualModelParts] = modelName.split('/');
   const actualModel = actualModelParts.join('/');
-  if (!providerName || !actualModel) {
+  if (!rawProviderName || !actualModel) {
     return null;
   }
 
   return {
-    providerName,
+    providerName: canonicalProviderSlug(rawProviderName),
     actualModel
   };
 }
@@ -2470,7 +2539,7 @@ function normalizeCatalogModelId(raw: string): string {
 
   if (trimmed.includes('/')) {
     const slashIndex = trimmed.indexOf('/');
-    const providerName = trimmed.slice(0, slashIndex);
+    const providerName = canonicalProviderSlug(trimmed.slice(0, slashIndex));
     const upstreamModel = trimmed.slice(slashIndex + 1);
     const catalogMatch = activeProviderModelList().find((model) => (
       model.provider === providerName && model.model === upstreamModel
@@ -3405,6 +3474,7 @@ const configApiDeps = {
   clearProviderKeyForProvider,
   modelSourceConfig,
   persistModelSourceConfig,
+  canonicalProviderSlug,
   filterConfiguredModels,
   ensureOllamaBackend,
   queryAllProviderEndpoints,

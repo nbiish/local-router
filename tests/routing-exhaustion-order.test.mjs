@@ -4,6 +4,7 @@ import {
   ROUTING_EXHAUSTION_BAND,
   ROUTING_PAID_PROVIDER_SUB_ORDER,
   SUBSCRIPTION_PROVIDER_SUB_ORDER,
+  canonicalProviderSlug,
   routingExhaustionBandForModel,
   stableSortModelIdsByRoutingExhaustion
 } from '../build/routing-exhaustion-order.js';
@@ -96,7 +97,7 @@ test('paid provider order: wafer → zenmux → openrouter → nebius → cline 
     ['nebius-nemotron-3-ultra-550b-a55b', { provider: 'nebius', model: 'nvidia/Nemotron-3-Ultra-550b-a55b' }],
     ['kilo-deepseek-deepseek-v4-flash-paid', { provider: 'kilo', model: 'deepseek/deepseek-v4-flash' }],
     ['cline-deepseek-deepseek-v4-pro-paid', { provider: 'cline', model: 'deepseek/deepseek-v4-pro' }],
-    ['openrouter-chain-of-draft', { provider: 'openrouter-presets', model: '@preset/chain-of-draft' }],
+    ['openrouter-chain-of-draft', { provider: 'openrouter', model: '@preset/chain-of-draft' }],
     ['zenmux-mimo-v2.5-pro', { provider: 'zenmux', model: 'xiaomi/mimo-v2.5-pro' }],
     ['wafer-ai-deepseek-v4-flash', { provider: 'wafer-serverless', model: 'deepseek-v4-flash' }],
     ['nvidia-nim-step-3.7-flash', { provider: 'nvidia-nim', model: 'stepfun-ai/step-3.7-flash' }],
@@ -129,10 +130,29 @@ test('paid provider order: wafer → zenmux → openrouter → nebius → cline 
     'wafer-serverless',
     'zenmux',
     'pioneer',
-    'openrouter-presets',
+    'openrouter',
     'nebius',
     'cline'
   ]);
+});
+
+test('openrouter-presets legacy slug canonicalizes to openrouter', () => {
+  assert.equal(canonicalProviderSlug('openrouter-presets'), 'openrouter');
+  assert.equal(canonicalProviderSlug('openrouter'), 'openrouter');
+  assert.equal(
+    routingExhaustionBandForModel('openrouter-chain-of-draft', { provider: 'openrouter-presets', model: '@preset/chain-of-draft' }),
+    ROUTING_EXHAUSTION_BAND.PAID
+  );
+  const legacyCatalog = (id) => {
+    if (id === 'openrouter-chain-of-draft') return { provider: 'openrouter-presets', model: '@preset/chain-of-draft' };
+    if (id === 'nebius-x') return { provider: 'nebius', model: 'x' };
+    return { provider: 'wafer-serverless', model: 'deepseek-v4-flash' };
+  };
+  const sorted = stableSortModelIdsByRoutingExhaustion(
+    ['nebius-x', 'openrouter-chain-of-draft', 'wafer-ai-deepseek-v4-flash'],
+    legacyCatalog
+  );
+  assert.deepEqual(sorted, ['wafer-ai-deepseek-v4-flash', 'openrouter-chain-of-draft', 'nebius-x']);
 });
 
 test('subscription OpenCode Go before Kilo paid, after OpenCode Zen free', () => {

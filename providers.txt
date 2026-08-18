@@ -3,7 +3,8 @@
 # =============================================================================
 # Path:    ~/.config/providers.txt  (source of truth)
 #          agents-research/providers.txt (project copy)
-# Updated: 2026-08-17 (add modal-proxy: Nbiish Kimi-K3 own deployment, 262K ctx/out)
+# Updated: 2026-08-18 (rename provider openrouter-presets -> openrouter; presets stay
+#          private custom models input individually, never in /v1/models listings)
 # Purpose: Master config reference for ALL agentic tools.
 #          kilo, crush, pi, goose, dcode, hermes, cline, qwen-code, Zed, etc.
 #
@@ -27,7 +28,7 @@
 # │ nvidia-nim         │ https://integrate.api.nvidia.com/v1   │ NVIDIA_NIM_API_KEY       │
 # │ modal              │ https://api.us-west-2.modal.direct/v1 │ MODAL_API_KEY            │
 # │ modal-proxy        │ https://nbiish--ep-kimi-k3-nbiish-server.us-west.modal.direct/v1 │ MODAL_PROXY_API_KEY  │
-# │ openrouter-presets │ https://openrouter.ai/api/v1          │ OPENROUTER_API_KEY       │
+# │ openrouter           │ https://openrouter.ai/api/v1 │ OPENROUTER_API_KEY       │
 # │ xiaomi-mimo        │ https://token-plan-sgp.xiaomimimo.com/v1│ XIAOMI_MIMO_API_KEY     │
 # │ opencode-go      │ https://opencode.ai/zen/go/v1          │ OPENCODE_API_KEY        │
 # │ opencode-zen       │ https://opencode.ai/zen/v1             │ OPENCODE_ZEN_API_KEY    │
@@ -63,12 +64,12 @@
 # │19 │ nvidia-nim         │ nvidia/nemotron-3-nano-omni-30b-a3b-reasoning │ nvnm:nemotron-omni │ 256,000 │ 65,536   │ YES   │ YES  │ NO    │ NO*       │
 
 # │22 │ modal              │ zai-org/GLM-5.1-FP8                 │ modl:GLM-5.1-FP8             │ 200,000  │ 128,000  │ YES   │ NO   │ NO    │ NO*       │
-# │23 │ openrouter-presets │ @preset/chain-of-draft              │ orps:chain-of-draft          │1,000,000 │ 128,000  │ YES   │ YES  │ YES   │ NO        │
-# │24 │ openrouter-presets │ @preset/openrouter-personal-router  │ orps:personal-router         │1,000,000 │ 128,000  │ YES   │ YES  │ YES   │ NO        │
-# │25 │ openrouter-presets │ @preset/free-chain-of-draft         │ orps:free-chain-draft        │1,000,000 │ 128,000  │ YES   │ YES  │ YES   │ NO        │
-# │26 │ openrouter-presets │ @preset/1-million-main              │ orps:1-million-main          │1,000,000 │ 128,000  │ YES   │ YES  │ YES   │ NO        │
-# │27 │ openrouter-presets │ @preset/1-million-chain-of-draft    │ orps:1-million-chain-draft   │1,000,000 │ 128,000  │ YES   │ YES  │ YES   │ NO        │
-# │28 │ openrouter-presets │ stepfun/step-3.7-flash              │ orps:step-3.7-flash          │ 256,000  │ 256,000  │ YES   │ YES  │ YES   │ YES       │
+# │23 │ openrouter         │ @preset/chain-of-draft              │ orps:chain-of-draft          │1,000,000 │ 128,000  │ YES   │ YES  │ YES   │ NO        │
+# │24 │ openrouter         │ @preset/openrouter-personal-router  │ orps:personal-router         │1,000,000 │ 128,000  │ YES   │ YES  │ YES   │ NO        │
+# │25 │ openrouter         │ @preset/free-chain-of-draft         │ orps:free-chain-draft        │1,000,000 │ 128,000  │ YES   │ YES  │ YES   │ NO        │
+# │26 │ openrouter         │ @preset/1-million-main              │ orps:1-million-main          │1,000,000 │ 128,000  │ YES   │ YES  │ YES   │ NO        │
+# │27 │ openrouter         │ @preset/1-million-chain-of-draft    │ orps:1-million-chain-draft   │1,000,000 │ 128,000  │ YES   │ YES  │ YES   │ NO        │
+# │28 │ openrouter         │ stepfun/step-3.7-flash              │ orps:step-3.7-flash          │ 256,000  │ 256,000  │ YES   │ YES  │ YES   │ YES       │
 # │29 │ zenmux             │ deepseek/deepseek-v4-pro            │ zenm:deepseek-v4-pro         │1,000,000 │ 384,000  │ YES   │ NO   │ YES   │ NO*       │
 
 # │32 │ zenmux             │ stepfun/step-3.7-flash               │ zenm:step-3.7-flash           │ 256,000  │ 256,000  │ YES   │ YES  │ YES   │ YES       │
@@ -94,20 +95,20 @@
 # │ 80 │ zai                │ code-pass-glm-4.6v                   │ zai:code-pass-glm-4.6v         │ 200,000  │ 128,000  │ YES   │ YES  │ YES   │ NO*  sub  │
 # │ 65 │ nvidia-nim         │ stepfun-ai/step-3.7-flash           │ nvnm:step-3.7-flash           │ 256,000  │ 256,000  │ YES   │ YES  │ YES   │ YES       │
 # │ 66 │ zenmux             │ minimax/minimax-m3                  │ zenm:minimax-m3               │1,000,000 │ 512,000  │ YES   │ YES  │ YES   │ YES*      │
-# │ 67 │ openrouter-presets │ minimax/minimax-m3                  │ orps:minimax-m3               │1,048,576 │ 512,000  │ YES   │ YES  │ YES   │ YES*  paid│
+# │ 67 │ openrouter         │ minimax/minimax-m3                  │ orps:minimax-m3               │1,048,576 │ 512,000  │ YES   │ YES  │ YES   │ YES*  paid│
 # │ 68 │ opencode-go      │ minimax-m3                          │ opc:minimax-m3                │1,000,000 │ 512,000  │ YES   │ YES  │ YES   │ YES*      │
 # │ 72 │ commandcode        │ deepseek-v4-pro                     │ cmdc:deepseek-v4-pro          │1,000,000 │ 384,000  │ YES   │ NO   │ YES   │ NO*  sub  │
 # │137 │ commandcode        │ minimax/minimax-m3                  │ cmdc:minimax-m3               │1,000,000 │ 512,000  │ YES   │ YES  │ YES   │ NO*  sub  │
 # │ 69 │ nvidia-nim         │ minimaxai/minimax-m3                │ nvnm:minimax-m3               │1,000,000 │ 512,000  │ YES   │ YES  │ YES   │ YES* free │
-# │ 70 │ openrouter-presets │ qwen/qwen3.7-max                    │ orps:qwen3.7-max              │1,000,000 │ 65,536   │ YES   │ NO   │ YES   │ NO*       │
+# │ 70 │ openrouter         │ qwen/qwen3.7-max                    │ orps:qwen3.7-max              │1,000,000 │ 65,536   │ YES   │ NO   │ YES   │ NO*       │
 # │ 71 │ opencode-zen       │ deepseek-v4-flash                   │ ozen:deepseek-v4-flash        │1,000,000 │ 384,000  │ YES   │ NO   │ YES   │ NO*       │
 
 # │ 76 │ opencode-zen       │ minimax-m3-free                     │ ozen:minimax-m3-free          │1,000,000 │ 512,000  │ YES   │ YES  │ YES   │ YES*      │
 # │ 77 │ opencode-zen       │ deepseek-v4-flash-free              │ ozen:deepseek-v4-flash-free   │1,000,000 │ 384,000  │ YES   │ NO   │ YES   │ NO*       │
 # │ 78 │ opencode-zen       │ glm-5.1                             │ ozen:glm-5.1                  │ 200,000  │ 128,000  │ YES   │ NO   │ YES   │ NO*       │
 # │ 79 │ nvidia-nim         │ moonshotai/kimi-k2.6                │ nvnm:kimi-k2.6                │ 256,000  │ 262,144  │ YES   │ YES  │ YES   │ NO*       │
-# │ 81 │ openrouter-presets │ qwen/qwen3.7-plus                   │ orps:qwen3.7-plus             │1,000,000 │ 65,536   │ YES   │ YES  │ YES   │ NO*       │
-# │156 │ openrouter-presets │ moonshotai/kimi-k2.7-code           │ orps:moonshotai-kimi-k2.7-code │ 262,144  │ 262,144  │ YES   │ YES  │ YES   │ NO*  paid│
+# │ 81 │ openrouter         │ qwen/qwen3.7-plus                   │ orps:qwen3.7-plus             │1,000,000 │ 65,536   │ YES   │ YES  │ YES   │ NO*       │
+# │156 │ openrouter         │ moonshotai/kimi-k2.7-code           │ orps:moonshotai-kimi-k2.7-code │ 262,144  │ 262,144  │ YES   │ YES  │ YES   │ NO*  paid│
 # │103 │ nebius             │ nvidia/Nemotron-3-Ultra-550b-a55b   │ nebs:nvidia/Nemotron-3-Ultra-550b-a55b │1,000,000 │ 65,536 │ YES │ NO │ NO │ NO* paid │
 # │ 82 │ wafer-serverless   │ MiniMax-M3                          │ wsvr:MiniMax-M3                │1,000,000 │ 512,000  │ YES   │ YES  │ YES   │ YES*      │
 # │ 83 │ ollama             │ nemotron-3-ultra:cloud              │ ollama:nemotron-3-ultra:cloud  │1,000,000 │ 65,536   │ YES   │ NO   │ NO    │ YES* free │
@@ -137,8 +138,8 @@
 # │109 │ kilo               │ openrouter/free                     │ kilo:openrouter-free           │ 200,000  │ 32,768   │ YES   │ NO   │ NO    │ YES* free │
 # │110 │ kilo               │ poolside/laguna-m.1:free              │ kilo:laguna-m.1:free           │ 262,144  │ 32,768   │ YES   │ NO   │ NO    │ YES* free │
 # │111 │ kilo               │ poolside/laguna-xs.2:free           │ kilo:laguna-xs.2:free          │ 262,144  │ 32,768   │ YES   │ NO   │ NO    │ YES* free │
-# │113 │ openrouter-presets │ openrouter/free                     │ orps:openrouter-free           │ 200,000  │ 32,768   │ YES   │ NO   │ NO    │ YES* free │
-# │114 │ openrouter-presets │ deepseek/deepseek-v4-flash          │ orps:deepseek-v4-flash         │1,048,576 │ 131,072  │ YES   │ NO   │ YES   │ NO*       │
+# │113 │ openrouter         │ openrouter/free                     │ orps:openrouter-free           │ 200,000  │ 32,768   │ YES   │ NO   │ NO    │ YES* free │
+# │114 │ openrouter         │ deepseek/deepseek-v4-flash          │ orps:deepseek-v4-flash         │1,048,576 │ 131,072  │ YES   │ NO   │ YES   │ NO*       │
 # │115 │ kilo               │ deepseek/deepseek-v4-flash          │ kilo:deepseek-deepseek-v4-flash │1,000,000 │ 384,000  │ YES   │ NO   │ YES   │ NO* paid  │
 # │116 │ kilo               │ deepseek/deepseek-v4-pro            │ kilo:deepseek-v4-pro           │1,000,000 │ 384,000  │ YES   │ NO   │ YES   │ NO* paid  │
 # │117 │ kilo               │ deepseek/deepseek-chat              │ kilo:deepseek-chat             │ 128,000  │ 16,000   │ YES   │ NO   │ YES   │ NO* paid  │
@@ -180,7 +181,7 @@
 # │                    │ + KV reuse   │  reuse via NIM_ENABLE_KV_CACHE_REUSE flag     │
 # │ modal              │ NONE (API)   │ Hosted: no caching. Self-hosted: vLLM         │
 # │                    │ + vLLM reuse │  --enable-prefix-caching available            │
-# │ openrouter-presets │ pass-through │ Passes through upstream provider caching      │
+# │ openrouter         │ pass-through │ Passes through upstream provider caching      │
 # │ xiaomi-mimo        │ automatic    │ ~99% discount, GCache distributed, 93-95% hit │
 # │ opencode-go      │ pass-through │ Passes through upstream model caching         │
 # │ opencode-zen       │ pass-through │ Unified subscription pass-through caching     │
@@ -360,8 +361,8 @@
 #              public docs because Modal does not publish those limits on the
 #              endpoint page.
 
-## openrouter-presets ______________________________________________________
-# Tier:        OpenRouter Presets (CUSTOM, not built-in)
+## openrouter ______________________________________________________
+# Tier:        OpenRouter gateway (presets = private custom models)
 # Endpoint:    https://openrouter.ai/api/v1
 # Key env:     OPENROUTER_API_KEY
 # Zed prefix:  orps
@@ -624,7 +625,7 @@
 # │ moonshot           │ YES    │ NO         │ YES custom│ YES  │ YES   │ YES │ YES   │ YES   │ YES   │ YES       │
 # │ nvidia-nim         │ YES    │ NO         │ YES custom│ YES  │ YES   │ YES │ YES   │ YES   │ YES   │ YES       │
 # │ modal              │ YES    │ NO         │ YES custom│ YES  │ YES   │ YES │ YES   │ YES   │ YES   │ YES       │
-# │ openrouter-presets │ YES    │ YES        │ YES custom│ YES  │ YES   │ YES │ YES   │ YES   │ YES   │ YES       │
+# │ openrouter         │ YES    │ YES        │ YES custom│ YES  │ YES   │ YES │ YES   │ YES   │ YES   │ YES       │
 # │ xiaomi-mimo        │ YES    │ NO         │ YES custom│ YES  │ YES   │ YES │ YES   │ YES   │ YES   │ YES       │
 # │ commandcode        │ YES    │ NO         │ NO        │ NO   │ NO    │ NO  │ NO    │ NO    │ NO    │ NO        │
 # │ opencode-go      │ YES    │ YES        │ YES custom│ YES  │ YES   │ YES │ YES   │ YES   │ YES   │ YES       │
