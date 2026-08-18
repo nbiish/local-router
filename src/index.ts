@@ -2525,13 +2525,21 @@ function modelDetails(model: ProviderModel) {
   };
 }
 
+/** Deterministic synthetic digest. The real ollama CLI (>= 0.32) renders
+ * list entries by slicing digest[:12], so an empty digest panics ListHandler
+ * ("slice bounds out of range [:12] with length 0"). Deriving the digest from
+ * the presented id keeps it stable across requests and unique per model. */
+function syntheticModelDigest(modelId: string): string {
+  return `sha256:${crypto.createHash('sha256').update(`local-router:${modelId}`).digest('hex')}`;
+}
+
 function ollamaTag(model: ProviderModel) {
   return {
     name: model.id,
     model: model.id,
     modified_at: new Date().toISOString(),
     size: 1,
-    digest: '',
+    digest: syntheticModelDigest(model.id),
     context_length: model.contextLength,
     max_output_tokens: modelMaxOutputTokens(model),
     details: modelDetails(model),
