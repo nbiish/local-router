@@ -43,6 +43,7 @@ CONFIG_DIR = Path(os.environ.get("PQC_CONFIG_DIR") or (Path.home() / ".config" /
 PUBKEY_PATH = CONFIG_DIR / "recipient.pub"
 BUNDLE_PATH = CONFIG_DIR / "secrets.bundle.json"
 PRIVATE_KEY_ENC_PATH = CONFIG_DIR / "private.key.enc"
+KEK_PATH = CONFIG_DIR / "machine.kek"
 KEYCHAIN_SERVICE = "pqc-secrets"
 KEYCHAIN_ACCOUNT = os.environ.get("PQC_KEYCHAIN_ACCOUNT", "pqc-secrets-key")
 KDF_INFO = b"pqc-secrets:v1:kek"
@@ -53,7 +54,15 @@ def _ensure_config_dir() -> None:
     CONFIG_DIR.chmod(0o700)
 
 
-def _get_machine_kek() -> bytes:
+def _legacy_machine_kek() -> bytes:
+    """Legacy KEK derived from volatile machine identity.
+
+    Deprecated: this derivation defeats persistence because it depends on
+    platform.node()/platform.platform()/uuid.getnode(), which change across
+    WSL2 reboots, kernel updates and distro re-creation. Any single part
+    changing rotates the key and permanently locks the stored private key.
+    Retained only to migrate pre-existing stores to the persisted KEK below.
+    """
     parts = [
         platform.node(),
         getpass.getuser(),
@@ -61,7 +70,7 @@ def _get_machine_kek() -> bytes:
         hex(uuid.getnode())
     ]
     entropy = "|".join(parts).encode("utf-8")
-    
+
     hkdf = HKDF(
         algorithm=hashes.SHA256(),
         length=32,
@@ -69,6 +78,44 @@ def _get_machine_kek() -> bytes:
         info=b"pqc-secrets:v1:machine-key",
     )
     return hkdf.derive(entropy)
+
+
+def _get_machine_kek() -> bytes:
+    """Return a stable, persisted machine KEK.
+
+    The KEK is generated once and persisted to a 0600 file so it survives
+    reboots, WSL kernel updates and distro re-creation. Generation is
+    preceded by a best-effort migration of any pre-existing store that was
+    encrypted with the legacy machine-identity derivation.
+    """
+    _ensure_config_dir()
+
+    if KEK_PATH.exists():
+        return KEK_PATH.read_bytes()
+
+    # Migration: if a legacy-encrypted private key already exists and still
+    # decrypts with the volatile derivation, adopt that KEK so the store is
+    # preserved and stable going forward. If it no longer decrypts (identity
+    # already drifted), fall through and generate a fresh persisted KEK.
+    if PRIVATE_KEY_ENC_PATH.exists():
+        try:
+            payload = json.loads(PRIVATE_KEY_ENC_PATH.read_text())
+            nonce = base64.b64decode(payload["nonce_b64"])
+            ciphertext = base64.b64decode(payload["ciphertext_b64"])
+            legacy = _legacy_machine_kek()
+            AESGCM(legacy).decrypt(nonce, ciphertext, b"pqc-secrets:v1:private-key")
+            KEK_PATH.write_bytes(legacy)
+            KEK_PATH.chmod(0o600)
+            return legacy
+        except Exception:
+            # Legacy store is not recoverable under current identity; ignore
+            # and mint a fresh persisted KEK.
+            pass
+
+    kek = os.urandom(32)
+    KEK_PATH.write_bytes(kek)
+    KEK_PATH.chmod(0o600)
+    return kek
 
 
 def _save_key_to_file(sk: bytes) -> None:
