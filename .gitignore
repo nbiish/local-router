@@ -94,7 +94,8 @@ dist/
 tmp/
 
 # Node.js
-node_modules/
+# no trailing slash so symlinks are ignored too
+node_modules
 npm-debug.log
 yarn-error.log
 .pnpm-debug.log
