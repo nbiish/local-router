@@ -75,6 +75,8 @@ input and is never used for new stores.
 ~/.config/pqc-secrets/
 ├── machine.kek           # 32-byte AES-256-GCM wrapping key (0600, stable)
 ├── private.key.enc       # ML-KEM-768 private key, AES-256-GCM(machine.kek)
+│                         #   seed form (64 B) since 2026-08-20;
+│                         #   legacy expanded form (2400 B) readable
 ├── recipient.pub         # ML-KEM-768 public key (safe to commit)
 └── secrets.bundle.json   # encrypted API keys (DEK wrapped under ML-KEM)
 ```
@@ -89,6 +91,9 @@ Keychain or Linux Secret Service instead).
 - Rerunning `keygen` writes a fresh private key; if a stale encrypted bundle
   is left behind it becomes unreadable (its public key no longer matches).
   Keep `recipient.pub` in step with the private key.
+- Rotation is also the migration path off legacy expanded-form (2400-byte)
+  stores: `keygen` + re-pack lands you on the native seed-form store. The
+  decapsulation path prints a rotation hint whenever a legacy store is read.
 - Losing `machine.kek` **and** the OS keychain means the private key is
   unrecoverable — the bundle is lost (no-escrow contract). Back up
   `machine.kek` the same way you would back up a keychain entry.
