@@ -39,9 +39,15 @@ for the PQC secrets management system.
 
 Generate a fresh ML-KEM-768 keypair.
 
+**Storage form (2026-08-20+):** the Python engine stores the private key in
+FIPS 203 **seed form** (64 bytes `d‖z`) inside `~/.config/pqc-secrets/private.key.enc`,
+AES-256-GCM-wrapped under the stable `machine.kek`. Legacy stores holding the
+2400-byte expanded form remain readable (kyber-py fallback, prints a rotation
+hint). The macOS Rust binary keeps its keychain store.
+
 | | |
 |---|---|
-| Args | `[--recipient-out PATH]` |
+| Args | `[--recipient-out PATH]` (Rust engine) |
 | Exit codes | 0 success, 1 keychain unreachable, 2 recipient.pub exists (use `--force` to overwrite) |
 | Writes | `recipient.pub` (1.8 KB), keychain entry |
 | Idempotent | No — refuses to overwrite existing recipient.pub unless `--force` |
