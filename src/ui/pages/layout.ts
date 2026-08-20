@@ -2681,7 +2681,7 @@ export function renderLayout(
               const model = models[m];
               const haystack = [model.id, model.display, model.model]
                 .map((part) => String(part || '').toLowerCase())
-                .join('\n');
+                .join('\\n');
               if (search && !haystack.includes(search)) continue;
               matching.push(m);
             }
@@ -2733,7 +2733,7 @@ export function renderLayout(
             for (const model of (group.models || [])) {
               const haystack = [model.id, model.display, model.model]
                 .map((part) => String(part || '').toLowerCase())
-                .join('\n');
+                .join('\\n');
               if (search && !haystack.includes(search)) continue;
               curationSelectedKeys.add(catalogRowKey(group.provider, model.model));
             }
