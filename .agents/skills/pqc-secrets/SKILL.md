@@ -105,7 +105,7 @@ The PQC secrets system consists of a dual-implementation architecture to ensure 
    - The KEK wraps a Data Encryption Key (DEK) via AES-256-GCM keywrap.
    - The DEK encrypts the secret payload via AES-256-GCM.
    - Stores metadata including Additional Authenticated Data (`aad`) in `secrets.bundle.json`.
-2. **Python Fallback (Secondary):** A script at `.agents/skills/pqc-secrets/scripts/pqc_secrets.py` uses `kyber-py` and implements a **single-envelope** structure (ML-KEM-768 encapsulates the DEK directly).
+2. **Python Fallback (Secondary):** A script at `.agents/skills/pqc-secrets/scripts/pqc_secrets.py` uses the **native ML-KEM-768** from `pyca/cryptography>=45` (`cryptography.hazmat.primitives.asymmetric.mlkem`) and writes the same **double-envelope** bundle JSON as the Rust engine (keywrap layer + AAD). Since 2026-08-20 new keygens store the private key in FIPS 203 **seed form** (64 bytes `d‖z`); older stores holding the 2400-byte expanded form remain readable via the retained `kyber-py` decapsulation fallback, which prints a rotation hint.
 
 > [!WARNING]
 > **Format Incompatibility & Mismatch Errors:**
@@ -218,8 +218,8 @@ PQC_KEYCHAIN_ACCOUNT_OLD=default PQC_KEYCHAIN_ACCOUNT_NEW=pqc-secrets-key bin/pq
 
 - **Rust Primary Engine:** `fips203` crate v0.4.x (pure Rust, no `unsafe`, no C FFI; implements final FIPS 203 ML-KEM-768 with ACVP KATs). Alternatives verified 2026-08: RustCrypto `ml-kem` crate (type-safe param sets, no FFI), Cryspen/libcrux `libcrux-ml-kem` (formally verified).
 - **Rust Primary Dependencies:** `security-framework` (macOS Keychain), `aes-gcm`, `serde`, `serde_json`, `sha3`.
-- **Python Fallback Engine:** `kyber-py` (pure Python ML-KEM-768) + `cryptography` (AES-256-GCM). ⚠️ **Migration note (2026-06):** `pyca/cryptography` now ships **native ML-KEM-768 and ML-DSA-65** (`cryptography.hazmat.primitives.asymmetric.mlkem` / `.mldsa`) on OpenSSL 3.5+/AWS-LC/BoringSSL backends — OpenSSL 3.5.0 added PQC in March 2026 and the first CMVP ML-DSA module certificates issued the same month. Prefer the native `cryptography` implementation over `kyber-py` for any new or refreshed fallback work; `kyber-py` remains acceptable for the legacy script but should not be extended.
-- **Python Fallback Dependencies:** Managed inline via UV script metadata — `kyber-py>=0.2.0`, `cryptography>=44.0` (auto-resolved by `uv run`). For the native path: `cryptography>=45.0`.
+- **Python Fallback Engine (migrated 2026-08-20):** native `cryptography>=45` ML-KEM-768 (`MLKEM768PrivateKey.generate()` / `from_seed_bytes()` / `MLKEM768PublicKey.encapsulate()`) for all keygen, encapsulation, and seed-form decapsulation. `kyber-py` is imported lazily and used **only** to decapsulate legacy 2400-byte expanded-form private-key stores (written by older keygens or the Rust engine); those prints advise rotating via `keygen` + re-pack. Bundle JSON layout is unchanged and interoperable with the Rust engine.
+- **Python Fallback Dependencies:** Managed inline via UV script metadata — `cryptography>=45.0` (primary engine) and `kyber-py>=0.2.0` (legacy expanded-key reads only), auto-resolved by `uv run`.
 
 ---
 

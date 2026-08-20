@@ -2,8 +2,11 @@
 # /// script
 # requires-python = ">=3.12"
 # dependencies = [
+#     "cryptography>=45.0",
+#     # kyber-py is retained ONLY to decapsulate legacy expanded-form (2400-byte)
+#     # private-key stores written by older engines. New keygens use the native
+#     # cryptography ML-KEM-768 implementation exclusively.
 #     "kyber-py>=0.2.0",
-#     "cryptography>=44.0",
 # ]
 # ///
 """
@@ -35,9 +38,58 @@ import uuid
 from pathlib import Path
 
 from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.asymmetric import mlkem as _native_mlkem
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
-from kyber_py.ml_kem import ML_KEM_768
+
+# ML-KEM-768 private-key material lengths (FIPS 203):
+#   64 bytes   = seed form (d || z) — stored by this engine since 2026-08-20;
+#                the native cryptography implementation keygens and loads this form.
+#   2400 bytes = expanded dk — written by older kyber-py keygens and the Rust
+#                engine. Read-compatible via the kyber-py fallback path only.
+KEM_SEED_LEN = 64
+KEM_EXPANDED_LEN = 2400
+
+
+def _kem_keygen() -> tuple[bytes, bytes]:
+    """Generate an ML-KEM-768 keypair with the native engine.
+
+    Returns (public_key_raw_1184, private_seed_64).
+    """
+    priv = _native_mlkem.MLKEM768PrivateKey.generate()
+    return priv.public_key().public_bytes_raw(), priv.private_bytes_raw()
+
+
+def _kem_encapsulate(public_key: bytes) -> tuple[bytes, bytes]:
+    """Encapsulate against a raw 1184-byte ML-KEM-768 public key.
+
+    Returns (shared_secret_32, ciphertext_1088).
+    """
+    pub = _native_mlkem.MLKEM768PublicKey.from_public_bytes(public_key)
+    return pub.encapsulate()
+
+
+def _kem_decapsulate(private_key: bytes, ciphertext: bytes) -> bytes:
+    """Decapsulate with either supported private-key form.
+
+    64-byte seed keys use the native engine. 2400-byte expanded keys (legacy
+    kyber-py / Rust-engine stores) fall back to kyber-py with a rotation hint,
+    because the seed cannot be recovered from the expanded form.
+    """
+    if len(private_key) == KEM_SEED_LEN:
+        return _native_mlkem.MLKEM768PrivateKey.from_seed_bytes(private_key).decapsulate(ciphertext)
+    if len(private_key) == KEM_EXPANDED_LEN:
+        print(
+            "NOTE: legacy expanded-form ML-KEM private key in use. "
+            "Run 'keygen' and re-pack secrets to rotate to the native seed-form store.",
+            file=sys.stderr,
+        )
+        from kyber_py.ml_kem import ML_KEM_768
+        return ML_KEM_768.decaps(private_key, ciphertext)
+    raise ValueError(
+        f"unsupported ML-KEM-768 private key length {len(private_key)} "
+        f"(expected {KEM_SEED_LEN}-byte seed or {KEM_EXPANDED_LEN}-byte expanded form)"
+    )
 
 CONFIG_DIR = Path(os.environ.get("PQC_CONFIG_DIR") or (Path.home() / ".config" / "pqc-secrets"))
 PUBKEY_PATH = CONFIG_DIR / "recipient.pub"
@@ -339,7 +391,7 @@ def cmd_keygen() -> None:
     """Generate ML-KEM-768 keypair. Private -> Encrypted File/Keystore. Public -> disk."""
     _ensure_config_dir()
 
-    pk, sk = ML_KEM_768.keygen()
+    pk, sk = _kem_keygen()
 
     # Store private key using cross-platform helper
     _store_private_key(sk)
@@ -410,7 +462,7 @@ def cmd_pack() -> None:
     data_ciphertext = AESGCM(data_key).encrypt(data_nonce, payload_plaintext, b"pqc-secrets:v1:data")
 
     # ML-KEM encapsulation
-    shared_secret, ciphertext_kem = ML_KEM_768.encaps(pk)
+    shared_secret, ciphertext_kem = _kem_encapsulate(pk)
 
     # Derive KEK from shared secret
     kek = hashlib.sha3_256(shared_secret + KDF_INFO).digest()
@@ -422,7 +474,7 @@ def cmd_pack() -> None:
     bundle = {
         "version": 1,
         "alg": "ML-KEM-768",
-        "engine": "kyber-py",
+        "engine": "py-native-mlkem",
         "created_utc": __import__("datetime").datetime.now(__import__("datetime").UTC).strftime("%Y-%m-%dT%H:%M:%S.%fZ"),
         "recipient": {
             "public_key_sha3_256": hashlib.sha3_256(pk).hexdigest(),
@@ -456,7 +508,7 @@ def _decrypt_bundle(bundle: dict, sk: bytes) -> dict[str, str]:
         ciphertext_kem = base64.b64decode(kem["ciphertext_b64"])
     else:
         ciphertext_kem = bytes.fromhex(kem["ciphertext"])
-    dek = ML_KEM_768.decaps(sk, ciphertext_kem)
+    dek = _kem_decapsulate(sk, ciphertext_kem)
 
     # Derive the data key (DK)
     if "keywrap" in bundle:
