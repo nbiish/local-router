@@ -238,6 +238,7 @@ export function registerConfigApiRoutes(app: express.Express, deps: ConfigApiDep
   } = deps;
 
   app.get('/config', (req: Request, res: Response) => {
+    res.setHeader('Cache-Control', 'no-store');
     res.redirect('/config/providers');
   });
 
@@ -247,6 +248,8 @@ export function registerConfigApiRoutes(app: express.Express, deps: ConfigApiDep
       defaultRouterCandidatesText: resolvedDefaultAutoRouterCandidatesText(),
       defaultFallbackModelsText: DEFAULT_FALLBACK_MODELS_TEXT
     });
+    // Config pages are live state (keys, catalog, routes) — never cacheable.
+    res.setHeader('Cache-Control', 'no-store');
     res.send(html);
   });
 
@@ -256,6 +259,8 @@ export function registerConfigApiRoutes(app: express.Express, deps: ConfigApiDep
       defaultRouterCandidatesText: resolvedDefaultAutoRouterCandidatesText(),
       defaultFallbackModelsText: DEFAULT_FALLBACK_MODELS_TEXT
     });
+    // Config pages are live state (keys, catalog, routes) — never cacheable.
+    res.setHeader('Cache-Control', 'no-store');
     res.send(html);
   });
 
@@ -265,6 +270,8 @@ export function registerConfigApiRoutes(app: express.Express, deps: ConfigApiDep
       defaultRouterCandidatesText: resolvedDefaultAutoRouterCandidatesText(),
       defaultFallbackModelsText: DEFAULT_FALLBACK_MODELS_TEXT
     });
+    // Config pages are live state (keys, catalog, routes) — never cacheable.
+    res.setHeader('Cache-Control', 'no-store');
     res.send(html);
   });
 
@@ -274,6 +281,8 @@ export function registerConfigApiRoutes(app: express.Express, deps: ConfigApiDep
       defaultRouterCandidatesText: resolvedDefaultAutoRouterCandidatesText(),
       defaultFallbackModelsText: DEFAULT_FALLBACK_MODELS_TEXT
     });
+    // Config pages are live state (keys, catalog, routes) — never cacheable.
+    res.setHeader('Cache-Control', 'no-store');
     res.send(html);
   });
 
@@ -283,6 +292,8 @@ export function registerConfigApiRoutes(app: express.Express, deps: ConfigApiDep
       defaultRouterCandidatesText: resolvedDefaultAutoRouterCandidatesText(),
       defaultFallbackModelsText: DEFAULT_FALLBACK_MODELS_TEXT
     });
+    // Config pages are live state (keys, catalog, routes) — never cacheable.
+    res.setHeader('Cache-Control', 'no-store');
     res.send(html);
   });
 
@@ -292,6 +303,8 @@ export function registerConfigApiRoutes(app: express.Express, deps: ConfigApiDep
       defaultRouterCandidatesText: resolvedDefaultAutoRouterCandidatesText(),
       defaultFallbackModelsText: DEFAULT_FALLBACK_MODELS_TEXT
     });
+    // Config pages are live state (keys, catalog, routes) — never cacheable.
+    res.setHeader('Cache-Control', 'no-store');
     res.send(html);
   });
 
