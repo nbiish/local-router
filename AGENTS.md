@@ -259,7 +259,7 @@ git checkout develop
 
 ### Commands
 
-- `pqc-secrets keygen` — Generate ML-KEM-768 keypair. Private key → OS keystore, public key → `~/.config/pqc-secrets/recipient.pub`.
+- `pqc-secrets keygen` — Generate ML-KEM-768 keypair. Private key → OS keystore, public key → `~/.config/pqc-secrets/recipient.pub`. The private key is encrypted at rest under a stable per-machine KEK persisted to `~/.config/pqc-secrets/machine.kek` (0600) so it survives reboots, kernel updates, and distro re-creation. See `.agents/skills/pqc-secrets/references/kek-persistence.md`.
 - `pqc-secrets pack` — Encrypt stdin `KEY=VAL` lines via AES-256-GCM, wrap data key via ML-KEM-768, and write `~/.config/pqc-secrets/secrets.bundle.json`.
 - `pqc-secrets export` — Decrypt bundle via keystore and output shell `export KEY=VALUE` lines.
 - `secrets-load` — Shell function evaluating `pqc-secrets export` to inject secrets into current shell memory.

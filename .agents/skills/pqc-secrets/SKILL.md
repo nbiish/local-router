@@ -126,15 +126,16 @@ The PQC secrets system consists of a dual-implementation architecture to ensure 
 
 The local secrets infrastructure lives at `~/.config/pqc-secrets/`:
 
-System Keychain / File            ~/.config/pqc-secrets/
-┌──────────────────────┐          ┌────────────────────────────┐
-│ macOS Keychain,      │          │ recipient.pub              │
-│ Linux Secret Service,│          │ ML-KEM-768 public key      │
-│ or Encrypted File    │          │ (safe to commit)           │
-└──────────┬───────────┘          └────────────┬───────────────┘
-           │                                   │
-           │ decaps (ML-KEM-768)               │ encaps
-           ▼                                   ▼
+System Keychain / File                 ~/.config/pqc-secrets/
+┌─────────────────────────┐          ┌──────────────────────────────┐
+│ macOS Keychain,         │          │ machine.kek (0600, stable)    │
+│ Linux Secret Service,   │  uses    │ recipient.pub                │
+│ or machine.kek (0600)   │────────▶ │ (ML-KEM-768 public key)      │
+│ ─── the private-key     │          │ (safe to commit)             │
+│     wrapping key (KEK)  │          └──────────────┬───────────────┘
+└─────────────────────────┘                         │
+            │ decrypt (AES-256-GCM)                │ encaps (ML-KEM-768)
+            ▼                                       ▼
 ┌──────────────────────────────────────────────────────────────┐
 │                    secrets.bundle.json                       │
 │  ┌─────────────────┐  ┌──────────────────────────────────┐   │
@@ -207,9 +208,11 @@ PQC_KEYCHAIN_ACCOUNT_OLD=default PQC_KEYCHAIN_ACCOUNT_NEW=pqc-secrets-key bin/pq
 
 | Variable | Default | Description |
 |---|---|---|
-|| `PQC_KEYCHAIN_ACCOUNT` | `pqc-secrets-key` | System keychain account name for the ML-KEM-768 private key |
-|| `PQC_CONFIG_DIR` | `~/.config/pqc-secrets` | Directory for bundle and public key files |
-|| `PQC_USE_KEYCHAIN` | `false` | Enable native platform keychain storage (defaults to system-agnostic local file store) |
+| `PQC_KEYCHAIN_ACCOUNT` | `pqc-secrets-key` | System keychain account name for the ML-KEM-768 private key |
+| `PQC_CONFIG_DIR` | `~/.config/pqc-secrets` | Directory for bundle and public key files |
+| `PQC_USE_KEYCHAIN` | `false` | Enable native platform keychain storage (defaults to the `machine.kek` file store) |
+
+**Private-key wrapping key (KEK):** the ML-KEM-768 private key is encrypted under a stable per-machine KEK persisted to `~/.config/pqc-secrets/machine.kek` (0600). It is generated once and survives reboots, kernel upgrades, and distro re-creation; a pre-existing legacy-encrypted store is migrated automatically. See `references/kek-persistence.md` for the full strategy.
 
 ### Implementation Details
 
