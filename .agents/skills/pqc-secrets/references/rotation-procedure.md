@@ -127,6 +127,8 @@ when an employee with keychain access leaves.
    ```
 
 2. **Verify** the new pubkey differs from the current:
+   (Rotation also migrates a legacy expanded-form key store to the native
+   seed form — the migration is complete once the bundle is re-packed.)
    ```bash
    $ shasum -a 256 /tmp/pqc-new-recipient.pub ~/.config/pqc-secrets/recipient.pub
    ```
