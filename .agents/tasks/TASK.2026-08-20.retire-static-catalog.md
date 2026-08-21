@@ -45,6 +45,21 @@
 - Restart: no re-migration; selection persists.
 - Page scripts parse; radios gone.
 
+## Late fixes
+- Loader dropped migrationVersion → re-migration
+  on every restart. Fixed: read+persist field.
+- Boot order: route loads validated against
+  empty store (catalog loads last) → persisted
+  fallback/router entries dropped. Fixed: config
+  + cache + migration load before routes.
+- Refresh replaces provider sections → router
+  candidates unresolved → auto-router-main
+  silently dropped at load. Fixed: lenient load
+  validation (log dormant, never drop persisted
+  routers); strict gate kept for create/import.
+- Custom editor saves now auto-toggle into
+  selection (ensureCuratedOverrideSelection).
+
 ## Audit
 - No secrets in code/task/PRD.
 - PQC bundle untouched; keys still env/bundle.
