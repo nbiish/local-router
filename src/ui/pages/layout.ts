@@ -798,8 +798,25 @@ export function renderLayout(
                 '<button class="button-secondary" data-reset-provider="' + escapeHtml(provider.name) + '">Reset key</button>' +
                 customActions +
               '</div>' +
+              '<details class="provider-live-models" data-provider="' + escapeHtml(provider.name) + '" style="margin-top:10px; border-top:1px solid var(--border-color,#333); padding-top:8px;">' +
+                '<summary style="cursor:pointer; font-weight:500;">Live models <span class="muted live-counts" data-live-counts>(not fetched)</span></summary>' +
+                '<div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-top:8px;">' +
+                  '<input type="search" data-live-search placeholder="Filter models…" style="flex:1; min-width:140px;">' +
+                  '<button type="button" class="button-secondary" data-live-refresh style="padding:4px 10px; font-size:13px;">🔄 Fetch live models</button>' +
+                  '<button type="button" data-live-save style="padding:4px 10px; font-size:13px;">Save selection</button>' +
+                '</div>' +
+                '<div class="muted" data-live-note style="margin-top:6px; font-size:12px;"></div>' +
+                '<div data-live-list class="provider-model-list" style="max-height:280px; overflow-y:auto; margin-top:6px;">' +
+                  '<div class="provider-model-empty">Click Fetch live models to list what this provider serves upstream.</div>' +
+                '</div>' +
+              '</details>' +
             '</section>';
           }).join('');
+
+          providerGridEl.querySelectorAll('details.provider-live-models').forEach((block) => {
+            wireProviderLiveBlock(block);
+          });
+          updateLiveBadgesFromSnapshot();
 
           providerGridEl.querySelectorAll('button[data-use-provider]').forEach((button) => {
             button.addEventListener('click', () => {
@@ -2539,8 +2556,24 @@ export function renderLayout(
           }
 
           keyInputEl.value = '';
-          setMessage('Provider key saved in-memory successfully.', 'success');
+          const discovered = payload?.discovered;
+          if (discovered && discovered.count > 0) {
+            setMessage('Provider key saved. Discovered ' + discovered.count + ' live model(s)' +
+              (discovered.seededCount > 0 ? ' — ' + discovered.seededCount + ' pre-selected from your catalog.' : '.') +
+              ' Review them in the provider card below.', 'success');
+          } else {
+            setMessage('Provider key saved in-memory successfully.', 'success');
+          }
           await loadProviderConfigs();
+          await hydrateLiveModelBadges();
+          if (discovered && discovered.count > 0) {
+            const block = providerLiveBlock(provider);
+            populateProviderLiveBlock(provider, discovered.models || [],
+              discovered.seededCount > 0
+                ? discovered.seededCount + ' model(s) pre-selected from your providers.txt catalog.'
+                : 'Fetched ' + discovered.count + ' live model(s).');
+            if (block) block.open = true;
+          }
           await loadCatalog();
           await refreshRouterCandidateAvailability();
           await loadFallbackRoutes();
@@ -2605,6 +2638,175 @@ export function renderLayout(
           }
 
           setMessage('VS Code model picker refreshed. Reload the VS Code window if the dropdown is already open.', 'success');
+        }
+
+        let liveModelsByProvider = {};
+        let liveSearchByProvider = {};
+        let curationKeySnapshot = new Set();
+        let curationAlreadyActive = null;
+        let liveCountsByProvider = {};
+
+        function liveCurationKey(provider, model) {
+          return provider + '::' + model;
+        }
+
+        function providerLiveBlock(provider) {
+          const gridEl = document.getElementById('providerGrid');
+          if (!gridEl) return null;
+          return gridEl.querySelector('details.provider-live-models[data-provider="' + escapeHtml(provider) + '"]');
+        }
+
+        async function hydrateLiveModelBadges() {
+          try {
+            const res = await fetch('/api/model-curation');
+            const data = await res.json();
+            curationKeySnapshot = new Set(Array.isArray(data.selectedKeys) ? data.selectedKeys : []);
+            if (curationAlreadyActive === null) {
+              curationAlreadyActive = data.source === 'endpoints' && data.curationEnabled === true;
+            }
+            liveCountsByProvider = {};
+            (Array.isArray(data.data) ? data.data : []).forEach((group) => {
+              if (group && group.provider && Array.isArray(group.models)) {
+                liveCountsByProvider[group.provider] = group.models.length;
+              }
+            });
+            updateLiveBadgesFromSnapshot();
+          } catch (err) {
+            console.error('[hydrateLiveModelBadges]', err);
+          }
+        }
+
+        function updateLiveBadgesFromSnapshot() {
+          const gridEl = document.getElementById('providerGrid');
+          if (!gridEl) return;
+          gridEl.querySelectorAll('details.provider-live-models').forEach((block) => {
+            const provider = block.getAttribute('data-provider') || '';
+            const countsEl = block.querySelector('[data-live-counts]');
+            if (!countsEl) return;
+            const cached = liveCountsByProvider[provider];
+            if (!cached) return;
+            let selected = 0;
+            curationKeySnapshot.forEach((key) => {
+              if (key.indexOf(provider + '::') === 0) selected++;
+            });
+            countsEl.innerText = '(' + cached + ' live, ' + selected + ' selected)';
+          });
+        }
+
+        function setLiveNote(block, text) {
+          const noteEl = block.querySelector('[data-live-note]');
+          if (noteEl) noteEl.innerText = text;
+        }
+
+        function populateProviderLiveBlock(provider, models, noteText) {
+          liveModelsByProvider[provider] = Array.isArray(models) ? models : [];
+          const block = providerLiveBlock(provider);
+          if (!block) return;
+          if (noteText) setLiveNote(block, noteText);
+          renderLiveModelList(block);
+          updateLiveBadgesFromSnapshot();
+        }
+
+        function renderLiveModelList(block) {
+          const provider = block.getAttribute('data-provider') || '';
+          const models = liveModelsByProvider[provider] || [];
+          const listEl = block.querySelector('[data-live-list]');
+          if (!listEl) return;
+          if (!models.length) {
+            listEl.innerHTML = '<div class="provider-model-empty">No live models cached — click Fetch live models.</div>';
+            return;
+          }
+          const search = (liveSearchByProvider[provider] || '').toLowerCase();
+          const rows = models.filter((model) => {
+            if (!search) return true;
+            const haystack = [model.model, model.display, model.id]
+              .map((part) => String(part || '').toLowerCase())
+              .join(' ');
+            return haystack.includes(search);
+          });
+          listEl.innerHTML = rows.map((model) => {
+            const key = liveCurationKey(provider, model.model);
+            const checked = curationKeySnapshot.has(key) ? ' checked' : '';
+            const ctx = model.contextLength ? ' <span class="muted">(' + escapeHtml(String(model.contextLength)) + ' ctx)</span>' : '';
+            return '<label class="flag-toggle" style="display:flex; align-items:center; gap:8px; padding:3px 0;">' +
+              '<input type="checkbox" data-live-key="' + escapeHtml(key) + '"' + checked + '>' +
+              '<span>' + escapeHtml(model.model || model.id) + ctx + '</span>' +
+            '</label>';
+          }).join('') || '<div class="provider-model-empty">No models match the filter.</div>';
+        }
+
+        async function fetchProviderLiveModels(provider) {
+          const block = providerLiveBlock(provider);
+          if (block) setLiveNote(block, 'Fetching live models…');
+          try {
+            const res = await fetch('/api/provider-models/' + encodeURIComponent(provider) + '/refresh', { method: 'POST' });
+            const payload = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(payload?.error || 'Refresh failed');
+            await hydrateLiveModelBadges();
+            populateProviderLiveBlock(
+              provider,
+              payload.data || [],
+              payload.seededCount > 0
+                ? payload.seededCount + ' model(s) pre-selected from your providers.txt catalog.'
+                : 'Fetched ' + payload.count + ' live model(s).'
+            );
+            return true;
+          } catch (err) {
+            if (block) setLiveNote(block, 'Fetch failed: ' + (err?.message || String(err)));
+            return false;
+          }
+        }
+
+        async function saveProviderLiveSelection(block) {
+          const provider = block.getAttribute('data-provider') || '';
+          const checked = Array.from(block.querySelectorAll('input[data-live-key]:checked'))
+            .map((input) => input.getAttribute('data-live-key') || '');
+          const prefix = provider + '::';
+          const merged = new Set(Array.from(curationKeySnapshot).filter((key) => key.indexOf(prefix) !== 0));
+          checked.forEach((key) => merged.add(key));
+          const shouldActivate = !curationAlreadyActive && merged.size > 0;
+          const body = { selectedKeys: Array.from(merged) };
+          if (shouldActivate) body.activate = true;
+          try {
+            const res = await fetch('/api/model-curation', {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(body)
+            });
+            const payload = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(payload?.error || 'Save failed');
+            curationKeySnapshot = new Set(payload.selectedKeys || []);
+            curationAlreadyActive = true;
+            setLiveNote(block, shouldActivate
+              ? 'Selection saved — local-router now serves ONLY selected models.'
+              : 'Selection saved.');
+            updateLiveBadgesFromSnapshot();
+            await loadCatalog();
+          } catch (err) {
+            setLiveNote(block, 'Save failed: ' + (err?.message || String(err)));
+          }
+        }
+
+        function wireProviderLiveBlock(block) {
+          const provider = block.getAttribute('data-provider') || '';
+          const refreshBtn = block.querySelector('[data-live-refresh]');
+          const saveBtn = block.querySelector('[data-live-save]');
+          const searchEl = block.querySelector('[data-live-search]');
+          if (refreshBtn) {
+            refreshBtn.addEventListener('click', () => { fetchProviderLiveModels(provider); });
+          }
+          if (saveBtn) {
+            saveBtn.addEventListener('click', () => { saveProviderLiveSelection(block); });
+          }
+          if (searchEl) {
+            searchEl.addEventListener('input', () => {
+              liveSearchByProvider[provider] = searchEl.value || '';
+              renderLiveModelList(block);
+            });
+          }
+          if (liveModelsByProvider[provider]) {
+            renderLiveModelList(block);
+          }
         }
 
         let curationCatalogData = [];
@@ -2971,6 +3173,7 @@ export function renderLayout(
 
         initializeThemeScale();
         safeInit('loadProviderConfigs', loadProviderConfigs);
+        safeInit('hydrateLiveModelBadges', hydrateLiveModelBadges);
         safeInit('loadFallbackRoutes', loadFallbackRoutes);
         safeInit('loadRouterRoutes', loadRouterRoutes);
         try { buildModelDropdown(); } catch (err) { showUiError('buildModelDropdown', err); }

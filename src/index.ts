@@ -2122,8 +2122,13 @@ function endpointCurationActive(): boolean {
 function applyEndpointCuration(models: ProviderModel[]): ProviderModel[] {
   if (!endpointCurationActive()) return models;
   const curatedKeys = new Set(modelSourceConfig.curatedEndpointModelKeys);
-  if (curatedKeys.size === 0) return [];
-  return models.filter((model) => curatedKeys.has(endpointModelCurationKey(model)));
+  if (curatedKeys.size === 0) {
+    // Local ollama backend stays discoverable even when nothing is curated.
+    return models.filter((model) => model.provider === 'ollama');
+  }
+  return models.filter(
+    (model) => model.provider === 'ollama' || curatedKeys.has(endpointModelCurationKey(model))
+  );
 }
 
 function loadEndpointModelsCache(): void {
@@ -2250,8 +2255,7 @@ async function queryAllProviderEndpoints(): Promise<ProviderModel[]> {
   const results = await Promise.all(
     providers.map(async (providerSummary) => {
       try {
-        const rawModels = await fetchLiveProviderModels(providerSummary.name);
-        return mapLiveRawModelsToCatalog(providerSummary.name, rawModels);
+        return await fetchProviderEndpointModels(providerSummary.name);
       } catch (err) {
         console.error(`Error querying models for provider ${providerSummary.name}:`, err);
         return [];
@@ -2259,6 +2263,104 @@ async function queryAllProviderEndpoints(): Promise<ProviderModel[]> {
     })
   );
   return results.flat();
+}
+
+const PROVIDER_ENDPOINT_REFRESH_TIMEOUT_MS = 20_000;
+
+function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(message)), ms);
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (err) => {
+        clearTimeout(timer);
+        reject(err);
+      }
+    );
+  });
+}
+
+/** Fetch one provider's live model list mapped to catalog shape, deduped by curation key. */
+async function fetchProviderEndpointModels(providerName: string): Promise<ProviderModel[]> {
+  const rawModels = await fetchLiveProviderModels(providerName);
+  const mapped = mapLiveRawModelsToCatalog(providerName, rawModels);
+  const seen = new Set<string>();
+  const deduped: ProviderModel[] = [];
+  for (const model of mapped) {
+    const key = endpointModelCurationKey(model);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    deduped.push(model);
+  }
+  return deduped;
+}
+
+/** Replace one provider's section of the endpoint cache, preserving all other providers. */
+function mergeProviderEndpointModels(providerName: string, models: ProviderModel[]): void {
+  const others = endpointModelsCache.filter((model) => model.provider !== providerName);
+  endpointModelsCache = [...others, ...models].sort((a, b) =>
+    a.provider === b.provider
+      ? a.model.localeCompare(b.model)
+      : a.provider.localeCompare(b.provider)
+  );
+}
+
+/**
+ * First-fetch seeding: pre-check (select) every discovered model that already
+ * exists in the curated providers.txt catalog so serving continuity is kept.
+ * Providers that already have any selection are left untouched.
+ */
+function seedCurationDefaultsForProvider(providerName: string, models: ProviderModel[]): number {
+  const existing = new Set(modelSourceConfig.curatedEndpointModelKeys);
+  if (models.some((model) => existing.has(endpointModelCurationKey(model)))) return 0;
+  const catalogModels = new Set(
+    readProviderModels()
+      .filter((model) => model.provider === providerName)
+      .map((model) => model.model)
+  );
+  let seeded = 0;
+  for (const model of models) {
+    if (!catalogModels.has(model.model)) continue;
+    const key = endpointModelCurationKey(model);
+    if (existing.has(key)) continue;
+    existing.add(key);
+    seeded++;
+  }
+  if (seeded > 0) {
+    modelSourceConfig.curatedEndpointModelKeys = Array.from(existing).slice(0, 5000);
+    persistModelSourceConfig();
+  }
+  return seeded;
+}
+
+/** Seed curation defaults for every provider in the endpoint cache (all-providers refresh). */
+function ensureCurationDefaultsForCache(): void {
+  const providers = Array.from(new Set(endpointModelsCache.map((model) => model.provider)));
+  for (const provider of providers) {
+    seedCurationDefaultsForProvider(
+      provider,
+      endpointModelsCache.filter((model) => model.provider === provider)
+    );
+  }
+}
+
+/**
+ * Refresh a single provider's endpoint-model cache section: fetch live,
+ * merge into the cache, persist, and seed curation defaults on first fetch.
+ */
+async function refreshProviderEndpointModels(providerName: string): Promise<{ models: ProviderModel[]; seededCount: number }> {
+  const models = await withTimeout(
+    fetchProviderEndpointModels(providerName),
+    PROVIDER_ENDPOINT_REFRESH_TIMEOUT_MS,
+    `Provider ${providerName} model refresh timed out after ${PROVIDER_ENDPOINT_REFRESH_TIMEOUT_MS / 1000}s`
+  );
+  mergeProviderEndpointModels(providerName, models);
+  persistEndpointModelsCache();
+  const seededCount = seedCurationDefaultsForProvider(providerName, models);
+  return { models, seededCount };
 }
 
 type CatalogResolveOptions = {
@@ -3506,6 +3608,8 @@ const configApiDeps = {
   filterConfiguredModels,
   ensureOllamaBackend,
   queryAllProviderEndpoints,
+  refreshProviderEndpointModels,
+  ensureCurationDefaultsForCache,
   persistEndpointModelsCache,
   filterOllamaCloudPullTags,
   effectiveProviderModels,
