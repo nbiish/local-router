@@ -125,6 +125,7 @@ export interface ConfigApiDeps {
   csvEscape: (val: any) => string;
   diagnosticsSnapshot: (limit?: number) => any;
   editableProviderModels: (providerName: string) => ProviderModel[];
+  ensureCuratedOverrideSelection: (providerName: string) => void;
   fallbackModelPresentation: (model: FallbackModel) => ProviderModel;
   fallbackPresentedModelId: (model: FallbackModel | string) => string;
   findFallbackModel: (modelName: string) => FallbackModel | undefined;
@@ -224,6 +225,7 @@ export function registerConfigApiRoutes(app: express.Express, deps: ConfigApiDep
     csvEscape,
     diagnosticsSnapshot,
     editableProviderModels,
+    ensureCuratedOverrideSelection,
     fallbackModelPresentation,
     fallbackPresentedModelId,
     findFallbackModel,
@@ -541,16 +543,18 @@ app.get('/api/model-source', (req: Request, res: Response) => {
 });
 
 app.put('/api/model-source', (req: Request, res: Response) => {
+  // The Custom/Endpoint source switch was removed (2026-08-20): the toggle
+  // catalog is the only model source. `source` is validated for backward
+  // compatibility but normalized to 'endpoints'; only filterConfigured and
+  // curation settings still mutate.
   const { source, filterConfigured } = req.body;
   if (source !== undefined && source !== 'custom' && source !== 'endpoints') {
     return res.status(400).json({ error: 'source must be "custom" or "endpoints"' });
   }
-  if (source !== undefined) {
-    modelSourceConfig.source = source;
-  }
   if (typeof filterConfigured === 'boolean') {
     modelSourceConfig.filterConfigured = filterConfigured;
   }
+  modelSourceConfig.source = 'endpoints';
   persistModelSourceConfig();
   res.json({ success: true, ...modelSourceConfig });
 });
@@ -602,9 +606,9 @@ app.put('/api/model-curation', (req: Request, res: Response) => {
     )).slice(0, 5000);
   }
 
-  if (typeof enabled === 'boolean') {
-    modelSourceConfig.curationEnabled = enabled;
-  }
+  // Curation cannot be disabled in the single-catalog regime (2026-08-20):
+  // the toggle selection IS the catalog. `enabled: false` is ignored.
+  modelSourceConfig.curationEnabled = true;
 
   persistModelSourceConfig();
 
@@ -704,6 +708,7 @@ app.put('/api/provider-models/:provider', (req: Request, res: Response) => {
   modelStore[providerName] = parsed.models.map((model) => cloneProviderModel(model));
   persistedProviderModelOverrides.add(providerName);
   persistProviderModels();
+  ensureCuratedOverrideSelection(providerName);
   return res.json({
     success: true,
     provider: providerName,
@@ -739,6 +744,7 @@ app.post('/api/provider-models/:provider/models', (req: Request, res: Response) 
     editable.push(cloneProviderModel(nextModel));
   }
   persistProviderModels();
+  ensureCuratedOverrideSelection(providerName);
 
   return res.json({
     success: true,

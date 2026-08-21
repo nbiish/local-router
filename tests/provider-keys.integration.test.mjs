@@ -24,7 +24,9 @@ let proxyEnv = {};
 let selectedProvider;
 
 function baselineProviderModelCount(providerName) {
-  const content = readFileSync('providers.txt', 'utf8');
+  // The providers.txt model table was retired (2026-08-20); the frozen
+  // legacy catalog seeds the toggle store with every row pre-checked.
+  const content = readFileSync('providers.legacy-catalog.txt', 'utf8');
   let count = 0;
 
   for (const rawLine of content.split(/\r?\n/)) {
@@ -243,6 +245,8 @@ async function restartProxyProcess() {
   await stopProxyProcess();
   await startProxyProcess();
 }
+
+
 
 async function requestJson(pathname, options) {
   const response = await fetch(`${baseUrl}${pathname}`, options);
@@ -1329,7 +1333,8 @@ test('provider key save/reset lifecycle exposes configured source', async (t) =>
 
   const modelSourceInitial = await requestJson('/api/model-source');
   assert.equal(modelSourceInitial.response.status, 200);
-  assert.equal(modelSourceInitial.body?.source, 'custom');
+  assert.equal(modelSourceInitial.body?.source, 'endpoints');
+  assert.equal(modelSourceInitial.body?.curationEnabled, true);
 
   const refreshEndpoints = await requestJson('/api/refresh-endpoint-models', {
     method: 'POST'
@@ -1342,26 +1347,44 @@ test('provider key save/reset lifecycle exposes configured source', async (t) =>
     'Expected endpoint-only model from fake upstream'
   );
 
-  const switchToEndpoints = await requestJson('/api/model-source', {
+  // Single-catalog regime: discovered models serve only when toggled on.
+  const preToggleCatalog = await requestJson('/v1/models');
+  assert.equal(
+    preToggleCatalog.body?.data?.some((model) => model.id.includes('endpoint-only-model')),
+    false,
+    'Untoggled endpoint-only model must not serve'
+  );
+
+  const curationBefore = await requestJson('/api/model-curation');
+  assert.equal(curationBefore.response.status, 200);
+  const toggleKey = `${selectedProvider.name}::endpoint-only-model`;
+  const augmentedSelection = [
+    ...new Set([...(curationBefore.body?.selectedKeys || []), toggleKey])
+  ];
+  const toggleOn = await requestJson('/api/model-curation', {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ source: 'endpoints' })
+    body: JSON.stringify({ selectedKeys: augmentedSelection })
   });
-  assert.equal(switchToEndpoints.response.status, 200);
-  assert.equal(switchToEndpoints.body?.source, 'endpoints');
+  assert.equal(toggleOn.response.status, 200);
+  assert.equal(toggleOn.body?.curationEnabled, true);
+  assert.ok(
+    toggleOn.body?.selectedKeys?.includes(toggleKey),
+    'Toggle selection must include the endpoint-only key'
+  );
 
   const endpointCatalog = await requestJson('/v1/models');
   assert.equal(endpointCatalog.response.status, 200);
   assert.ok(
     endpointCatalog.body?.data?.some((model) => model.id.includes('endpoint-only-model')),
-    'Expected endpoint-only model in OpenAI-compatible catalog'
+    'Expected toggled endpoint-only model in OpenAI-compatible catalog'
   );
 
   const endpointTags = await requestJson('/api/tags');
   assert.equal(endpointTags.response.status, 200);
   assert.ok(
     endpointTags.body?.models?.some((model) => model.name.includes('endpoint-only-model')),
-    'Expected endpoint-only model in Ollama tags'
+    'Expected toggled endpoint-only model in Ollama tags'
   );
 
   await restartProxyProcess();
@@ -1373,22 +1396,23 @@ test('provider key save/reset lifecycle exposes configured source', async (t) =>
   const persistedEndpointCatalog = await requestJson('/v1/models');
   assert.ok(
     persistedEndpointCatalog.body?.data?.some((model) => model.id.includes('endpoint-only-model')),
-    'Expected endpoint cache to survive proxy restart'
+    'Expected toggle selection to survive proxy restart'
   );
 
+  // Mode switch removed: PUT custom is accepted but normalized to endpoints,
+  // leaving the served catalog unchanged.
   const switchToCustom = await requestJson('/api/model-source', {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ source: 'custom' })
   });
   assert.equal(switchToCustom.response.status, 200);
-  assert.equal(switchToCustom.body?.source, 'custom');
+  assert.equal(switchToCustom.body?.source, 'endpoints');
 
   const customCatalog = await requestJson('/v1/models');
-  assert.equal(
+  assert.ok(
     customCatalog.body?.data?.some((model) => model.id.includes('endpoint-only-model')),
-    false,
-    'Endpoint-only model should not appear when custom source is active'
+    'Served catalog is mode-independent since the toggle catalog is the only source'
   );
 
   const invalidModelSource = await requestJson('/api/model-source', {
@@ -1414,8 +1438,8 @@ test('provider key save/reset lifecycle exposes configured source', async (t) =>
   );
   assert.equal(
     filteredProviderModels.body?.data?.some((model) => String(model.id).includes('endpoint-only-model')),
-    false,
-    'Endpoint-only upstream model must not leak in custom catalog mode'
+    true,
+    'Toggled endpoint-only model must appear in its provider section'
   );
 
   const liveProviderModels = await requestJson(
@@ -1431,21 +1455,21 @@ test('provider key save/reset lifecycle exposes configured source', async (t) =>
   assert.equal(fullCatalogModels.response.status, 200);
   assert.equal(
     fullCatalogModels.body?.catalog_mode,
-    'custom',
-    'Unfiltered /v1/models should report custom catalog_mode'
+    'endpoints',
+    'Unfiltered /v1/models should report endpoints catalog_mode'
   );
   assert.equal(
     fullCatalogModels.body?.data?.some((model) => String(model.id).includes('endpoint-only-model')),
-    false,
-    'Custom catalog mode must not expose endpoint-cache models on /v1/models'
+    true,
+    'Toggled endpoint-cache model must serve on /v1/models'
   );
 
   const liveFullCatalog = await requestJson('/v1/models?live=true');
   assert.equal(liveFullCatalog.response.status, 200);
   assert.equal(
     liveFullCatalog.body?.data?.some((model) => String(model.id).includes('endpoint-only-model')),
-    false,
-    'Custom mode must not expand to all provider endpoints on /v1/models?live=true'
+    true,
+    'Toggled model stays present on /v1/models?live=true (curated view)'
   );
 
   const catalogAll = await requestJson('/api/provider-models?catalog=all');
@@ -1453,8 +1477,8 @@ test('provider key save/reset lifecycle exposes configured source', async (t) =>
   const allFlat = (catalogAll.body?.data || []).flatMap((entry) => entry.models || []);
   assert.equal(
     allFlat.some((model) => String(model.id).includes('endpoint-only-model')),
-    false,
-    'catalog=all must not union endpoint cache while custom source is active'
+    true,
+    'catalog=all unions the discovered cache beyond the toggled selection'
   );
 
   const catalogActive = await requestJson('/api/provider-models?catalog=active');
@@ -1462,8 +1486,8 @@ test('provider key save/reset lifecycle exposes configured source', async (t) =>
   const activeFlat = (catalogActive.body?.data || []).flatMap((entry) => entry.models || []);
   assert.equal(
     activeFlat.some((model) => String(model.id).includes('endpoint-only-model')),
-    false,
-    'catalog=active must follow custom source, not endpoint cache'
+    true,
+    'catalog=active follows the toggle selection'
   );
 
   const invalidSave = await requestJson('/api/keys', {
@@ -1549,7 +1573,7 @@ test('provider-models catalog query supports custom and all modes', async (t) =>
   assert.equal(active.body?.catalog, 'active');
 });
 
-test('gateway providers custom catalog stays on providers.txt baseline', async (t) => {
+test('gateway providers catalog stays on legacy baseline (toggle store)', async (t) => {
   if (skipReason) {
     t.skip(skipReason);
     return;
@@ -1557,21 +1581,21 @@ test('gateway providers custom catalog stays on providers.txt baseline', async (
 
   const modelSource = await requestJson('/api/model-source');
   assert.equal(modelSource.response.status, 200);
-  assert.equal(modelSource.body?.source, 'custom');
+  assert.equal(modelSource.response.status === 200 ? modelSource.body?.source : '', 'endpoints');
 
   const configs = await requestJson('/api/provider-configs');
   assert.equal(configs.response.status, 200);
 
   for (const providerName of ['kilo', 'cline']) {
     const baselineCount = baselineProviderModelCount(providerName);
-    assert.ok(baselineCount > 0, `Expected ${providerName} models in providers.txt`);
+    assert.ok(baselineCount > 0, `Expected ${providerName} models in legacy catalog`);
 
     const provider = configs.body?.data?.find((entry) => entry?.name === providerName);
     assert.ok(provider, `Expected ${providerName} in provider configs`);
     assert.equal(
       provider.modelCount,
       baselineCount,
-      `${providerName} custom catalog must not merge live upstream models`
+      `${providerName} curated section must equal migrated legacy rows (no upstream merge)`
     );
   }
 
@@ -1580,7 +1604,7 @@ test('gateway providers custom catalog stays on providers.txt baseline', async (
   assert.equal(
     (kiloModels.body?.models || []).length,
     baselineProviderModelCount('kilo'),
-    'GET /api/provider-models/kilo must list providers.txt only in custom mode'
+    'GET /api/provider-models/kilo must list the curated legacy baseline'
   );
 });
 
