@@ -1,6 +1,6 @@
 ---
 name: model-remove
-description: "Removes a deprecated model from every local-router file (catalog, specs, routing, gateway, pricing, ollama-cloud) and from any persisted user routers. Invoke when a model is shut down, replaced, or a free-for-limited-time promo ends."
+description: "Removes a deprecated model from the local-router toggle store (untoggle + registry extras), specs, routing, gateway, pricing, ollama-cloud, and from any persisted user routers. Invoke when a model is shut down, replaced, or a free-for-limited-time promo ends."
 ---
 
 # Model Remove
@@ -29,7 +29,8 @@ If the model is **only** removed from one provider (not the upstream as a whole)
 ## 2. Files Touched (Reverse of `model-add`)
 
 ```text
-providers.txt                              # delete the catalog row
+src/provider-model-registries.ts           # delete registry extra (zai/cline only)
+toggle store curated keys                  # untoggle provider::model via PUT /api/model-curation
 src/model-specs.json                       # delete only if NO provider hosts it anymore
 src/routing-defaults.ts                    # CANDIDATE_DEFAULTS + DEFAULT_FALLBACK_ORDERED_IDS
 src/routing-exhaustion-order.ts            # FALLBACK_PAID_TAIL_IDS + free chains
@@ -79,9 +80,19 @@ rg -l "step-3.7-flash-free" ~/.config/local-router/
 
 The first sweep finds source references; the second finds user-state references. Both must be addressed.
 
-### 3.4 Remove the Catalog Row from `providers.txt`
+### 3.4 Remove from the Toggle Store
 
-Delete the line corresponding to the presented ID. Do **not** renumber sibling rows — historical row numbers are stable references in CHANGELOG and PRD comments. Just delete the row and leave a gap.
+The providers.txt model table was retired (Release 2026-08-20g);
+`providers.legacy-catalog.txt` is a frozen migration seed — never edit it.
+
+1. **Untoggle**: `GET /api/model-curation` → remove `provider::upstream-id`
+   from `selectedKeys` → `PUT /api/model-curation` with the remaining keys
+   (the PUT replaces the whole selection).
+2. **Drop the cache entry**: the next `POST /api/provider-models/<provider>/refresh`
+   replaces that provider's section with current upstream truth, retiring the
+   dead id from the store.
+3. **Registry-only providers (zai, cline)**: also delete the entry from
+   `PROVIDER_MODEL_REGISTRY_EXTRAS` in `src/provider-model-registries.ts`.
 
 ### 3.5 Remove from `src/model-specs.json`
 
@@ -186,7 +197,7 @@ When the **same** upstream model is hosted on multiple providers (e.g. `step-3.7
 
 | Step | All-providers gone | Only one provider gone |
 |---|---|---|
-| `providers.txt` | delete **all** rows | delete only the dead provider's row |
+| toggle store | untoggle every provider's key | untoggle only the dead provider's key |
 | `model-specs.json` | delete the bare-name entry | leave the entry (other providers still need it) |
 | `routing-defaults.ts` | delete the `CANDIDATE_DEFAULTS` line | add a per-provider `CANDIDATE_DEFAULTS` line per surviving provider if not already present |
 | `routing-exhaustion-order.ts` | remove from gateway lists | remove only from the dead provider's list |
@@ -197,12 +208,12 @@ When the **same** upstream model is hosted on multiple providers (e.g. `step-3.7
 
 ## 6. Common Pitfalls
 
-- **Removing from `providers.txt` but not `model-specs.json`** — the spec validator fails the build with "orphan specs row". Either both go, or neither.
+- **Untoggling without removing the specs row (or vice versa)** — the spec validator fails the build with "orphan specs row". Either both go, or neither.
 - **Forgetting `BASELINE_PROVIDER_PRICING`** — the router keeps scoring the missing model at $0/M, making it the cheapest candidate and biasing auto-router selection.
 - **Editing persisted routers on disk before the new presented ID is published** — a router that points to a not-yet-released ID will 502 from the moment the proxy restarts. Publish the new model first, then migrate routers in a follow-up commit.
-- **Renumbering `providers.txt` rows after a delete** — historical row numbers appear in CHANGELOG and PRD lineage comments. Leave the gap.
+- **Editing `providers.legacy-catalog.txt`** — frozen migration seed; edits do nothing on already-migrated machines.
 - **Removing the wrong tier from a gateway list** — Cline and Kilo both have `*-free` and `*-paid` lists. Removing from the wrong one flips a paid model into the free chain (and vice versa). Always cross-check the `upstreamId` against `CLINE_FREE_SET` / `KILO_FREE_SET` membership before deleting.
-- **Forgetting `endpoint-models-cache.json`** — the cache persists across restarts. Stale rows show ghost models in `/config` for up to an hour.
+- **Forgetting the endpoint cache** — the cache persists across restarts. Stale rows show ghost models in `/config` until the next per-provider refresh replaces the section.
 
 ---
 
@@ -211,7 +222,7 @@ When the **same** upstream model is hosted on multiple providers (e.g. `step-3.7
 Scenario: ZenMux announced the free tier ended 2026-07-15, model is now paid-only upstream at $0.10/$0.30 per 1M. We want to remove the free variant but keep a future paid variant.
 
 1. Probe via `provider-models-list` — `zenmux` upstream no longer advertises `:free`. Decision: remove the free presented ID.
-2. `providers.txt` — delete the row for `zenmux-step-3.7-flash-free`.
+2. Toggle store — untoggle `zenmux::stepfun/step-3.7-flash:free`; the next refresh retires it from the cache section.
 3. `src/model-specs.json` — leave `step-3.7-flash` (Kilo, OpenCode Zen, OpenRouter, Cline all still host it).
 4. `src/routing-defaults.ts` — delete `CANDIDATE_DEFAULTS['zenmux-step-3.7-flash-free']` and the `DEFAULT_FALLBACK_ORDERED_IDS` entry.
 5. `src/routing-exhaustion-order.ts` — not Cline/Kilo, skip.
