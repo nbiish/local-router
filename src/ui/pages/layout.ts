@@ -2558,7 +2558,9 @@ export function renderLayout(
           keyInputEl.value = '';
           const discovered = payload?.discovered;
           if (discovered && discovered.count > 0) {
-            setMessage('Provider key saved. Discovered ' + discovered.count + ' live model(s)' +
+            const sourceLabels = { live: 'live upstream', registry: 'curated registry', catalog: 'static catalog' };
+            setMessage('Provider key saved. Discovered ' + discovered.count + ' model(s) from ' +
+              (sourceLabels[discovered.source] || discovered.source) +
               (discovered.seededCount > 0 ? ' — ' + discovered.seededCount + ' pre-selected from your catalog.' : '.') +
               ' Review them in the provider card below.', 'success');
           } else {
@@ -2568,10 +2570,14 @@ export function renderLayout(
           await hydrateLiveModelBadges();
           if (discovered && discovered.count > 0) {
             const block = providerLiveBlock(provider);
-            populateProviderLiveBlock(provider, discovered.models || [],
-              discovered.seededCount > 0
-                ? discovered.seededCount + ' model(s) pre-selected from your providers.txt catalog.'
-                : 'Fetched ' + discovered.count + ' live model(s).');
+            const sourceLabels = { live: 'live upstream', registry: 'curated registry', catalog: 'static catalog' };
+            let note = 'Fetched ' + discovered.count + ' model(s) — source: ' +
+              (sourceLabels[discovered.source] || discovered.source) + '.';
+            if (discovered.seededCount > 0) {
+              note += ' ' + discovered.seededCount + ' pre-selected from your providers.txt catalog.';
+            }
+            if (discovered.note) note += ' (' + discovered.note + ')';
+            populateProviderLiveBlock(provider, discovered.models || [], note);
             if (block) block.open = true;
           }
           await loadCatalog();
@@ -2743,13 +2749,14 @@ export function renderLayout(
             const payload = await res.json().catch(() => ({}));
             if (!res.ok) throw new Error(payload?.error || 'Refresh failed');
             await hydrateLiveModelBadges();
-            populateProviderLiveBlock(
-              provider,
-              payload.data || [],
-              payload.seededCount > 0
-                ? payload.seededCount + ' model(s) pre-selected from your providers.txt catalog.'
-                : 'Fetched ' + payload.count + ' live model(s).'
-            );
+            const sourceLabels = { live: 'live upstream', registry: 'curated registry', catalog: 'static catalog' };
+            const sourceLabel = sourceLabels[payload.source] || payload.source;
+            let note = 'Fetched ' + payload.count + ' model(s) — source: ' + sourceLabel + '.';
+            if (payload.seededCount > 0) {
+              note += ' ' + payload.seededCount + ' pre-selected from your providers.txt catalog.';
+            }
+            if (payload.note) note += ' (' + payload.note + ')';
+            populateProviderLiveBlock(provider, payload.data || [], note);
             return true;
           } catch (err) {
             if (block) setLiveNote(block, 'Fetch failed: ' + (err?.message || String(err)));

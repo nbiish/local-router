@@ -374,6 +374,26 @@ test('per-provider curation: refresh, seed catalog matches, key auto-discovery, 
   const refreshedModels = refresh.body?.data || [];
   assert.ok(refreshedModels.length >= 2, 'Expected at least two models to curate between');
   assert.equal(refresh.body?.count, refreshedModels.length);
+  assert.ok(
+    ['live', 'registry', 'catalog'].includes(refresh.body?.source),
+    'refresh must report an honest source'
+  );
+
+  // Registry providers (no upstream /models API) return the curated registry
+  // with an honest source label — never a silent static-catalog masquerade.
+  const zaiRefresh = await requestJson('/api/provider-models/zai/refresh', { method: 'POST' });
+  assert.equal(zaiRefresh.response.status, 200);
+  assert.equal(zaiRefresh.body?.source, 'registry');
+  assert.ok(zaiRefresh.body?.note?.includes('registry'), 'Registry note must be surfaced');
+  const zaiIds = (zaiRefresh.body?.data || []).map((model) => model.model);
+  assert.ok(zaiIds.includes('GLM-5.3'), 'zai registry must list GLM-5.3');
+  assert.ok(zaiIds.includes('GLM-4.7'), 'zai registry must list GLM-4.7');
+  const clineRefresh = await requestJson('/api/provider-models/cline/refresh', { method: 'POST' });
+  assert.equal(clineRefresh.response.status, 200);
+  assert.equal(clineRefresh.body?.source, 'registry');
+  const clineIds = (clineRefresh.body?.data || []).map((model) => model.model);
+  assert.ok(clineIds.includes('moonshotai/kimi-k3'), 'cline registry must list kimi-k3');
+  assert.ok(clineRefresh.body?.count > 11, 'cline registry must exceed the old static rows');
 
   // First-fetch seeding pre-checks exactly the providers.txt catalog matches.
   const catalogModelIds = new Set(
