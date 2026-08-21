@@ -62,6 +62,8 @@ export interface ConfigApiDeps {
   filterConfiguredModels: (models: ProviderModel[]) => ProviderModel[];
   ensureOllamaBackend: () => Promise<boolean>;
   queryAllProviderEndpoints: () => Promise<ProviderModel[]>;
+  refreshProviderEndpointModels: (providerName: string) => Promise<{ models: ProviderModel[]; seededCount: number }>;
+  ensureCurationDefaultsForCache: () => void;
   persistEndpointModelsCache: () => void;
   filterOllamaCloudPullTags: (tags: string[], allowsPro: boolean) => string[];
   effectiveProviderModels: (provider: string) => ProviderModel[];
@@ -156,6 +158,8 @@ export function registerConfigApiRoutes(app: express.Express, deps: ConfigApiDep
     filterConfiguredModels,
     ensureOllamaBackend,
     queryAllProviderEndpoints,
+    refreshProviderEndpointModels,
+    ensureCurationDefaultsForCache,
     persistEndpointModelsCache,
     filterOllamaCloudPullTags,
     effectiveProviderModels,
@@ -308,7 +312,7 @@ export function registerConfigApiRoutes(app: express.Express, deps: ConfigApiDep
     res.send(html);
   });
 
-app.post('/api/keys', (req: Request, res: Response) => {
+app.post('/api/keys', async (req: Request, res: Response) => {
   const { provider, apiKey, groq, openrouter } = req.body;
 
   if (provider !== undefined || apiKey !== undefined) {
@@ -336,13 +340,27 @@ app.post('/api/keys', (req: Request, res: Response) => {
 
     setProviderKeyForEnvVar(summary.keyEnvVar, keyValue);
     persistPqcSecrets();
+
+    // Best-effort live model discovery now that this provider holds a key.
+    // OAuth providers authenticate through their own flow and are skipped.
+    let discovered: { count: number; seededCount: number; models: ProviderModel[] } | null = null;
+    if (!isOAuthProvider(providerName)) {
+      try {
+        const { models, seededCount } = await refreshProviderEndpointModels(providerName);
+        discovered = { count: models.length, seededCount, models };
+      } catch {
+        // The key stays saved; discovery can be retried from the provider card.
+      }
+    }
+
     return res.json({
       success: true,
       provider: providerName,
       keyEnvVar: summary.keyEnvVar,
       configured: true,
       configuredSource: 'memory',
-      sharedProviders: providerSummariesForEnvVar(summary.keyEnvVar).map((entry) => entry.name)
+      sharedProviders: providerSummariesForEnvVar(summary.keyEnvVar).map((entry) => entry.name),
+      discovered
     });
   }
 
@@ -545,10 +563,25 @@ app.get('/api/model-curation', (req: Request, res: Response) => {
 });
 
 app.put('/api/model-curation', (req: Request, res: Response) => {
-  const { enabled, selectedKeys } = req.body || {};
+  const { enabled, selectedKeys, activate } = req.body || {};
 
   if (enabled !== undefined && typeof enabled !== 'boolean') {
     return res.status(400).json({ error: 'enabled must be a boolean.' });
+  }
+
+  if (activate !== undefined && typeof activate !== 'boolean') {
+    return res.status(400).json({ error: 'activate must be a boolean.' });
+  }
+
+  // Activation: switch source to endpoints, enable curation, and pre-check
+  // every cached model that already exists in the curated providers.txt catalog.
+  if (activate === true) {
+    if (state.endpointModelsCache.length === 0) {
+      return res.status(409).json({ error: 'No endpoint models cached yet — refresh providers first.' });
+    }
+    modelSourceConfig.source = 'endpoints';
+    modelSourceConfig.curationEnabled = true;
+    ensureCurationDefaultsForCache();
   }
 
   if (selectedKeys !== undefined) {
@@ -578,12 +611,28 @@ app.put('/api/model-curation', (req: Request, res: Response) => {
   });
 });
 
+app.post('/api/provider-models/:provider/refresh', async (req: Request, res: Response) => {
+  const providerName = canonicalProviderSlug(String(req.params.provider || '').trim());
+  const summary = getProviderSummary(providerName);
+  if (!summary) {
+    return res.status(404).json({ error: `Unknown provider: ${providerName}` });
+  }
+
+  try {
+    const { models, seededCount } = await refreshProviderEndpointModels(providerName);
+    return res.json({ success: true, provider: providerName, count: models.length, seededCount, data: models });
+  } catch (error: any) {
+    return res.status(502).json({ error: error?.message || 'Failed to refresh provider models' });
+  }
+});
+
 app.post('/api/refresh-endpoint-models', async (req: Request, res: Response) => {
   try {
     await ensureOllamaBackend();
     const fetchedModels = await queryAllProviderEndpoints();
     state.endpointModelsCache = fetchedModels;
     persistEndpointModelsCache();
+    ensureCurationDefaultsForCache();
     const ollamaTags = filterOllamaCloudPullTags(
       effectiveProviderModels('ollama').map((model) => model.model),
       ollamaCloudRoutingAllowsPro()
