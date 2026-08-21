@@ -73,6 +73,10 @@ import {
   resolveGatewayPresentedLegacyId
 } from './gateway-provider-catalog';
 import { registerConfigApiRoutes } from './routes/config-api';
+import {
+  PROVIDER_MODEL_REGISTRY_EXTRAS,
+  providerHasNoLiveModelList
+} from './provider-model-registries';
 import { loadRouterSettings, saveRouterSettings } from './config-persistence';
 import { normalizeGatewayChatCompletionBody } from './gateway-response';
 import {
@@ -2157,7 +2161,7 @@ function persistEndpointModelsCache(): void {
 
 function mapLiveRawModelsToCatalog(
   providerName: string,
-  rawModels: Array<{ id: string }>
+  rawModels: Array<{ id: string; [key: string]: unknown }>
 ): ProviderModel[] {
   const baselineModels = readProviderModels();
   const providerModels: ProviderModel[] = [];
@@ -2177,34 +2181,91 @@ function mapLiveRawModelsToCatalog(
       continue;
     }
 
+    const numberHint = (...keys: string[]): number | undefined => {
+      for (const key of keys) {
+        const value = (raw as Record<string, unknown>)[key];
+        if (typeof value === 'number' && Number.isFinite(value) && value > 0) return value;
+      }
+      return undefined;
+    };
+    const booleanHint = (key: string, fallback: boolean): boolean => {
+      const value = (raw as Record<string, unknown>)[key];
+      return typeof value === 'boolean' ? value : fallback;
+    };
     providerModels.push({
       id: presentedId,
       provider: providerName,
       model: modelId,
       display: providerModelDisplay(providerName, modelId),
-      contextLength: DEFAULT_CONTEXT_LENGTH,
-      outputTokens: DEFAULT_OUTPUT_TOKENS,
-      supportsTools: true,
-      supportsImages: false,
-      supportsCache: false,
-      supportsReasoning: false
+      contextLength: numberHint('contextLength', 'context_length') ?? DEFAULT_CONTEXT_LENGTH,
+      outputTokens: numberHint('outputTokens', 'max_output_tokens') ?? DEFAULT_OUTPUT_TOKENS,
+      supportsTools: booleanHint('supportsTools', true),
+      supportsImages: booleanHint('supportsImages', false),
+      supportsCache: booleanHint('supportsCache', false),
+      supportsReasoning: booleanHint('supportsReasoning', false)
     });
   }
 
   return providerModels;
 }
 
-async function fetchLiveProviderModels(providerName: string): Promise<Array<{ id: string; object: string; owned_by: string }>> {
+export type LiveModelSource = 'live' | 'registry' | 'catalog';
+
+export interface LiveModelsResult {
+  models: Array<{ id: string; object: string; owned_by: string }>;
+  source: LiveModelSource;
+  note?: string;
+}
+
+/**
+ * Curated registry for providers with no /models API: providers.txt catalog
+ * rows unioned with verified additions (see provider-model-registries.ts).
+ */
+function providerRegistryModels(providerName: string): LiveModelsResult['models'] {
+  const seen = new Set<string>();
+  const out: LiveModelsResult['models'] = [];
+  const push = (id: string, extra: Record<string, unknown> = {}) => {
+    const normalized = String(id || '').trim();
+    if (!normalized) return;
+    const dedupeKey = normalized.toLowerCase();
+    if (seen.has(dedupeKey)) return;
+    seen.add(dedupeKey);
+    out.push({ id: normalized, object: 'model', owned_by: providerName, ...extra });
+  };
+  for (const entry of PROVIDER_MODEL_REGISTRY_EXTRAS[providerName] || []) {
+    push(entry.id, {
+      contextLength: entry.contextLength,
+      outputTokens: entry.outputTokens,
+      supportsTools: entry.supportsTools,
+      supportsImages: entry.supportsImages,
+      supportsCache: entry.supportsCache,
+      supportsReasoning: entry.supportsReasoning
+    });
+  }
+  for (const model of effectiveProviderModels(providerName)) {
+    push(model.model);
+  }
+  out.sort((a, b) => a.id.localeCompare(b.id));
+  return out;
+}
+
+/**
+ * Resolve a provider's discoverable model list. Always reports an honest
+ * `source` so the UI can distinguish a real live fetch from a curated
+ * registry (no upstream list API) or the static providers.txt catalog
+ * (live fetch failed / no key). Never throws.
+ */
+async function fetchLiveProviderModels(providerName: string): Promise<LiveModelsResult> {
   if (providerName === 'ollama') {
     const mod = await import('./providers/ollama');
-    return mod.fetchLiveOllamaModels();
+    return { models: await mod.fetchLiveOllamaModels(), source: 'live' };
   }
 
   try {
     const mod = await import(`./providers/${providerName}`);
     const provider = mod.default || mod;
     if (provider?.getModels) {
-      return provider.getModels();
+      return { models: await provider.getModels(), source: 'live' };
     }
   } catch {
     // Fall through to generic upstream loader.
@@ -2212,42 +2273,97 @@ async function fetchLiveProviderModels(providerName: string): Promise<Array<{ id
 
   const summary = getProviderSummary(providerName);
   if (!summary) {
-    return [];
+    return { models: [], source: 'catalog', note: `Unknown provider: ${providerName}` };
   }
+
+  const registryOnly = providerHasNoLiveModelList(summary.name);
+  const registryResult = (note: string): LiveModelsResult => ({
+    models: providerRegistryModels(summary.name),
+    source: 'registry',
+    note
+  });
+  const catalogResult = (models: LiveModelsResult['models'], note?: string): LiveModelsResult => ({
+    models,
+    source: 'catalog',
+    note
+  });
 
   const key = keyStore[summary.name] || process.env[summary.keyEnvVar];
   const isLocalService = isLocalLoopbackProvider(providerName);
-  if (key || isLocalService) {
-    try {
-      const url = providerBaseUrl(summary);
-      const headers: Record<string, string> = {};
-      if (key) {
-        headers.Authorization = `Bearer ${key}`;
-      }
-      const response = await safeFetch(`${url}/models`, {
-        headers,
-        signal: AbortSignal.timeout(6000)
-      });
-      if (response.ok) {
-        const data = await response.json();
-        if (Array.isArray(data.data)) {
-          return data.data.map((model: any) => ({
-            id: model.id,
+
+  if (!key && !isLocalService) {
+    return registryOnly
+      ? registryResult('No API key saved — showing curated registry; save the key to enable serving.')
+      : catalogResult(
+          effectiveProviderModels(summary.name).map((model) => ({
+            id: model.model,
             object: 'model',
             owned_by: summary.name
-          }));
-        }
-      }
-    } catch (error) {
-      console.error(`Failed to fetch models from endpoint for provider ${providerName}:`, error);
-    }
+          })),
+          'No API key saved — showing static providers.txt catalog.'
+        );
   }
 
-  return effectiveProviderModels(summary.name).map((model) => ({
-    id: model.model,
-    object: 'model',
-    owned_by: summary.name
-  }));
+  if (registryOnly) {
+    return registryResult(
+      `${summary.name} publishes no models-list API — curated registry (catalog rows + verified additions).`
+    );
+  }
+
+  try {
+    const url = providerBaseUrl(summary);
+    const headers: Record<string, string> = {};
+    if (key) {
+      headers.Authorization = `Bearer ${key}`;
+    }
+    const response = await safeFetch(`${url}/models`, {
+      headers,
+      signal: AbortSignal.timeout(6000)
+    });
+    if (response.ok) {
+      const data = await response.json();
+      const list = Array.isArray(data?.data)
+        ? data.data
+        : Array.isArray(data?.models)
+          ? data.models
+          : Array.isArray(data)
+            ? data
+            : [];
+      const models = list
+        .map((model: any) => model?.id ?? model?.name ?? model?.model)
+        .filter((id: unknown): id is string => typeof id === 'string' && id.trim().length > 0)
+        .map((id: string) => ({ id: id.trim(), object: 'model', owned_by: summary.name }));
+      if (models.length > 0) {
+        return { models, source: 'live' };
+      }
+      return catalogResult(
+        effectiveProviderModels(summary.name).map((model) => ({
+          id: model.model,
+          object: 'model',
+          owned_by: summary.name
+        })),
+        `Upstream /models returned no recognizable model list — showing static providers.txt catalog.`
+      );
+    }
+    return catalogResult(
+      effectiveProviderModels(summary.name).map((model) => ({
+        id: model.model,
+        object: 'model',
+        owned_by: summary.name
+      })),
+      `Upstream /models fetch failed (HTTP ${response.status}) — showing static providers.txt catalog.`
+    );
+  } catch (error: any) {
+    console.error(`Failed to fetch models from endpoint for provider ${providerName}:`, error);
+    return catalogResult(
+      effectiveProviderModels(summary.name).map((model) => ({
+        id: model.model,
+        object: 'model',
+        owned_by: summary.name
+      })),
+      `Upstream /models fetch failed (${error?.message || 'network error'}) — showing static providers.txt catalog.`
+    );
+  }
 }
 
 async function queryAllProviderEndpoints(): Promise<ProviderModel[]> {
@@ -2255,7 +2371,8 @@ async function queryAllProviderEndpoints(): Promise<ProviderModel[]> {
   const results = await Promise.all(
     providers.map(async (providerSummary) => {
       try {
-        return await fetchProviderEndpointModels(providerSummary.name);
+        const fetched = await fetchProviderEndpointModels(providerSummary.name);
+        return fetched.models;
       } catch (err) {
         console.error(`Error querying models for provider ${providerSummary.name}:`, err);
         return [];
@@ -2284,8 +2401,14 @@ function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promi
 }
 
 /** Fetch one provider's live model list mapped to catalog shape, deduped by curation key. */
-async function fetchProviderEndpointModels(providerName: string): Promise<ProviderModel[]> {
-  const rawModels = await fetchLiveProviderModels(providerName);
+export interface ProviderEndpointFetch {
+  models: ProviderModel[];
+  source: LiveModelSource;
+  note?: string;
+}
+
+async function fetchProviderEndpointModels(providerName: string): Promise<ProviderEndpointFetch> {
+  const { models: rawModels, source, note } = await fetchLiveProviderModels(providerName);
   const mapped = mapLiveRawModelsToCatalog(providerName, rawModels);
   const seen = new Set<string>();
   const deduped: ProviderModel[] = [];
@@ -2295,7 +2418,7 @@ async function fetchProviderEndpointModels(providerName: string): Promise<Provid
     seen.add(key);
     deduped.push(model);
   }
-  return deduped;
+  return { models: deduped, source, note };
 }
 
 /** Replace one provider's section of the endpoint cache, preserving all other providers. */
@@ -2351,16 +2474,21 @@ function ensureCurationDefaultsForCache(): void {
  * Refresh a single provider's endpoint-model cache section: fetch live,
  * merge into the cache, persist, and seed curation defaults on first fetch.
  */
-async function refreshProviderEndpointModels(providerName: string): Promise<{ models: ProviderModel[]; seededCount: number }> {
-  const models = await withTimeout(
+async function refreshProviderEndpointModels(providerName: string): Promise<{
+  models: ProviderModel[];
+  seededCount: number;
+  source: LiveModelSource;
+  note?: string;
+}> {
+  const fetched = await withTimeout(
     fetchProviderEndpointModels(providerName),
     PROVIDER_ENDPOINT_REFRESH_TIMEOUT_MS,
     `Provider ${providerName} model refresh timed out after ${PROVIDER_ENDPOINT_REFRESH_TIMEOUT_MS / 1000}s`
   );
-  mergeProviderEndpointModels(providerName, models);
+  mergeProviderEndpointModels(providerName, fetched.models);
   persistEndpointModelsCache();
-  const seededCount = seedCurationDefaultsForProvider(providerName, models);
-  return { models, seededCount };
+  const seededCount = seedCurationDefaultsForProvider(providerName, fetched.models);
+  return { models: fetched.models, seededCount, source: fetched.source, note: fetched.note };
 }
 
 type CatalogResolveOptions = {
@@ -2383,8 +2511,8 @@ async function resolveCatalogModels(options: CatalogResolveOptions = {}): Promis
       if (isLocalRouterProviderName(providerFilter)) {
         return [...fallbackModelList(), ...routerModelList()];
       }
-      const rawModels = await fetchLiveProviderModels(providerFilter);
-      return mapLiveRawModelsToCatalog(providerFilter, rawModels);
+      const live = await fetchLiveProviderModels(providerFilter);
+      return mapLiveRawModelsToCatalog(providerFilter, live.models);
     }
     if (!endpointsActive) {
       return modelPresentationList();

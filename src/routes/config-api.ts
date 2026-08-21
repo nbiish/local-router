@@ -62,7 +62,12 @@ export interface ConfigApiDeps {
   filterConfiguredModels: (models: ProviderModel[]) => ProviderModel[];
   ensureOllamaBackend: () => Promise<boolean>;
   queryAllProviderEndpoints: () => Promise<ProviderModel[]>;
-  refreshProviderEndpointModels: (providerName: string) => Promise<{ models: ProviderModel[]; seededCount: number }>;
+  refreshProviderEndpointModels: (providerName: string) => Promise<{
+    models: ProviderModel[];
+    seededCount: number;
+    source: 'live' | 'registry' | 'catalog';
+    note?: string;
+  }>;
   ensureCurationDefaultsForCache: () => void;
   persistEndpointModelsCache: () => void;
   filterOllamaCloudPullTags: (tags: string[], allowsPro: boolean) => string[];
@@ -343,11 +348,11 @@ app.post('/api/keys', async (req: Request, res: Response) => {
 
     // Best-effort live model discovery now that this provider holds a key.
     // OAuth providers authenticate through their own flow and are skipped.
-    let discovered: { count: number; seededCount: number; models: ProviderModel[] } | null = null;
+    let discovered: { count: number; seededCount: number; models: ProviderModel[]; source: string; note?: string } | null = null;
     if (!isOAuthProvider(providerName)) {
       try {
-        const { models, seededCount } = await refreshProviderEndpointModels(providerName);
-        discovered = { count: models.length, seededCount, models };
+        const { models, seededCount, source, note } = await refreshProviderEndpointModels(providerName);
+        discovered = { count: models.length, seededCount, models, source, note };
       } catch {
         // The key stays saved; discovery can be retried from the provider card.
       }
@@ -619,8 +624,8 @@ app.post('/api/provider-models/:provider/refresh', async (req: Request, res: Res
   }
 
   try {
-    const { models, seededCount } = await refreshProviderEndpointModels(providerName);
-    return res.json({ success: true, provider: providerName, count: models.length, seededCount, data: models });
+    const { models, seededCount, source, note } = await refreshProviderEndpointModels(providerName);
+    return res.json({ success: true, provider: providerName, count: models.length, seededCount, source, note, data: models });
   } catch (error: any) {
     return res.status(502).json({ error: error?.message || 'Failed to refresh provider models' });
   }
