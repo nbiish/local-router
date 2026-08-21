@@ -6,7 +6,9 @@ import path from 'node:path';
 const REPORT_PATH = path.resolve('.agents/research/cline-kilo-catalog-validation.json');
 
 function parseCatalogCount(providerName) {
-  const content = fs.readFileSync(path.resolve('providers.txt'), 'utf8');
+  // The providers.txt model table was retired (2026-08-20); the frozen
+  // pre-migration catalog that seeded the toggle store is the reference.
+  const content = fs.readFileSync(path.resolve('providers.legacy-catalog.txt'), 'utf8');
   let count = 0;
   for (const rawLine of content.split(/\r?\n/)) {
     const line = rawLine.trim();
@@ -22,7 +24,7 @@ function parseCatalogCount(providerName) {
   return count;
 }
 
-test('cline-kilo catalog validation report matches providers.txt', () => {
+test('cline-kilo catalog validation report matches legacy catalog', () => {
   if (!fs.existsSync(REPORT_PATH)) {
     console.log('Skip: run node scripts/validate-cline-kilo-catalog.mjs to generate report');
     return;

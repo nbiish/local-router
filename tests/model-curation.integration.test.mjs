@@ -247,13 +247,14 @@ test('model curation lifecycle: port all, curate subset, filter serving, persist
   assert.equal(legacyLookup.response.status, 200);
   assert.equal(legacyLookup.body?.provider, 'openrouter');
 
-  // Curation defaults to disabled with an empty selection.
+  // Single-catalog regime: curation is always on and the boot migration has
+  // pre-checked every legacy catalog row into the toggle store.
   const initial = await requestJson('/api/model-curation');
   assert.equal(initial.response.status, 200);
-  assert.equal(initial.body?.curationEnabled, false);
-  assert.equal(initial.body?.selectedCount, 0);
+  assert.equal(initial.body?.curationEnabled, true);
+  assert.ok(initial.body?.selectedCount > 0, 'Migration must pre-check legacy rows');
 
-  // Switch to endpoint models and port everything.
+  // The mode switch is gone; PUT endpoints is an accepted no-op.
   const switchSource = await requestJson('/api/model-source', {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
@@ -330,18 +331,29 @@ test('model curation lifecycle: port all, curate subset, filter serving, persist
   assert.ok(servedAfterRestartIds.includes(keepModel.id), 'Curated model still served after restart');
   assert.ok(!servedAfterRestartIds.includes(dropModel.id), 'Uncurated model still hidden after restart');
 
-  // Disabling curation restores the full ported catalog.
+  // Curation can no longer be disabled (single catalog); re-selecting the
+  // dropped model restores it instead.
   const disable = await requestJson('/api/model-curation', {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ enabled: false })
   });
   assert.equal(disable.response.status, 200);
-  assert.equal(disable.body?.curationEnabled, false);
+  assert.equal(disable.body?.curationEnabled, true, 'Curation is always on');
+
+  const reselect = await requestJson('/api/model-curation', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      selectedKeys: [`${group.provider}::${keepModel.model}`, `${group.provider}::${dropModel.model}`]
+    })
+  });
+  assert.equal(reselect.response.status, 200);
 
   const uncensored = await requestJson('/v1/models');
   const uncensoredIds = (uncensored.body?.data || []).map((model) => model.id);
-  assert.ok(uncensoredIds.includes(dropModel.id), 'Disabling curation must restore uncurated model');
+  assert.ok(uncensoredIds.includes(dropModel.id), 'Re-toggling must restore the dropped model');
+  assert.ok(uncensoredIds.includes(keepModel.id), 'Re-toggling must keep the kept model');
 });
 
 test('per-provider curation: refresh, seed catalog matches, key auto-discovery, activate gates serving', async (t) => {
@@ -353,14 +365,15 @@ test('per-provider curation: refresh, seed catalog matches, key auto-discovery, 
   const headers = { 'Content-Type': 'application/json' };
   const providerName = configuredProvider.name;
 
-  // Reset curation state left by the lifecycle test.
+  // Reset selection left by the lifecycle test (curation stays on).
   const reset = await requestJson('/api/model-curation', {
     method: 'PUT',
     headers,
-    body: JSON.stringify({ enabled: false, selectedKeys: [] })
+    body: JSON.stringify({ selectedKeys: [] })
   });
   assert.equal(reset.response.status, 200);
   assert.equal(reset.body?.selectedCount, 0);
+  assert.equal(reset.body?.curationEnabled, true);
 
   // Unknown providers are rejected.
   const unknown = await requestJson('/api/provider-models/no-such-provider/refresh', { method: 'POST' });
@@ -395,9 +408,10 @@ test('per-provider curation: refresh, seed catalog matches, key auto-discovery, 
   assert.ok(clineIds.includes('moonshotai/kimi-k3'), 'cline registry must list kimi-k3');
   assert.ok(clineRefresh.body?.count > 11, 'cline registry must exceed the old static rows');
 
-  // First-fetch seeding pre-checks exactly the providers.txt catalog matches.
+  // Post-migration: legacy rows are pre-checked at boot, so first-refresh
+  // seeding is a no-op and every legacy row for the provider stays selected.
   const catalogModelIds = new Set(
-    readFileSync('providers.txt', 'utf8')
+    readFileSync('providers.legacy-catalog.txt', 'utf8')
       .split(/\r?\n/)
       .map((line) => line.trim())
       .filter((line) => line.startsWith('# │'))
@@ -407,16 +421,25 @@ test('per-provider curation: refresh, seed catalog matches, key auto-discovery, 
       .map((columns) => columns[2])
   );
   const expectedSeeded = refreshedModels.filter((model) => catalogModelIds.has(model.model));
-  assert.equal(refresh.body?.seededCount, expectedSeeded.length);
+  assert.ok(expectedSeeded.length > 0, 'Expected legacy rows in the refreshed fallback');
+  assert.equal(
+    refresh.body?.seededCount,
+    expectedSeeded.length,
+    'Empty selection: first refresh re-checks every toggle-store match'
+  );
 
   const curated = await requestJson('/api/model-curation');
   assert.equal(curated.response.status, 200);
   const providerPrefix = `${providerName}::`;
-  const providerKeys = (curated.body?.selectedKeys || []).filter((key) => key.startsWith(providerPrefix));
-  assert.deepEqual(
-    providerKeys.sort(),
-    expectedSeeded.map((model) => `${providerName}::${model.model}`).sort()
+  const providerKeys = new Set(
+    (curated.body?.selectedKeys || []).filter((key) => key.startsWith(providerPrefix))
   );
+  for (const model of expectedSeeded) {
+    assert.ok(
+      providerKeys.has(`${providerName}::${model.model}`),
+      `Migration must keep ${model.model} pre-checked`
+    );
+  }
 
   // Saving a key auto-discovers that provider's live models.
   const keySave = await requestJson('/api/keys', {

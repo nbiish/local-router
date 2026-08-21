@@ -247,6 +247,8 @@ dotenv.config();
 const app = express();
 const DEFAULT_PORT = 11434;
 const DEFAULT_CONTEXT_LENGTH = 64000;
+const LEGACY_CATALOG_PATH = path.resolve(process.cwd(), 'providers.legacy-catalog.txt');
+const CATALOG_MIGRATION_VERSION = 1;
 const DEFAULT_OUTPUT_TOKENS = 4096;
 const FALLBACK_PROVIDER_NAME = 'local-router';
 const FALLBACK_PROVIDER_LEGACY_NAMES = ['fvs-code', 'fallback'];
@@ -547,6 +549,7 @@ let customProviderStore: CustomProviderRecord[] = [];
 const fallbackModelStore: Record<string, FallbackModel> = {};
 const routerModelStore: Record<string, RouterModel> = {};
 const modelSourceConfig: {
+  catalogMigrationVersion?: number;
   source: 'custom' | 'endpoints';
   filterConfigured: boolean;
   curationEnabled: boolean;
@@ -1018,7 +1021,7 @@ function baselineProviderModels(rawProviderName: string): ProviderModel[] {
   if (isCustomProvider(providerName)) {
     return [];
   }
-  return readProviderModels()
+  return endpointModelsCache
     .filter((model) => model.provider === providerName)
     .map((model) => cloneProviderModel(model));
 }
@@ -1031,9 +1034,41 @@ function editableProviderModels(rawProviderName: string): ProviderModel[] {
   return modelStore[providerName];
 }
 
+function rawProviderCacheModels(providerName: string): ProviderModel[] {
+  // Unfiltered toggle-store section — discovery/refresh UI shows every
+  // discovered model so the user can toggle any of them.
+  return endpointModelsCache.filter((model) => model.provider === providerName);
+}
+
 function effectiveProviderModels(rawProviderName: string): ProviderModel[] {
   const providerName = canonicalProviderSlug(rawProviderName);
-  return modelStore[providerName] || readProviderModels().filter((model) => model.provider === providerName);
+  if (modelStore[providerName]) return modelStore[providerName];
+  const section = endpointModelsCache.filter((model) => model.provider === providerName);
+  if (providerName === 'ollama') return section;
+  const curated = new Set(modelSourceConfig.curatedEndpointModelKeys);
+  return section.filter((model) => curated.has(endpointModelCurationKey(model)));
+}
+
+/**
+ * Custom-editor saves are part of the single toggle catalog: pre-check every
+ * saved override model so it serves immediately (mirrors the boot migration,
+ * which pre-checks persisted overrides).
+ */
+function ensureCuratedOverrideSelection(providerName: string): void {
+  const overrides = modelStore[providerName];
+  if (!overrides || overrides.length === 0) return;
+  const existing = new Set(modelSourceConfig.curatedEndpointModelKeys);
+  let changed = false;
+  for (const model of overrides) {
+    const key = endpointModelCurationKey(model);
+    if (!existing.has(key)) {
+      existing.add(key);
+      changed = true;
+    }
+  }
+  if (!changed) return;
+  modelSourceConfig.curatedEndpointModelKeys = [...existing].slice(0, MAX_CURATED_ENDPOINT_MODEL_KEYS);
+  persistModelSourceConfig();
 }
 
 function providerModelSource(providerName: string) {
@@ -1727,7 +1762,7 @@ function loadPersistedRouterModels() {
       const parsedRoute = parseRouterModel(entry);
       if (!parsedRoute.ok) continue;
 
-      const referenceCheck = validateRouterReferences(parsedRoute.model);
+      const referenceCheck = validateRouterReferences(parsedRoute.model, { lenient: true });
       if (!referenceCheck.ok) continue;
 
       const model = cloneRouterModel(parsedRoute.model);
@@ -2007,7 +2042,7 @@ function mergeBaselineProviderModelOverrides(): void {
   if (!changed) return;
   try {
     persistProviderModels();
-    console.log('[catalog] Merged new providers.txt models into persisted provider overrides.');
+    console.log('[catalog] Merged toggle-store models into persisted provider overrides.');
   } catch (error: any) {
     console.error('Failed to persist merged provider model overrides:', sanitizeDiagnosticText(String(error?.message || error)));
   }
@@ -2059,6 +2094,65 @@ function loadPersistedProviderModels() {
   }
 }
 
+/**
+ * One-time catalog migration (2026-08-20): the providers.txt model table was
+ * retired; the persisted toggle store (endpoint cache + curated keys) is now
+ * the only catalog. On first boot after upgrade, seed the toggle store from
+ * the frozen legacy catalog with every row pre-checked so /v1/models serves
+ * exactly what it served before the migration.
+ */
+function migrateLegacyCatalogIfNeeded(): void {
+  try {
+    if (modelSourceConfig.catalogMigrationVersion === CATALOG_MIGRATION_VERSION) return;
+    const legacy = readProviderModels();
+    if (legacy.length === 0) {
+      console.warn('[catalog] Legacy catalog empty — skipping migration.');
+      modelSourceConfig.catalogMigrationVersion = CATALOG_MIGRATION_VERSION;
+      persistModelSourceConfig();
+      return;
+    }
+    // Merge legacy rows + persisted custom overrides into the toggle store
+    // (refresh preserves other providers' sections).
+    const byKey = new Map(endpointModelsCache.map((model) => [endpointModelCurationKey(model), model]));
+    let added = 0;
+    for (const model of legacy) {
+      const key = endpointModelCurationKey(model);
+      if (!byKey.has(key)) {
+        byKey.set(key, { ...model });
+        added += 1;
+      }
+    }
+    for (const models of Object.values(modelStore)) {
+      for (const model of models) {
+        const key = endpointModelCurationKey(model);
+        if (!byKey.has(key)) {
+          byKey.set(key, cloneProviderModel(model));
+          added += 1;
+        }
+      }
+    }
+    endpointModelsCache = [...byKey.values()].sort((a, b) =>
+      a.provider === b.provider
+        ? a.model.localeCompare(b.model)
+        : a.provider.localeCompare(b.provider)
+    );
+    // Pre-check every migrated row: serving continuity.
+    const curated = new Set(modelSourceConfig.curatedEndpointModelKeys);
+    for (const model of endpointModelsCache) curated.add(endpointModelCurationKey(model));
+    modelSourceConfig.curatedEndpointModelKeys = [...curated].sort();
+    modelSourceConfig.source = 'endpoints';
+    modelSourceConfig.curationEnabled = true;
+    modelSourceConfig.catalogMigrationVersion = CATALOG_MIGRATION_VERSION;
+    persistEndpointModelsCache();
+    persistModelSourceConfig();
+    console.log(
+      `[catalog] Migrated ${legacy.length} legacy model row(s) (${added} new) into the toggle store — all pre-checked.`
+    );
+  } catch (error) {
+    console.error('[catalog] Legacy catalog migration failed:', error);
+  }
+}
+
 function loadModelSourceConfig(): void {
   const persistedPath = existingPath(MODEL_SOURCE_CONFIG_PATH, LEGACY_MODEL_SOURCE_CONFIG_PATH);
   if (!fs.existsSync(persistedPath)) return;
@@ -2066,6 +2160,9 @@ function loadModelSourceConfig(): void {
     const parsed = JSON.parse(fs.readFileSync(persistedPath, 'utf8'));
     if (parsed && (parsed.source === 'custom' || parsed.source === 'endpoints')) {
       modelSourceConfig.source = parsed.source;
+    }
+    if (typeof parsed.catalogMigrationVersion === 'number') {
+      modelSourceConfig.catalogMigrationVersion = parsed.catalogMigrationVersion;
     }
     if (typeof parsed.filterConfigured === 'boolean') {
       modelSourceConfig.filterConfigured = parsed.filterConfigured;
@@ -2114,7 +2211,9 @@ function endpointModelCurationKey(model: ProviderModel): string {
 }
 
 function endpointCurationActive(): boolean {
-  return modelSourceConfig.source === 'endpoints' && modelSourceConfig.curationEnabled;
+  // The toggle store is the only catalog since the providers.txt model table
+  // was retired (2026-08-20); curation is always active.
+  return true;
 }
 
 /**
@@ -2242,7 +2341,7 @@ function providerRegistryModels(providerName: string): LiveModelsResult['models'
       supportsReasoning: entry.supportsReasoning
     });
   }
-  for (const model of effectiveProviderModels(providerName)) {
+  for (const model of rawProviderCacheModels(providerName)) {
     push(model.model);
   }
   out.sort((a, b) => a.id.localeCompare(b.id));
@@ -2295,7 +2394,7 @@ async function fetchLiveProviderModels(providerName: string): Promise<LiveModels
     return registryOnly
       ? registryResult('No API key saved — showing curated registry; save the key to enable serving.')
       : catalogResult(
-          effectiveProviderModels(summary.name).map((model) => ({
+          rawProviderCacheModels(summary.name).map((model) => ({
             id: model.model,
             object: 'model',
             owned_by: summary.name
@@ -2337,7 +2436,7 @@ async function fetchLiveProviderModels(providerName: string): Promise<LiveModels
         return { models, source: 'live' };
       }
       return catalogResult(
-        effectiveProviderModels(summary.name).map((model) => ({
+        rawProviderCacheModels(summary.name).map((model) => ({
           id: model.model,
           object: 'model',
           owned_by: summary.name
@@ -2346,7 +2445,7 @@ async function fetchLiveProviderModels(providerName: string): Promise<LiveModels
       );
     }
     return catalogResult(
-      effectiveProviderModels(summary.name).map((model) => ({
+      rawProviderCacheModels(summary.name).map((model) => ({
         id: model.model,
         object: 'model',
         owned_by: summary.name
@@ -2356,7 +2455,7 @@ async function fetchLiveProviderModels(providerName: string): Promise<LiveModels
   } catch (error: any) {
     console.error(`Failed to fetch models from endpoint for provider ${providerName}:`, error);
     return catalogResult(
-      effectiveProviderModels(summary.name).map((model) => ({
+      rawProviderCacheModels(summary.name).map((model) => ({
         id: model.model,
         object: 'model',
         owned_by: summary.name
@@ -2440,9 +2539,7 @@ function seedCurationDefaultsForProvider(providerName: string, models: ProviderM
   const existing = new Set(modelSourceConfig.curatedEndpointModelKeys);
   if (models.some((model) => existing.has(endpointModelCurationKey(model)))) return 0;
   const catalogModels = new Set(
-    readProviderModels()
-      .filter((model) => model.provider === providerName)
-      .map((model) => model.model)
+    rawProviderCacheModels(providerName).map((model) => model.model)
   );
   let seeded = 0;
   for (const model of models) {
@@ -2498,36 +2595,18 @@ type CatalogResolveOptions = {
 };
 
 async function resolveCatalogModels(options: CatalogResolveOptions = {}): Promise<ProviderModel[]> {
-  const mode = options.mode ?? modelSourceConfig.source;
   const live = Boolean(options.live);
   const providerFilter = canonicalProviderSlug(String(options.provider || '').trim());
-  const endpointsActive = mode === 'endpoints' && endpointModelsCache.length > 0;
 
   if (live) {
-    if (mode === 'custom' && !providerFilter) {
-      return modelPresentationList();
-    }
     if (providerFilter) {
       if (isLocalRouterProviderName(providerFilter)) {
         return [...fallbackModelList(), ...routerModelList()];
       }
-      const live = await fetchLiveProviderModels(providerFilter);
-      return mapLiveRawModelsToCatalog(providerFilter, live.models);
+      const liveResult = await fetchLiveProviderModels(providerFilter);
+      return mapLiveRawModelsToCatalog(providerFilter, liveResult.models);
     }
-    if (!endpointsActive) {
-      return modelPresentationList();
-    }
-    return applyEndpointCuration(await queryAllProviderEndpoints());
-  }
-
-  if (endpointsActive) {
-    if (providerFilter) {
-      if (isLocalRouterProviderName(providerFilter)) {
-        return [...fallbackModelList(), ...routerModelList()];
-      }
-      return applyEndpointCuration(endpointModelsCache.filter((model) => model.provider === providerFilter));
-    }
-    return applyEndpointCuration(endpointModelsCache);
+    return modelPresentationList();
   }
 
   if (providerFilter) {
@@ -2541,10 +2620,18 @@ async function resolveCatalogModels(options: CatalogResolveOptions = {}): Promis
 }
 
 function providerCatalogModels(): ProviderModel[] {
-  if (modelSourceConfig.source === 'endpoints' && endpointModelsCache.length > 0) {
-    return applyEndpointCuration(endpointModelsCache);
+  // Serving catalog: curated selection over the toggle store union any
+  // persisted per-provider overrides (the custom editor still works; its
+  // models are toggles like everything else).
+  const byKey = new Map<string, ProviderModel>();
+  for (const model of modelPresentationList()) {
+    byKey.set(endpointModelCurationKey(model), model);
   }
-  return modelPresentationList();
+  for (const model of endpointModelsCache) {
+    const key = endpointModelCurationKey(model);
+    if (!byKey.has(key)) byKey.set(key, model);
+  }
+  return applyEndpointCuration([...byKey.values()]);
 }
 
 async function discoveryModelList(live = false): Promise<ProviderModel[]> {
@@ -2708,7 +2795,22 @@ function validateFallbackReferences(model: FallbackModel) {
   return { ok: true } as const;
 }
 
-function validateRouterReferences(model: RouterModel) {
+function validateRouterReferences(model: RouterModel, options: { lenient?: boolean } = {}) {
+  // Lenient mode (persistence load): reference checks are skipped entirely.
+  // Upstream refreshes legitimately retire models (a provider section can be
+  // replaced), and a dormant candidate must NEVER silently delete a persisted
+  // router. Runtime availability checks skip unresolvable candidates when
+  // requests arrive; the strict reference gate applies at creation/import.
+  if (options.lenient) {
+    const dormant = model.candidates.filter((candidate) => !findProviderModel(candidate.model));
+    if (dormant.length > 0) {
+      console.warn(
+        `[router] Loaded router "${model.id}" with ${dormant.length} dormant candidate(s): ${dormant.map((entry) => entry.model).slice(0, 5).join(', ')}${dormant.length > 5 ? ', …' : ''}`
+      );
+    }
+    return { ok: true } as const;
+  }
+
   const unresolved = model.candidates.filter((candidate) => {
     if (findProviderModel(candidate.model)) return false;
     const resolved = resolveModelTarget(candidate.model);
@@ -3797,6 +3899,7 @@ const configApiDeps = {
   csvEscape,
   diagnosticsSnapshot,
   editableProviderModels,
+  ensureCuratedOverrideSelection,
   fallbackModelPresentation,
   fallbackPresentedModelId,
   findFallbackModel,
@@ -3870,12 +3973,11 @@ async function loadProvider(name: string): Promise<ProxyProvider | null> {
 let providerModelsCache: ProviderModel[] | null = null;
 
 function readProviderModels(): ProviderModel[] {
-  // Parsed once per process (see readCatalogProviderSummaries). Router and
-  // fallback validation resolve every candidate through the catalog; without
-  // caching, each lookup re-parsed the full providers.txt master table.
+  // Parses the FROZEN pre-migration catalog (providers.txt model table was
+  // retired 2026-08-20). Used once at boot to seed the toggle store.
   if (providerModelsCache) return providerModelsCache;
 
-  const providersPath = path.resolve(process.cwd(), 'providers.txt');
+  const providersPath = LEGACY_CATALOG_PATH;
 
   try {
     const content = fs.readFileSync(providersPath, 'utf8');
@@ -3963,7 +4065,7 @@ function readProviderModels(): ProviderModel[] {
 function modelPresentationList() {
   const providers = allProviderSummaries();
   if (providers.length === 0) {
-    return readProviderModels();
+    return applyEndpointCuration(endpointModelsCache);
   }
 
   return providers.flatMap((provider) => effectiveProviderModels(provider.name));
@@ -3980,19 +4082,15 @@ function parseProviderCatalogMode(raw: unknown): ProviderCatalogMode {
 }
 
 function customCatalogModels(): ProviderModel[] {
-  const previousSource = modelSourceConfig.source;
-  modelSourceConfig.source = 'custom';
-  const models = modelPresentationList();
-  modelSourceConfig.source = previousSource;
-  return models;
+  // Single-catalog regime (2026-08-20): custom view = curated toggle store
+  // plus any per-provider overrides — same as the serving list pre-curation.
+  return modelPresentationList();
 }
 
 function allCatalogModels(): ProviderModel[] {
-  if (modelSourceConfig.source === 'custom') {
-    return customCatalogModels();
-  }
+  // Everything known: curated selection ∪ untoggled discoveries.
   const byKey = new Map<string, ProviderModel>();
-  for (const model of customCatalogModels()) {
+  for (const model of providerCatalogModels()) {
     byKey.set(`${model.provider}::${model.model}`, model);
   }
   for (const model of endpointModelsCache) {
@@ -4002,9 +4100,6 @@ function allCatalogModels(): ProviderModel[] {
 }
 
 function catalogModelsForMode(mode: ProviderCatalogMode): ProviderModel[] {
-  if (mode === 'custom') {
-    return customCatalogModels();
-  }
   if (mode === 'all') {
     return allCatalogModels();
   }
@@ -4029,8 +4124,14 @@ function providerModelsGroupedByProvider(models: ProviderModel[]) {
 ensureLocalRouterConfigDir();
 migrateLegacyConfigIfNeeded();
 loadCustomProviders();
+// Model-source + toggle-store cache must load BEFORE persisted routes:
+// route validation resolves candidates through the catalog, which is only
+// populated after the legacy-catalog migration seeds it.
+loadModelSourceConfig();
+loadEndpointModelsCache();
 loadPersistedProviderModels();
 mergeBaselineProviderModelOverrides();
+migrateLegacyCatalogIfNeeded();
 loadPersistedFallbackModels();
 if (waferZdrEnabled) {
   console.log('[Wafer] ZDR enabled for GLM-5.1, Kimi-K2.6, deepseek-v4-pro');
@@ -4045,9 +4146,6 @@ loadHeadroomConfig();
 if (headroomEnabled) {
   console.log(`[Headroom] Context compression enabled (proxy: ${headroomProxyUrl})`);
 }
-loadModelSourceConfig();
-loadEndpointModelsCache();
-
 function ensureDefaultRouter() {
   if (routerModelStore[DEFAULT_ROUTER_ID]) return;
 

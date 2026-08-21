@@ -6,6 +6,12 @@
 # Updated: 2026-08-18 (rename provider openrouter-presets -> openrouter; presets stay
 #          private custom models input individually, never in /v1/models listings)
 # Purpose: Master config reference for ALL agentic tools.
+#
+# MODEL CATALOG MOVED 2026-08-20: model rows now live in the persisted toggle
+# store (endpoint-models-cache.json + model-source-config.json curated keys),
+# managed per-provider via /config live-model toggles. This file lists providers
+# only. The frozen pre-migration catalog (parsed once at first boot to seed the
+# toggle store) is providers.legacy-catalog.txt.
 #          kilo, crush, pi, goose, dcode, hermes, cline, qwen-code, Zed, etc.
 #
 # NAMING CONVENTION: <provider-namespace>/<model>
@@ -43,126 +49,19 @@
 # │ nous-portal        │ https://inference-api.nousresearch.com/v1│ NOUS_API_KEY          │
 
 # =============================================================================
-# MASTER MODEL SPECIFICATION
+# MASTER MODEL SPECIFICATION — REMOVED 2026-08-20
 # =============================================================================
 # │ # │ Provider           │ Model ID (API)                      │ Zed Display                  │ Context  │ Output   │ Tools │ Img  │ Cache │ Reasoning │
 # │───+--------------------+-------------------------------------+------------------------------+----------+----------+-------+------+-------+-----------│
-# │ 1 │ wafer-serverless   │ GLM-5.1                             │ wsvr:GLM-5.1                 │ 200,000  │ 128,000  │ YES   │ NO   │ YES   │ NO*       │
-# │ 2 │ wafer-serverless   │ Kimi-K2.6                           │ wsvr:Kimi-K2.6               │ 262,144  │ 262,144  │ YES   │ YES  │ YES   │ NO*       │
-# │ 3 │ wafer-serverless   │ deepseek-v4-flash                   │ wsvr:deepseek-v4-flash       │1,000,000 │ 384,000  │ YES   │ NO   │ YES   │ NO*       │
-# │ 4 │ wafer-serverless   │ deepseek-v4-pro                     │ wsvr:deepseek-v4-pro         │1,000,000 │ 384,000  │ YES   │ NO   │ YES   │ NO*       │
-# │ 5 │ wafer-serverless   │ qwen3.7-max                         │ wsvr:qwen3.7-max             │1,000,000 │ 65,536   │ YES   │ NO   │ YES   │ NO*       │
-# │ 6 │ zenmux             │ deepseek/deepseek-chat              │ zenm:deepseek-chat           │ 128,000  │ 16,000   │ YES   │ NO   │ YES   │ NO        │
-# │ 7 │ zenmux             │ z-ai/glm-5.1                        │ zenm:z-ai/glm-5.1            │ 200,000  │ 128,000  │ YES   │ NO   │ YES   │ NO*       │
-# │ 8 │ zenmux             │ qwen/qwen3.7-max                    │ zenm:qwen3.7-max             │1,000,000 │ 65,536   │ YES   │ NO   │ YES   │ NO*       │
-# │11 │ nebius             │ moonshotai/Kimi-K2.6                │ nebs:moonshotai/Kimi-K2.6    │ 256,000  │ 262,144  │ YES   │ YES  │ NO    │ NO*       │
-# │12 │ nebius             │ deepseek-ai/DeepSeek-V4-Pro         │ nebs:deepseek-ai/DeepSeek-V4-Pro│1,000,000│ 384,000  │ YES   │ NO   │ YES   │ NO*       │
-# │13 │ nebius             │ nvidia/Nemotron-3-Nano-Omni         │ nebs:nvidia/Nemotron-3-Nano-Omni│ 256,000│ 65,536   │ YES   │ YES  │ NO    │ NO*       │
-# │14 │ nebius             │ zai-org/GLM-5.1                     │ nebs:zai-org/GLM-5.1         │ 200,000  │ 128,000  │ YES   │ NO   │ NO    │ NO*       │
 
-# │18 │ moonshot           │ kimi-k2.7-code                      │ mons:kimi-k2.7-code          │ 262,144  │ 262,144  │ YES   │ YES  │ YES   │ NO*       │
-# │19 │ nvidia-nim         │ nvidia/nemotron-3-nano-omni-30b-a3b-reasoning │ nvnm:nemotron-omni │ 256,000 │ 65,536   │ YES   │ YES  │ NO    │ NO*       │
 
-# │22 │ modal              │ zai-org/GLM-5.1-FP8                 │ modl:GLM-5.1-FP8             │ 200,000  │ 128,000  │ YES   │ NO   │ NO    │ NO*       │
-# │23 │ openrouter         │ @preset/chain-of-draft              │ orps:chain-of-draft          │1,000,000 │ 128,000  │ YES   │ YES  │ YES   │ NO        │
-# │24 │ openrouter         │ @preset/openrouter-personal-router  │ orps:personal-router         │1,000,000 │ 128,000  │ YES   │ YES  │ YES   │ NO        │
-# │25 │ openrouter         │ @preset/free-chain-of-draft         │ orps:free-chain-draft        │1,000,000 │ 128,000  │ YES   │ YES  │ YES   │ NO        │
-# │26 │ openrouter         │ @preset/1-million-main              │ orps:1-million-main          │1,000,000 │ 128,000  │ YES   │ YES  │ YES   │ NO        │
-# │27 │ openrouter         │ @preset/1-million-chain-of-draft    │ orps:1-million-chain-draft   │1,000,000 │ 128,000  │ YES   │ YES  │ YES   │ NO        │
-# │28 │ openrouter         │ stepfun/step-3.7-flash              │ orps:step-3.7-flash          │ 256,000  │ 256,000  │ YES   │ YES  │ YES   │ YES       │
-# │29 │ zenmux             │ deepseek/deepseek-v4-pro            │ zenm:deepseek-v4-pro         │1,000,000 │ 384,000  │ YES   │ NO   │ YES   │ NO*       │
 
-# │32 │ zenmux             │ stepfun/step-3.7-flash               │ zenm:step-3.7-flash           │ 256,000  │ 256,000  │ YES   │ YES  │ YES   │ YES       │
-# │33 │ zenmux             │ sapiens-ai/agnes-2.0-flash           │ zenm:agnes-2.0-flash          │ 256,000  │ 65,536   │ YES   │ YES  │ NO    │ YES       │
-# │34 │ zenmux             │ xiaomi/mimo-v2.5-pro                 │ zenm:mimo-v2.5-pro            │1,048,576 │ 131,072  │ YES   │ NO   │ YES   │ NO*       │
-# │35 │ zenmux             │ xiaomi/mimo-v2.5                     │ zenm:mimo-v2.5                │1,048,576 │ 131,072  │ YES   │ YES  │ YES   │ NO*       │
-# │36 │ xiaomi-mimo        │ mimo-v2.5-pro                       │ mimo:mimo-v2.5-pro           │1,000,000 │ 128,000  │ YES   │ NO   │ YES   │ NO        │
-# │37 │ xiaomi-mimo        │ mimo-v2.5                           │ mimo:mimo-v2.5               │1,000,000 │ 128,000  │ YES   │ YES  │ YES   │ NO        │
-# │40 │ opencode-go      │ kimi-k2.7-code                      │ opc:kimi-k2.7-code            │ 262,144  │ 262,144  │ YES   │ YES  │ YES   │ NO*       │
-# │42 │ opencode-go      │ glm-5.1                             │ opc:glm-5.1                   │ 200,000  │ 128,000  │ YES   │ NO   │ YES   │ NO*       │
 
-# │44 │ opencode-go      │ deepseek-v4-pro                     │ opc:deepseek-v4-pro           │1,000,000 │ 384,000  │ YES   │ NO   │ YES   │ NO*       │
-# │45 │ opencode-go      │ deepseek-v4-flash                   │ opc:deepseek-v4-flash         │1,000,000 │ 384,000  │ YES   │ NO   │ YES   │ NO*       │
-# │46 │ opencode-go      │ qwen3.7-max                         │ opc:qwen3.7-max               │1,000,000 │ 65,536   │ YES   │ NO   │ YES   │ NO*       │
-# │51 │ opencode-go      │ mimo-v2.5-pro                       │ opc:mimo-v2.5-pro             │1,000,000 │ 128,000  │ YES   │ NO   │ YES   │ NO        │
-# │52 │ opencode-go      │ mimo-v2.5                           │ opc:mimo-v2.5                 │1,000,000 │ 128,000  │ YES   │ YES  │ YES   │ NO        │
-# │ 54 │ nebius             │ nvidia/Cosmos3-Super-Reasoner       │ nebs:Cosmos3-Super-Reasoner   │ 262,144  │ 65,536   │ YES   │ NO   │ NO    │ NO        │
 
-# │ 57 │ zenmux             │ deepseek/deepseek-v4-flash          │ zenm:deepseek-v4-flash        │1,000,000 │ 131,072  │ YES   │ NO   │ YES   │ NO*       │
-# │ 59 │ zenmux             │ moonshotai/kimi-k2.7-code           │ zenm:kimi-k2.7-code           │ 262,144  │ 262,144  │ YES   │ YES  │ YES   │ NO*       │
-# │ 60 │ zenmux             │ moonshotai/kimi-k2.7-code-free      │ zenm:kimi-k2.7-code-free     │ 262,144  │ 262,144  │ YES   │ YES  │ YES   │ NO*  free │
-# │ 64 │ zai                │ code-pass-glm-5.1                   │ zai:code-pass-glm-5.1         │ 200,000  │ 128,000  │ YES   │ NO   │ YES   │ NO*       │
-# │ 80 │ zai                │ code-pass-glm-4.6v                   │ zai:code-pass-glm-4.6v         │ 200,000  │ 128,000  │ YES   │ YES  │ YES   │ NO*  sub  │
-# │ 65 │ nvidia-nim         │ stepfun-ai/step-3.7-flash           │ nvnm:step-3.7-flash           │ 256,000  │ 256,000  │ YES   │ YES  │ YES   │ YES       │
-# │ 66 │ zenmux             │ minimax/minimax-m3                  │ zenm:minimax-m3               │1,000,000 │ 512,000  │ YES   │ YES  │ YES   │ YES*      │
-# │ 67 │ openrouter         │ minimax/minimax-m3                  │ orps:minimax-m3               │1,048,576 │ 512,000  │ YES   │ YES  │ YES   │ YES*  paid│
-# │ 68 │ opencode-go      │ minimax-m3                          │ opc:minimax-m3                │1,000,000 │ 512,000  │ YES   │ YES  │ YES   │ YES*      │
-# │ 72 │ commandcode        │ deepseek-v4-pro                     │ cmdc:deepseek-v4-pro          │1,000,000 │ 384,000  │ YES   │ NO   │ YES   │ NO*  sub  │
-# │137 │ commandcode        │ minimax/minimax-m3                  │ cmdc:minimax-m3               │1,000,000 │ 512,000  │ YES   │ YES  │ YES   │ NO*  sub  │
-# │ 69 │ nvidia-nim         │ minimaxai/minimax-m3                │ nvnm:minimax-m3               │1,000,000 │ 512,000  │ YES   │ YES  │ YES   │ YES* free │
-# │ 70 │ openrouter         │ qwen/qwen3.7-max                    │ orps:qwen3.7-max              │1,000,000 │ 65,536   │ YES   │ NO   │ YES   │ NO*       │
-# │ 71 │ opencode-zen       │ deepseek-v4-flash                   │ ozen:deepseek-v4-flash        │1,000,000 │ 384,000  │ YES   │ NO   │ YES   │ NO*       │
 
-# │ 76 │ opencode-zen       │ minimax-m3-free                     │ ozen:minimax-m3-free          │1,000,000 │ 512,000  │ YES   │ YES  │ YES   │ YES*      │
-# │ 77 │ opencode-zen       │ deepseek-v4-flash-free              │ ozen:deepseek-v4-flash-free   │1,000,000 │ 384,000  │ YES   │ NO   │ YES   │ NO*       │
-# │ 78 │ opencode-zen       │ glm-5.1                             │ ozen:glm-5.1                  │ 200,000  │ 128,000  │ YES   │ NO   │ YES   │ NO*       │
-# │ 79 │ nvidia-nim         │ moonshotai/kimi-k2.6                │ nvnm:kimi-k2.6                │ 256,000  │ 262,144  │ YES   │ YES  │ YES   │ NO*       │
-# │ 81 │ openrouter         │ qwen/qwen3.7-plus                   │ orps:qwen3.7-plus             │1,000,000 │ 65,536   │ YES   │ YES  │ YES   │ NO*       │
-# │156 │ openrouter         │ moonshotai/kimi-k2.7-code           │ orps:moonshotai-kimi-k2.7-code │ 262,144  │ 262,144  │ YES   │ YES  │ YES   │ NO*  paid│
-# │103 │ nebius             │ nvidia/Nemotron-3-Ultra-550b-a55b   │ nebs:nvidia/Nemotron-3-Ultra-550b-a55b │1,000,000 │ 65,536 │ YES │ NO │ NO │ NO* paid │
-# │ 82 │ wafer-serverless   │ MiniMax-M3                          │ wsvr:MiniMax-M3                │1,000,000 │ 512,000  │ YES   │ YES  │ YES   │ YES*      │
-# │ 83 │ ollama             │ nemotron-3-ultra:cloud              │ ollama:nemotron-3-ultra:cloud  │1,000,000 │ 65,536   │ YES   │ NO   │ NO    │ YES* free │
-# │ 84 │ ollama             │ minimax-m3:cloud                    │ ollama:minimax-m3:cloud        │1,000,000 │ 512,000  │ YES   │ YES  │ NO    │ YES* free │
-# │ 85 │ ollama             │ deepseek-v4-flash:cloud             │ ollama:deepseek-v4-flash:cloud │1,000,000 │ 384,000  │ YES   │ NO   │ NO    │ YES* free │
-# │ 86 │ ollama             │ deepseek-v4-pro:cloud               │ ollama:deepseek-v4-pro:cloud   │1,000,000 │ 384,000  │ YES   │ NO   │ NO    │ YES* Pro  │
-# │ 87 │ ollama             │ kimi-k2.6:cloud                     │ ollama:kimi-k2.6:cloud         │ 256,000  │ 262,144  │ YES   │ YES  │ NO    │ YES* Pro  │
-# │ 88 │ ollama             │ glm-5.1:cloud                       │ ollama:glm-5.1:cloud           │ 200,000  │ 128,000  │ YES   │ NO   │ NO    │ YES* Pro  │
 
-# │ 90 │ ollama             │ qwen3.5:cloud                       │ ollama:qwen3.5:cloud           │ 256,000  │ 65,536   │ YES   │ YES  │ NO    │ YES* Pro  │
-# │ 91 │ cline              │ nvidia/nemotron-3-ultra-550b-a55b:free │ cline:nvidia-nemotron-3-ultra-550b-a55b:free │1,000,000 │ 65,536 │ YES │ NO │ NO │ YES* free │
-# │ 92 │ cline              │ minimax/minimax-m3                  │ cline:minimax-m3               │1,000,000 │ 512,000  │ YES   │ YES  │ YES   │ YES* free │
-# │ 93 │ cline              │ xiaomi/mimo-v2.5                    │ cline:xiaomi-mimo-v2.5         │1,000,000 │ 128,000  │ YES   │ YES  │ YES   │ NO* free  │
-# │ 95 │ cline              │ deepseek/deepseek-v4-flash          │ cline:deepseek-v4-flash        │1,000,000 │ 384,000  │ YES   │ NO   │ YES   │ YES* free │
-# │ 96 │ cline              │ deepseek/deepseek-v4-pro            │ cline:deepseek-v4-pro          │1,000,000 │ 384,000  │ YES   │ NO   │ YES   │ NO* paid  │
-# │ 97 │ cline              │ deepseek/deepseek-chat              │ cline:deepseek-chat            │ 128,000  │ 16,000   │ YES   │ NO   │ YES   │ NO* paid  │
-# │ 98 │ cline              │ z-ai/glm-5.1                        │ cline:glm-5.1                  │ 200,000  │ 128,000  │ YES   │ NO   │ YES   │ NO* paid  │
-# │ 99 │ cline              │ qwen/qwen3.7-max                    │ cline:qwen3.7-max              │1,000,000 │ 65,536   │ YES   │ NO   │ YES   │ NO* paid  │
 
-# │101 │ cline              │ stepfun/step-3.7-flash              │ cline:step-3.7-flash           │ 256,000  │ 256,000  │ YES   │ YES  │ YES   │ YES* paid │
-# │102 │ cline              │ xiaomi/mimo-v2.5-pro                │ cline:mimo-v2.5-pro            │1,048,576 │ 131,072  │ YES   │ NO   │ YES   │ NO* paid  │
-# │103 │ cline              │ moonshotai/kimi-k2.6                │ cline:kimi-k2.6                │ 262,144  │ 262,144  │ YES   │ YES  │ YES   │ NO* paid  │
-# │104 │ kilo               │ stepfun/step-3.7-flash:free         │ kilo:stepfun-step-3.7-flash:free │ 256,000 │ 256,000 │ YES │ YES │ YES │ YES* free │
-# │105 │ kilo               │ nvidia/nemotron-3-super-120b-a12b:free │ kilo:nvidia-nemotron-3-super-120b-a12b:free │ 256,000 │ 65,536 │ YES │ NO │ NO │ YES* free │
-# │106 │ kilo               │ nvidia/nemotron-3-ultra-550b-a55b:free │ kilo:nvidia-nemotron-3-ultra-550b-a55b:free │1,000,000 │ 65,536 │ YES │ NO │ NO │ YES* free │
-# │107 │ kilo               │ nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free │ kilo:nemotron-3-nano-omni-reasoning:free │ 256,000 │ 65,536 │ YES │ YES │ NO │ YES* free │
-# │109 │ kilo               │ openrouter/free                     │ kilo:openrouter-free           │ 200,000  │ 32,768   │ YES   │ NO   │ NO    │ YES* free │
-# │110 │ kilo               │ poolside/laguna-m.1:free              │ kilo:laguna-m.1:free           │ 262,144  │ 32,768   │ YES   │ NO   │ NO    │ YES* free │
-# │111 │ kilo               │ poolside/laguna-xs.2:free           │ kilo:laguna-xs.2:free          │ 262,144  │ 32,768   │ YES   │ NO   │ NO    │ YES* free │
-# │113 │ openrouter         │ openrouter/free                     │ orps:openrouter-free           │ 200,000  │ 32,768   │ YES   │ NO   │ NO    │ YES* free │
-# │114 │ openrouter         │ deepseek/deepseek-v4-flash          │ orps:deepseek-v4-flash         │1,048,576 │ 131,072  │ YES   │ NO   │ YES   │ NO*       │
-# │115 │ kilo               │ deepseek/deepseek-v4-flash          │ kilo:deepseek-deepseek-v4-flash │1,000,000 │ 384,000  │ YES   │ NO   │ YES   │ NO* paid  │
-# │116 │ kilo               │ deepseek/deepseek-v4-pro            │ kilo:deepseek-v4-pro           │1,000,000 │ 384,000  │ YES   │ NO   │ YES   │ NO* paid  │
-# │117 │ kilo               │ deepseek/deepseek-chat              │ kilo:deepseek-chat             │ 128,000  │ 16,000   │ YES   │ NO   │ YES   │ NO* paid  │
-# │118 │ kilo               │ z-ai/glm-5.1                        │ kilo:glm-5.1                   │ 200,000  │ 128,000  │ YES   │ NO   │ YES   │ NO* paid  │
-# │119 │ kilo               │ qwen/qwen3.7-max                    │ kilo:qwen3.7-max               │1,000,000 │ 65,536   │ YES   │ NO   │ YES   │ NO* paid  │
-# │120 │ kilo               │ minimax/minimax-m3                  │ kilo:minimax-m3                │1,000,000 │ 512,000  │ YES   │ YES  │ YES   │ YES* paid │
 
-# │122 │ kilo               │ stepfun/step-3.7-flash              │ kilo:step-3.7-flash            │ 256,000  │ 256,000  │ YES   │ YES  │ YES   │ YES* paid │
-# │123 │ kilo               │ xiaomi/mimo-v2.5-pro                │ kilo:mimo-v2.5-pro             │1,048,576 │ 131,072  │ YES   │ NO   │ YES   │ NO* paid  │
-# │124 │ kilo               │ xiaomi/mimo-v2.5                    │ kilo:mimo-v2.5                 │1,048,576 │ 131,072  │ YES   │ YES  │ YES   │ NO* paid  │
-# │125 │ kilo               │ moonshotai/kimi-k2.7-code           │ kilo:kimi-k2.7-code            │ 262,144  │ 262,144  │ YES   │ YES  │ YES   │ NO* paid  │
-# │126 │ pioneer            │ minimax/minimax-m3                  │ pio:minimax-m3                 │1,000,000 │ 512,000  │ YES   │ YES  │ YES   │ YES  paid │
-# │127 │ pioneer            │ XiaomiMiMo/MiMo-V2.5-Pro            │ pio:mimo-v2.5-pro              │1,048,576 │ 131,072  │ YES   │ NO   │ YES   │ NO   paid │
-# │128 │ pioneer            │ deepseek-ai/DeepSeek-V4-Pro         │ pio:deepseek-v4-pro            │1,000,000 │ 384,000  │ YES   │ NO   │ YES   │ NO   paid │
-# │129 │ pioneer            │ moonshotai/Kimi-K2.6                │ pio:kimi-k2.6                  │ 262,144  │ 262,144  │ YES   │ YES  │ YES   │ NO   paid │
-# │130 │ pioneer            │ zai-org/GLM-5.1                     │ pio:glm-5.1                    │ 200,000  │ 128,000  │ YES   │ NO   │ YES   │ NO   paid │
-# │131 │ nous-portal        │ stepfun/step-3.7-flash:free         │ portal:step-3.7-flash-free     │ 256,000  │ 256,000  │ YES   │ YES  │ YES   │ YES* free │
-# │132 │ nous-portal        │ minimax/minimax-m3                  │ portal:minimax-m3              │1,048,576 │ 512,000  │ YES   │ NO   │ YES   │ YES  sub  │
-# │133 │ nous-portal        │ deepseek/deepseek-v4-pro            │ portal:deepseek-v4-pro         │1,048,576 │ 384,000  │ YES   │ NO   │ YES   │ YES  sub  │
-# │134 │ nous-portal        │ moonshotai/kimi-k2.7-code           │ portal:kimi-k2.7-code          │ 262,144  │ 262,144  │ YES   │ YES  │ YES   │ YES  sub  │
-# │135 │ nous-portal        │ nvidia/nemotron-3-ultra:free        │ portal:nemotron-3-ultra-free   │1,000,000 │ 65,536   │ YES   │ NO   │ NO    │ YES* free │
-# │136 │ nous-portal        │ xiaomi/mimo-v2.5-pro                │ portal:mimo-v2.5-pro         │ 128,000  │ 128,000  │ YES   │ YES  │ YES   │ NO*  sub  │
-# │157 │ modal-proxy        │ moonshotai/Kimi-K3                 │ mdpx:Kimi-K3                 │ 262,144  │ 262,144  │ YES   │ NO   │ NO    │ NO*  own  │
 # #
 # * Native reasoning DISABLED — VS Code/Copilot Chat and Zed cannot reliably
 #   preserve provider-native reasoning metadata across turns. FVS-CODE strips
@@ -541,12 +440,6 @@
 #              Do NOT store any token in providers.txt, .env, git, or shell
 #              history. Use /config → Antigravity → Login to start the PKCE flow.
 
-# │ 50 │ antigravity        │ models/gemini-3.1-pro               │ anti:gemini-3.1-pro        │1,000,000 │ 64,000   │ YES   │ YES  │ NO    │ YES       │
-# │ 51 │ antigravity        │ models/gemini-3-flash               │ anti:gemini-3-flash        │1,000,000 │ 64,000   │ YES   │ YES  │ NO    │ NO        │
-# │ 52 │ antigravity        │ models/gemini-3.5-flash              │ anti:gemini-3.5-flash      │1,000,000 │ 64,000   │ YES   │ YES  │ NO    │ YES       │
-# │ 53 │ antigravity        │ models/claude-opus-4-6              │ anti:claude-opus-4-6       │ 200,000  │ 64,000   │ YES   │ YES  │ NO    │ YES       │
-# │ 54 │ antigravity        │ models/claude-sonnet-4-6            │ anti:claude-sonnet-4-6     │ 200,000  │ 64,000   │ YES   │ YES  │ NO    │ YES       │
-# │ 55 │ antigravity        │ models/gpt-oss-120b                 │ anti:gpt-oss-120b          │ 128,000  │ 32,000   │ YES   │ NO   │ NO    │ NO        │
 
 ## github-copilot ___________________________________________________________
 # Tier:        GitHub Copilot (subscription / quota-limited)
@@ -608,11 +501,6 @@
 #   routed models use server-managed 24h cache. The current Step 3.7 Flash
 #   free + MiniMax M3 curated set does not use prompt caching in this build.
 
-# │ 55 │ github-copilot     │ claude-sonnet-4.6                   │ copi:claude-sonnet-4.6     │ 200,000  │ 64,000   │ YES   │ YES  │ NO    │ YES       │
-# │ 56 │ github-copilot     │ gpt-4o                              │ copi:gpt-4o                │ 128,000  │ 16,000   │ YES   │ YES  │ NO    │ NO        │
-# │ 57 │ github-copilot     │ gpt-5                               │ copi:gpt-5                 │ 400,000  │ 64,000   │ YES   │ YES  │ NO    │ YES       │
-# │ 58 │ github-copilot     │ gemini-3.1-pro                      │ copi:gemini-3.1-pro        │1,000,000 │ 64,000   │ YES   │ YES  │ NO    │ YES       │
-# │ 59 │ github-copilot     │ o3-mini                             │ copi:o3-mini               │ 200,000  │ 100,000  │ YES   │ NO   │ NO    │ YES       │
 
 # =============================================================================
 # CROSS-TOOL CONFIGURATION MATRIX

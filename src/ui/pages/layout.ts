@@ -2998,74 +2998,23 @@ export function renderLayout(
 
           const descEl = document.getElementById('catalogDescription');
           if (descEl) {
-            if (modelSource === 'endpoints') {
-              descEl.innerHTML = 'Ported from every provider endpoint. Search and check the models you want served; save curation to apply.';
-            } else {
-              descEl.innerHTML = 'This list is generated from providers.txt (with any edits) and powers both the OpenAI-compatible and Ollama-compatible endpoints.';
-            }
+            descEl.innerHTML = 'Search and check the models you want served; save curation to apply.';
           }
 
-          setCurationControlsVisible(modelSource === 'endpoints');
-          if (modelSource === 'endpoints') {
-            await loadCurationCatalog();
-            return;
-          }
-
-          try {
-            const res = await fetch('/v1/models');
-            const payload = await res.json();
-            const data = Array.isArray(payload?.data) ? payload.data : [];
-
-            const grouped = data.reduce((acc, model) => {
-              const provider = model.owned_by || 'unknown';
-              if (!acc[provider]) acc[provider] = [];
-              acc[provider].push(model);
-              return acc;
-            }, {});
-
-            const providerNames = Object.keys(grouped).sort();
-            countEl.innerText = data.length + ' models across ' + providerNames.length + ' providers';
-
-            catalogEl.innerHTML = providerNames.map((provider) => {
-              const models = grouped[provider]
-                .map((model) => '<li><strong>' + escapeHtml(model.id) + '</strong><br><span class="muted">' + escapeHtml(model.display_name || '') + '</span><br><span class="muted">Context: ' + escapeHtml(model.context_length || '') + ' | Output: ' + escapeHtml(model.max_output_tokens || '') + '</span></li>')
-                .join('');
-
-              return '<section class="provider-group">' +
-                '<h3>' + escapeHtml(provider) + '</h3>' +
-                '<ul class="model-list">' + models + '</ul>' +
-              '</section>';
-            }).join('');
-          } catch (error) {
-            countEl.innerText = 'Unable to load catalog';
-            catalogEl.innerHTML = '<div class="muted">The provider catalog could not be loaded from /v1/models.</div>';
-          }
+          setCurationControlsVisible(true);
+          await loadCurationCatalog();
         }
 
-        let modelSource = 'custom';
         let filterConfigured = true;
 
         async function loadModelSource() {
           try {
             const res = await fetch('/api/model-source');
             const data = await res.json();
-            modelSource = data.source || 'custom';
             if (typeof data.filterConfigured === 'boolean') {
               filterConfigured = data.filterConfigured;
             }
-            
-            const customRadio = document.getElementById('modelSourceCustom');
-            const endpointsRadio = document.getElementById('modelSourceEndpoints');
-            const refreshBtn = document.getElementById('refreshEndpointsBtn');
             const filterToggle = document.getElementById('filterConfiguredToggle');
-            
-            if (modelSource === 'endpoints') {
-              if (endpointsRadio) endpointsRadio.checked = true;
-              if (refreshBtn) refreshBtn.style.display = 'inline-block';
-            } else {
-              if (customRadio) customRadio.checked = true;
-              if (refreshBtn) refreshBtn.style.display = 'none';
-            }
             if (filterToggle) filterToggle.checked = filterConfigured;
             await loadCatalog();
           } catch (e) {
@@ -3090,37 +3039,9 @@ export function renderLayout(
         }
 
         async function setModelSource(source) {
-          try {
-            const res = await fetch('/api/model-source', {
-              method: 'PUT',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ source })
-            });
-            if (res.ok) {
-              const data = await res.json();
-              modelSource = data.source;
-              const refreshBtn = document.getElementById('refreshEndpointsBtn');
-              if (modelSource === 'endpoints') {
-                if (refreshBtn) refreshBtn.style.display = 'inline-block';
-                const catalogRes = await fetch('/v1/models');
-                const catalogData = await catalogRes.json();
-                const providerModelsCount = (catalogData.data || []).filter(m => {
-                  const o = m.owned_by;
-                  return !(o === 'local-router' || o === 'fvs-code' || o === 'fallback');
-                }).length;
-                if (providerModelsCount === 0) {
-                  await refreshEndpointModels();
-                }
-              } else {
-                if (refreshBtn) refreshBtn.style.display = 'none';
-              }
-              setMessage('Model source switched to: ' + (modelSource === 'endpoints' ? 'Endpoint Models' : 'Custom Models'), 'success');
-              await loadCatalog();
-              await buildModelDropdown();
-            }
-          } catch (e) {
-            setMessage('Failed to update model source: ' + e.message, 'error');
-          }
+          // Compatibility shim: the Custom/Endpoint mode switch was removed
+          // (single toggle catalog). No-op so stale callers don't error.
+          setMessage('Model source switching was removed — the toggle catalog is always active.', 'info');
         }
 
         async function refreshEndpointModels() {

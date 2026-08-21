@@ -150,17 +150,9 @@ export function renderProvidersPage(params: {
         <div class="catalog-meta">
           <div>
             <h2>Available Providers & Models</h2>
-            <p class="muted" id="catalogDescription">This list is generated from providers.txt and powers both the OpenAI-compatible and Ollama-compatible endpoints.</p>
+            <p class="muted" id="catalogDescription">Toggle the models you want served — the selection powers both the OpenAI-compatible and Ollama-compatible endpoints.</p>
             <div style="margin-top: 12px; display: flex; align-items: center; gap: 16px; flex-wrap: wrap;">
-              <span class="flag-toggle">
-                <input type="radio" id="modelSourceCustom" name="modelSource" value="custom" onchange="setModelSource('custom')" checked>
-                <label for="modelSourceCustom" style="font-weight: 500; margin-bottom: 0; cursor: pointer;">Custom Models (providers.txt / edits)</label>
-              </span>
-              <span class="flag-toggle">
-                <input type="radio" id="modelSourceEndpoints" name="modelSource" value="endpoints" onchange="setModelSource('endpoints')">
-                <label for="modelSourceEndpoints" style="font-weight: 500; margin-bottom: 0; cursor: pointer;">Endpoint Models (query upstream)</label>
-              </span>
-              <button id="refreshEndpointsBtn" class="button-secondary" onclick="refreshEndpointModels()" style="padding: 4px 10px; font-size: 13px; display: none;">🔄 Refresh Endpoints</button>
+              <button id="refreshEndpointsBtn" class="button-secondary" onclick="refreshEndpointModels()" style="padding: 4px 10px; font-size: 13px;">🔄 Refresh All Provider Models</button>
             </div>
             <div style="margin-top: 10px; display: flex; align-items: center; gap: 8px;">
               <label class="flag-toggle">

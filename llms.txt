@@ -10,7 +10,7 @@ Point VS Code Copilot Chat, Claude Code, Cline, Roo Code, Continue, Codex, or sc
 - **Port:** `11434` (Ollama default — drop-in). `develop` verification build uses `11436` (the main server port + 2) to avoid colliding with the running main server. Override with the `PORT` env var.
 - **Model IDs:** `{provider-slug}/{presented-alias}` (e.g. `zenmux/qwen3.7-max`, `my-vendor/my-alias`) or `local-router/{router-or-fallback-id}`
 - **Keys:** `/config` UI → in-memory while running → **PQC bundle** `~/.config/pqc-secrets/secrets.bundle.json` on every save (ML-KEM-768 + AES-256-GCM). Never committed to git or `providers.txt`.
-- **Catalog:** `providers.txt` (16 providers, **~110** presented models in custom mode) + runtime edits in `provider-models.json` + **custom providers** in `custom-providers.json`.
+- **Catalog:** the persisted **toggle store** — `endpoint-models-cache.json` (discovered models per provider) + curated selection keys in `model-source-config.json` — is the single model catalog (2026-08-20). `providers.txt` lists providers only (endpoints + env vars); its former model table was migrated pre-checked into the toggle store on first boot (frozen copy: `providers.legacy-catalog.txt`). Runtime edits live in `provider-models.json`, custom providers in `custom-providers.json`.
 - **Custom providers:** `/config` → **Add custom provider…** or `POST /api/providers` (HTTPS `/v1` upstream; loopback HTTP allowed for dev).
 - **Auto-router:** `local-router/auto-router-main` — expanded curated set (`src/routing-defaults.ts`): free → subscription (`opencode-go` → Z.ai → Xiaomi) → OAuth subscription (`antigravity-gemini-3.5-flash` → `github-copilot-gemini-3.1-pro`) → paid (Wafer → ZenMux → OpenRouter → Nebius → Cline → Kilo + NIM/Modal/Zen extras); exhaustion-sorted at bootstrap; routes based on coding ability, context length, and price (includes free-tier boost; latency metrics deprecated).
 - **System fallback:** `local-router/fallback-models` — **23** fixed steps (`DEFAULT_FALLBACK_ORDERED_IDS`): Ollama → NIM → Cline/Kilo free → OpenCode Zen free → Modal → **Nous Portal Step 3.7 Flash free (positioned above the subscription band, step 7)** → **OAuth subscription (antigravity-gemini-3.5-flash at step 8, github-copilot-gemini-3.1-pro at step 9)** → Z.ai/Xiaomi subscription → Pioneer paid → Go/CommandCode subscription → Nebius/Wafer paid → Kilo/Cline paid → **Nous Portal MiniMax M3 (positioned in the paid tail just after Cline DeepSeek V4 Pro paid)** → ZenMux/OpenRouter paid → OpenRouter free (no exhaustion re-sort on bootstrap).
@@ -86,7 +86,9 @@ feature worktree → develop (integrate + verify) → main (release)
 
 | Commit | Summary |
 |--------|---------|
-| `pending` | **Release 2026-08-20e** — per-provider live model curation: `POST /api/provider-models/:provider/refresh`, `POST /api/keys` auto-discovery (`discovered` payload), `PUT /api/model-curation` `activate` flag, provider-card live-model toggle lists, ollama exemption in curation serving |
+| `pending` | **Release 2026-08-20g** — providers.txt model table retired: one-time boot migration pre-checks all 118 rows (plus persisted overrides) into the toggle store, curation always active, Custom/Endpoint mode switch removed from UI and normalized in API, `providers.legacy-catalog.txt` frozen seed copy |
+| `0f21b96` | **Release 2026-08-20f** — honest multi-source model discovery: refresh reports `source` (`live` multi-shape `/models` parse / `registry` curated for providers with no list API — zai GLM-5.3/5-Turbo/4.7, cline 16 / `catalog` with visible failure reason); registry capability hints; UI source labels |
+| `51a23d2` | **Release 2026-08-20e** — per-provider live model curation: `POST /api/provider-models/:provider/refresh`, `POST /api/keys` auto-discovery (`discovered` payload), `PUT /api/model-curation` `activate` flag, provider-card live-model toggle lists, ollama exemption in curation serving |
 | `e733527` | **Release 2026-06-13b** — fix catalog parser rejecting letter-suffixed row numbers; zai `code-pass-glm-4.6v` and commandcode `minimax-m3` multimodal anchors now show Ready |
 | `90f04bc` | **Merge fix/multimodal-zai-commandcode-unavailable into develop** — integrated catalog fix |
 | `5aca19f` | **fix(catalog): renumber zai 64a→80 and commandcode 72a→137** — providers.txt parser uses `/^\d+$/` so letter-suffixed rows were silently dropped; renumbered to free integers; switched zai model from `zai-org/GLM-4.6v` to `code-pass-glm-4.6v` to match sibling `zai-code-pass-glm-5.1` and produce the correct presented ID |
@@ -538,7 +540,7 @@ Ollama Cloud uses a shared quota. Free cloud tags use `ollama signin` session ke
 #### Cline & Kilo Gateway Allowlisting
 - **Cline:** Custom catalog is strictly limited to 4 free + 8 paid chat-proven models. Standard vendors (Anthropic, Gemini, OpenAI) are excluded.
 - **Kilo:** Custom catalog is limited to 8 free + 11 paid models. `kilo-auto/free` is excluded.
-- Custom catalogs represent the baseline `providers.txt` models. To search all upstream gateway models, Endpoint Models mode must be enabled with live fetch toggles.
+- The Custom/Endpoint mode switch was removed (2026-08-20): the toggle catalog is always active. Toggle any discovered model (live fetch, curated registry, or migrated row) per provider; the selection powers `/v1/models` and `/api/tags` with provider-prefixed ids.
 
 ### Operator UI, CLI & Configuration
 
@@ -551,7 +553,7 @@ Ollama Cloud uses a shared quota. Free cloud tags use `ollama signin` session ke
 ```bash
 local-router start|stop|status                      # daemon lifecycle
 local-router route set|unset|custom|status           # service drop-in shims (ollama/llama-server/unsloth)
-localrouter list --custom                            # lists custom catalog (providers.txt)
+localrouter list --custom                            # lists the curated toggle catalog
 localrouter list --all                               # lists catalog + endpoint cache
 localrouter keys list|set|unset                      # key management via PQC endpoints
 localrouter router list|show|check                   # router configuration check
