@@ -1,6 +1,6 @@
 ---
 name: model-add
-description: "Adds a new model across the local-router catalog (providers.txt, model-specs.json, routing defaults, gateway tier lists, pricing, ollama-cloud tier map, OpenCode-Zen free/paid, fallback chain). Invoke when a new model appears on a provider or when a user asks to onboard a model to the router."
+description: "Adds a new model to the local-router toggle store (live discovery, curated registry, or /config toggle), plus model-specs.json, routing defaults, gateway tier lists, pricing, ollama-cloud tier map, fallback chain. Invoke when a new model appears on a provider or when a user asks to onboard a model to the router."
 ---
 
 # Model Add
@@ -34,7 +34,8 @@ If onboarding **multiple** providers for the same model, repeat per provider.
 ## 2. Files Touched (Canonical Checklist)
 
 ```text
-providers.txt                              # catalog row + summary table
+src/provider-model-registries.ts           # PROVIDER_MODEL_REGISTRY_EXTRAS (registry-only providers: zai, cline)
+~/.config/local-router (toggle store)      # refresh discovers; toggle ON via /config or PUT /api/model-curation
 src/model-specs.json                       # canonical context/output/tools metadata
 src/routing-defaults.ts                    # CANDIDATE_DEFAULTS + fallback chain
 src/routing-exhaustion-order.ts            # tier band + paid tail
@@ -64,7 +65,7 @@ cd ../add-<model>
 
 ### 3.2 Verify the Model Exists on the Upstream
 
-Use `provider-models-list` to confirm the upstream ID and that the model is reachable:
+Use `provider-models-list` to confirm the upstream ID and that the model is reachable (returns the static fallback row when no key is set):
 
 ```bash
 node .agents/skills/provider-models-list/scripts/probe.mjs <provider> --filter <upstream>
@@ -72,15 +73,35 @@ node .agents/skills/provider-models-list/scripts/probe.mjs <provider> --filter <
 
 If a real API key is set for the provider in the PQC bundle, this hits `${baseUrl}/models`. If not, it returns the static catalog row.
 
-### 3.3 Add the Catalog Row to `providers.txt`
+### 3.3 Register the Model in the Toggle Store
 
-Pick the next free row number. Format mirrors existing rows (see `providers.txt` lines 28+):
+The providers.txt model table was retired (Release 2026-08-20g); the persisted
+toggle store (`endpoint-models-cache.json` + curated keys in
+`model-source-config.json`) is the only catalog. `providers.legacy-catalog.txt`
+is a frozen migration seed — never edit it. Two paths:
 
-```text
-# │ N  │ zenmux             │ stepfun/step-3.7-flash:free        │ zenm:step-3.7-flash-free     │ 256,000  │ 256,000  │ YES   │ YES  │ YES   │ YES* free │
+**a. Live provider (upstream `/models` works):** nothing to register. Refresh
+discovers it, and it appears untoggled in the provider card:
+
+```bash
+curl -s -X POST http://127.0.0.1:11434/api/provider-models/<provider>/refresh
 ```
 
-Mark the rightmost tier cell with `free`, `paid`, `sub`, or leave blank for `catalog`.
+Then toggle it ON — `/config` provider card, or add `provider::upstream-id` to
+`selectedKeys` via `PUT /api/model-curation` (fetch current keys first; the PUT
+replaces the whole selection).
+
+**b. Registry-only provider (zai, cline — no upstream `/models`):** add an entry
+to `PROVIDER_MODEL_REGISTRY_EXTRAS` in `src/provider-model-registries.ts`:
+
+```ts
+zai: [
+  { id: 'GLM-5.3', contextLength: 200000, outputTokens: 128000, supportsTools: true, note: 'source URL' }
+]
+```
+
+Capability hints here flow into the catalog when the refresh unions the
+registry. Then refresh + toggle as in (a).
 
 ### 3.4 Add to `src/model-specs.json`
 
@@ -223,7 +244,7 @@ When the promo ends, **don't** rename the presented ID — invoke [model-remove]
 
 Goal: add ZenMux's free Step 3.7 Flash to the catalog.
 
-1. `providers.txt` — new row at next free number, tier cell `free`.
+1. Toggle store — ZenMux is a live provider: refresh discovers `zenmux-step-3.7-flash-free`, toggle it ON (no registry edit needed).
 2. `src/model-specs.json` — `step-3.7-flash-free` with context 256K, output 256K, tools/vision/reasoning true.
 3. `src/routing-defaults.ts`:
    - `CANDIDATE_DEFAULTS['zenmux-step-3.7-flash-free'] = 'coding=0.84, input=0, output=0, latency=800, notes=ZenMux Step 3.7 Flash free'`
