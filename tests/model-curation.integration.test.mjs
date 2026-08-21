@@ -343,3 +343,104 @@ test('model curation lifecycle: port all, curate subset, filter serving, persist
   const uncensoredIds = (uncensored.body?.data || []).map((model) => model.id);
   assert.ok(uncensoredIds.includes(dropModel.id), 'Disabling curation must restore uncurated model');
 });
+
+test('per-provider curation: refresh, seed catalog matches, key auto-discovery, activate gates serving', async (t) => {
+  if (skipReason) {
+    t.skip(skipReason);
+    return;
+  }
+
+  const headers = { 'Content-Type': 'application/json' };
+  const providerName = configuredProvider.name;
+
+  // Reset curation state left by the lifecycle test.
+  const reset = await requestJson('/api/model-curation', {
+    method: 'PUT',
+    headers,
+    body: JSON.stringify({ enabled: false, selectedKeys: [] })
+  });
+  assert.equal(reset.response.status, 200);
+  assert.equal(reset.body?.selectedCount, 0);
+
+  // Unknown providers are rejected.
+  const unknown = await requestJson('/api/provider-models/no-such-provider/refresh', { method: 'POST' });
+  assert.equal(unknown.response.status, 404);
+
+  // Per-provider refresh returns a model list (live upstream when reachable,
+  // static providers.txt catalog otherwise — both are valid refresh sources).
+  const refresh = await requestJson(`/api/provider-models/${providerName}/refresh`, { method: 'POST' });
+  assert.equal(refresh.response.status, 200);
+  assert.equal(refresh.body?.provider, providerName);
+  const refreshedModels = refresh.body?.data || [];
+  assert.ok(refreshedModels.length >= 2, 'Expected at least two models to curate between');
+  assert.equal(refresh.body?.count, refreshedModels.length);
+
+  // First-fetch seeding pre-checks exactly the providers.txt catalog matches.
+  const catalogModelIds = new Set(
+    readFileSync('providers.txt', 'utf8')
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter((line) => line.startsWith('# │'))
+      .map((line) => line.replace(/^#\s*/, '').split('│').map((part) => part.trim()).filter(Boolean))
+      .filter((columns) => columns.length >= 4 && /^\d+$/.test(columns[0]))
+      .filter((columns) => columns[1] === providerName)
+      .map((columns) => columns[2])
+  );
+  const expectedSeeded = refreshedModels.filter((model) => catalogModelIds.has(model.model));
+  assert.equal(refresh.body?.seededCount, expectedSeeded.length);
+
+  const curated = await requestJson('/api/model-curation');
+  assert.equal(curated.response.status, 200);
+  const providerPrefix = `${providerName}::`;
+  const providerKeys = (curated.body?.selectedKeys || []).filter((key) => key.startsWith(providerPrefix));
+  assert.deepEqual(
+    providerKeys.sort(),
+    expectedSeeded.map((model) => `${providerName}::${model.model}`).sort()
+  );
+
+  // Saving a key auto-discovers that provider's live models.
+  const keySave = await requestJson('/api/keys', {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ provider: providerName, apiKey: 'integration-test-provider-key-2' })
+  });
+  assert.equal(keySave.response.status, 200);
+  assert.ok(keySave.body?.configured);
+  assert.equal(keySave.body?.discovered?.count, refreshedModels.length);
+  assert.equal((keySave.body?.discovered?.models || []).length, refreshedModels.length);
+  assert.equal(keySave.body?.discovered?.seededCount, 0, 'existing selection must not be re-seeded');
+
+  // activate must be a boolean.
+  const badActivate = await requestJson('/api/model-curation', {
+    method: 'PUT',
+    headers,
+    body: JSON.stringify({ activate: 'yes' })
+  });
+  assert.equal(badActivate.response.status, 400);
+
+  // Activate: switch to endpoints curation serving only the selected model.
+  const keep = refreshedModels[0];
+  const drop = refreshedModels[refreshedModels.length - 1];
+  assert.notEqual(keep.model, drop.model, 'Need two distinct models to curate between');
+
+  const activate = await requestJson('/api/model-curation', {
+    method: 'PUT',
+    headers,
+    body: JSON.stringify({
+      activate: true,
+      selectedKeys: [`${providerName}::${keep.model}`]
+    })
+  });
+  assert.equal(activate.response.status, 200);
+  assert.equal(activate.body?.curationEnabled, true);
+  assert.equal(activate.body?.selectedCount, 1);
+
+  const source = await requestJson('/api/model-source');
+  assert.equal(source.body?.source, 'endpoints');
+
+  const served = await requestJson('/v1/models');
+  assert.equal(served.response.status, 200);
+  const servedIds = (served.body?.data || []).map((model) => model.id);
+  assert.ok(servedIds.includes(keep.id), 'Activated per-provider selection must be served');
+  assert.ok(!servedIds.includes(drop.id), 'Unselected model from same provider must be hidden');
+});

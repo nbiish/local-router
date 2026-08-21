@@ -82,10 +82,11 @@ feature worktree → develop (integrate + verify) → main (release)
 - Mandatory worktree removal and feature branch deletion is required after a `feature` -> `develop` merge.
 
 ### System Snapshot & Release Lineage (June 2026)
-**`main` @ `e733527`, `develop` @ `e733527`** — Nous Portal curation to 2 free/paid models (Hermes 4 family dropped), `local-router/multimodal` expansion to 15 vision-capable entries (`zai-code-pass-glm-4.6v`, `commandcode-minimax-m3`, `xiaomi-mimo-mimo-v2.5`, `wafer-ai-minimax-m3` added), and catalog parser fix so letter-suffixed row numbers (e.g. `64a`, `72a`) are accepted and the new zai/commandcode anchors now show Ready.
+**`main` @ `e733527`, `develop` @ `4de61f7`** — Per-provider live model curation on the Providers page: saving a provider key auto-discovers that provider's live `/models` (best-effort, OAuth skipped), each provider card gains a fetch → toggle → save control, first-fetch pre-checks catalog matches, and the first selection save atomically activates endpoints-mode curation so `/v1/models` and `/api/tags` serve only the toggled set (local ollama backend always served). Nous Portal curation to 2 free/paid models (Hermes 4 family dropped), `local-router/multimodal` expansion to 15 vision-capable entries (`zai-code-pass-glm-4.6v`, `commandcode-minimax-m3`, `xiaomi-mimo-mimo-v2.5`, `wafer-ai-minimax-m3` added), and catalog parser fix so letter-suffixed row numbers (e.g. `64a`, `72a`) are accepted and the new zai/commandcode anchors now show Ready.
 
 | Commit | Summary |
 |--------|---------|
+| `pending` | **Release 2026-08-20e** — per-provider live model curation: `POST /api/provider-models/:provider/refresh`, `POST /api/keys` auto-discovery (`discovered` payload), `PUT /api/model-curation` `activate` flag, provider-card live-model toggle lists, ollama exemption in curation serving |
 | `e733527` | **Release 2026-06-13b** — fix catalog parser rejecting letter-suffixed row numbers; zai `code-pass-glm-4.6v` and commandcode `minimax-m3` multimodal anchors now show Ready |
 | `90f04bc` | **Merge fix/multimodal-zai-commandcode-unavailable into develop** — integrated catalog fix |
 | `5aca19f` | **fix(catalog): renumber zai 64a→80 and commandcode 72a→137** — providers.txt parser uses `/^\d+$/` so letter-suffixed rows were silently dropped; renumbered to free integers; switched zai model from `zai-org/GLM-4.6v` to `code-pass-glm-4.6v` to match sibling `zai-code-pass-glm-5.1` and produce the correct presented ID |
@@ -198,7 +199,7 @@ Setting files reside at `~/.config/local-router/` (or legacy `~/.config/fvs-code
 || `headroom-config.json` | No | local JSON | Headroom context compression toggle and proxy URL (enabled by default, proxy at `http://localhost:8787`) |
 | `system-prompt.json` | No | local JSON | User system prompt injection configuration |
 | `model-source-config.json` | No | local JSON | Configured source: `custom` vs `endpoints`, plus endpoint model curation (`curationEnabled`, `curatedEndpointModelKeys`, max 5000 `provider::model` keys) |
-| `endpoint-models-cache.json` | No | local JSON | Cached upstream `/models` query data |
+| `endpoint-models-cache.json` | No | local JSON | Cached upstream `/models` query data (per-provider refresh replaces only that provider's section) |
 | `provider-pricing.json` | No | local JSON | Cost scoring overrides |
 | `sessions.json` | No | Redacted | client-grouped requests within 2-hour windows |
 | `session-feedback.json` | No | Redacted | Session thumbs up/down user votes |
@@ -563,9 +564,11 @@ localrouter config --open                            # launch browser config pag
 - `GET /api/provider-configs` — merged custom and catalog provider states.
 - `POST /api/providers` — register custom OpenAI-compatible provider metadata.
 - `GET /api/provider-models` — retrieve full catalog model data.
-- `POST /api/refresh-endpoint-models` — live upstream fetch of `/models` (6s timeout).
+- `POST /api/refresh-endpoint-models` — live upstream fetch of `/models` (6s timeout). Seeds curation defaults for providers with no prior selection.
+- `POST /api/provider-models/:provider/refresh` — per-provider live `/models` fetch (20s timeout), merges that provider's section into the endpoint cache, persists it, and seeds curation defaults on first fetch. Returns `{ provider, count, seededCount, data }`; 404 for unknown providers, 502 on upstream failure.
 - `GET /api/model-curation` — endpoint model curation state: enabled flag, selected `provider::model` keys, totals, and the full catalog grouped by provider.
-- `PUT /api/model-curation` — persist `{ enabled: boolean, selectedKeys: string[] }`; keys are `provider::model` strings (deduped, max 5000). With curation enabled, `/v1/models` and `/api/tags` serve only the selected models; the Providers page exposes port-all → search → curate controls.
+- `PUT /api/model-curation` — persist `{ enabled: boolean, selectedKeys: string[], activate?: boolean }`; keys are `provider::model` strings (deduped, max 5000). With curation enabled, `/v1/models` and `/api/tags` serve only the selected models (the local `ollama` backend is always served regardless of selection); the Providers page exposes port-all → search → curate controls. `activate: true` atomically switches the model source to `endpoints`, enables curation, and pre-checks every cached model that exists in the providers.txt catalog (409 when the cache is empty).
+- `POST /api/keys` — after saving a key (non-OAuth providers), best-effort auto-discovery runs the per-provider refresh and the response carries `discovered: { count, seededCount, models } | null`. The Providers page auto-opens that provider's live-model list seeded from catalog matches.
 - `GET /api/thinking-level` / `PUT /api/thinking-level` — configuration of thinking levels.
 - `GET /api/wafer-config` / `PUT /api/wafer-config` — Wafer AI ZDR enhancement toggle (enabled by default).
 - `GET /api/system-prompt` / `PUT /api/system-prompt` — system prompt configuration.
