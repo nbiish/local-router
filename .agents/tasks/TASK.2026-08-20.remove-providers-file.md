@@ -47,3 +47,22 @@
 ## Audit
 - No secrets; public catalog data only.
 - Banned crypto: none.
+
+## Fix Round (2026-08-21 pm)
+- Boot smoke: 13 unresolved router
+  candidates enumerated.
+- Mechanism: strict validate → toggle
+  surface; registry omitted anchors.
+- ollama +7 cloud rows; openrouter +4;
+  modal +1 FP8; antigravity +2 GA ids.
+- copilot gpt-4o/gpt-5/o3-mini dropped
+  from routing-defaults (retired upstream).
+- zai test: live-API provider; expect
+  live|catalog, lowercase glm ids.
+- tsc clean; targeted 2/2 + 7/7 pass.
+- Smoke: seed v2 1401, zero unresolved,
+  composites-only /v1/models on fresh HOME.
+
+## Audit
+- Public catalog ids only; no secrets.
+- Merits: continuity rows chat-proven.
