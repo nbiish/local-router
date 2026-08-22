@@ -142,7 +142,10 @@ export function renderProvidersPage(params: {
             <h2>Provider Key Configs</h2>
             <p class="muted">Select one of the registry providers, then save the API key in-memory for that backend.</p>
           </div>
-          <div class="muted" id="providerCount">Loading providers...</div>
+          <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 8px;">
+            <div class="muted" id="providerCount">Loading providers...</div>
+            <button type="button" class="button-secondary" onclick="syncPqcBundleKeys(true)" style="padding: 4px 10px; font-size: 13px;">🔁 Sync PQC keys</button>
+          </div>
         </div>
         <div id="providerGrid" class="provider-grid"></div>
       </div>
