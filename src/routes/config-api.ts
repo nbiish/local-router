@@ -59,16 +59,20 @@ export interface ConfigApiDeps {
   };
   persistModelSourceConfig: () => void;
   canonicalProviderSlug: (name: string) => string;
+  isLocalRouterProviderName: (name: string) => boolean;
   filterConfiguredModels: (models: ProviderModel[]) => ProviderModel[];
   ensureOllamaBackend: () => Promise<boolean>;
   queryAllProviderEndpoints: () => Promise<ProviderModel[]>;
   refreshProviderEndpointModels: (providerName: string) => Promise<{
     models: ProviderModel[];
-    seededCount: number;
+    deselectedCount: number;
     source: 'live' | 'registry' | 'catalog';
     note?: string;
   }>;
   ensureCurationDefaultsForCache: () => void;
+  deselectAllProviderCurationKeys: () => number;
+  mergeProviderEndpointModels: (providerName: string, models: ProviderModel[]) => void;
+  knownProviderModels: (provider: string) => ProviderModel[];
   persistEndpointModelsCache: () => void;
   filterOllamaCloudPullTags: (tags: string[], allowsPro: boolean) => string[];
   effectiveProviderModels: (provider: string) => ProviderModel[];
@@ -161,11 +165,15 @@ export function registerConfigApiRoutes(app: express.Express, deps: ConfigApiDep
     modelSourceConfig,
     persistModelSourceConfig,
     canonicalProviderSlug,
+    isLocalRouterProviderName,
     filterConfiguredModels,
     ensureOllamaBackend,
     queryAllProviderEndpoints,
     refreshProviderEndpointModels,
     ensureCurationDefaultsForCache,
+    deselectAllProviderCurationKeys,
+    mergeProviderEndpointModels,
+    knownProviderModels,
     persistEndpointModelsCache,
     filterOllamaCloudPullTags,
     effectiveProviderModels,
@@ -350,11 +358,13 @@ app.post('/api/keys', async (req: Request, res: Response) => {
 
     // Best-effort live model discovery now that this provider holds a key.
     // OAuth providers authenticate through their own flow and are skipped.
-    let discovered: { count: number; seededCount: number; models: ProviderModel[]; source: string; note?: string } | null = null;
+    // Discovery is off-by-default: discovered models arrive toggled off so the
+    // operator selects the few they serve (any previous picks are backed up).
+    let discovered: { count: number; deselectedCount: number; models: ProviderModel[]; source: string; note?: string } | null = null;
     if (!isOAuthProvider(providerName)) {
       try {
-        const { models, seededCount, source, note } = await refreshProviderEndpointModels(providerName);
-        discovered = { count: models.length, seededCount, models, source, note };
+        const { models, deselectedCount, source, note } = await refreshProviderEndpointModels(providerName);
+        discovered = { count: models.length, deselectedCount, models, source, note };
       } catch {
         // The key stays saved; discovery can be retried from the provider card.
       }
@@ -628,8 +638,8 @@ app.post('/api/provider-models/:provider/refresh', async (req: Request, res: Res
   }
 
   try {
-    const { models, seededCount, source, note } = await refreshProviderEndpointModels(providerName);
-    return res.json({ success: true, provider: providerName, count: models.length, seededCount, source, note, data: models });
+    const { models, deselectedCount, source, note } = await refreshProviderEndpointModels(providerName);
+    return res.json({ success: true, provider: providerName, count: models.length, deselectedCount, source, note, data: models });
   } catch (error: any) {
     return res.status(502).json({ error: error?.message || 'Failed to refresh provider models' });
   }
@@ -639,15 +649,28 @@ app.post('/api/refresh-endpoint-models', async (req: Request, res: Response) => 
   try {
     await ensureOllamaBackend();
     const fetchedModels = await queryAllProviderEndpoints();
-    state.endpointModelsCache = fetchedModels;
+    // Per-provider section merge (2026-08-22): a provider whose fetch threw
+    // contributes NO rows and keeps its existing cache section — refresh-all
+    // must never destroy a section it failed to reach. Registry fallbacks
+    // (returned with source 'catalog') merge normally.
+    const fetchedProviders = Array.from(new Set(fetchedModels.map((model) => model.provider)));
+    let mergedCount = 0;
+    for (const providerName of fetchedProviders) {
+      const section = fetchedModels.filter((model) => model.provider === providerName);
+      mergeProviderEndpointModels(providerName, section);
+      mergedCount += section.length;
+    }
     persistEndpointModelsCache();
-    ensureCurationDefaultsForCache();
+    // Off-by-default (2026-08-22): Refresh All repopulates the toggle store
+    // and turns every refreshed provider's models OFF (selections backed up);
+    // the operator re-checks the few models they serve per provider.
+    const deselectedCount = deselectAllProviderCurationKeys();
     const ollamaTags = filterOllamaCloudPullTags(
       effectiveProviderModels('ollama').map((model) => model.model),
       ollamaCloudRoutingAllowsPro()
     );
     void pullOllamaCloudModels(ollamaTags);
-    res.json({ success: true, count: state.endpointModelsCache.length, data: state.endpointModelsCache });
+    res.json({ success: true, count: mergedCount, deselectedCount, data: fetchedModels });
   } catch (error: any) {
     res.status(500).json({ error: error?.message || 'Failed to refresh endpoint models' });
   }
@@ -678,7 +701,11 @@ app.get('/api/provider-models/:provider', async (req: Request, res: Response) =>
     return res.status(404).json({ error: `Unknown provider: ${providerName}` });
   }
 
-  const models = await resolveCatalogModels({ provider: providerName });
+  // Management view: every known model for the provider (off-by-default
+  // curation can leave the serving subset empty while the catalog is known).
+  const models = isLocalRouterProviderName(providerName)
+    ? await resolveCatalogModels({ provider: providerName })
+    : knownProviderModels(providerName);
 
   return res.json({
     provider: providerName,

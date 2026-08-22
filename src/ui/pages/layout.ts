@@ -102,8 +102,10 @@ export function renderLayout(
         .provider-group { border: 1px solid var(--border); border-radius: 8px; padding: 14px; background: var(--surface-soft); }
         .provider-group h3 { margin: 0 0 8px; font-size: 16px; }
         .model-list { list-style: none; padding: 0; margin: 0; }
+        .provider-group .model-list { max-height: 360px; overflow-y: auto; padding-right: 4px; }
         .model-list li { padding: 6px 0; border-top: 1px solid var(--border); font-size: 14px; word-break: break-word; }
         .model-list li:first-child { border-top: 0; }
+        .curation-provider-search { width: 100%; margin: 0 0 8px; box-sizing: border-box; }
         .catalog-meta { display: flex; justify-content: space-between; gap: 12px; align-items: center; }
         .provider-picker { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: end; margin-top: 16px; }
         .provider-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; margin-top: 16px; }
@@ -2561,8 +2563,9 @@ export function renderLayout(
             const sourceLabels = { live: 'live upstream', registry: 'curated registry', catalog: 'static catalog' };
             setMessage('Provider key saved. Discovered ' + discovered.count + ' model(s) from ' +
               (sourceLabels[discovered.source] || discovered.source) +
-              (discovered.seededCount > 0 ? ' — ' + discovered.seededCount + ' pre-selected from your catalog.' : '.') +
-              ' Review them in the provider card below.', 'success');
+              ' — all toggled off by default' +
+              (discovered.deselectedCount > 0 ? ' (previous selection of ' + discovered.deselectedCount + ' backed up)' : '') +
+              '. Check the few you want to serve below.', 'success');
           } else {
             setMessage('Provider key saved in-memory successfully.', 'success');
           }
@@ -2572,10 +2575,11 @@ export function renderLayout(
             const block = providerLiveBlock(provider);
             const sourceLabels = { live: 'live upstream', registry: 'curated registry', catalog: 'static catalog' };
             let note = 'Fetched ' + discovered.count + ' model(s) — source: ' +
-              (sourceLabels[discovered.source] || discovered.source) + '.';
-            if (discovered.seededCount > 0) {
-              note += ' ' + discovered.seededCount + ' pre-selected from your toggle-store catalog.';
+              (sourceLabels[discovered.source] || discovered.source) + '. All toggled off by default';
+            if (discovered.deselectedCount > 0) {
+              note += ' (previous selection of ' + discovered.deselectedCount + ' backed up)';
             }
+            note += ' — check the few you want served.';
             if (discovered.note) note += ' (' + discovered.note + ')';
             populateProviderLiveBlock(provider, discovered.models || [], note);
             if (block) block.open = true;
@@ -2754,10 +2758,11 @@ export function renderLayout(
             await hydrateLiveModelBadges();
             const sourceLabels = { live: 'live upstream', registry: 'curated registry', catalog: 'static catalog' };
             const sourceLabel = sourceLabels[payload.source] || payload.source;
-            let note = 'Fetched ' + payload.count + ' model(s) — source: ' + sourceLabel + '.';
-            if (payload.seededCount > 0) {
-              note += ' ' + payload.seededCount + ' pre-selected from your toggle-store catalog.';
+            let note = 'Fetched ' + payload.count + ' model(s) — source: ' + sourceLabel + '. All toggled off by default';
+            if (payload.deselectedCount > 0) {
+              note += ' (previous selection of ' + payload.deselectedCount + ' backed up)';
             }
+            note += ' — check the few you want served.';
             if (payload.note) note += ' (' + payload.note + ')';
             populateProviderLiveBlock(provider, payload.data || [], note);
             return true;
@@ -2822,6 +2827,7 @@ export function renderLayout(
         let curationCatalogData = [];
         let curationSelectedKeys = new Set();
         let curationEnabled = false;
+        const curationSearchByProvider = {};
 
         function catalogRowKey(provider, model) {
           return provider + '::' + model;
@@ -2852,14 +2858,9 @@ export function renderLayout(
             curationEnabled = Boolean(payload?.curationEnabled);
             curationSelectedKeys = new Set(Array.isArray(payload?.selectedKeys) ? payload.selectedKeys : []);
 
-            if (curationEnabled && curationSelectedKeys.size === 0 && totalCurationModelCount() > 0) {
-              // Safety pre-select: enabled curation with no keys would serve nothing.
-              for (const group of curationCatalogData) {
-                for (const model of (group.models || [])) {
-                  curationSelectedKeys.add(catalogRowKey(group.provider, model.model));
-                }
-              }
-            }
+            // Off-by-default (2026-08-22): an empty selection is valid — it
+            // serves only ollama + composites until the operator checks the
+            // models they want. Never silently re-select everything.
 
             const toggleEl = document.getElementById('curationToggle');
             if (toggleEl) toggleEl.checked = curationEnabled;
@@ -2872,6 +2873,17 @@ export function renderLayout(
           } catch (error) {
             countEl.innerText = 'Unable to load curation catalog';
             catalogEl.innerHTML = '<div class="muted">The endpoint model curation catalog could not be loaded.</div>';
+          }
+        }
+
+        function setCurationProviderSearch(provider, value, caret) {
+          curationSearchByProvider[provider] = value;
+          renderCurationCatalog();
+          const el = document.querySelector('[data-curation-provider="' + CSS.escape(provider) + '"]');
+          if (el) {
+            el.focus();
+            const pos = Math.min(typeof caret === 'number' ? caret : el.value.length, el.value.length);
+            el.setSelectionRange(pos, pos);
           }
         }
 
@@ -2888,6 +2900,7 @@ export function renderLayout(
           for (let p = 0; p < curationCatalogData.length; p++) {
             const group = curationCatalogData[p];
             const models = (group && Array.isArray(group.models)) ? group.models : [];
+            const providerSearch = String(curationSearchByProvider[group.provider] || '').trim().toLowerCase();
             const matching = [];
             for (let m = 0; m < models.length; m++) {
               const model = models[m];
@@ -2895,13 +2908,26 @@ export function renderLayout(
                 .map((part) => String(part || '').toLowerCase())
                 .join('\\n');
               if (search && !haystack.includes(search)) continue;
+              if (providerSearch && !haystack.includes(providerSearch)) continue;
               matching.push(m);
             }
-            if (matching.length === 0) continue;
+            // Global search prunes whole groups (legacy behavior); a
+            // provider-local search keeps its section rendered so the user
+            // can recover from a typo without the box vanishing.
+            const prunedByGlobal = search && matching.length === 0;
+            if (prunedByGlobal) continue;
+            if (!search && !providerSearch && matching.length === 0) continue;
 
             html += '<section class="provider-group">'
-              + '<h3>' + escapeHtml(group.provider) + ' <span class="muted">(' + matching.length + ')</span></h3>'
+              + '<h3>' + escapeHtml(group.provider) + ' <span class="muted">(' + matching.length + (matching.length !== models.length ? ' / ' + models.length : '') + ')</span></h3>'
+              + '<input type="search" class="curation-provider-search" data-curation-provider="' + escapeHtml(group.provider) + '"'
+              + ' placeholder="Search ' + escapeHtml(group.provider) + ' models…"'
+              + ' value="' + escapeHtml(curationSearchByProvider[group.provider] || '') + '"'
+              + ' oninput="setCurationProviderSearch(this.dataset.curationProvider, this.value, this.selectionStart)">'
               + '<ul class="model-list">';
+            if (matching.length === 0) {
+              html += '<li class="provider-model-empty">No models match this provider search.</li>';
+            }
             for (const m of matching) {
               const model = models[m];
               const key = catalogRowKey(group.provider, model.model);
@@ -2960,13 +2986,6 @@ export function renderLayout(
 
         function toggleCuration(checked) {
           curationEnabled = Boolean(checked);
-          if (curationEnabled && curationSelectedKeys.size === 0 && totalCurationModelCount() > 0) {
-            for (const group of curationCatalogData) {
-              for (const model of (group.models || [])) {
-                curationSelectedKeys.add(catalogRowKey(group.provider, model.model));
-              }
-            }
-          }
           renderCurationCatalog();
         }
 
@@ -3061,7 +3080,9 @@ export function renderLayout(
             const res = await fetch('/api/refresh-endpoint-models', { method: 'POST' });
             const data = await res.json();
             if (res.ok) {
-              setMessage('Refreshed ' + data.count + ' models from provider endpoints successfully.', 'success');
+              setMessage('Refreshed ' + data.count + ' models from provider endpoints — all toggled off by default' +
+                (data.deselectedCount > 0 ? ' (' + data.deselectedCount + ' previously-selected keys backed up)' : '') +
+                '.', 'success');
               await loadCatalog();
               await buildModelDropdown();
             } else {
