@@ -2574,7 +2574,7 @@ export function renderLayout(
             let note = 'Fetched ' + discovered.count + ' model(s) — source: ' +
               (sourceLabels[discovered.source] || discovered.source) + '.';
             if (discovered.seededCount > 0) {
-              note += ' ' + discovered.seededCount + ' pre-selected from your providers.txt catalog.';
+              note += ' ' + discovered.seededCount + ' pre-selected from your toggle-store catalog.';
             }
             if (discovered.note) note += ' (' + discovered.note + ')';
             populateProviderLiveBlock(provider, discovered.models || [], note);
@@ -2625,7 +2625,7 @@ export function renderLayout(
           }
 
           const selected = selectedProviderConfig();
-          const resetLabel = selected?.isCustom ? 'custom provider model list cleared' : 'providers.txt baseline';
+          const resetLabel = selected?.isCustom ? 'custom provider model list cleared' : 'registry baseline';
           setMessage('Provider models reset to ' + resetLabel + '.', 'success');
           clearProviderModelForm();
           await loadProviderConfigs();
@@ -2734,9 +2734,12 @@ export function renderLayout(
             const key = liveCurationKey(provider, model.model);
             const checked = curationKeySnapshot.has(key) ? ' checked' : '';
             const ctx = model.contextLength ? ' <span class="muted">(' + escapeHtml(String(model.contextLength)) + ' ctx)</span>' : '';
+            const tier = model.tier
+              ? ' <span class="muted" style="border:1px solid currentColor; border-radius:3px; padding:0 4px; font-size:11px;">' + escapeHtml(model.tier) + '</span>'
+              : '';
             return '<label class="flag-toggle" style="display:flex; align-items:center; gap:8px; padding:3px 0;">' +
               '<input type="checkbox" data-live-key="' + escapeHtml(key) + '"' + checked + '>' +
-              '<span>' + escapeHtml(model.model || model.id) + ctx + '</span>' +
+              '<span>' + escapeHtml(model.model || model.id) + ctx + tier + '</span>' +
             '</label>';
           }).join('') || '<div class="provider-model-empty">No models match the filter.</div>';
         }
@@ -2753,7 +2756,7 @@ export function renderLayout(
             const sourceLabel = sourceLabels[payload.source] || payload.source;
             let note = 'Fetched ' + payload.count + ' model(s) — source: ' + sourceLabel + '.';
             if (payload.seededCount > 0) {
-              note += ' ' + payload.seededCount + ' pre-selected from your providers.txt catalog.';
+              note += ' ' + payload.seededCount + ' pre-selected from your toggle-store catalog.';
             }
             if (payload.note) note += ' (' + payload.note + ')';
             populateProviderLiveBlock(provider, payload.data || [], note);

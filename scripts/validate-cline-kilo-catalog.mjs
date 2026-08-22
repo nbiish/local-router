@@ -7,9 +7,9 @@
  */
 import fs from 'fs';
 import path from 'path';
+import { PROVIDER_MODEL_REGISTRY } from '../build/provider-model-registries.js';
 
 const RESEARCH_DIR = path.resolve('.agents/research');
-const PROVIDERS_PATH = path.resolve('providers.txt');
 
 const EXCLUDED_PREFIXES = ['anthropic/', 'openai/', 'google/'];
 const KILO_ROUTER_IDS = new Set(['kilo-auto/free']);
@@ -32,28 +32,13 @@ function excludedUpstream(id) {
 }
 
 function parseCatalogRows(providerName) {
-  const content = fs.readFileSync(PROVIDERS_PATH, 'utf8');
-  const rows = [];
-
-  for (const rawLine of content.split(/\r?\n/)) {
-    const line = rawLine.trim();
-    if (!line.startsWith('# │')) continue;
-    const columns = line
-      .replace(/^#\s*/, '')
-      .split('│')
-      .map((part) => part.trim())
-      .filter(Boolean);
-    if (columns.length < 4 || !/^\d+$/.test(columns[0])) continue;
-    if (columns[1] !== providerName) continue;
-    rows.push({
-      row: columns[0],
-      provider: columns[1],
-      model: columns[2],
-      display: columns[3]
-    });
-  }
-
-  return rows;
+  // Registry-backed candidate rows (providers.txt retired 2026-08-20).
+  return (PROVIDER_MODEL_REGISTRY[providerName] || []).map((entry, index) => ({
+    row: String(index + 1),
+    provider: providerName,
+    model: entry.id,
+    display: entry.id
+  }));
 }
 
 async function fetchJson(url, headers = {}) {

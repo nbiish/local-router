@@ -19,30 +19,12 @@ let serverLogs = '';
 let testHome = '';
 let selectedProvider;
 
+const { PROVIDER_REGISTRY } = await import('../build/provider-registry.js');
+
 function firstProviderSummary() {
-  const content = readFileSync('providers.txt', 'utf8');
-
-  for (const rawLine of content.split(/\r?\n/)) {
-    const line = rawLine.trim();
-    if (!line.startsWith('# │')) continue;
-
-    const columns = line
-      .replace(/^#\s*/, '')
-      .split('│')
-      .map((part) => part.trim())
-      .filter(Boolean);
-
-    if (columns.length !== 3) continue;
-
-    const [name, endpoint, keyEnvVar] = columns;
-    if (!name || name.toLowerCase() === 'provider') continue;
-    if (!/^https?:\/\//.test(endpoint)) continue;
-    if (!/^[A-Z0-9_]+_API_KEY$/.test(keyEnvVar)) continue;
-
-    return { name, keyEnvVar };
-  }
-
-  throw new Error('Expected at least one provider summary in providers.txt');
+  const first = PROVIDER_REGISTRY[0];
+  if (!first) throw new Error('Expected at least one provider in the registry');
+  return { name: first.name, keyEnvVar: first.keyEnvVar };
 }
 
 function providerBaseUrlEnvVar(providerName) {

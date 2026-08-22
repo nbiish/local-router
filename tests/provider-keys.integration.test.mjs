@@ -24,53 +24,19 @@ let proxyEnv = {};
 let selectedProvider;
 
 function baselineProviderModelCount(providerName) {
-  // The providers.txt model table was retired (2026-08-20); the frozen
-  // legacy catalog seeds the toggle store with every row pre-checked.
-  const content = readFileSync('providers.legacy-catalog.txt', 'utf8');
-  let count = 0;
-
-  for (const rawLine of content.split(/\r?\n/)) {
-    const line = rawLine.trim();
-    if (!line.startsWith('# │')) continue;
-
-    const columns = line
-      .replace(/^#\s*/, '')
-      .split('│')
-      .map((part) => part.trim())
-      .filter(Boolean);
-
-    if (columns.length < 3) continue;
-    if (!/^\d+$/.test(columns[0])) continue;
-    if (columns[1] === providerName) count += 1;
-  }
-
-  return count;
+  // Registry-seeded baseline: the boot seed (v2) unions exactly the factual
+  // registry list per provider into the toggle store, pre-checked.
+  return (PROVIDER_MODEL_REGISTRY[providerName] || []).length;
 }
 
+const { PROVIDER_REGISTRY } = await import('../build/provider-registry.js');
+const { PROVIDER_MODEL_REGISTRY } = await import('../build/provider-model-registries.js');
+
 function firstProviderSummary() {
-  const content = readFileSync('providers.txt', 'utf8');
-
-  for (const rawLine of content.split(/\r?\n/)) {
-    const line = rawLine.trim();
-    if (!line.startsWith('# │')) continue;
-
-    const columns = line
-      .replace(/^#\s*/, '')
-      .split('│')
-      .map((part) => part.trim())
-      .filter(Boolean);
-
-    if (columns.length !== 3) continue;
-
-    const [name, endpoint, keyEnvVar] = columns;
-    if (!name || name.toLowerCase() === 'provider') continue;
-    if (!/^https?:\/\//.test(endpoint)) continue;
-    if (!/^[A-Z0-9_]+_API_KEY$/.test(keyEnvVar)) continue;
-
-    return { name, keyEnvVar };
-  }
-
-  throw new Error('Expected at least one provider summary in providers.txt');
+  // First registry provider — from the compiled in-code registry.
+  const first = PROVIDER_REGISTRY[0];
+  if (!first) throw new Error('Expected at least one provider in the registry');
+  return { name: first.name, keyEnvVar: first.keyEnvVar };
 }
 
 function providerBaseUrlEnvVar(providerName) {
@@ -581,7 +547,7 @@ test('provider key save/reset lifecycle exposes configured source', async (t) =>
   assert.equal(initial.response.status, 200);
   assert.equal(initial.body?.object, 'list');
   assert.ok(Array.isArray(initial.body?.data), 'Expected provider list');
-  assert.ok(initial.body.data.length > 0, 'Expected at least one provider from providers.txt');
+  assert.ok(initial.body.data.length > 0, 'Expected at least one provider from the registry');
 
   const provider = initial.body.data[0];
   assert.equal(typeof provider.name, 'string');

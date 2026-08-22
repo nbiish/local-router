@@ -1,7 +1,7 @@
 {
   "version": 1,
   "updated": "2026-08-17",
-  "description": "Authoritative model specifications for CI/CD validation. Sources: provider API docs, OpenRouter metadata, model cards. Used by scripts/validate-model-specs.mts to detect metadata drift in providers.txt.",
+  "description": "Authoritative model specifications for CI/CD validation. Sources: provider API docs, OpenRouter metadata, model cards. Used by scripts/validate-model-specs.mts to detect metadata drift against the toggle-store catalog.",
   "models": {
     "deepseek-v4-pro": {
       "context": 1048576,

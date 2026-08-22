@@ -75,10 +75,10 @@ If a real API key is set for the provider in the PQC bundle, this hits `${baseUr
 
 ### 3.3 Register the Model in the Toggle Store
 
-The providers.txt model table was retired (Release 2026-08-20g); the persisted
-toggle store (`endpoint-models-cache.json` + curated keys in
-`model-source-config.json`) is the only catalog. `providers.legacy-catalog.txt`
-is a frozen migration seed — never edit it. Two paths:
+providers.txt is fully removed (Release 2026-08-20h); the persisted toggle
+store (`endpoint-models-cache.json` + curated keys in `model-source-config.json`)
+is the only catalog, seeded from the factual registry in
+`src/provider-model-registries.ts`. Two paths:
 
 **a. Live provider (upstream `/models` works):** nothing to register. Refresh
 discovers it, and it appears untoggled in the provider card:

@@ -33,7 +33,7 @@ node .agents/skills/provider-models-list/scripts/probe.mjs --free
 node .agents/skills/provider-models-list/scripts/probe.mjs --context 1000000
 
 
-# Audit model drift: compare live provider API models against providers.txt
+# Audit model drift: compare live provider API models against the factual registry
 node .agents/skills/provider-models-list/scripts/probe.mjs --compare
 
 # Machine-readable output
@@ -99,7 +99,7 @@ The `raw` field preserves the upstream response for downstream tooling (validati
 | Ollama | `ollama` | `http://127.0.0.1:11435/v1/models` | `OLLAMA_API_KEY` (or `ollama signin` session) |
 | Cline | `cline` | `https://api.cline.bot/api/v1/models` | `CLINE_API_KEY` |
 | Kilo | `kilo` | `https://api.kilo.ai/api/gateway/models` | `KILO_API_KEY` |
-| CommandCode | `commandcode` | `https://api.commandcode.ai/alpha/generate/models` | `COMMANDCODE_API_KEY` |
+| CommandCode | `commandcode` | `https://api.commandcode.ai/provider/v1/models` (public, no auth) | `COMMANDCODE_API_KEY` |
 | Pioneer | `pioneer` | `https://api.pioneer.ai/v1/models` | `PIONEER_API_KEY` |
 | **Antigravity** | `antigravity` | OAuth — use `localrouter oauth status antigravity` | OAuth token |
 | **GitHub Copilot** | `github-copilot` | OAuth — use `localrouter oauth status github-copilot` | OAuth token |
@@ -154,8 +154,8 @@ node .agents/skills/provider-models-list/scripts/probe.mjs --json \
   | jq -r '.[] | .provider as $p | .models[].id' \
   | sort -u > /tmp/live-upstream.txt
 
-# Cross-reference against providers.txt
-rg -oE '│\s+\w+/[\w.-]+(?::\w+)?\s*│' providers.txt \
+# Cross-reference against the factual registry (src/provider-model-registries.ts)
+rg -oE "id: '[^']+'" src/provider-model-registries.ts \
   | awk '{print $2}' | sort -u > /tmp/catalog.txt
 
 diff /tmp/catalog.txt /tmp/live-upstream.txt
@@ -174,7 +174,7 @@ When `--free` surfaces a `*:free` or `*-free` model, snapshot the expiry by hitt
 - **OAuth providers skipped** — Antigravity and GitHub Copilot use device/PKCE flow and don't expose OpenAI-compatible `/v1/models`. Use the proxy's OAuth introspection instead.
 - **Cache disabled** — the probe hits upstream every time. Don't run it in a tight loop; rate limits vary per provider (ZenMux is generous, OpenRouter 20 req/min, others stricter).
 - **Pricing strings** — OpenRouter returns `pricing.prompt` as a string like `"0.0001"`. The probe passes them through verbatim. Normalize before arithmetic.
-- **Static catalog fallback** — if `process.env.<KEY>` is unset, the probe does **not** fall back to `providers.txt` static rows. Use the static rows when no keys are available; use the probe to discover what changed since `providers.txt` was last edited.
+- **Static catalog fallback** — if `process.env.<KEY>` is unset, the probe does **not** fall back to the registry. Use `src/provider-model-registries.ts` when no keys are available; use the probe to discover what changed since the registry was last curated.
 - **No deduplication across providers** — a model hosted on ZenMux + OpenRouter + Cline appears three times. The `--filter` regex helps narrow, but the consumer is responsible for cross-provider reconciliation.
 
 ---
@@ -195,5 +195,5 @@ To add a new provider to the probe:
 1. Append an entry to `PROVIDERS` in `scripts/probe.mjs` with `{ slug, baseUrl, envVar, modelsPath }`.
 2. If the provider's `/models` response uses a different field name than `data` / `models` / array, add a branch in `fetchProviderModels()`.
 3. Update § 3 of this skill with the new row.
-4. Update `providers.txt` (PROVIDER SUMMARY TABLE) and the `llms.txt` PRD table.
+4. Update `src/provider-registry.ts` (provider table) / `src/provider-model-registries.ts` (models) and the `llms.txt` PRD table.
 5. Bump the script's expected provider count in the post-probe status line (e.g. `# 17 provider(s) probed`).

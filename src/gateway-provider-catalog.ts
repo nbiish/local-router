@@ -122,7 +122,7 @@ export function gatewayModelAllowedForRouter(
   if (isGatewayRouterModel(normalized)) return false;
   if (providerName === 'kilo') {
     // Credits apply to the full upstream gateway; block meta-routers only.
-    // Custom catalog listing stays on providers.txt — use Endpoint Models for full lists.
+    // Catalog listing comes from the toggle store — use per-provider refresh for full live lists.
     return true;
   }
   if (providerName === 'cline') {
