@@ -190,7 +190,7 @@ export function renderLayout(
         .model-flag-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 8px; margin-top: 10px; }
         .flag-toggle { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; color: var(--text); }
         .flag-toggle input { width: auto; margin: 0; }
-        .provider-model-list { margin-top: 14px; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+        .provider-model-list { margin-top: 14px; border: 1px solid var(--border); border-radius: 8px; overflow-x: hidden; overflow-y: auto; max-height: 360px; }
         .provider-model-item { padding: 10px 12px; border-top: 1px solid var(--border); background: var(--surface-raised); }
         .provider-model-item:first-child { border-top: 0; }
         .provider-model-item h5 { margin: 0 0 4px; font-size: 14px; }
@@ -806,7 +806,7 @@ export function renderLayout(
                   '<button type="button" data-live-save style="padding:4px 10px; font-size:13px;">Save selection</button>' +
                 '</div>' +
                 '<div class="muted" data-live-note style="margin-top:6px; font-size:12px;"></div>' +
-                '<div data-live-list class="provider-model-list" style="max-height:280px; overflow-y:auto; margin-top:6px;">' +
+                '<div data-live-list class="provider-model-list" style="margin-top:6px;">' +
                   '<div class="provider-model-empty">Click Fetch live models to list what this provider serves upstream.</div>' +
                 '</div>' +
               '</details>' +
