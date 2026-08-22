@@ -3658,7 +3658,9 @@ function loadKeysFromEnvironment(): number {
   let count = 0;
   for (const summary of allSummaries) {
     if (keyStore[summary.name]) continue;
-    const envValue = process.env[localRouterEnvVarName(summary.keyEnvVar)] ?? process.env[summary.keyEnvVar];
+    // Strict namespace: only LOCALROUTER_<KEY_ENV_VAR> counts as a Local
+    // Router key; ambient plainly-named keys belong to other tools.
+    const envValue = process.env[localRouterEnvVarName(summary.keyEnvVar)];
     if (envValue) {
       keyStore[summary.name] = envValue;
       count++;
@@ -3730,12 +3732,18 @@ function syncKeysFromPqcBundle(options: { force?: boolean } = {}): PqcBundleSync
   const loaded: string[] = [];
   const skipped: string[] = [];
   for (const line of output.split('\n')) {
-    // The bundle holds canonical plain names (portable to other tools);
-    // Local Router tracks its copy under the LOCALROUTER_ namespace only.
-    const match = line.match(/^export\s+(?:LOCALROUTER_)?(\w+)=(.+)$/);
+    // Strict namespace (2026-08-22): only LOCALROUTER_* bundle entries map
+    // onto providers. Plainly-named entries are reported as skipped with a
+    // rename hint — they belong to other tools and stay untouched.
+    const match = line.match(/^export\s+([A-Z0-9_]+)=(.+)$/);
     if (!match) continue;
-    const envVar = match[1];
+    const fullName = match[1];
     const value = match[2];
+    if (!fullName.startsWith('LOCALROUTER_')) {
+      skipped.push(`${fullName} (rename to LOCALROUTER_${fullName} if this is a Local Router key)`);
+      continue;
+    }
+    const envVar = fullName.slice('LOCALROUTER_'.length);
     process.env[localRouterEnvVarName(envVar)] = value;
     const providers = providerSummariesForEnvVar(envVar);
     if (providers.length > 0) {
@@ -3835,17 +3843,18 @@ function providerSummariesForEnvVar(envVar: string): ProviderSummary[] {
 }
 
 /**
- * Local Router's namespaced copy of a provider key: bundle sync and any
- * LOCALROUTER_-prefixed environment variable land under this name so the
- * keys Local Router uses stay separable from ambient same-named variables
- * other tools consume (e.g. DEEPSEEK_API_KEY vs LOCALROUTER_DEEPSEEK_API_KEY).
+ * Local Router's namespaced copy of a provider key: bundle sync and key
+ * saves write ONLY this name, and every lookup reads ONLY this name — ambient
+ * same-named variables for other tools (e.g. a plainly named KILO_API_KEY)
+ * are deliberately invisible to Local Router so limit-scoped keys can't be
+ * consumed by the wrong tool.
  */
 function localRouterEnvVarName(keyEnvVar: string): string {
   return `LOCALROUTER_${keyEnvVar}`;
 }
 
 function providerEnvKeyValue(keyEnvVar: string): string | undefined {
-  return process.env[localRouterEnvVarName(keyEnvVar)] ?? process.env[keyEnvVar];
+  return process.env[localRouterEnvVarName(keyEnvVar)];
 }
 
 /** Catalog providers may share one env var (e.g. opencode-go + opencode-zen → OPENCODE_API_KEY). */
@@ -3861,18 +3870,14 @@ function clearProviderKeyForProvider(providerName: string): void {
   const summary = getProviderSummary(providerName);
   if (!summary) return;
   const envVar = summary.keyEnvVar;
-  const removed = keyStore[providerName] ?? process.env[localRouterEnvVarName(envVar)] ?? process.env[envVar];
   for (const sibling of providerSummariesForEnvVar(envVar)) {
     delete keyStore[sibling.name];
     uiSavedProviderKeys.delete(sibling.name);
     pqcBundleProviders.delete(sibling.name);
   }
+  // Namespaced copy only — the operator's plainly-named ambient variable for
+  // other tools is never touched.
   delete process.env[localRouterEnvVarName(envVar)];
-  if (removed && process.env[envVar] === removed) {
-    // Only clear the plain ambient name when a previous Local Router write
-    // set it — never scorch the operator's same-named key for other tools.
-    delete process.env[envVar];
-  }
 }
 
 function persistPqcSecrets(): void {
@@ -3882,15 +3887,54 @@ function persistPqcSecrets(): void {
     return;
   }
   try {
-    const lines: string[] = [];
+    // Namespaced pack (2026-08-22): Local Router-owned keys are stored in the
+    // bundle under LOCALROUTER_<KEY_ENV_VAR> names, and ONLY those names are
+    // managed here. Plainly-named entries — including provider-named ones
+    // like KILO_API_KEY used by other tools — are Local-Router-invisible and
+    // always preserved. If the current bundle cannot be read we abort rather
+    // than risk dropping unknown entries.
+    const managedEnvVars = new Set<string>();
+    for (const summary of allProviderSummaries()) {
+      managedEnvVars.add(localRouterEnvVarName(summary.keyEnvVar));
+    }
+    const preservedLines: string[] = [];
+    if (fs.existsSync(getPqcBundlePath())) {
+      let existingOutput: string | null = null;
+      try {
+        existingOutput = execFileSync(bin, ['export'], {
+          encoding: 'utf8',
+          timeout: 120000,
+          env: {
+            ...process.env,
+            PQC_CONFIG_DIR: getPqcConfigDir(),
+            PQC_USE_KEYCHAIN: process.env.PQC_USE_KEYCHAIN || 'false',
+            PATH: defaultChildPathEnv()
+          }
+        });
+      } catch (err) {
+        console.error('[PQC] Cannot persist safely: existing bundle export failed — not overwriting. Error:', sanitizeDiagnosticText(String((err as Error).message)));
+        return;
+      }
+      for (const line of existingOutput.split('\n')) {
+        const match = line.match(/^export\s+([A-Z0-9_]+)=(.+)$/);
+        if (!match) continue;
+        if (managedEnvVars.has(match[1])) continue;
+        preservedLines.push(`${match[1]}=${match[2]}`);
+      }
+    }
+
+    const lines: string[] = [...preservedLines];
     const packedEnvVars = new Set<string>();
     for (const [providerName, keyValue] of Object.entries(keyStore)) {
       if (!keyValue) continue;
       if (providerName === 'ollama' && isOllamaPlaceholderKey(keyValue)) continue;
       const summary = getProviderSummary(providerName);
-      if (summary && !packedEnvVars.has(summary.keyEnvVar)) {
-        packedEnvVars.add(summary.keyEnvVar);
-        lines.push(`${summary.keyEnvVar}=${keyValue}`);
+      if (summary) {
+        const namespaced = localRouterEnvVarName(summary.keyEnvVar);
+        if (!packedEnvVars.has(namespaced)) {
+          packedEnvVars.add(namespaced);
+          lines.push(`${namespaced}=${keyValue}`);
+        }
       }
     }
     if (lines.length === 0) return;

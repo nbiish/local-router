@@ -240,14 +240,16 @@ test.before(async () => {
   await startFakeUpstream();
   testHome = mkdtempSync(join(tmpdir(), 'local-router-test-'));
   proxyEnv = {
-    ...stripForeignProviderKeys(process.env, [selectedProvider.keyEnvVar]),
+    ...stripForeignProviderKeys(process.env, [`LOCALROUTER_${selectedProvider.keyEnvVar}`]),
     HOME: testHome,
     PORT: port,
     LOCAL_ROUTER_SKIP_PQC_LOAD: 'true',
     LOCAL_ROUTER_SKIP_OLLAMA_ENSURE: 'true',
     LOCAL_ROUTER_FALLBACK_BASE_RETRY_SECONDS: '0',
     LOCAL_ROUTER_DEV: 'true',
-    [selectedProvider.keyEnvVar]: 'integration-test-provider-key',
+    // Strict namespace (2026-08-22): a plainly-named ambient variable must be
+    // invisible to Local Router; keys live under the LOCALROUTER_ prefix.
+    [`LOCALROUTER_${selectedProvider.keyEnvVar}`]: 'integration-test-provider-key',
     [providerBaseUrlEnvVar(selectedProvider.name)]: upstreamBaseUrl
   };
 
@@ -1497,11 +1499,8 @@ test('provider key save/reset lifecycle exposes configured source', async (t) =>
   assert.equal(afterReset.response.status, 200);
   const resetProvider = afterReset.body?.data?.find((item) => item.name === provider.name);
   assert.ok(resetProvider, 'Expected provider after reset');
-  // Ambient env fallback (harness-injected key) survives the namespaced
-  // delete — Local Router removes only its LOCALROUTER_* copy, never the
-  // operator's plain same-named variable (2026-08-22 key namespace).
-  assert.equal(resetProvider.configured, true, 'Ambient env key remains authoritative after namespaced delete');
-  assert.equal(resetProvider.configuredSource, 'env');
+  assert.equal(resetProvider.configured, false, 'Deleting the namespaced key fully unconfigures the provider');
+  assert.equal(resetProvider.configuredSource, 'none');
 
   const unknown = await requestJson('/api/keys/__missing_provider__', {
     method: 'DELETE'

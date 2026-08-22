@@ -17,6 +17,8 @@ Post-quantum encryption for API keys and private data.
   pack     Read KEY=VALUE lines from stdin, encrypt, write ~/.config/pqc-secrets/secrets.bundle.json
   export   Decrypt bundle, output shell 'export KEY=VALUE' lines to stdout
   verify   Check bundle integrity, list key names (no values)
+  list     List secret names only (no values) — inspect what is set / needs renaming
+  rename   Rename one secret NAME (value preserved); previous bundle backed up first
   migrate  Migrate keychain entry from old account name to new account name
 
 Environment variables:
@@ -32,6 +34,7 @@ import hashlib
 import json
 import os
 import platform
+import re
 import subprocess
 import sys
 import uuid
@@ -425,33 +428,9 @@ def _load_public_key() -> bytes:
     return bytes.fromhex(raw)
 
 
-def cmd_pack() -> None:
-    """Read KEY=VALUE lines from stdin, encrypt via AES-256-GCM + ML-KEM-768.
-
-    Produces a Rust-compatible bundle with keywrap layer and AAD.
-    """
-    _ensure_config_dir()
-
+def _encrypt_entries_to_bundle(entries: dict[str, str]) -> None:
+    """Encrypt entries (AES-256-GCM payload, ML-KEM-768 keywrap) and write the bundle."""
     pk = _load_public_key()
-    lines = sys.stdin.read().strip()
-    if not lines:
-        print("ERROR: No input provided on stdin.", file=sys.stderr)
-        sys.exit(1)
-
-    # Parse KEY=VALUE pairs
-    entries: dict[str, str] = {}
-    for line in lines.split("\n"):
-        line = line.strip()
-        if not line or line.startswith("#"):
-            continue
-        if "=" not in line:
-            continue
-        key, _, value = line.partition("=")
-        entries[key.strip()] = value.strip()
-
-    if not entries:
-        print("ERROR: No valid KEY=VALUE pairs found in input.", file=sys.stderr)
-        sys.exit(1)
 
     # Generate random data key (32 bytes)
     data_key = os.urandom(32)
@@ -498,6 +477,36 @@ def cmd_pack() -> None:
     BUNDLE_PATH.write_text(json.dumps(bundle, indent=2, sort_keys=True))
     BUNDLE_PATH.chmod(0o600)
     print(f"Secrets packed: {len(entries)} keys -> {BUNDLE_PATH}")
+
+
+def cmd_pack() -> None:
+    """Read KEY=VALUE lines from stdin, encrypt via AES-256-GCM + ML-KEM-768.
+
+    Produces a Rust-compatible bundle with keywrap layer and AAD.
+    """
+    _ensure_config_dir()
+
+    lines = sys.stdin.read().strip()
+    if not lines:
+        print("ERROR: No input provided on stdin.", file=sys.stderr)
+        sys.exit(1)
+
+    # Parse KEY=VALUE pairs
+    entries: dict[str, str] = {}
+    for line in lines.split("\n"):
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        entries[key.strip()] = value.strip()
+
+    if not entries:
+        print("ERROR: No valid KEY=VALUE pairs found in input.", file=sys.stderr)
+        sys.exit(1)
+
+    _encrypt_entries_to_bundle(entries)
 
 
 def _decrypt_bundle(bundle: dict, sk: bytes) -> dict[str, str]:
@@ -571,6 +580,68 @@ def cmd_verify() -> None:
         print(f"  {key}")
 
 
+_ENV_NAME_RE = re.compile(r"^[A-Z0-9_]+$")
+
+
+def _read_entries() -> dict[str, str]:
+    """Decrypt the bundle and normalize its secrets mapping."""
+    sk = _load_private_key()
+    bundle = json.loads(BUNDLE_PATH.read_text())
+    payload = _decrypt_bundle(bundle, sk)
+    entries = payload.get("secrets", payload) if isinstance(payload, dict) and "secrets" in payload else payload
+    if not isinstance(entries, dict):
+        print("ERROR: bundle payload is not a name/value mapping.", file=sys.stderr)
+        sys.exit(1)
+    return {str(k): str(v) for k, v in entries.items()}
+
+
+def cmd_list() -> None:
+    """List secret names only (never values) — the inspection surface for what
+    is set, what belongs to which tool prefix, and what needs renaming."""
+    if not BUNDLE_PATH.exists():
+        print(f"ERROR: Bundle not found at {BUNDLE_PATH}. Run 'pack' first.", file=sys.stderr)
+        sys.exit(1)
+    entries = _read_entries()
+    names = sorted(entries.keys())
+    print(f"{len(names)} secret name(s) in {BUNDLE_PATH}:")
+    for name in names:
+        print(f"  {name}")
+
+
+def cmd_rename(old_name: str, new_name: str) -> None:
+    """Rename one secret NAME in the bundle (value preserved, never printed).
+
+    The existing bundle is backed up alongside itself before rewriting.
+    """
+    if not BUNDLE_PATH.exists():
+        print(f"ERROR: Bundle not found at {BUNDLE_PATH}. Run 'pack' first.", file=sys.stderr)
+        sys.exit(1)
+    if not _ENV_NAME_RE.match(old_name) or not _ENV_NAME_RE.match(new_name):
+        print("ERROR: names must match ^[A-Z0-9_]+$ (environment variable names).", file=sys.stderr)
+        sys.exit(1)
+    if old_name == new_name:
+        print(f"Nothing to do: OLD and NEW are the same ({old_name}).")
+        return
+
+    entries = _read_entries()
+    if old_name not in entries:
+        print(f"ERROR: '{old_name}' not found in bundle.", file=sys.stderr)
+        sys.exit(1)
+    if new_name in entries:
+        print(f"ERROR: '{new_name}' already exists — refusing to overwrite.", file=sys.stderr)
+        sys.exit(1)
+
+    backup = BUNDLE_PATH.with_name(
+        BUNDLE_PATH.name + f".bak.{__import__('datetime').datetime.now(__import__('datetime').UTC).strftime('%Y%m%dT%H%M%SZ')}"
+    )
+    backup.write_text(BUNDLE_PATH.read_text())
+    backup.chmod(0o600)
+
+    entries[new_name] = entries.pop(old_name)
+    _encrypt_entries_to_bundle(entries)
+    print(f"Renamed {old_name} -> {new_name} (backup: {backup})")
+
+
 def cmd_migrate() -> None:
     """Migrate keychain entry from old account name to new account name."""
     global KEYCHAIN_ACCOUNT
@@ -605,7 +676,7 @@ def cmd_migrate() -> None:
 
 def main() -> None:
     if len(sys.argv) < 2:
-        print("Usage: pqc_secrets.py <keygen|pack|export|verify|migrate>", file=sys.stderr)
+        print("Usage: pqc_secrets.py <keygen|pack|export|verify|list|rename|migrate>", file=sys.stderr)
         sys.exit(1)
 
     cmd = sys.argv[1]
@@ -617,11 +688,18 @@ def main() -> None:
         cmd_export()
     elif cmd == "verify":
         cmd_verify()
+    elif cmd == "list":
+        cmd_list()
+    elif cmd == "rename":
+        if len(sys.argv) != 4:
+            print("Usage: pqc_secrets.py rename <OLD_NAME> <NEW_NAME>", file=sys.stderr)
+            sys.exit(1)
+        cmd_rename(sys.argv[2], sys.argv[3])
     elif cmd == "migrate":
         cmd_migrate()
     else:
         print(f"Unknown command: {cmd}", file=sys.stderr)
-        print("Usage: pqc_secrets.py <keygen|pack|export|verify|migrate>", file=sys.stderr)
+        print("Usage: pqc_secrets.py <keygen|pack|export|verify|list|rename|migrate>", file=sys.stderr)
         sys.exit(1)
 
 
