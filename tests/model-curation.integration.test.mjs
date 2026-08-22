@@ -165,14 +165,14 @@ test.before(async () => {
   const upstreamBaseUrl = await startFakeUpstream();
   testHome = mkdtempSync(join(tmpdir(), 'local-router-curation-'));
   proxyEnv = {
-    ...stripForeignProviderKeys(process.env, [configuredProvider.keyEnvVar]),
+    ...stripForeignProviderKeys(process.env, [`LOCALROUTER_${configuredProvider.keyEnvVar}`]),
     HOME: testHome,
     PORT: port,
     LOCAL_ROUTER_SKIP_PQC_LOAD: 'true',
     LOCAL_ROUTER_SKIP_OLLAMA_ENSURE: 'true',
     LOCAL_ROUTER_FALLBACK_BASE_RETRY_SECONDS: '0',
     LOCAL_ROUTER_DEV: 'true',
-    [configuredProvider.keyEnvVar]: 'integration-test-provider-key',
+    [`LOCALROUTER_${configuredProvider.keyEnvVar}`]: 'integration-test-provider-key',
     [providerBaseUrlEnvVar(configuredProvider.name)]: upstreamBaseUrl
   };
 

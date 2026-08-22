@@ -10,8 +10,9 @@ import { join } from 'node:path';
 process.env.HOME = mkdtempSync(join(tmpdir(), 'lr-router-disabled-test-'));
 process.env.LOCAL_ROUTER_SKIP_OLLAMA_ENSURE = 'true';
 process.env.LOCAL_ROUTER_SKIP_PQC_LOAD = 'true';
-process.env.WAFER_SERVERLESS_API_KEY = 'test';
-process.env.OPENROUTER_API_KEY = 'test';
+// Strict namespace: Local Router only reads LOCALROUTER_-prefixed env keys.
+process.env.LOCALROUTER_WAFER_SERVERLESS_API_KEY = 'test';
+process.env.LOCALROUTER_OPENROUTER_API_KEY = 'test';
 
 const {
   parseRouterModel,
