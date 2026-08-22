@@ -2749,6 +2749,18 @@ function validateFallbackReferences(model: FallbackModel) {
   return { ok: true } as const;
 }
 
+/**
+ * Serving toggles gate what tools see on /v1/models — they NEVER gate the
+ * structural validity of default route construction. A candidate that exists
+ * in the full known catalog (registry ∪ cache ∪ persisted overrides) stays
+ * resolvable even when the user has toggled it off: it is dormant at runtime
+ * and skipped by the availability pass like any other dormant candidate.
+ */
+function findKnownCatalogModel(modelName: string): ProviderModel | undefined {
+  const lookup = resolveGatewayPresentedLegacyId(stripOllamaLatestSuffix(modelName.trim()));
+  return allCatalogModels().find((model) => providerModelAliases(model).has(lookup));
+}
+
 function validateRouterReferences(model: RouterModel, options: { lenient?: boolean } = {}) {
   // Lenient mode (persistence load): reference checks are skipped entirely.
   // Upstream refreshes legitimately retire models (a provider section can be
@@ -2767,6 +2779,7 @@ function validateRouterReferences(model: RouterModel, options: { lenient?: boole
 
   const unresolved = model.candidates.filter((candidate) => {
     if (findProviderModel(candidate.model)) return false;
+    if (findKnownCatalogModel(candidate.model)) return false;
     const resolved = resolveModelTarget(candidate.model);
     if (!resolved || isLocalRouterProviderName(resolved.providerName)) return true;
     return !getProviderSummary(resolved.providerName);
