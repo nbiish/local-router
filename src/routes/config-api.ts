@@ -71,6 +71,10 @@ export interface ConfigApiDeps {
   }>;
   ensureCurationDefaultsForCache: () => void;
   deselectAllProviderCurationKeys: () => number;
+  syncKeysFromPqcBundle: (options?: { force?: boolean }) =>
+    | { ok: true; loaded: string[]; skipped: string[] }
+    | { ok: false; error: string };
+  localRouterEnvVarName: (keyEnvVar: string) => string;
   mergeProviderEndpointModels: (providerName: string, models: ProviderModel[]) => void;
   knownProviderModels: (provider: string) => ProviderModel[];
   persistEndpointModelsCache: () => void;
@@ -172,6 +176,8 @@ export function registerConfigApiRoutes(app: express.Express, deps: ConfigApiDep
     refreshProviderEndpointModels,
     ensureCurationDefaultsForCache,
     deselectAllProviderCurationKeys,
+    syncKeysFromPqcBundle,
+    localRouterEnvVarName,
     mergeProviderEndpointModels,
     knownProviderModels,
     persistEndpointModelsCache,
@@ -676,6 +682,19 @@ app.post('/api/refresh-endpoint-models', async (req: Request, res: Response) => 
   }
 });
 
+app.post('/api/pqc-resync', (req: Request, res: Response) => {
+  const force = req.body?.force === true;
+  const result = syncKeysFromPqcBundle({ force });
+  if (result.ok) {
+    console.log(`[PQC] Resync loaded ${result.loaded.length} provider key(s) from bundle: ${result.loaded.join(', ')}`);
+    return res.json({ success: true, resynced: true, loaded: result.loaded, skipped: result.skipped });
+  }
+  if (result.error === 'cooldown') {
+    return res.json({ success: true, resynced: false, reason: 'cooldown' });
+  }
+  return res.status(502).json({ success: false, error: result.error });
+});
+
 app.get('/api/provider-configs', (req: Request, res: Response) => {
   res.json({ object: 'list', data: providerConfigs() });
 });
@@ -935,8 +954,12 @@ app.delete('/api/providers/:id', (req: Request, res: Response) => {
   if (unsetKey) {
     const summary = getProviderSummary(providerId);
     if (summary) {
+      const removed = keyStore[providerId];
       delete keyStore[providerId];
-      delete process.env[summary.keyEnvVar];
+      delete process.env[localRouterEnvVarName(summary.keyEnvVar)];
+      if (removed && process.env[summary.keyEnvVar] === removed) {
+        delete process.env[summary.keyEnvVar];
+      }
       persistPqcSecrets();
     }
   }

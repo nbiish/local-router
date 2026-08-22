@@ -545,6 +545,8 @@ app.use('/api', (req: Request, res: Response, next: NextFunction) => {
 
 // In-memory Key Store
 const keyStore: Record<string, string> = {};
+/** Providers whose keys were saved through the UI this process (source: memory). */
+const uiSavedProviderKeys = new Set<string>();
 const modelStore: Record<string, ProviderModel[]> = {};
 const persistedProviderModelOverrides = new Set<string>();
 let customProviderStore: CustomProviderRecord[] = [];
@@ -1057,8 +1059,9 @@ function knownProviderModels(rawProviderName: string): ProviderModel[] {
 
 function providerConfigs() {
   return allProviderSummaries().map((provider) => {
-    const hasMemoryKey = Boolean(keyStore[provider.name]);
-    const hasEnvKey = Boolean(process.env[provider.keyEnvVar]);
+    const hasKeyStoreKey = Boolean(keyStore[provider.name]);
+    const hasMemoryKey = uiSavedProviderKeys.has(provider.name);
+    const hasEnvKey = Boolean(providerEnvKeyValue(provider.keyEnvVar));
     const ollamaPlaceholder = provider.name === 'ollama'
       && isOllamaPlaceholderKey(keyStore.ollama || process.env.OLLAMA_API_KEY);
     // OAuth-based providers are "configured" when they have a valid access
@@ -1068,12 +1071,14 @@ function providerConfigs() {
     const isOauth = isOAuthProvider(provider.name);
     const oauthAccessToken = isOauth ? getOAuthState(provider.name as OAuthProviderId)?.accessToken : undefined;
     const hasOAuthKey = Boolean(oauthAccessToken);
-    const configured = provider.name === 'ollama' || hasMemoryKey || hasEnvKey || hasOAuthKey;
+    const configured = provider.name === 'ollama' || hasKeyStoreKey || hasEnvKey || hasOAuthKey;
     let configuredSource: string;
     if (provider.name === 'ollama' && ollamaPlaceholder) {
       configuredSource = 'default';
     } else if (hasMemoryKey) {
       configuredSource = 'memory';
+    } else if (pqcBundleProviders.has(provider.name)) {
+      configuredSource = 'pqc';
     } else if (hasEnvKey) {
       configuredSource = 'env';
     } else if (hasOAuthKey) {
@@ -2365,7 +2370,7 @@ async function fetchLiveProviderModels(providerName: string): Promise<LiveModels
     note
   });
 
-  const key = keyStore[summary.name] || process.env[summary.keyEnvVar];
+  const key = keyStore[summary.name] || providerEnvKeyValue(summary.keyEnvVar);
   const isLocalService = isLocalLoopbackProvider(providerName);
 
   if (!key && !isLocalService) {
@@ -3653,13 +3658,98 @@ function loadKeysFromEnvironment(): number {
   let count = 0;
   for (const summary of allSummaries) {
     if (keyStore[summary.name]) continue;
-    const envValue = process.env[summary.keyEnvVar];
+    const envValue = process.env[localRouterEnvVarName(summary.keyEnvVar)] ?? process.env[summary.keyEnvVar];
     if (envValue) {
       keyStore[summary.name] = envValue;
       count++;
     }
   }
   return count;
+}
+
+type PqcBundleSyncResult =
+  | { ok: true; loaded: string[]; skipped: string[] }
+  | { ok: false; error: string };
+
+/**
+ * Providers whose keys came from the PQC secrets bundle (vs UI save or raw
+ * process env). Drives the configuredSource 'pqc' badge so operators can see
+ * a key exists in the bundle even when it was packed outside Local Router.
+ */
+const pqcBundleProviders = new Set<string>();
+let lastPqcSyncAt = 0;
+const PQC_SYNC_MIN_INTERVAL_MS = 30_000;
+
+/**
+ * Run `pqc-secrets export`, map KEY=VAL lines onto registered providers, and
+ * load matches into the key store. Retries the export once: the dispatcher
+ * script cold-starts uv/python (its first run after reboots can exceed the
+ * child timeout or race its dep cache).
+ */
+function syncKeysFromPqcBundle(options: { force?: boolean } = {}): PqcBundleSyncResult {
+  const force = Boolean(options.force);
+  if (!force && lastPqcSyncAt > 0 && Date.now() - lastPqcSyncAt < PQC_SYNC_MIN_INTERVAL_MS) {
+    return { ok: false, error: 'cooldown' };
+  }
+
+  const bin = getPqcBinPath();
+  if (!bin) return { ok: false, error: 'pqc-secrets binary not found' };
+  const bundlePath = getPqcBundlePath();
+  if (!fs.existsSync(bundlePath)) return { ok: false, error: `no bundle at ${bundlePath}` };
+
+  const spawnEnv = {
+    ...process.env,
+    PQC_CONFIG_DIR: getPqcConfigDir(),
+    PQC_USE_KEYCHAIN: process.env.PQC_USE_KEYCHAIN || 'false',
+    PATH: defaultChildPathEnv()
+  };
+  let output: string | null = null;
+  let lastError: unknown = null;
+  try {
+    // 120s: the uv/python engine cold-bootstraps its dependency cache
+    // (cryptography wheels) on first use and far exceeds 30s downloads.
+    output = execFileSync(bin, ['export'], {
+      encoding: 'utf8',
+      timeout: 120000,
+      env: spawnEnv
+    });
+  } catch (err) {
+    lastError = err;
+  }
+  if (output === null) {
+    const stderr = (() => {
+      const candidate = (lastError as { stderr?: unknown } | null)?.stderr;
+      if (typeof candidate === 'string') return candidate.trim();
+      if (candidate instanceof Buffer) return candidate.toString('utf8').trim();
+      return '';
+    })();
+    const message = lastError instanceof Error ? lastError.message : String(lastError);
+    return { ok: false, error: `export failed: ${message}${stderr ? ` — stderr: ${sanitizeDiagnosticText(stderr).slice(0, 300)}` : ''}` };
+  }
+
+  const loaded: string[] = [];
+  const skipped: string[] = [];
+  for (const line of output.split('\n')) {
+    // The bundle holds canonical plain names (portable to other tools);
+    // Local Router tracks its copy under the LOCALROUTER_ namespace only.
+    const match = line.match(/^export\s+(?:LOCALROUTER_)?(\w+)=(.+)$/);
+    if (!match) continue;
+    const envVar = match[1];
+    const value = match[2];
+    process.env[localRouterEnvVarName(envVar)] = value;
+    const providers = providerSummariesForEnvVar(envVar);
+    if (providers.length > 0) {
+      for (const provider of providers) {
+        keyStore[provider.name] = value;
+        pqcBundleProviders.add(provider.name);
+        loaded.push(provider.name);
+      }
+    } else {
+      skipped.push(envVar);
+    }
+  }
+  lastPqcSyncAt = Date.now();
+  return { ok: true, loaded, skipped };
 }
 
 function loadPqcSecrets(): void {
@@ -3703,58 +3793,26 @@ function loadPqcSecrets(): void {
     return;
   }
 
-  try {
-    const output = execFileSync(bin, ['export'], {
-      encoding: 'utf8',
-      timeout: 30000,
-      env: {
-        ...process.env,
-        PQC_CONFIG_DIR: getPqcConfigDir(),
-        PQC_USE_KEYCHAIN: process.env.PQC_USE_KEYCHAIN || 'false',
-        PATH: defaultChildPathEnv()
-      }
-    });
-    const loadedProviders: string[] = [];
-    const skippedEnvVars: string[] = [];
-    for (const line of output.split('\n')) {
-      const match = line.match(/^export\s+(\w+)=(.+)$/);
-      if (!match) continue;
-      const envVar = match[1];
-      const value = match[2];
-      process.env[envVar] = value;
-      const providers = providerSummariesForEnvVar(envVar);
-      if (providers.length > 0) {
-        for (const provider of providers) {
-          keyStore[provider.name] = value;
-          loadedProviders.push(provider.name);
-        }
-      } else {
-        skippedEnvVars.push(envVar);
-      }
+  const sync = syncKeysFromPqcBundle({ force: true });
+  if (sync.ok) {
+    if (sync.loaded.length > 0) {
+      console.log(`[PQC] Loaded ${sync.loaded.length} provider key(s) from bundle: ${sync.loaded.join(', ')}`);
     }
-    if (loadedProviders.length > 0) {
-      console.log(`[PQC] Loaded ${loadedProviders.length} provider key(s) from bundle: ${loadedProviders.join(', ')}`);
+    if (sync.skipped.length > 0) {
+      console.log(`[PQC] Env vars not mapped to providers: ${sync.skipped.join(', ')}`);
     }
-    if (skippedEnvVars.length > 0) {
-      console.log(`[PQC] Env vars not mapped to providers: ${skippedEnvVars.join(', ')}`);
-    }
-    const envCount = loadKeysFromEnvironment();
-    if (envCount > 0) {
-      console.log(`[PQC] Loaded ${envCount} additional provider key(s) from environment.`);
-    }
-    ensureDefaultOllamaApiKey(keyStore);
-    pruneDisallowedOllamaCloudRouting();
-    pruneDisallowedGatewayFreeRouting();
-    reportMissingProviders();
-  } catch (err) {
-    console.log(`[PQC] Failed to load bundle:`, (err as Error).message);
+  } else {
+    console.log(`[PQC] Failed to load bundle: ${sync.error}`);
     console.log(`[PQC] Falling back to environment variables.`);
-    loadKeysFromEnvironment();
-    ensureDefaultOllamaApiKey(keyStore);
-    pruneDisallowedOllamaCloudRouting();
-    pruneDisallowedGatewayFreeRouting();
-    reportMissingProviders();
   }
+  const envCount = loadKeysFromEnvironment();
+  if (envCount > 0) {
+    console.log(`[PQC] Loaded ${envCount} additional provider key(s) from environment.`);
+  }
+  ensureDefaultOllamaApiKey(keyStore);
+  pruneDisallowedOllamaCloudRouting();
+  pruneDisallowedGatewayFreeRouting();
+  reportMissingProviders();
 }
 
 function reportMissingProviders(): void {
@@ -3776,21 +3834,45 @@ function providerSummariesForEnvVar(envVar: string): ProviderSummary[] {
   return allProviderSummaries().filter((summary) => summary.keyEnvVar === envVar);
 }
 
+/**
+ * Local Router's namespaced copy of a provider key: bundle sync and any
+ * LOCALROUTER_-prefixed environment variable land under this name so the
+ * keys Local Router uses stay separable from ambient same-named variables
+ * other tools consume (e.g. DEEPSEEK_API_KEY vs LOCALROUTER_DEEPSEEK_API_KEY).
+ */
+function localRouterEnvVarName(keyEnvVar: string): string {
+  return `LOCALROUTER_${keyEnvVar}`;
+}
+
+function providerEnvKeyValue(keyEnvVar: string): string | undefined {
+  return process.env[localRouterEnvVarName(keyEnvVar)] ?? process.env[keyEnvVar];
+}
+
 /** Catalog providers may share one env var (e.g. opencode-go + opencode-zen → OPENCODE_API_KEY). */
 function setProviderKeyForEnvVar(envVar: string, keyValue: string): void {
-  process.env[envVar] = keyValue;
+  process.env[localRouterEnvVarName(envVar)] = keyValue;
   for (const summary of providerSummariesForEnvVar(envVar)) {
     keyStore[summary.name] = keyValue;
+    uiSavedProviderKeys.add(summary.name);
   }
 }
 
 function clearProviderKeyForProvider(providerName: string): void {
   const summary = getProviderSummary(providerName);
   if (!summary) return;
-  for (const sibling of providerSummariesForEnvVar(summary.keyEnvVar)) {
+  const envVar = summary.keyEnvVar;
+  const removed = keyStore[providerName] ?? process.env[localRouterEnvVarName(envVar)] ?? process.env[envVar];
+  for (const sibling of providerSummariesForEnvVar(envVar)) {
     delete keyStore[sibling.name];
+    uiSavedProviderKeys.delete(sibling.name);
+    pqcBundleProviders.delete(sibling.name);
   }
-  delete process.env[summary.keyEnvVar];
+  delete process.env[localRouterEnvVarName(envVar)];
+  if (removed && process.env[envVar] === removed) {
+    // Only clear the plain ambient name when a previous Local Router write
+    // set it — never scorch the operator's same-named key for other tools.
+    delete process.env[envVar];
+  }
 }
 
 function persistPqcSecrets(): void {
@@ -3887,6 +3969,8 @@ const configApiDeps = {
   refreshProviderEndpointModels,
   ensureCurationDefaultsForCache,
   deselectAllProviderCurationKeys,
+  syncKeysFromPqcBundle,
+  localRouterEnvVarName,
   mergeProviderEndpointModels,
   knownProviderModels,
   persistEndpointModelsCache,
@@ -3997,7 +4081,7 @@ async function loadProvider(name: string): Promise<ProxyProvider | null> {
       name: summary.name,
       baseUrl: providerBaseUrl(summary),
       getHeaders: () => {
-        const key = keyStore[summary.name] || process.env[summary.keyEnvVar];
+        const key = keyStore[summary.name] || providerEnvKeyValue(summary.keyEnvVar);
         if (!key) {
           throw new Error(`${summary.keyEnvVar} is not set for ${summary.name}`);
         }
@@ -4562,7 +4646,7 @@ function providerHasConfiguredKey(providerName: string) {
   }
   const summary = getProviderSummary(providerName);
   if (!summary) return false;
-  return Boolean(keyStore[summary.name] || process.env[summary.keyEnvVar]);
+  return Boolean(keyStore[summary.name] || providerEnvKeyValue(summary.keyEnvVar));
 }
 
 function shouldCascadeDirectModelToSystemFallback(modelName: string): boolean {

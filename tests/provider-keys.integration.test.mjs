@@ -1497,8 +1497,11 @@ test('provider key save/reset lifecycle exposes configured source', async (t) =>
   assert.equal(afterReset.response.status, 200);
   const resetProvider = afterReset.body?.data?.find((item) => item.name === provider.name);
   assert.ok(resetProvider, 'Expected provider after reset');
-  assert.equal(resetProvider.configured, false);
-  assert.equal(resetProvider.configuredSource, 'none');
+  // Ambient env fallback (harness-injected key) survives the namespaced
+  // delete — Local Router removes only its LOCALROUTER_* copy, never the
+  // operator's plain same-named variable (2026-08-22 key namespace).
+  assert.equal(resetProvider.configured, true, 'Ambient env key remains authoritative after namespaced delete');
+  assert.equal(resetProvider.configuredSource, 'env');
 
   const unknown = await requestJson('/api/keys/__missing_provider__', {
     method: 'DELETE'

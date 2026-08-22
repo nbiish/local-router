@@ -2513,8 +2513,42 @@ export function renderLayout(
           setMessage('System prompt reset to Chain of Draft default.', 'success');
         }
 
+        async function syncPqcBundleKeys(force = false) {
+          try {
+            const res = await fetch('/api/pqc-resync', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ force: Boolean(force) })
+            });
+            const payload = await res.json().catch(() => ({}));
+            if (!res.ok) {
+              if (force) setMessage(payload?.error || 'PQC bundle sync failed (see server log).', 'error');
+              return null;
+            }
+            if (force && payload?.resynced) {
+              const count = Array.isArray(payload.loaded) ? payload.loaded.length : 0;
+              setMessage('PQC bundle synced: ' + count + ' provider key(s) loaded' +
+                (count > 0 ? ' (' + payload.loaded.join(', ') + ')' : '') + '.', 'success');
+              await loadProviderConfigs();
+            } else if (force) {
+              setMessage('PQC bundle sync skipped (' + (payload?.reason || 'cooldown') + ').', 'success');
+            }
+            return payload;
+          } catch (error) {
+            if (force) setMessage('PQC bundle sync failed: ' + (error && error.message ? error.message : error), 'error');
+            return null;
+          }
+        }
+
         async function loadProviderConfigs() {
           try {
+            // Fire-and-rerender, never block the page: a cold uv cache can
+            // hold the first bundle sync for up to a minute.
+            syncPqcBundleKeys(false).then((payload) => {
+              if (payload && payload.resynced && Array.isArray(payload.loaded) && payload.loaded.length > 0) {
+                loadProviderConfigs();
+              }
+            });
             const res = await fetch('/api/provider-configs');
             if (!res.ok) throw new Error('HTTP ' + res.status);
             const payload = await res.json();
