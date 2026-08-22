@@ -549,7 +549,7 @@ def _decrypt_bundle(bundle: dict, sk: bytes) -> dict[str, str]:
 def cmd_export() -> None:
     """Decrypt bundle and output shell export lines."""
     if not BUNDLE_PATH.exists():
-        print(f"ERROR: Bundle not found at {BUNDLE_PATH}. Run 'pack' first.", file=sys.stderr)
+        print(_NO_BUNDLE_MSG, file=sys.stderr)
         sys.exit(1)
 
     sk = _load_private_key()
@@ -566,7 +566,7 @@ def cmd_export() -> None:
 def cmd_verify() -> None:
     """Verify bundle can be decrypted; list key names only."""
     if not BUNDLE_PATH.exists():
-        print(f"Bundle not found at {BUNDLE_PATH}")
+        print(_NO_BUNDLE_MSG, file=sys.stderr)
         sys.exit(1)
 
     sk = _load_private_key()
@@ -581,6 +581,13 @@ def cmd_verify() -> None:
 
 
 _ENV_NAME_RE = re.compile(r"^[A-Z0-9_]+$")
+
+_NO_BUNDLE_MSG = (
+    f"ERROR: No secrets bundle at {BUNDLE_PATH}.\n"
+    "Fresh machine? First run:  pqc-secrets keygen\n"
+    "Then add keys:             printf 'K=V\\n' | pqc-secrets pack\n"
+    "Inspect names (no values): pqc-secrets list"
+)
 
 
 def _read_entries() -> dict[str, str]:
@@ -599,7 +606,7 @@ def cmd_list() -> None:
     """List secret names only (never values) — the inspection surface for what
     is set, what belongs to which tool prefix, and what needs renaming."""
     if not BUNDLE_PATH.exists():
-        print(f"ERROR: Bundle not found at {BUNDLE_PATH}. Run 'pack' first.", file=sys.stderr)
+        print(_NO_BUNDLE_MSG, file=sys.stderr)
         sys.exit(1)
     entries = _read_entries()
     names = sorted(entries.keys())
@@ -614,7 +621,7 @@ def cmd_rename(old_name: str, new_name: str) -> None:
     The existing bundle is backed up alongside itself before rewriting.
     """
     if not BUNDLE_PATH.exists():
-        print(f"ERROR: Bundle not found at {BUNDLE_PATH}. Run 'pack' first.", file=sys.stderr)
+        print(_NO_BUNDLE_MSG, file=sys.stderr)
         sys.exit(1)
     if not _ENV_NAME_RE.match(old_name) or not _ENV_NAME_RE.match(new_name):
         print("ERROR: names must match ^[A-Z0-9_]+$ (environment variable names).", file=sys.stderr)
