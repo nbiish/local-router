@@ -376,15 +376,18 @@ test('per-provider curation: refresh, seed catalog matches, key auto-discovery, 
     'refresh must report an honest source'
   );
 
-  // Registry providers (no upstream /models API) return the curated registry
-  // with an honest source label — never a silent static-catalog masquerade.
+  // zai exposes a live upstream /models API (verified live 2026-08-21); only
+  // cline remains registry-only. With no key configured the refresh serves the
+  // seeded registry∪cache view with the honest 'catalog' source label.
   const zaiRefresh = await requestJson('/api/provider-models/zai/refresh', { method: 'POST' });
   assert.equal(zaiRefresh.response.status, 200);
-  assert.equal(zaiRefresh.body?.source, 'registry');
-  assert.ok(zaiRefresh.body?.note?.includes('registry'), 'Registry note must be surfaced');
+  assert.ok(
+    ['live', 'catalog'].includes(zaiRefresh.body?.source),
+    'zai is a live-API provider: refresh must report live or the catalog fallback'
+  );
   const zaiIds = (zaiRefresh.body?.data || []).map((model) => model.model);
-  assert.ok(zaiIds.includes('GLM-5.3'), 'zai registry must list GLM-5.3');
-  assert.ok(zaiIds.includes('GLM-4.7'), 'zai registry must list GLM-4.7');
+  assert.ok(zaiIds.includes('glm-5.3'), 'zai catalog must list glm-5.3');
+  assert.ok(zaiIds.includes('glm-4.7'), 'zai catalog must list glm-4.7');
   const clineRefresh = await requestJson('/api/provider-models/cline/refresh', { method: 'POST' });
   assert.equal(clineRefresh.response.status, 200);
   assert.equal(clineRefresh.body?.source, 'registry');

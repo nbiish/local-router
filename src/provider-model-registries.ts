@@ -63,8 +63,10 @@ export const PROVIDER_MODEL_REGISTRY: Record<string, RegistryModelEntry[]> = {
     { id: 'models/gemini-3.5-flash', contextLength: 1048576, outputTokens: 65536, supportsTools: true, supportsImages: true, tier: 'paid', note: 'Free tier available; $1.50/$9' },
     { id: 'models/gemini-3.5-flash-lite', contextLength: 1048576, outputTokens: 65536, supportsTools: true, supportsImages: true, tier: 'paid', note: 'Free tier available; $0.30/$2.50' },
     { id: 'models/gemini-3.1-pro-preview', contextLength: 1048576, outputTokens: 65536, supportsTools: true, supportsImages: true, tier: 'paid', note: 'Free tier available' },
+    { id: 'models/gemini-3.1-pro', contextLength: 1048576, outputTokens: 65536, supportsTools: true, supportsImages: true, supportsReasoning: true, tier: 'paid', note: 'Chat-proven GA id served alongside -preview' },
     { id: 'models/gemini-3.1-flash-lite', contextLength: 1048576, outputTokens: 65536, supportsTools: true, supportsImages: true, tier: 'paid' },
     { id: 'models/gemini-3-flash-preview', contextLength: 1048576, outputTokens: 65536, supportsTools: true, supportsImages: true, tier: 'paid', note: 'Preview' },
+    { id: 'models/gemini-3-flash', contextLength: 1048576, outputTokens: 65536, supportsTools: true, supportsImages: true, tier: 'paid', note: 'Chat-proven GA id served alongside -preview' },
     { id: 'models/gemini-2.5-pro', contextLength: 1048576, outputTokens: 65536, supportsTools: true, supportsImages: true, tier: 'paid' },
     { id: 'models/gemini-2.5-flash', contextLength: 1048576, outputTokens: 65536, supportsTools: true, supportsImages: true, tier: 'paid' },
     { id: 'models/gemini-2.5-flash-lite', contextLength: 1048576, outputTokens: 65536, supportsTools: true, supportsImages: true, tier: 'paid', note: 'Legacy' },
@@ -563,6 +565,7 @@ export const PROVIDER_MODEL_REGISTRY: Record<string, RegistryModelEntry[]> = {
   'modal': [
     { id: 'moonshotai/Kimi-K3', contextLength: 1048576, outputTokens: 131072, supportsTools: true, tier: 'paid', note: 'Shared endpoint' },
     { id: 'thinkingmachines/Inkling-NVFP4', contextLength: 1048576, outputTokens: 262144, tier: 'paid', note: 'Shared endpoint' },
+    { id: 'zai-org/GLM-5.1-FP8', contextLength: 200000, outputTokens: 128000, supportsTools: true, tier: 'paid', note: 'Chat-proven; ~$0.5/$1 per 1M' },
   ],
   'modal-proxy': [
     { id: 'moonshotai/Kimi-K3', contextLength: 1048576, outputTokens: 131072, supportsTools: true, tier: 'paid', note: 'Nbiish own deployment (ep-kimi-k3)' },
@@ -1087,6 +1090,15 @@ export const PROVIDER_MODEL_REGISTRY: Record<string, RegistryModelEntry[]> = {
     { id: 'writer/palmyra-med-70b-32k', tier: 'paid' },
     { id: 'zyphra/zamba2-7b-instruct', tier: 'paid' },
   ],
+  'ollama': [
+    { id: 'nemotron-3-ultra:cloud', contextLength: 1000000, outputTokens: 65536, supportsTools: true, tier: 'free', note: 'Ollama Cloud free tier via ollama signin' },
+    { id: 'minimax-m3:cloud', contextLength: 1000000, outputTokens: 512000, supportsTools: true, supportsImages: true, tier: 'free', note: 'Ollama Cloud free tier via ollama signin' },
+    { id: 'deepseek-v4-flash:cloud', contextLength: 1000000, outputTokens: 384000, supportsTools: true, tier: 'free', note: 'Ollama Cloud free tier via ollama signin' },
+    { id: 'deepseek-v4-pro:cloud', contextLength: 1000000, outputTokens: 384000, supportsTools: true, tier: 'subscription', note: 'Ollama Cloud Pro' },
+    { id: 'kimi-k2.6:cloud', contextLength: 256000, outputTokens: 262144, supportsTools: true, supportsImages: true, tier: 'subscription', note: 'Ollama Cloud Pro' },
+    { id: 'glm-5.1:cloud', contextLength: 200000, outputTokens: 128000, supportsTools: true, tier: 'subscription', note: 'Ollama Cloud Pro' },
+    { id: 'qwen3.5:cloud', contextLength: 256000, outputTokens: 65536, supportsTools: true, supportsImages: true, tier: 'subscription', note: 'Ollama Cloud Pro' },
+  ],
   'opencode-go': [
     { id: 'minimax-m3', contextLength: 1000000, outputTokens: 131072, tier: 'subscription' },
     { id: 'minimax-m2.7', contextLength: 204800, outputTokens: 131072, tier: 'subscription' },
@@ -1189,6 +1201,10 @@ export const PROVIDER_MODEL_REGISTRY: Record<string, RegistryModelEntry[]> = {
     { id: 'minimax/minimax-m3', contextLength: 1048576, outputTokens: 512000, supportsTools: true, supportsImages: true, tier: 'paid', note: 'Chat-proven' },
     { id: 'qwen/qwen3.7-max', contextLength: 1000000, outputTokens: 65536, supportsTools: true, tier: 'paid', note: 'Chat-proven' },
     { id: 'qwen/qwen3.7-plus', contextLength: 1000000, outputTokens: 65536, supportsTools: true, supportsImages: true, tier: 'paid', note: 'Chat-proven' },
+    { id: 'moonshotai/kimi-k2.7-code', contextLength: 262144, outputTokens: 262144, supportsTools: true, supportsImages: true, tier: 'paid', note: 'Chat-proven default-router anchor' },
+    { id: 'deepseek/deepseek-v4-flash', contextLength: 1000000, outputTokens: 384000, tier: 'paid', note: 'Chat-proven default-router anchor; ~$0.5/$0.7 per 1M' },
+    { id: 'openrouter/free', contextLength: 200000, outputTokens: 32768, supportsTools: true, tier: 'free', note: 'openrouter.ai/openrouter/free rate-limited router' },
+    { id: '@preset/chain-of-draft', contextLength: 1000000, outputTokens: 128000, supportsTools: true, supportsImages: true, supportsCache: true, tier: 'free', note: 'User-curated OR preset (account-scoped); legacy orps:chain-of-draft' },
   ],
   'pioneer': [
     { id: 'claude-fable-5', contextLength: 1000000, outputTokens: 128000, supportsImages: true, tier: 'paid', note: '$11.0/$55.0 per 1M' },
