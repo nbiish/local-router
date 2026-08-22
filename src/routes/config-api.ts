@@ -954,12 +954,8 @@ app.delete('/api/providers/:id', (req: Request, res: Response) => {
   if (unsetKey) {
     const summary = getProviderSummary(providerId);
     if (summary) {
-      const removed = keyStore[providerId];
       delete keyStore[providerId];
       delete process.env[localRouterEnvVarName(summary.keyEnvVar)];
-      if (removed && process.env[summary.keyEnvVar] === removed) {
-        delete process.env[summary.keyEnvVar];
-      }
       persistPqcSecrets();
     }
   }
