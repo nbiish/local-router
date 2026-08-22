@@ -152,29 +152,29 @@ It reads legacy `~/.config/fvs-code` files when the new files do not exist yet. 
 
 ### PQC secrets bootstrap (fresh machine)
 
-The bundle and keypair are **machine-local** — a clone does not bring them (by design). After pulling the repo:
+The bundle and keypair are **machine-local** — a clone brings neither (by design: **keys are never transported, pushed, or synced between machines**). One command after pulling the repo:
 
 ```bash
-# 1. The engine dispatcher needs 'uv' on non-macOS machines (30s install):
-curl -LsSf https://astral.sh/uv/install.sh | bash && export PATH="$HOME/.local/bin:$PATH"
+./bin/pqc-secrets setup
+```
 
-# 2. One-time ML-KEM-768 keypair for THIS machine:
-./bin/pqc-secrets keygen
+`setup` installs `uv` (pinned version, sha256-verified download — never curl-to-bash) when missing, runs `keygen` when no keypair exists on this machine, and prints the key-packing sequence:
 
-# 3. Pack keys Local Router will use — LOCALROUTER_ namespace only:
+```bash
+# Pack keys Local Router will use — LOCALROUTER_ namespace only:
 printf 'LOCALROUTER_KILO_API_KEY=...\nLOCALROUTER_ZAI_API_KEY=...\n' | ./bin/pqc-secrets pack
 
-# 4. Inspect what is set (names only — values are never printed):
+# Inspect what is set (names only — values are never printed):
 ./bin/pqc-secrets list
 
-# 5. Rename an existing name instead of re-packing (value kept, bundle backed up):
+# Rename an existing name instead of re-packing (value kept, bundle backed up):
 ./bin/pqc-secrets rename KILO_API_KEY LOCALROUTER_KILO_API_KEY
 
-# 6. Optional: inject the bundle into the current shell for other tools:
+# Optional: inject the bundle into the current shell for other LOCAL tools:
 eval "$(./bin/pqc-secrets export)"
 ```
 
-Local Router reads **only** `LOCALROUTER_<KEY_ENV_VAR>` names for provider keys — plainly-named ambient variables for other tools are invisible to it by design; see `llms.txt` § PQC Key Management.
+Local Router reads **only** `LOCALROUTER_<KEY_ENV_VAR>` names for provider keys — plainly-named ambient variables for other tools are invisible to it by design; see `llms.txt` § PQC Key Management. There is deliberately no export-to-file, sync, or push path anywhere in this tooling.
 
 - Provider keys are process-local unless supplied by the environment.
 - Router telemetry is redacted and does not store prompt text, responses, API keys, auth headers, local paths, or provider secrets.
