@@ -1043,6 +1043,18 @@ function providerModelSource(providerName: string) {
   return 'baseline';
 }
 
+/**
+ * Known-catalog view for one provider: explicit overrides when present, else
+ * the full cached section (registry ∪ live merges) with NO curation filter.
+ * Management surfaces (provider cards, Selected Provider Models list) read
+ * this — serving continues through effectiveProviderModels' curated view.
+ */
+function knownProviderModels(rawProviderName: string): ProviderModel[] {
+  const providerName = canonicalProviderSlug(rawProviderName);
+  if (modelStore[providerName]) return modelStore[providerName];
+  return endpointModelsCache.filter((model) => model.provider === providerName);
+}
+
 function providerConfigs() {
   return allProviderSummaries().map((provider) => {
     const hasMemoryKey = Boolean(keyStore[provider.name]);
@@ -1069,7 +1081,7 @@ function providerConfigs() {
     } else {
       configuredSource = 'none';
     }
-    const models = effectiveProviderModels(provider.name);
+    const models = knownProviderModels(provider.name);
     const isCustom = provider.source === 'custom' || isCustomProvider(provider.name);
 
     // Attach OAuth status for OAuth-based providers so the config UI can
@@ -2521,13 +2533,79 @@ function ensureCurationDefaultsForCache(): void {
   }
 }
 
+const CURATION_BACKUP_DIR = path.join(path.dirname(MODEL_SOURCE_CONFIG_PATH), 'curation-backups');
+const MAX_CURATION_BACKUPS_PER_PROVIDER = 25;
+
+/**
+ * Before a bulk auto-off wipes a provider's toggle selection, snapshot the
+ * removed keys to curation-backups/ (rolling window of 25 per provider) so a
+ * carefully built selection is never unrecoverable.
+ */
+function snapshotProviderCurationBackup(providerName: string, removedKeys: string[]): void {
+  try {
+    fs.mkdirSync(CURATION_BACKUP_DIR, { recursive: true, mode: 0o700 });
+    const now = new Date();
+    const stamp = now.toISOString().replace(/[:.]/g, '-');
+    const payload = {
+      provider: providerName,
+      createdAt: now.toISOString(),
+      keyCount: removedKeys.length,
+      keys: removedKeys
+    };
+    fs.writeFileSync(
+      path.join(CURATION_BACKUP_DIR, `curation-${providerName}-${stamp}.json`),
+      `${JSON.stringify(payload, null, 2)}\n`,
+      { encoding: 'utf8', mode: 0o600 }
+    );
+    const entries = fs.readdirSync(CURATION_BACKUP_DIR)
+      .filter((name) => name.startsWith(`curation-${providerName}-`) && name.endsWith('.json'))
+      .sort();
+    const excess = entries.length - MAX_CURATION_BACKUPS_PER_PROVIDER;
+    for (const name of entries.slice(0, Math.max(0, excess))) {
+      fs.unlinkSync(path.join(CURATION_BACKUP_DIR, name));
+    }
+  } catch (error: any) {
+    console.error('[catalog] Failed to snapshot curation backup:', sanitizeDiagnosticText(String(error?.message || error)));
+  }
+}
+
+/**
+ * Off-by-default curation (2026-08-22): a user-triggered refresh or key-save
+ * discovery toggles every known model of the provider OFF so the operator
+ * selects the few they actually serve instead of untoggling hundreds. The
+ * provider's prior selection is snapshotted before clearing. Returns how
+ * many keys were turned off.
+ */
+function deselectProviderCurationKeys(providerName: string): number {
+  const prefix = `${providerName}::`;
+  const previous = modelSourceConfig.curatedEndpointModelKeys.filter((key) => key.startsWith(prefix));
+  if (previous.length === 0) return 0;
+  snapshotProviderCurationBackup(providerName, previous);
+  modelSourceConfig.curatedEndpointModelKeys = modelSourceConfig.curatedEndpointModelKeys
+    .filter((key) => !key.startsWith(prefix));
+  persistModelSourceConfig();
+  return previous.length;
+}
+
+/** Deselect every provider present in the endpoint cache (Refresh All path). */
+function deselectAllProviderCurationKeys(): number {
+  let deselected = 0;
+  const providers = Array.from(new Set(endpointModelsCache.map((model) => model.provider)));
+  for (const providerName of providers) {
+    deselected += deselectProviderCurationKeys(providerName);
+  }
+  return deselected;
+}
+
 /**
  * Refresh a single provider's endpoint-model cache section: fetch live,
- * merge into the cache, persist, and seed curation defaults on first fetch.
+ * merge into the cache, persist, and toggle the provider's models off —
+ * refresh/key-save discovery is off-by-default (2026-08-22); the source
+ * catalog stays fully toggleable.
  */
 async function refreshProviderEndpointModels(providerName: string): Promise<{
   models: ProviderModel[];
-  seededCount: number;
+  deselectedCount: number;
   source: LiveModelSource;
   note?: string;
 }> {
@@ -2538,8 +2616,8 @@ async function refreshProviderEndpointModels(providerName: string): Promise<{
   );
   mergeProviderEndpointModels(providerName, fetched.models);
   persistEndpointModelsCache();
-  const seededCount = seedCurationDefaultsForProvider(providerName, fetched.models);
-  return { models: fetched.models, seededCount, source: fetched.source, note: fetched.note };
+  const deselectedCount = deselectProviderCurationKeys(providerName);
+  return { models: fetched.models, deselectedCount, source: fetched.source, note: fetched.note };
 }
 
 type CatalogResolveOptions = {
@@ -3802,11 +3880,15 @@ const configApiDeps = {
   modelSourceConfig,
   persistModelSourceConfig,
   canonicalProviderSlug,
+  isLocalRouterProviderName,
   filterConfiguredModels,
   ensureOllamaBackend,
   queryAllProviderEndpoints,
   refreshProviderEndpointModels,
   ensureCurationDefaultsForCache,
+  deselectAllProviderCurationKeys,
+  mergeProviderEndpointModels,
+  knownProviderModels,
   persistEndpointModelsCache,
   filterOllamaCloudPullTags,
   effectiveProviderModels,
@@ -3958,9 +4040,11 @@ function parseProviderCatalogMode(raw: unknown): ProviderCatalogMode {
 }
 
 function customCatalogModels(): ProviderModel[] {
-  // Single-catalog regime (2026-08-20): custom view = curated toggle store
-  // plus any per-provider overrides — same as the serving list pre-curation.
-  return modelPresentationList();
+  // Single-catalog regime (2026-08-20): the management view is every known
+  // model — curated ∪ untoggled discoveries ∪ overrides. Off-by-default
+  // refresh (2026-08-22) means the curated set can legitimately be empty;
+  // management surfaces must never show nothing while the catalog is known.
+  return allCatalogModels();
 }
 
 function allCatalogModels(): ProviderModel[] {
@@ -3978,6 +4062,9 @@ function allCatalogModels(): ProviderModel[] {
 function catalogModelsForMode(mode: ProviderCatalogMode): ProviderModel[] {
   if (mode === 'all') {
     return allCatalogModels();
+  }
+  if (mode === 'custom') {
+    return customCatalogModels();
   }
   return providerCatalogModels();
 }

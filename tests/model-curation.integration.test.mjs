@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -20,7 +20,6 @@ let proxyEnv = {};
 let configuredProvider;
 
 const { PROVIDER_REGISTRY } = await import('../build/provider-registry.js');
-const { PROVIDER_MODEL_REGISTRY } = await import('../build/provider-model-registries.js');
 
 function firstProviderSummary() {
   // First registry provider (wafer-serverless) — mirrored from the compiled
@@ -395,33 +394,57 @@ test('per-provider curation: refresh, seed catalog matches, key auto-discovery, 
   assert.ok(clineIds.includes('moonshotai/kimi-k3'), 'cline registry must list kimi-k3');
   assert.ok(clineRefresh.body?.count > 11, 'cline registry must exceed the old static rows');
 
-  // The in-code registry seeds the store at boot (v2); registry ids are the
-  // reference for what first-refresh seeding pre-checks.
-  const catalogModelIds = new Set(
-    (PROVIDER_MODEL_REGISTRY[providerName] || []).map((entry) => entry.id)
-  );
-  const expectedSeeded = refreshedModels.filter((model) => catalogModelIds.has(model.model));
-  assert.ok(expectedSeeded.length > 0, 'Expected legacy rows in the refreshed fallback');
-  assert.equal(
-    refresh.body?.seededCount,
-    expectedSeeded.length,
-    'Empty selection: first refresh re-checks every toggle-store match'
-  );
+  // Off-by-default curation (2026-08-22): a provider refresh never toggles
+  // models ON — it clears that provider's existing picks so the operator
+  // selects only the few they serve. Nothing existed yet: nothing to clear.
+  assert.equal(refresh.body?.deselectedCount, 0, 'Empty selection: nothing to clear');
+  assert.ok((refresh.body?.data || []).length > 0, 'Registry seed must surface refresh rows');
 
-  const curated = await requestJson('/api/model-curation');
-  assert.equal(curated.response.status, 200);
+  const curatedAfterRefresh = await requestJson('/api/model-curation');
+  assert.equal(curatedAfterRefresh.response.status, 200);
   const providerPrefix = `${providerName}::`;
-  const providerKeys = new Set(
-    (curated.body?.selectedKeys || []).filter((key) => key.startsWith(providerPrefix))
+  assert.ok(
+    !(curatedAfterRefresh.body?.selectedKeys || []).some((key) => key.startsWith(providerPrefix)),
+    'Refresh must leave every model of the provider toggled off'
   );
-  for (const model of expectedSeeded) {
-    assert.ok(
-      providerKeys.has(`${providerName}::${model.model}`),
-      `Migration must keep ${model.model} pre-checked`
-    );
-  }
 
-  // Saving a key auto-discovers that provider's live models.
+  // Two user-made picks are cleared by the next refresh; the server reports
+  // the count and snapshots the removed keys into curation-backups/.
+  const probeKeys = refreshedModels.slice(0, 2).map((model) => `${providerName}::${model.model}`);
+  assert.equal(probeKeys.length, 2, 'Need two upstream models to stage user picks');
+  const probePut = await requestJson('/api/model-curation', {
+    method: 'PUT',
+    headers,
+    body: JSON.stringify({ selectedKeys: probeKeys })
+  });
+  assert.equal(probePut.response.status, 200);
+  assert.equal(probePut.body?.selectedCount, 2);
+
+  const refreshAgain = await requestJson(`/api/provider-models/${providerName}/refresh`, { method: 'POST' });
+  assert.equal(refreshAgain.response.status, 200);
+  assert.equal(
+    refreshAgain.body?.deselectedCount,
+    probeKeys.length,
+    'Refresh reports exactly the picks it turned off'
+  );
+
+  const backupDir = join(testHome, '.config', 'local-router', 'curation-backups');
+  const backupFiles = readdirSync(backupDir)
+    .filter((name) => name.startsWith(`curation-${providerName}-`))
+    .sort();
+  const backupFile = backupFiles[backupFiles.length - 1];
+  assert.ok(backupFile, 'Refresh must snapshot the previous selection before clearing');
+  const backupPayload = JSON.parse(readFileSync(join(backupDir, backupFile), 'utf8'));
+  assert.equal(backupPayload.provider, providerName);
+  assert.deepEqual(new Set(backupPayload.keys), new Set(probeKeys));
+
+  const curatedAfterOff = await requestJson('/api/model-curation');
+  assert.ok(
+    !(curatedAfterOff.body?.selectedKeys || []).some((key) => key.startsWith(providerPrefix)),
+    'All models of the provider must be toggled off after refresh'
+  );
+
+  // Saving a key auto-discovers that provider's live models — also off-by-default.
   const keySave = await requestJson('/api/keys', {
     method: 'POST',
     headers,
@@ -431,7 +454,13 @@ test('per-provider curation: refresh, seed catalog matches, key auto-discovery, 
   assert.ok(keySave.body?.configured);
   assert.equal(keySave.body?.discovered?.count, refreshedModels.length);
   assert.equal((keySave.body?.discovered?.models || []).length, refreshedModels.length);
-  assert.equal(keySave.body?.discovered?.seededCount, 0, 'existing selection must not be re-seeded');
+  assert.equal(keySave.body?.discovered?.deselectedCount, 0, 'Nothing left to clear after the refresh auto-off');
+
+  const curatedAfterKey = await requestJson('/api/model-curation');
+  assert.ok(
+    !(curatedAfterKey.body?.selectedKeys || []).some((key) => key.startsWith(providerPrefix)),
+    'Key-save discovery must not toggle models on (off-by-default)'
+  );
 
   // activate must be a boolean.
   const badActivate = await requestJson('/api/model-curation', {

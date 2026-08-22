@@ -1397,10 +1397,14 @@ test('provider key save/reset lifecycle exposes configured source', async (t) =>
     `/v1/models?provider=${encodeURIComponent(selectedProvider.name)}`
   );
   assert.equal(filteredProviderModels.response.status, 200);
-  assert.equal(
-    (filteredProviderModels.body?.data || []).length,
-    customProviderCount,
-    'Per-provider /v1/models should match custom catalog count in custom mode'
+  // Off-by-default (2026-08-22): the management view (known catalog) and the
+  // serving view (toggled subset) legitimately differ — serving ⊆ known,
+  // and the toggled model must be present in its provider's served section.
+  const servedProviderCount = (filteredProviderModels.body?.data || []).length;
+  assert.ok(servedProviderCount > 0, 'The toggled model must be served');
+  assert.ok(
+    servedProviderCount <= customProviderCount,
+    'Served provider section must be a subset of the known management catalog'
   );
   assert.equal(
     filteredProviderModels.body?.data?.some((model) => String(model.id).includes('endpoint-only-model')),
@@ -1622,10 +1626,14 @@ test('localrouter CLI lists models and inspects routers against running server',
     LOCAL_ROUTER_HOST: '127.0.0.1',
     LOCAL_ROUTER_PORT: port
   };
+  // catalog=custom lists the full known catalog (registry ∪ live merges),
+  // which exceeds spawnSync's 1MB default buffer once registries are seeded.
+  const cliMaxBuffer = 16 * 1024 * 1024;
 
   const list = spawnSync(process.execPath, [cliPath, 'list', '--custom', '--json'], {
     encoding: 'utf8',
-    env: cliEnv
+    env: cliEnv,
+    maxBuffer: cliMaxBuffer
   });
   assert.equal(list.status, 0, list.stderr || list.stdout);
   const listPayload = JSON.parse(list.stdout);
@@ -1635,7 +1643,8 @@ test('localrouter CLI lists models and inspects routers against running server',
 
   const routers = spawnSync(process.execPath, [cliPath, 'router', 'list', '--json'], {
     encoding: 'utf8',
-    env: cliEnv
+    env: cliEnv,
+    maxBuffer: cliMaxBuffer
   });
   assert.equal(routers.status, 0, routers.stderr || routers.stdout);
   const routerPayload = JSON.parse(routers.stdout);
