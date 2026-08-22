@@ -1,9 +1,22 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+// Hermetic HOME: importing build/index.js boots the whole app, and candidate
+// resolution reads the seeded toggle store — a real operator HOME with a
+// curated subset makes eligibility assertions flaky (2026-08-22).
+process.env.HOME = mkdtempSync(join(tmpdir(), 'lr-router-disabled-test-'));
+process.env.LOCAL_ROUTER_SKIP_OLLAMA_ENSURE = 'true';
+process.env.LOCAL_ROUTER_SKIP_PQC_LOAD = 'true';
+process.env.WAFER_SERVERLESS_API_KEY = 'test';
+process.env.OPENROUTER_API_KEY = 'test';
+
+const {
   parseRouterModel,
   selectRouterCandidate
-} from '../build/index.js';
+} = await import('../build/index.js');
 
 test('selectRouterCandidate: ignores disabled candidates', () => {
   const parsed = parseRouterModel({
@@ -17,10 +30,6 @@ test('selectRouterCandidate: ignores disabled candidates', () => {
 
   assert.ok(parsed.ok);
   const router = parsed.model;
-
-  // Configure provider keys
-  process.env.WAFER_SERVERLESS_API_KEY = 'test';
-  process.env.OPENROUTER_API_KEY = 'test';
 
   const body = { messages: [{ role: 'user', content: 'hello' }] };
   const decision = selectRouterCandidate(router, body);
