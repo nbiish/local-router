@@ -94,7 +94,7 @@ export function renderProvidersPage(params: {
         </div>
         <div class="form-group" style="margin-top:18px;">
           <label>Provider Model Manager (one model at a time)</label>
-          <p class="muted">Defaults from providers.txt remain available. Add, update, or delete single models per provider in-memory without removing the provider itself.</p>
+          <p class="muted">Registry defaults remain available. Add, update, or delete single models per provider in-memory without removing the provider itself.</p>
           <div class="provider-picker">
             <div class="form-group">
               <label for="modelUpstream">Upstream Model ID</label>
@@ -140,7 +140,7 @@ export function renderProvidersPage(params: {
         <div class="catalog-meta">
           <div>
             <h2>Provider Key Configs</h2>
-            <p class="muted">Select one of the providers from providers.txt, then save the API key in-memory for that backend.</p>
+            <p class="muted">Select one of the registry providers, then save the API key in-memory for that backend.</p>
           </div>
           <div class="muted" id="providerCount">Loading providers...</div>
         </div>

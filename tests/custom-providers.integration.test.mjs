@@ -311,5 +311,5 @@ test('rejects duplicate catalog slug for custom provider', async (t) => {
     })
   });
   assert.equal(duplicate.response.status, 400);
-  assert.match(duplicate.body?.error || '', /providers\.txt/i);
+  assert.match(duplicate.body?.error || '', /provider registry/i);
 });

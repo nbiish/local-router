@@ -583,7 +583,7 @@ app.put('/api/model-curation', (req: Request, res: Response) => {
   }
 
   // Activation: switch source to endpoints, enable curation, and pre-check
-  // every cached model that already exists in the curated providers.txt catalog.
+  // every cached model that already exists in the curated toggle-store catalog.
   if (activate === true) {
     if (state.endpointModelsCache.length === 0) {
       return res.status(409).json({ error: 'No endpoint models cached yet — refresh providers first.' });

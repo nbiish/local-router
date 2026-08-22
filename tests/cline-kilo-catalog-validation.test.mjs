@@ -5,26 +5,13 @@ import path from 'node:path';
 
 const REPORT_PATH = path.resolve('.agents/research/cline-kilo-catalog-validation.json');
 
-function parseCatalogCount(providerName) {
-  // The providers.txt model table was retired (2026-08-20); the frozen
-  // pre-migration catalog that seeded the toggle store is the reference.
-  const content = fs.readFileSync(path.resolve('providers.legacy-catalog.txt'), 'utf8');
-  let count = 0;
-  for (const rawLine of content.split(/\r?\n/)) {
-    const line = rawLine.trim();
-    if (!line.startsWith('# │')) continue;
-    const columns = line
-      .replace(/^#\s*/, '')
-      .split('│')
-      .map((part) => part.trim())
-      .filter(Boolean);
-    if (columns.length < 4 || !/^\d+$/.test(columns[0])) continue;
-    if (columns[1] === providerName) count += 1;
-  }
-  return count;
+const { PROVIDER_MODEL_REGISTRY } = await import('../build/provider-model-registries.js');
+
+function registryModelIds(providerName) {
+  return new Set((PROVIDER_MODEL_REGISTRY[providerName] || []).map((entry) => entry.id));
 }
 
-test('cline-kilo catalog validation report matches legacy catalog', () => {
+test('cline-kilo chat-proven models stay in the factual registry', () => {
   if (!fs.existsSync(REPORT_PATH)) {
     console.log('Skip: run node scripts/validate-cline-kilo-catalog.mjs to generate report');
     return;
@@ -36,12 +23,18 @@ test('cline-kilo catalog validation report matches legacy catalog', () => {
     const section = report[provider];
     assert.ok(section, `missing ${provider} section in validation report`);
 
+    const registryIds = registryModelIds(provider);
     const keep = section.catalogResults.filter((row) => row.keep);
-    assert.equal(
-      keep.length,
-      parseCatalogCount(provider),
-      `${provider} providers.txt rows must match chat-proven KEEP set`
+    assert.ok(
+      registryIds.size >= keep.length,
+      `${provider} registry (${registryIds.size}) must cover the chat-proven KEEP set (${keep.length})`
     );
+    for (const row of keep) {
+      assert.ok(
+        registryIds.has(row.model),
+        `${provider} chat-proven ${row.model} must stay in the factual registry`
+      );
+    }
     assert.equal(
       section.staleCatalog.length,
       0,

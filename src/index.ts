@@ -74,9 +74,10 @@ import {
 } from './gateway-provider-catalog';
 import { registerConfigApiRoutes } from './routes/config-api';
 import {
-  PROVIDER_MODEL_REGISTRY_EXTRAS,
+  PROVIDER_MODEL_REGISTRY,
   providerHasNoLiveModelList
 } from './provider-model-registries';
+import { catalogProviderSummaries } from './provider-registry';
 import { loadRouterSettings, saveRouterSettings } from './config-persistence';
 import { normalizeGatewayChatCompletionBody } from './gateway-response';
 import {
@@ -114,6 +115,8 @@ export type ProviderModel = {
   supportsImages: boolean;
   supportsCache: boolean;
   supportsReasoning: boolean;
+  tier?: string;
+  sourceUrl?: string;
 };
 
 type ProviderSource = 'catalog' | 'custom';
@@ -247,8 +250,7 @@ dotenv.config();
 const app = express();
 const DEFAULT_PORT = 11434;
 const DEFAULT_CONTEXT_LENGTH = 64000;
-const LEGACY_CATALOG_PATH = path.resolve(process.cwd(), 'providers.legacy-catalog.txt');
-const CATALOG_MIGRATION_VERSION = 1;
+const CATALOG_MIGRATION_VERSION = 2;
 const DEFAULT_OUTPUT_TOKENS = 4096;
 const FALLBACK_PROVIDER_NAME = 'local-router';
 const FALLBACK_PROVIDER_LEGACY_NAMES = ['fvs-code', 'fallback'];
@@ -714,51 +716,11 @@ function diagnosticsSnapshot(limit = 120) {
 let catalogProviderSummariesCache: ProviderSummary[] | null = null;
 
 function readCatalogProviderSummaries(): ProviderSummary[] {
-  // providers.txt is static at runtime (changes require a repo edit + restart),
-  // so parse it once per process. Without this cache, every catalog lookup
-  // re-read the file, making startup O(models × providers) file reads —
-  // minutes on network/9p filesystems (WSL /mnt) instead of milliseconds.
+  // In-code registry (src/provider-registry.ts) — providers.txt was removed
+  // from the project 2026-08-20. Static per process; the module caches.
   if (catalogProviderSummariesCache) return catalogProviderSummariesCache;
-
-  const providersPath = path.resolve(process.cwd(), 'providers.txt');
-
-  try {
-    const content = fs.readFileSync(providersPath, 'utf8');
-    const summaries: ProviderSummary[] = [];
-
-    for (const rawLine of content.split(/\r?\n/)) {
-      const line = rawLine.trim();
-      if (!line.startsWith('# │')) continue;
-
-      const columns = line
-        .replace(/^#\s*/, '')
-        .split('│')
-        .map((part) => part.trim())
-        .filter(Boolean);
-
-      if (columns.length !== 3) continue;
-
-      const [name, endpoint, keyEnvVar] = columns;
-      if (!name || !endpoint || !keyEnvVar) continue;
-      if (name.toLowerCase() === 'provider') continue;
-      if (!PROVIDER_KEY_ENV_PATTERN.test(keyEnvVar)) continue;
-      if (!/^https?:\/\//.test(endpoint)) continue;
-
-      summaries.push({
-        name,
-        endpoint,
-        keyEnvVar,
-        defaultTool: '',
-        source: 'catalog'
-      });
-    }
-
-    catalogProviderSummariesCache = summaries;
-    return summaries;
-  } catch (error) {
-    console.error('Failed to read providers.txt provider summary table:', error);
-    return [];
-  }
+  catalogProviderSummariesCache = catalogProviderSummaries() as ProviderSummary[];
+  return catalogProviderSummariesCache;
 }
 
 function readCustomProviderSummaries(): ProviderSummary[] {
@@ -851,7 +813,7 @@ function validateCustomProviderSlug(slug: string): { ok: true; slug: string } | 
     return { ok: false, error: `provider id "${trimmed}" is reserved.` };
   }
   if (catalogProviderNames().has(trimmed)) {
-    return { ok: false, error: `provider id "${trimmed}" already exists in providers.txt.` };
+    return { ok: false, error: `provider id "${trimmed}" already exists in the provider registry.` };
   }
   return { ok: true, slug: trimmed };
 }
@@ -2095,38 +2057,35 @@ function loadPersistedProviderModels() {
 }
 
 /**
- * One-time catalog migration (2026-08-20): the providers.txt model table was
- * retired; the persisted toggle store (endpoint cache + curated keys) is now
- * the only catalog. On first boot after upgrade, seed the toggle store from
- * the frozen legacy catalog with every row pre-checked so /v1/models serves
- * exactly what it served before the migration.
+ * One-time catalog seeding (2026-08-20, v2): providers.txt and its frozen
+ * legacy copy are fully removed; the persisted toggle store (endpoint cache
+ * + curated keys) is the only catalog, seeded from the factual registries in
+ * src/provider-model-registries.ts with every model pre-checked.
  */
-function migrateLegacyCatalogIfNeeded(): void {
+function seedRegistryCatalogIfNeeded(): void {
   try {
     if (modelSourceConfig.catalogMigrationVersion === CATALOG_MIGRATION_VERSION) return;
-    const legacy = readProviderModels();
-    if (legacy.length === 0) {
-      console.warn('[catalog] Legacy catalog empty — skipping migration.');
-      modelSourceConfig.catalogMigrationVersion = CATALOG_MIGRATION_VERSION;
-      persistModelSourceConfig();
-      return;
-    }
-    // Merge legacy rows + persisted custom overrides into the toggle store
-    // (refresh preserves other providers' sections).
+
+    // v2 (2026-08-20): providers.txt and its frozen legacy copy are gone.
+    // The factual registries (src/provider-model-registries.ts) seed the
+    // toggle store: every registry model across all providers is unioned
+    // into the cache and pre-checked, so the full known catalog is
+    // immediately togglable (and served where a key is configured). Live
+    // refreshes then layer actual upstream truth on top per provider.
+    const previousKeys = new Set(endpointModelsCache.map((model) => endpointModelCurationKey(model)));
     const byKey = new Map(endpointModelsCache.map((model) => [endpointModelCurationKey(model), model]));
+    const addedModels: ProviderModel[] = [];
     let added = 0;
-    for (const model of legacy) {
-      const key = endpointModelCurationKey(model);
-      if (!byKey.has(key)) {
-        byKey.set(key, { ...model });
-        added += 1;
-      }
-    }
-    for (const models of Object.values(modelStore)) {
-      for (const model of models) {
+    const providers = new Set<string>(Object.keys(PROVIDER_MODEL_REGISTRY));
+    for (const providerName of providers) {
+      const extras = PROVIDER_MODEL_REGISTRY[providerName] || [];
+      if (extras.length === 0) continue;
+      const mapped = mapLiveRawModelsToCatalog(providerName, extras.map((entry) => ({ ...entry })));
+      for (const model of mapped) {
         const key = endpointModelCurationKey(model);
         if (!byKey.has(key)) {
-          byKey.set(key, cloneProviderModel(model));
+          byKey.set(key, model);
+          addedModels.push(model);
           added += 1;
         }
       }
@@ -2136,20 +2095,19 @@ function migrateLegacyCatalogIfNeeded(): void {
         ? a.model.localeCompare(b.model)
         : a.provider.localeCompare(b.provider)
     );
-    // Pre-check every migrated row: serving continuity.
+    // Pre-check only models the store has never seen: existing entries keep
+    // the user's explicit toggle choices (untoggled ≠ undiscovered).
     const curated = new Set(modelSourceConfig.curatedEndpointModelKeys);
-    for (const model of endpointModelsCache) curated.add(endpointModelCurationKey(model));
-    modelSourceConfig.curatedEndpointModelKeys = [...curated].sort();
+    for (const model of addedModels) curated.add(endpointModelCurationKey(model));
+    modelSourceConfig.curatedEndpointModelKeys = [...curated].sort().slice(0, MAX_CURATED_ENDPOINT_MODEL_KEYS);
     modelSourceConfig.source = 'endpoints';
     modelSourceConfig.curationEnabled = true;
     modelSourceConfig.catalogMigrationVersion = CATALOG_MIGRATION_VERSION;
     persistEndpointModelsCache();
     persistModelSourceConfig();
-    console.log(
-      `[catalog] Migrated ${legacy.length} legacy model row(s) (${added} new) into the toggle store — all pre-checked.`
-    );
+    console.log(`[catalog] Registry seed v${CATALOG_MIGRATION_VERSION}: ${added} new model(s) unioned, all pre-checked.`);
   } catch (error) {
-    console.error('[catalog] Legacy catalog migration failed:', error);
+    console.error('[catalog] Registry catalog seed failed:', error);
   }
 }
 
@@ -2211,7 +2169,7 @@ function endpointModelCurationKey(model: ProviderModel): string {
 }
 
 function endpointCurationActive(): boolean {
-  // The toggle store is the only catalog since the providers.txt model table
+  // The toggle store is the only catalog (providers.txt model table retired
   // was retired (2026-08-20); curation is always active.
   return true;
 }
@@ -2220,7 +2178,7 @@ function endpointCurationActive(): boolean {
  * Endpoint Models curation: when enabled, discovery (/v1/models, /api/tags)
  * serves only endpoint models the operator checked in the /config catalog
  * (port-all → search → curate). Local Router fallback/router routes and
- * custom-mode providers.txt models are unaffected.
+ * custom-mode model lists are unaffected.
  */
 function applyEndpointCuration(models: ProviderModel[]): ProviderModel[] {
   if (!endpointCurationActive()) return models;
@@ -2262,7 +2220,7 @@ function mapLiveRawModelsToCatalog(
   providerName: string,
   rawModels: Array<{ id: string; [key: string]: unknown }>
 ): ProviderModel[] {
-  const baselineModels = readProviderModels();
+  const baselineModels = rawProviderCacheModels(providerName);
   const providerModels: ProviderModel[] = [];
 
   for (const raw of rawModels) {
@@ -2291,6 +2249,10 @@ function mapLiveRawModelsToCatalog(
       const value = (raw as Record<string, unknown>)[key];
       return typeof value === 'boolean' ? value : fallback;
     };
+    const stringHint = (key: string): string | undefined => {
+      const value = (raw as Record<string, unknown>)[key];
+      return typeof value === 'string' && value.length > 0 ? value : undefined;
+    };
     providerModels.push({
       id: presentedId,
       provider: providerName,
@@ -2298,6 +2260,8 @@ function mapLiveRawModelsToCatalog(
       display: providerModelDisplay(providerName, modelId),
       contextLength: numberHint('contextLength', 'context_length') ?? DEFAULT_CONTEXT_LENGTH,
       outputTokens: numberHint('outputTokens', 'max_output_tokens') ?? DEFAULT_OUTPUT_TOKENS,
+      tier: stringHint('tier'),
+      sourceUrl: stringHint('sourceUrl'),
       supportsTools: booleanHint('supportsTools', true),
       supportsImages: booleanHint('supportsImages', false),
       supportsCache: booleanHint('supportsCache', false),
@@ -2317,7 +2281,7 @@ export interface LiveModelsResult {
 }
 
 /**
- * Curated registry for providers with no /models API: providers.txt catalog
+ * Curated registry for providers with no /models API: factual registry
  * rows unioned with verified additions (see provider-model-registries.ts).
  */
 function providerRegistryModels(providerName: string): LiveModelsResult['models'] {
@@ -2331,14 +2295,16 @@ function providerRegistryModels(providerName: string): LiveModelsResult['models'
     seen.add(dedupeKey);
     out.push({ id: normalized, object: 'model', owned_by: providerName, ...extra });
   };
-  for (const entry of PROVIDER_MODEL_REGISTRY_EXTRAS[providerName] || []) {
+  for (const entry of PROVIDER_MODEL_REGISTRY[providerName] || []) {
     push(entry.id, {
       contextLength: entry.contextLength,
       outputTokens: entry.outputTokens,
       supportsTools: entry.supportsTools,
       supportsImages: entry.supportsImages,
       supportsCache: entry.supportsCache,
-      supportsReasoning: entry.supportsReasoning
+      supportsReasoning: entry.supportsReasoning,
+      tier: entry.tier,
+      sourceUrl: entry.sourceUrl
     });
   }
   for (const model of rawProviderCacheModels(providerName)) {
@@ -2351,7 +2317,7 @@ function providerRegistryModels(providerName: string): LiveModelsResult['models'
 /**
  * Resolve a provider's discoverable model list. Always reports an honest
  * `source` so the UI can distinguish a real live fetch from a curated
- * registry (no upstream list API) or the static providers.txt catalog
+ * registry (no upstream list API) or the curated registry catalog
  * (live fetch failed / no key). Never throws.
  */
 async function fetchLiveProviderModels(providerName: string): Promise<LiveModelsResult> {
@@ -2394,12 +2360,8 @@ async function fetchLiveProviderModels(providerName: string): Promise<LiveModels
     return registryOnly
       ? registryResult('No API key saved — showing curated registry; save the key to enable serving.')
       : catalogResult(
-          rawProviderCacheModels(summary.name).map((model) => ({
-            id: model.model,
-            object: 'model',
-            owned_by: summary.name
-          })),
-          'No API key saved — showing static providers.txt catalog.'
+          providerRegistryModels(summary.name),
+          'No API key saved — showing curated registry catalog.'
         );
   }
 
@@ -2436,21 +2398,13 @@ async function fetchLiveProviderModels(providerName: string): Promise<LiveModels
         return { models, source: 'live' };
       }
       return catalogResult(
-        rawProviderCacheModels(summary.name).map((model) => ({
-          id: model.model,
-          object: 'model',
-          owned_by: summary.name
-        })),
-        `Upstream /models returned no recognizable model list — showing static providers.txt catalog.`
+        providerRegistryModels(summary.name),
+        `Upstream /models returned no recognizable model list — showing curated registry catalog.`
       );
     }
     return catalogResult(
-      rawProviderCacheModels(summary.name).map((model) => ({
-        id: model.model,
-        object: 'model',
-        owned_by: summary.name
-      })),
-      `Upstream /models fetch failed (HTTP ${response.status}) — showing static providers.txt catalog.`
+      providerRegistryModels(summary.name),
+      `Upstream /models fetch failed (HTTP ${response.status}) — showing curated registry catalog.`
     );
   } catch (error: any) {
     console.error(`Failed to fetch models from endpoint for provider ${providerName}:`, error);
@@ -2460,7 +2414,7 @@ async function fetchLiveProviderModels(providerName: string): Promise<LiveModels
         object: 'model',
         owned_by: summary.name
       })),
-      `Upstream /models fetch failed (${error?.message || 'network error'}) — showing static providers.txt catalog.`
+      `Upstream /models fetch failed (${error?.message || 'network error'}) — showing curated registry catalog.`
     );
   }
 }
@@ -2532,7 +2486,7 @@ function mergeProviderEndpointModels(providerName: string, models: ProviderModel
 
 /**
  * First-fetch seeding: pre-check (select) every discovered model that already
- * exists in the curated providers.txt catalog so serving continuity is kept.
+ * exists in the curated toggle-store catalog so serving continuity is kept.
  * Providers that already have any selection are left untouched.
  */
 function seedCurationDefaultsForProvider(providerName: string, models: ProviderModel[]): number {
@@ -3970,97 +3924,6 @@ async function loadProvider(name: string): Promise<ProxyProvider | null> {
   }
 }
 
-let providerModelsCache: ProviderModel[] | null = null;
-
-function readProviderModels(): ProviderModel[] {
-  // Parses the FROZEN pre-migration catalog (providers.txt model table was
-  // retired 2026-08-20). Used once at boot to seed the toggle store.
-  if (providerModelsCache) return providerModelsCache;
-
-  const providersPath = LEGACY_CATALOG_PATH;
-
-  try {
-    const content = fs.readFileSync(providersPath, 'utf8');
-    const models: ProviderModel[] = [];
-    const seen = new Set<string>();
-
-    for (const rawLine of content.split(/\r?\n/)) {
-      const line = rawLine.trim();
-      if (!line.startsWith('# │')) continue;
-
-      const columns = line
-        .replace(/^#\s*/, '')
-        .split('│')
-        .map((part) => part.trim())
-        .filter(Boolean);
-
-      if (columns.length < 4) continue;
-
-      const [
-        rowNumber,
-        provider,
-        model,
-        display,
-        context,
-        output,
-        tools,
-        images,
-        cache,
-        reasoning
-      ] = columns;
-      if (!/^\d+$/.test(rowNumber)) continue;
-      if (!provider || !model || !display) continue;
-
-      const id = defaultPresentedModelName(provider, model);
-      if (seen.has(id)) continue;
-
-      seen.add(id);
-      models.push({
-        id,
-        provider,
-        model,
-        display: providerModelDisplay(provider, model),
-        contextLength: parseNumberCell(context, DEFAULT_CONTEXT_LENGTH),
-        outputTokens: parseNumberCell(output, DEFAULT_OUTPUT_TOKENS),
-        supportsTools: parseYesNoCell(tools, true),
-        supportsImages: parseYesNoCell(images, false),
-        supportsCache: parseYesNoCell(cache, false),
-        supportsReasoning: parseYesNoCell(reasoning, false)
-      });
-    }
-
-    providerModelsCache = models;
-    return models;
-  } catch (error) {
-    console.error('Failed to read providers.txt, falling back to built-in model list:', error);
-    return [
-      {
-        id: 'groq-llama3-8b-8192',
-        provider: 'groq',
-        model: 'llama3-8b-8192',
-        display: 'groq:llama3-8b-8192',
-        contextLength: 8192,
-        outputTokens: DEFAULT_OUTPUT_TOKENS,
-        supportsTools: true,
-        supportsImages: false,
-        supportsCache: false,
-        supportsReasoning: false
-      },
-      {
-        id: 'openrouter-claude-3-sonnet',
-        provider: 'openrouter',
-        model: 'anthropic/claude-3-sonnet',
-        display: 'openrouter:anthropic/claude-3-sonnet',
-        contextLength: DEFAULT_CONTEXT_LENGTH,
-        outputTokens: DEFAULT_OUTPUT_TOKENS,
-        supportsTools: true,
-        supportsImages: false,
-        supportsCache: false,
-        supportsReasoning: false
-      }
-    ];
-  }
-}
 
 function modelPresentationList() {
   const providers = allProviderSummaries();
@@ -4131,7 +3994,7 @@ loadModelSourceConfig();
 loadEndpointModelsCache();
 loadPersistedProviderModels();
 mergeBaselineProviderModelOverrides();
-migrateLegacyCatalogIfNeeded();
+seedRegistryCatalogIfNeeded();
 loadPersistedFallbackModels();
 if (waferZdrEnabled) {
   console.log('[Wafer] ZDR enabled for GLM-5.1, Kimi-K2.6, deepseek-v4-pro');
@@ -6642,8 +6505,8 @@ app.post('/v1/messages', async (req: Request, res: Response) => {
               type: 'message_delta',
               delta: { stop_reason: 'end_turn', stop_sequence: null },
               usage: { output_tokens: 0 }
-            })}\n\n`);
-            res.write(`event: message_stop\ndata: ${JSON.stringify({ type: 'message_stop' })}\n\n`);
+            })}`);
+            res.write(`event: message_stop\ndata: ${JSON.stringify({ type: 'message_stop' })}`);
             continue;
           }
 
@@ -6665,7 +6528,7 @@ app.post('/v1/messages', async (req: Request, res: Response) => {
                   stop_sequence: null,
                   usage: { input_tokens: data.usage?.prompt_tokens || 0, output_tokens: 0 }
                 }
-              })}\n\n`);
+              })}`);
               messageStarted = true;
             }
 
@@ -6675,14 +6538,14 @@ app.post('/v1/messages', async (req: Request, res: Response) => {
                   type: 'content_block_start',
                   index: textIndex,
                   content_block: { type: 'text', text: '' }
-                })}\n\n`);
+                })}`);
                 contentBlockStarted = true;
               }
               res.write(`event: content_block_delta\ndata: ${JSON.stringify({
                 type: 'content_block_delta',
                 index: textIndex,
                 delta: { type: 'text_delta', text: delta.content }
-              })}\n\n`);
+              })}`);
             }
 
             if (Array.isArray(delta.tool_calls) && delta.tool_calls.length > 0) {
@@ -6690,7 +6553,7 @@ app.post('/v1/messages', async (req: Request, res: Response) => {
                 res.write(`event: content_block_stop\ndata: ${JSON.stringify({
                   type: 'content_block_stop',
                   index: textIndex
-                })}\n\n`);
+                })}`);
                 contentBlockStarted = false;
                 textIndex++;
               }
@@ -6708,7 +6571,7 @@ app.post('/v1/messages', async (req: Request, res: Response) => {
                       name: currentToolName,
                       input: {}
                     }
-                  })}\n\n`);
+                  })}`);
                   toolBlockStarted = true;
                 }
                 if (tc.function?.arguments) {
@@ -6716,7 +6579,7 @@ app.post('/v1/messages', async (req: Request, res: Response) => {
                     type: 'content_block_delta',
                     index: textIndex,
                     delta: { type: 'input_json_delta', partial_json: tc.function.arguments }
-                  })}\n\n`);
+                  })}`);
                 }
               }
             }
@@ -6726,14 +6589,14 @@ app.post('/v1/messages', async (req: Request, res: Response) => {
                 res.write(`event: content_block_stop\ndata: ${JSON.stringify({
                   type: 'content_block_stop',
                   index: textIndex
-                })}\n\n`);
+                })}`);
                 contentBlockStarted = false;
               }
               if (toolBlockStarted) {
                 res.write(`event: content_block_stop\ndata: ${JSON.stringify({
                   type: 'content_block_stop',
                   index: textIndex
-                })}\n\n`);
+                })}`);
                 toolBlockStarted = false;
               }
               let stopReason = 'end_turn';
@@ -6744,7 +6607,7 @@ app.post('/v1/messages', async (req: Request, res: Response) => {
                 type: 'message_delta',
                 delta: { stop_reason: stopReason, stop_sequence: null },
                 usage: { output_tokens: data.usage?.completion_tokens || 0 }
-              })}\n\n`);
+              })}`);
             }
           } catch (err) {
             // ignore

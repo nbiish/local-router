@@ -177,7 +177,7 @@ export const BASELINE_PROVIDER_PRICING: Record<string, ProviderPricingEntry> = {
     inputPricePerM: 0,
     outputPricePerM: 0,
     label: 'CommandCode minimax/minimax-m3 (subscription via 4x-deal plan)',
-    sourceUrl: 'https://api.commandcode.ai/alpha/generate',
+    sourceUrl: 'https://api.commandcode.ai/provider/v1',
     validUntil: '2026-12-31'
   },
   'openrouter-kimi-k2.7-code': {

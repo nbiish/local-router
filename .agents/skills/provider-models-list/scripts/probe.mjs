@@ -39,7 +39,7 @@ const PROVIDERS = [
   { slug: 'ollama',             baseUrl: 'http://127.0.0.1:11435/v1',              envVar: 'OLLAMA_API_KEY',           modelsPath: '/models' },
   { slug: 'cline',              baseUrl: 'https://api.cline.bot/api/v1',          envVar: 'CLINE_API_KEY',            modelsPath: '/models' },
   { slug: 'kilo',               baseUrl: 'https://api.kilo.ai/api/gateway',       envVar: 'KILO_API_KEY',             modelsPath: '/models' },
-  { slug: 'commandcode',        baseUrl: 'https://api.commandcode.ai/alpha/generate', envVar: 'COMMANDCODE_API_KEY',  modelsPath: '/models' },
+  { slug: 'commandcode',        baseUrl: 'https://api.commandcode.ai/provider/v1', envVar: 'COMMANDCODE_API_KEY',  modelsPath: '/models' },
   { slug: 'pioneer',            baseUrl: 'https://api.pioneer.ai/v1',             envVar: 'PIONEER_API_KEY',          modelsPath: '/models' },
   { slug: 'nous-portal',        baseUrl: 'https://inference-api.nousresearch.com/v1', envVar: 'NOUS_API_KEY',         modelsPath: '/models' }
 ];
@@ -122,41 +122,33 @@ function pad(s, n) {
   return s.length >= n ? s.slice(0, n) : s + ' '.repeat(n - s.length);
 }
 
-function readBaselineModels() {
-  const providersPath = fs.existsSync(path.resolve(process.cwd(), 'providers.txt'))
-    ? path.resolve(process.cwd(), 'providers.txt')
-    : path.resolve(__dirname, '../../../../providers.txt');
-
-  if (!fs.existsSync(providersPath)) {
-    return [];
+async function readBaselineModels() {
+  // Baseline = the authoritative in-code registry (src/provider-model-registries.ts),
+  // read from the compiled build when available.
+  for (const candidate of [
+    path.resolve(process.cwd(), 'build/provider-model-registries.js'),
+    path.resolve(__dirname, '../../../../build/provider-model-registries.js')
+  ]) {
+    if (!fs.existsSync(candidate)) continue;
+    try {
+      const mod = await import(`file://${candidate}`);
+      const registry = mod.PROVIDER_MODEL_REGISTRY || {};
+      const models = [];
+      for (const [provider, entries] of Object.entries(registry)) {
+        for (const entry of entries || []) {
+          if (entry?.id) models.push({ provider, model: entry.id });
+        }
+      }
+      return models;
+    } catch {
+      // fall through to next candidate
+    }
   }
-
-  const content = fs.readFileSync(providersPath, 'utf8');
-  const models = [];
-  for (const rawLine of content.split(/\r?\n/)) {
-    const line = rawLine.trim();
-    if (!line.startsWith('# │')) continue;
-
-    const columns = line
-      .replace(/^#\s*/, '')
-      .split('│')
-      .map((part) => part.trim())
-      .filter(Boolean);
-
-    if (columns.length < 3) continue;
-
-    const [rowNumber, provider, model] = columns;
-    if (!/^\d+$/.test(rowNumber)) continue;
-    if (!provider || !model) continue;
-    if (provider.toLowerCase() === 'provider') continue;
-
-    models.push({ provider, model });
-  }
-  return models;
+  return [];
 }
 
 function renderComparison(results) {
-  const baseline = readBaselineModels();
+  const baseline = await readBaselineModels();
   const baselineMap = new Map();
   for (const b of baseline) {
     if (!baselineMap.has(b.provider)) {
@@ -178,14 +170,14 @@ function renderComparison(results) {
     if (added.length > 0 || retired.length > 0) {
       reports.push(`\nProvider: ${provider.slug}`);
       if (added.length > 0) {
-        reports.push(`  + ADDED UPSTREAM (missing in providers.txt):`);
+        reports.push(`  + ADDED UPSTREAM (missing in registry):`);
         for (const m of added) {
           const freeSuffix = isFreeHeuristic(m) ? ' (FREE)' : '';
           reports.push(`    - ${m.id}${freeSuffix}`);
         }
       }
       if (retired.length > 0) {
-        reports.push(`  - RETIRED UPSTREAM (present in providers.txt but missing live):`);
+        reports.push(`  - RETIRED UPSTREAM (present in registry but missing live):`);
         for (const bId of retired) {
           reports.push(`    - ${bId}`);
         }
@@ -194,7 +186,7 @@ function renderComparison(results) {
   }
 
   if (reports.length === 0) {
-    return '\n✅ No model drift detected. All live provider models match providers.txt exactly.';
+    return '\n✅ No model drift detected. All live provider models match the registry exactly.';
   }
 
   return '\n=== MODEL DRIFT AUDIT REPORT ===' + reports.join('\n');

@@ -82,8 +82,8 @@ The first sweep finds source references; the second finds user-state references.
 
 ### 3.4 Remove from the Toggle Store
 
-The providers.txt model table was retired (Release 2026-08-20g);
-`providers.legacy-catalog.txt` is a frozen migration seed — never edit it.
+providers.txt is fully removed (Release 2026-08-20h); the toggle store is
+seeded from the factual registry in `src/provider-model-registries.ts`.
 
 1. **Untoggle**: `GET /api/model-curation` → remove `provider::upstream-id`
    from `selectedKeys` → `PUT /api/model-curation` with the remaining keys
@@ -211,7 +211,7 @@ When the **same** upstream model is hosted on multiple providers (e.g. `step-3.7
 - **Untoggling without removing the specs row (or vice versa)** — the spec validator fails the build with "orphan specs row". Either both go, or neither.
 - **Forgetting `BASELINE_PROVIDER_PRICING`** — the router keeps scoring the missing model at $0/M, making it the cheapest candidate and biasing auto-router selection.
 - **Editing persisted routers on disk before the new presented ID is published** — a router that points to a not-yet-released ID will 502 from the moment the proxy restarts. Publish the new model first, then migrate routers in a follow-up commit.
-- **Editing `providers.legacy-catalog.txt`** — frozen migration seed; edits do nothing on already-migrated machines.
+- **Hand-editing the toggle store cache on disk** — the registry seed (v2) unions registry rows at boot; a manually inserted row can be re-deduped away on the next refresh.
 - **Removing the wrong tier from a gateway list** — Cline and Kilo both have `*-free` and `*-paid` lists. Removing from the wrong one flips a paid model into the free chain (and vice versa). Always cross-check the `upstreamId` against `CLINE_FREE_SET` / `KILO_FREE_SET` membership before deleting.
 - **Forgetting the endpoint cache** — the cache persists across restarts. Stale rows show ghost models in `/config` until the next per-provider refresh replaces the section.
 

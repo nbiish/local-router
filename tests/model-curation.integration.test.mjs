@@ -19,31 +19,15 @@ let testHome = '';
 let proxyEnv = {};
 let configuredProvider;
 
+const { PROVIDER_REGISTRY } = await import('../build/provider-registry.js');
+const { PROVIDER_MODEL_REGISTRY } = await import('../build/provider-model-registries.js');
+
 function firstProviderSummary() {
-  // Reuse providers.txt parsing without importing server code: find the first
-  // 3-column summary row (name │ endpoint │ key env var).
-  const content = readFileSync('providers.txt', 'utf8');
-
-  for (const rawLine of content.split(/\r?\n/)) {
-    const line = rawLine.trim();
-    if (!line.startsWith('# │')) continue;
-
-    const columns = line
-      .replace(/^#\s*/, '')
-      .split('│')
-      .map((part) => part.trim())
-      .filter(Boolean);
-
-    if (columns.length !== 3) continue;
-    const [name, endpoint, keyEnvVar] = columns;
-    if (!name || name.toLowerCase() === 'provider') continue;
-    if (!/^https?:\/\//.test(endpoint)) continue;
-    if (!/^[A-Z0-9_]+_API_KEY$/.test(keyEnvVar)) continue;
-
-    return { name, keyEnvVar };
-  }
-
-  throw new Error('Expected at least one provider summary in providers.txt');
+  // First registry provider (wafer-serverless) — mirrored from the compiled
+  // in-code registry (src/provider-registry.ts).
+  const first = PROVIDER_REGISTRY[0];
+  if (!first) throw new Error('Expected at least one provider in the registry');
+  return { name: first.name, keyEnvVar: first.keyEnvVar };
 }
 
 function providerBaseUrlEnvVar(providerName) {
@@ -380,7 +364,7 @@ test('per-provider curation: refresh, seed catalog matches, key auto-discovery, 
   assert.equal(unknown.response.status, 404);
 
   // Per-provider refresh returns a model list (live upstream when reachable,
-  // static providers.txt catalog otherwise — both are valid refresh sources).
+  // curated registry otherwise — both are valid refresh sources).
   const refresh = await requestJson(`/api/provider-models/${providerName}/refresh`, { method: 'POST' });
   assert.equal(refresh.response.status, 200);
   assert.equal(refresh.body?.provider, providerName);
@@ -408,17 +392,10 @@ test('per-provider curation: refresh, seed catalog matches, key auto-discovery, 
   assert.ok(clineIds.includes('moonshotai/kimi-k3'), 'cline registry must list kimi-k3');
   assert.ok(clineRefresh.body?.count > 11, 'cline registry must exceed the old static rows');
 
-  // Post-migration: legacy rows are pre-checked at boot, so first-refresh
-  // seeding is a no-op and every legacy row for the provider stays selected.
+  // The in-code registry seeds the store at boot (v2); registry ids are the
+  // reference for what first-refresh seeding pre-checks.
   const catalogModelIds = new Set(
-    readFileSync('providers.legacy-catalog.txt', 'utf8')
-      .split(/\r?\n/)
-      .map((line) => line.trim())
-      .filter((line) => line.startsWith('# │'))
-      .map((line) => line.replace(/^#\s*/, '').split('│').map((part) => part.trim()).filter(Boolean))
-      .filter((columns) => columns.length >= 4 && /^\d+$/.test(columns[0]))
-      .filter((columns) => columns[1] === providerName)
-      .map((columns) => columns[2])
+    (PROVIDER_MODEL_REGISTRY[providerName] || []).map((entry) => entry.id)
   );
   const expectedSeeded = refreshedModels.filter((model) => catalogModelIds.has(model.model));
   assert.ok(expectedSeeded.length > 0, 'Expected legacy rows in the refreshed fallback');

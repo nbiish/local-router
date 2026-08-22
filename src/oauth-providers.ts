@@ -786,7 +786,7 @@ export async function cancelCopilotLogin(): Promise<void> {
  * Returns a list of upstream model ids for the given OAuth provider, fetched
  * live from the provider's `/models` endpoint. When discovery fails or the
  * provider isn't configured, the function returns an empty list — callers
- * fall back to the catalog model list in `providers.txt`.
+ * fall back to the registry model list in `src/provider-model-registries.ts`.
  */
 export async function fetchOAuthProviderModels(provider: OAuthProviderId): Promise<Array<{ id: string; object: string; owned_by: string }>> {
   const state = getOAuthState(provider);

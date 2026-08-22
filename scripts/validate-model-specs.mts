@@ -2,7 +2,7 @@
 /**
  * validate-model-specs.mts — CI/CD Model Metadata Validation
  *
- * Cross-references providers.txt model rows against the canonical
+ * Cross-references factual-registry model rows against the canonical
  * model-specs.json to detect metadata drift (context window, output
  * token limits, capability flags).
  *
@@ -16,10 +16,10 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { PROVIDER_MODEL_REGISTRY } from '../src/provider-model-registries';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
-const PROVIDERS_PATH = path.join(ROOT, 'providers.txt');
 const SPECS_PATH = path.join(ROOT, 'src', 'model-specs.json');
 
 // ---------------------------------------------------------------------------
@@ -63,36 +63,28 @@ interface Issue {
 }
 
 // ---------------------------------------------------------------------------
-// Parse providers.txt the same way readProviderModels() does
+// Flatten the factual registry into provider rows
 // ---------------------------------------------------------------------------
 
-function parseProvidersFile(filePath: string): ProviderRow[] {
-  const content = fs.readFileSync(filePath, 'utf8');
+function parseRegistryRows(): ProviderRow[] {
+  // providers.txt is gone (2026-08-20); the factual per-provider registry is
+  // the catalog source. Rows mirror the old shape; registry hints that are
+  // undefined simply skip that drift check (validate() guards on > 0).
   const rows: ProviderRow[] = [];
-
-  for (const line of content.split('\n')) {
-    const trimmed = line.replace(/^#\s*/, '').trim();
-    if (!trimmed.startsWith('│')) continue;
-
-    const columns = trimmed
-      .split('│')
-      .map((c) => c.trim())
-      .filter(Boolean);
-
-    if (columns.length < 6) continue;
-
-    const [rowNum, provider, model, display, contextStr, outputStr, toolsStr, imagesStr] = columns;
-    if (!/^\d+$/.test(rowNum)) continue;
-    if (!provider || !model) continue;
-
-    const context = parseTokenValue(contextStr);
-    const output = parseTokenValue(outputStr);
-    const tools = /^yes/i.test(toolsStr || '');
-    const images = /^yes/i.test(imagesStr || '');
-
-    rows.push({ rowNum, provider, model, display, context, output, tools, images });
+  for (const [provider, entries] of Object.entries(PROVIDER_MODEL_REGISTRY)) {
+    for (const entry of entries || []) {
+      rows.push({
+        rowNum: '0',
+        provider,
+        model: entry.id,
+        display: entry.id,
+        context: entry.contextLength ?? 0,
+        output: entry.outputTokens ?? 0,
+        tools: entry.supportsTools ?? false,
+        images: entry.supportsImages ?? false
+      });
+    }
   }
-
   return rows;
 }
 
@@ -243,23 +235,19 @@ function validate(rows: ProviderRow[], specs: SpecsFile): Issue[] {
 
 function main(): void {
   console.log('╔═══════════════════════════════════════════════════════════╗');
-  console.log('║       Model Metadata Validation — providers.txt         ║');
+  console.log('║    Model Metadata Validation — factual registry         ║');
   console.log('╚═══════════════════════════════════════════════════════════╝');
   console.log();
 
-  if (!fs.existsSync(PROVIDERS_PATH)) {
-    console.error(`ERROR: providers.txt not found at ${PROVIDERS_PATH}`);
-    process.exit(1);
-  }
   if (!fs.existsSync(SPECS_PATH)) {
     console.error(`ERROR: model-specs.json not found at ${SPECS_PATH}`);
     process.exit(1);
   }
 
   const specs: SpecsFile = JSON.parse(fs.readFileSync(SPECS_PATH, 'utf8'));
-  const rows = parseProvidersFile(PROVIDERS_PATH);
+  const rows = parseRegistryRows();
 
-  console.log(`Parsed ${rows.length} model rows from providers.txt`);
+  console.log(`Parsed ${rows.length} model rows from the factual registry`);
   console.log(`Loaded ${Object.keys(specs.models).length} canonical specs from model-specs.json (updated: ${specs.updated})`);
   console.log();
 
