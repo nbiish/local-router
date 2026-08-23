@@ -649,6 +649,22 @@ def cmd_rename(old_name: str, new_name: str) -> None:
     print(f"Renamed {old_name} -> {new_name} (backup: {backup})")
 
 
+ENGINE_NAME = "py-native-mlkem"
+ENGINE_BUILD_DATE = "2026-08-22"
+ENGINE_COMMANDS = "keygen pack export verify list rename migrate setup version"
+BUNDLE_SCHEMA = "v1 (ML-KEM-768 keywrap + AES-256-GCM data, aad)"
+
+
+def cmd_version() -> None:
+    """Print engine identity and coverage — the standalone 'is this current?' probe."""
+    print(f"pqc-secrets engine: {ENGINE_NAME} (canonical python)")
+    print(f"build date:         {ENGINE_BUILD_DATE}")
+    print(f"crypto:             ML-KEM-768 (FIPS 203, seed-form private key) + AES-256-GCM")
+    print(f"bundle schema:      {BUNDLE_SCHEMA}")
+    print(f"commands:           {ENGINE_COMMANDS}")
+    print(f"darwin rust binary: legacy v1.0.0 fast-path (keygen/pack/export only)")
+
+
 def cmd_migrate() -> None:
     """Migrate keychain entry from old account name to new account name."""
     global KEYCHAIN_ACCOUNT
@@ -683,7 +699,7 @@ def cmd_migrate() -> None:
 
 def main() -> None:
     if len(sys.argv) < 2:
-        print("Usage: pqc_secrets.py <keygen|pack|export|verify|list|rename|migrate>", file=sys.stderr)
+        print("Usage: pqc_secrets.py <keygen|pack|export|verify|list|rename|migrate|version>", file=sys.stderr)
         sys.exit(1)
 
     cmd = sys.argv[1]
@@ -704,9 +720,11 @@ def main() -> None:
         cmd_rename(sys.argv[2], sys.argv[3])
     elif cmd == "migrate":
         cmd_migrate()
+    elif cmd == "version":
+        cmd_version()
     else:
         print(f"Unknown command: {cmd}", file=sys.stderr)
-        print("Usage: pqc_secrets.py <keygen|pack|export|verify|list|rename|migrate>", file=sys.stderr)
+        print("Usage: pqc_secrets.py <keygen|pack|export|verify|list|rename|migrate|version>", file=sys.stderr)
         sys.exit(1)
 
 
