@@ -153,6 +153,7 @@ feature worktree → develop (integrate + verify) → main (release)
 
 ### Architecture Core Contracts
 - **Runtime:** Node.js + Express + TypeScript
+- **Platform Support:** architecture-agnostic — macOS, Linux, and Windows (Ubuntu terminal via WSL). All documented commands are shell-generic POSIX (zsh/bash/WSL shell) and `~` means the POSIX home (the WSL/Ubuntu home on Windows). The Rust `pqc-secrets` binary is an optional darwin/arm64 fast-path only; the canonical Python engine runs on every platform.
 - **Port Invariant:** `11434` (mimicking Ollama's default for drop-in compatibility).
 - **Core Upstream endpoint:** `POST /v1/chat/completions` (OpenAI format).
 - **Ollama-compatible endpoints:** `GET /api/tags`, `POST /api/generate`, `POST /api/chat`, `POST /api/show`, `HEAD /api/version`, `HEAD /api/tags`, `GET /api/ps`.
