@@ -1,0 +1,63 @@
+NVIDIA NIM (integrate.api.nvidia.com / build.nvidia.com) — Prompt Caching
+Last verified: 2026-08-23
+
+Overview
+  NVIDIA hosts OpenAI-compatible LLM endpoints at
+  https://integrate.api.nvidia.com/v1/chat/completions (Nemotron, Llama,
+  DeepSeek, Qwen, Kimi, GLM, gpt-oss, etc.). The hosted API has NO documented
+  prompt-caching feature: per-model API references list only standard OpenAI
+  chat parameters — no cache_control, no prompt_cache_key, no cached-token
+  usage fields, and no cache pricing. Distinct from hosting: the downloadable
+  NIM for LLMs container (self-hosted) DOES support KV cache reuse.
+
+Mechanism
+  Hosted: none documented. [INFERENCE] Requests are load-balanced across
+  serving replicas, so even incidental prefix reuse cannot be relied on; the
+  only lever is keeping prefixes stable.
+  Self-hosted NIM for LLMs: automatic prefix caching / KV cache reuse is an
+  opt-in engine feature controlled by environment variables:
+  - NIM_ENABLE_KV_CACHE_REUSE=1 — "enable automatic prefix caching / KV
+    cache reuse" for workloads where large prompts recur.
+  - NIM_ENABLE_KV_CACHE_HOST_OFFLOAD=1 + NIM_KV_CACHE_HOST_MEM_FRACTION — on
+    TensorRT-LLM backend, offload cached KV blocks to host RAM for much
+    larger effective cache capacity.
+  - NIM_KVCACHE_PERCENT sizes the GPU KV cache pool (default 0.9 of free VRAM).
+
+Max configuration
+  Self-hosted: NIM_ENABLE_KV_CACHE_REUSE=1, plus host offload with a generous
+  NIM_KV_CACHE_HOST_MEM_FRACTION (default 0.1) to extend retention beyond
+  VRAM. Retention is capacity/LRU-based — there is no TTL parameter, no
+  per-request controls, and no cache breakpoints. Observability via the
+  Prometheus metric gpu_cache_usage_perc on /v1/metrics.
+
+Limits & thresholds
+  Hosted: treat as zero guaranteed caching. Self-hosted: no published
+  minimum-prefix threshold or TTL; cache lifetime ends on eviction or
+  container restart. KV cache reuse requires repeated identical prefixes.
+
+Pricing
+  Hosted build.nvidia.com endpoints are per-token or free-preview depending
+  on model/account, with NO published cache-read discount. Self-hosted NIM
+  caching is an infrastructure optimization (lower TTFT/GPU recompute), not a
+  billing feature.
+
+Maxing recipe
+  1. Hosted API: keep prompts prefix-stable (system/tools/static context
+     first) so any incidental reuse and faster prefill can apply; expect no
+     guaranteed hit.
+  2. Serious caching needs: run the self-hosted NIM container with
+     NIM_ENABLE_KV_CACHE_REUSE=1 (+ host offload for long prefixes).
+  3. Monitor gpu_cache_usage_perc; raise NIM_KVCACHE_PERCENT if evictions
+     starve reuse.
+
+Local-router integration
+  NIM endpoints are OpenAI-family, so local-router sends
+  prompt_cache_retention: '24h' + prompt_cache_key; the hosted NIM API
+  ignores these (no cache surface) and harm is nil — but no savings should be
+  expected from NVIDIA-hosted routes. Prefix determinism is the only lever
+  local-router provides here (it keeps system/history byte-stable).
+
+Sources
+  https://docs.api.nvidia.com/nim/reference/llm-apis
+  https://docs.nvidia.com/nim/large-language-models/latest/configuration.html
+  https://docs.nvidia.com/nim/large-language-models/latest/observability.html

@@ -1,0 +1,67 @@
+OpenCode Go (opencode.ai/zen/go/v1) — Prompt Caching
+Last verified: 2026-08-23
+
+Overview
+  OpenCode Go is a $10/month subscription ($5 first month) for open coding
+  models, aimed at international users needing stable global access. It
+  runs on the same Zen gateway with its own endpoints under
+  /zen/go/v1/... and config IDs opencode-go/<model-id>. Quotas are
+  dollar-denominated: $12 per 5 hours, $30 per week, $60 per month, so
+  cheaper cached reads directly stretch your quota.
+
+Mechanism
+  Same pass-through caching stack as OpenCode Zen:
+  - /zen/go/v1/messages (MiniMax, Qwen3.x): Anthropic-protocol models that
+    accept explicit cache_control ephemeral breakpoints (Qwen rows carry a
+    1.25x cached-write price; MiniMax M2.7 writes $0.375).
+  - /zen/go/v1/chat/completions (GLM-5.x, Kimi, DeepSeek V4, MiMo, Hy3):
+    automatic upstream prefix caching; cached-read price only.
+  - /zen/go/v1/responses (Grok 4.5, GPT 5.6 Luna, Muse Spark): OpenAI
+    Responses protocol, automatic prompt caching.
+  Go's published usage math assumes ~50k-86k cached input tokens per
+  request — caching is the intended way to maximize quota.
+
+Max configuration
+  Send Anthropic-style cache_control breakpoints (max 4, stable prefix) on
+  /zen/go/v1/messages models; on chat/completions and responses models just
+  keep the prefix byte-identical so automatic caches hit. Observed
+  per-request averages show ~95%+ of input tokens served from cache in
+  typical Go sessions, e.g. Kimi K3: 1,050 fresh / 76,500 cached / 300 out.
+
+Limits & thresholds
+  No gateway-published TTL/breakpoint/min-token limits; they inherit from
+  upstream providers. Hard constraints are subscription dollars
+  ($12/5h, $30/wk, $60/mo) — beyond limits, "Use balance" falls back to
+  Zen credits if enabled. Model list rotates; Ox Alpha Free excluded from
+  limits for a limited time.
+
+Pricing (per 1M tokens, selected; included usage $15-$60 per model)
+  GLM-5.3/5.2/5.1: in $1.40, cached read $0.26, out $4.40
+  Kimi K3: in $3.00, cached read $0.30, out $15.00
+  Kimi K2.7 Code: in $0.95, cached read $0.19, out $4.00
+  DeepSeek V4 Flash off-peak: in $0.22, cached read $0.007
+  MiniMax M3: in $0.30, cached read $0.06, out $1.20
+  Qwen3.7 Max: in $2.50, cached read $0.50, cached write $3.125
+  MiMo V2.5: in $0.14, cached read $0.0028 (~2% of input)
+
+Maxing recipe
+  1. Keep system prompt + tools + early history byte-identical; Go's quota
+     models assume ~60k-80k cached tokens per request, so prefix churn is
+     the fastest way to burn the 5-hour window.
+  2. For MiniMax/Qwen (messages protocol), set explicit cache_control on
+     long static blocks.
+  3. Prefer off-peak DeepSeek windows (avoid 01:00-04:00, 06:00-10:00 UTC).
+  4. Track usage in the console (opencode.ai/auth) versus the published
+     cached-token assumptions.
+
+Local-router integration
+  Same generic injection as Zen: cache_control {type:'ephemeral', ttl:'1h'}
+  on system + second-to-last message for Anthropic-protocol models
+  (MiniMax/Qwen routes), prompt_cache_key for kimi models,
+  prompt_cache_key + 24h retention for OpenAI-family responses models.
+  Stable prefixes let Go's cheap cached reads stretch the $60/mo quota.
+
+Sources
+  https://opencode.ai/docs/go/
+  https://opencode.ai/zen/go/v1/models
+  https://opencode.ai/docs/zen/

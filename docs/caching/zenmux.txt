@@ -1,0 +1,66 @@
+ZenMux (zenmux.ai) — Prompt Caching
+Last verified: 2026-08-23
+
+Overview
+  ZenMux is an AI model aggregation gateway (OpenAI-compatible base URL
+  https://zenmux.ai/api/v1, Anthropic-compatible https://zenmux.ai/api/anthropic)
+  routing to many upstream providers. Its Prompt Cache documentation defines
+  two caching classes depending on the routed model: implicit (automatic)
+  caching and explicit cache_control caching.
+
+Mechanism
+  Two types, per routed upstream:
+  - Implicit caching: no parameters; the upstream auto-detects and reuses
+    prefixes. Documented for OpenAI (GPT), DeepSeek, xAI (Grok), Google
+    (Gemini), Alibaba (Qwen), MoonshotAI (Kimi), ZhipuAI (GLM), InclusionAI
+    (Ling/Ring series). Behavior/TTL follow the upstream provider.
+  - Explicit caching: cache_control: {"type": "ephemeral"} markers on content
+    blocks, documented for Anthropic Claude and Qwen series. Caching covers
+    the full prefix tools -> system -> messages up to the marker; the system
+    also auto-checks ~20 content blocks preceding each breakpoint.
+
+Max configuration
+  Explicit mode: up to 4 cache breakpoints per request; extended TTL of
+  1 hour on top of the 5-minute default. A maximal setup marks tools (last
+  tool def), system prompt (static tail block), and the rolling conversation
+  prefix (second-to-last message), using 1h TTL for bursty agent workloads.
+  Implicit mode: nothing to configure — prefix stability alone.
+
+Limits & thresholds
+  Breakpoints: max 4 per request. TTL: 5 min default, 1h extended (extra fee);
+  every cache hit refreshes the TTL free. Minimum cacheable prefix: 1024
+  tokens for Claude Opus 4.1/4 and Sonnet 4.5/4/3.7; 2048 tokens for Claude
+  Haiku 3.5; 256 tokens for Qwen. Sub-minimum marked prompts run uncached
+  without error. Implicit limits inherit each upstream (e.g. OpenAI 1024-token
+  minimum, DeepSeek block-based, Moonshot 256-token minimum).
+
+Pricing
+  Per-model Cache Read prices on ZenMux model detail pages (e.g.
+  https://zenmux.ai/openai/gpt-5). Cache-read input is typically 10%-25% of
+  the base input price (up to ~90% savings); implicit caching generally has
+  no write fee, while explicit 1h-TTL on Claude follows Anthropic-style
+  billing (write premium, read at ~10%).
+
+Maxing recipe
+  1. Static-to-dynamic ordering: system instructions, few-shot examples and
+     RAG/document context first; the variable user turn last.
+  2. Byte-identical prefixes including whitespace; never inject timestamps
+     or session IDs near the top.
+  3. For Claude-class models: up to 4 cache_control breakpoints (tools +
+     system + two conversation boundaries) with 1h TTL for agent loops.
+  4. Verify savings per model via the Cache Read price on its ZenMux model
+     detail page.
+
+Local-router integration
+  ZenMux mirrors Anthropic/OpenAI contract surfaces, so local-router's
+  injection of cache_control: {type:'ephemeral', ttl:'1h'} on system +
+  second-to-last message passes straight through to Claude/Qwen routes
+  (within the 4-breakpoint budget). For OpenAI/kimi-moonshot-family routes,
+  local-router's prompt_cache_retention/prompt_cache_key fields ride the
+  implicit caching path. Any provider.order keys are stripped by local-router
+  before dispatch, keeping routing deterministic.
+
+Sources
+  https://zenmux.ai/docs/guide/advanced/prompt-cache.html
+  https://zenmux.ai/docs/index.html
+  https://zenmux.ai/openai/gpt-5

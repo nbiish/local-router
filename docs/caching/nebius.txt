@@ -1,0 +1,62 @@
+Nebius Token Factory (api.tokenfactory.nebius.com) — Prompt Caching
+Last verified: 2026-08-23
+
+Overview
+  Nebius Token Factory serves open models (Llama, DeepSeek, Qwen, gpt-oss,
+  GLM, etc.) behind an OpenAI-compatible API at
+  https://api.tokenfactory.nebius.com/v1/ (base and "-fast" model flavors).
+  Caching is server-side and automatic: the official inference overview lists
+  "KV Cache" and "Context Caching" among its always-on inference
+  optimizations, and the API exposes OpenAI-style cache reporting.
+
+Mechanism
+  Automatic prefix/context caching (no cache_control API, no explicit
+  caching endpoints). The OpenAPI spec (version 20260817) shows OpenAI-style
+  surface only:
+  - Chat Completions usage reports prompt_tokens_details.cached_tokens.
+  - The Responses API accepts prompt_cache_key ("Used by OpenAI to cache
+    responses for similar requests to optimize your cache hit rates.
+    Replaces the user field") and reports input_tokens_details.cached_tokens
+    plus cached_tokens_per_turn in usage.
+
+Max configuration
+  Chat Completions: nothing to set — identical prefixes hit the automatic
+  context cache. Responses API: pass a stable prompt_cache_key (e.g. a
+  session/task ID) to steer repeated requests with the same prefix onto
+  warm cache. Put static system/tool/document context first and dynamic
+  content last.
+
+Limits & thresholds
+  No documented minimum token threshold, TTL, or breakpoint count; cache
+  lifetime and capacity are platform-managed and not published. The "-fast"
+  flavor changes latency/compute allocation (speculative decoding, smaller
+  batches), not cache behavior — both flavors return identical outputs.
+
+Pricing
+  No separate cache-read or cache-write pricing is published; Token Factory
+  bills input/output tokens per 1M per model flavor. Documented value is
+  latency/TTFT improvement from KV/context cache reuse; cached_tokens appear
+  in usage for observability but have no published price as of this writing.
+
+Maxing recipe
+  1. Keep prompt prefixes byte-stable; group traffic by task so long shared
+     prefixes recur.
+  2. On the Responses API, always send prompt_cache_key for multi-turn agent
+     sessions.
+  3. Track prompt_tokens_details.cached_tokens / cached_tokens_per_turn to
+     confirm hits and refactor prompts when hits drop.
+  4. Prefer chat.completions unless you need Responses features — caching is
+     automatic there too.
+
+Local-router integration
+  Nebius is OpenAI-family in local-router's taxonomy, so local-router uses
+  the OpenAI-style levers: it sends prompt_cache_retention: '24h' and a
+  stable prompt_cache_key on requests; on Nebius, prompt_cache_key is a
+  first-class Responses API field and unknown fields elsewhere are ignored.
+  cache_control injection does not apply (no Anthropic-style surface).
+
+Sources
+  https://api.tokenfactory.nebius.com/openapi.json
+  https://docs.tokenfactory.nebius.com/ai-models-inference/overview.md
+  https://docs.tokenfactory.nebius.com/api-reference/inference/create-chat-completion.md
+  https://docs.tokenfactory.nebius.com/llms.txt

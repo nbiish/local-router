@@ -1,0 +1,71 @@
+CommandCode — Command Code Provider API (api.commandcode.ai) — Prompt Caching
+Last verified: 2026-08-23
+
+Overview
+  Command Code (Langbase) exposes a Provider API with two model-routing
+  endpoints: POST /provider/v1/chat/completions (OpenAI schema, all
+  non-Anthropic models) and POST /provider/v1/messages (Anthropic
+  schema, Claude-family models — sending the wrong family returns 400).
+  It is a passthrough gateway billing "at the underlying API rates, no
+  markup". The published docs document NO prompt-caching knobs, no
+  cache fields in the usage contract, and no cache pricing table.
+  [INFERENCE] Caching behavior is inherited from whatever upstream
+  serves each model.
+
+Mechanism
+  No Command Code-specific mechanism is documented.
+  [INFERENCE]
+  - Claude routes on /v1/messages accept the Anthropic Messages schema
+    wholesale, so Anthropic cache_control {type:'ephemeral'} content
+    blocks will reach the Anthropic upstream and cache there (5-minute
+    default TTL, 1h with ttl:'1h', up to 4 breakpoints).
+  - OpenAI-family models auto-cache server-side (no markers wanted).
+  - DeepSeek/Gemini/Kimi open models rely on their upstreams' automatic
+    prefix caching (and Gemini 2.5+ implicit caching).
+  Usage is returned in the final stream chunk / message_delta (
+  cache fields are not documented in it).
+
+Max configuration
+  Per docs, nothing to configure. In practice [INFERENCE]: mark system
+  prompt + tools + stable tail messages with Anthropic cache_control on
+  /v1/messages Claude calls; for all other models just keep the prompt
+  prefix byte-stable and reuse it within the upstream cache window.
+  Do NOT send cache_control to non-Anthropic routes expecting a
+  Command Code behavior — it is not documented to do anything there.
+
+Limits & thresholds
+  None published by Command Code. Upstream limits apply [INFERENCE]:
+  4 breakpoints / 5m-1h TTL / ~1K-4K min tokens on Anthropic routes.
+  x-cmd-zdr: 1 header constrains routing to ZDR-capable upstreams (422
+  cmd_zdr_no_providers if none) — a routing constraint, not caching.
+
+Pricing
+  Pay-as-you-go "at the underlying rates, no markup", $15/mo Provider
+  plan with $15 included credit; per-model rates on the Pricing & Limits
+  page. No cache read/write pricing is published. [INFERENCE] Since
+  billing mirrors upstream rates, Anthropic cache reads (~0.1x input)
+  and writes (~1.25x input) and upstream auto-cache discounts pass
+  through at upstream prices.
+
+Maxing recipe
+  1. Put Claude calls on /v1/messages with cache_control content blocks
+     on the large stable prefix [INFERENCE].
+  2. Keep system prompt + tool defs byte-identical across turns; send
+     repeats within 5 minutes (or use ttl:'1h').
+  3. Choose auto-caching model families (GPT, DeepSeek, Gemini 2.5+)
+     when you cannot control markers client-side.
+  4. Note audio/file/document parts are schema-rejected; text + images
+     only — cache planning should be text-block based.
+
+Local-router integration
+  local-router injects cache_control {type:'ephemeral', ttl:'1h'} on
+  system + second-to-last message for Anthropic-family models; routed
+  through Command Code's /v1/messages this reaches the Anthropic
+  upstream [INFERENCE]. For OpenAI-family models local-router sets
+  prompt_cache_key (+ retention hint); Command Code needs no
+  provider-specific fields.
+
+Sources
+  https://commandcode.ai/docs/provider
+  https://commandcode.ai/docs/resources/pricing-limits
+  https://commandcode.ai/pricing

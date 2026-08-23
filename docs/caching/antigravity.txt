@@ -1,0 +1,66 @@
+Antigravity — Google Antigravity (OAuth agentic endpoint, Gemini family) — Prompt Caching
+Last verified: 2026-08-23
+
+Overview
+  Google Antigravity (antigravity.google, current docs: Antigravity 2.0)
+  is Google's agentic IDE/platform; local-router reaches its model
+  endpoint via OAuth (slug `antigravity`) and consumes Gemini 3.x /
+  Gemini 2.5-family models through it (e.g. antigravity-gemini-3-flash
+  models registered in local-router). The public docs cover the IDE,
+  projects, agents and slashes — they publish NO inference API
+  documentation and NO prompt-caching contract for third-party clients.
+  [INFERENCE] Any caching happens server-side on Google's own Gemini
+  infrastructure, outside client control.
+
+Mechanism
+  No client-exposed mechanism documented. The relevant upstream
+  mechanism is Google's Gemini implicit caching: enabled by default for
+  all Gemini 2.5 and newer models on the Gemini API/Interactions API,
+  caching shared request prefixes automatically when inputs exceed the
+  per-model minimum (4,096 tokens for Gemini 3.5/3.6/3.7 Flash and
+  Gemini 3.1 Pro Preview; 2,048 for Gemini 2.5 Flash/Pro). Google also
+  offers an explicit cachedContents API on the public Gemini API
+  (ttl/expireTime, extendable via update) — but there is no documented
+  way to request that through the Antigravity endpoint [INFERENCE].
+
+Max configuration
+  Nothing client-configurable via Antigravity. To maximize the implicit
+  cache [INFERENCE]: put the large common content (system prompt, repo
+  digest, tool schemas) at the head of the request, keep it
+  byte-identical across turns, and send reuse requests close together
+  (implicit entries are short-lived, minutes-scale).
+
+Limits & thresholds
+  No Antigravity-specific limits published (endpoint is OAuth-gated,
+  not a public documented API). Gemini implicit-caching thresholds
+  (2,048–4,096 tokens min) are the only documented numbers and apply at
+  best as upstream behavior. No cache token counters are documented in
+  responses.
+
+Pricing
+  Antigravity itself does not publish per-token pricing; access rides
+  Google account tiers. Gemini API pricing (for reference at the
+  direct API) charges implicit/explicit cached reads at a discounted
+  input rate; no Antigravity-specific cache pricing exists in the docs.
+
+Maxing recipe
+  1. Treat caching as free-but-opaque: you cannot mark breakpoints, so
+     prefix byte-stability is the only lever.
+  2. Front-load the big stable context; append volatile turns last.
+  3. Keep reuse requests within minutes of each other so implicit cache
+     entries survive.
+  4. Prefer newer Gemini models served by the endpoint — implicit
+     caching is guaranteed on Gemini 2.5 and newer only.
+
+Local-router integration
+  local-router's cache_control injections are ineffective here (the
+  endpoint is not documented to accept Anthropic markers; they are best
+  ignored/unknown upstream) [INFERENCE]. The effective integration is
+  prompt_cache_key on OpenAI-compatible shaping plus strict prefix
+  stability produced by local-router's message ordering; no
+  Antigravity-specific fields are set.
+
+Sources
+  https://antigravity.google/docs/getting-started
+  https://ai.google.dev/gemini-api/docs/caching (implicit caching, min tokens, updated 2026-08-13)
+  https://ai.google.dev/api/caching (explicit cachedContents API, direct Gemini API only)
