@@ -2,16 +2,12 @@ export function renderLayout(
   title: string,
   bodyHtml: string,
   params: {
-    defaultRouterId: string;
-    defaultRouterCandidatesText: string;
     defaultFallbackModelsText: string;
   }
 ): string {
   function jsString(s: string): string {
     return JSON.stringify(s).replace(/[\u2028\u2029]/g, c => c === '\u2028' ? '\\u2028' : '\\u2029');
   }
-  const defaultRouterIdJs = jsString(params.defaultRouterId);
-  const defaultRouterCandidatesTextJs = jsString(params.defaultRouterCandidatesText);
   const defaultFallbackModelsTextJs = jsString(params.defaultFallbackModelsText);
 
   return `<!DOCTYPE html>
@@ -141,15 +137,6 @@ export function renderLayout(
         .routing-info-box h4 { margin: 0 0 8px; font-size: 14px; }
         .routing-info-box ul { margin: 8px 0 0 18px; padding: 0; }
         .routing-info-box li { margin: 4px 0; }
-        #routerTypeHelp {
-          margin-top: 8px;
-          padding: 10px 12px;
-          border-left: 3px solid var(--primary);
-          background: var(--surface-soft);
-          font-size: 13px;
-          line-height: 1.5;
-          color: var(--text);
-        }
         .row-actions { display: flex; gap: 10px; }
         .button-row { display: flex; gap: 10px; flex-wrap: wrap; }
         .button-secondary { background: var(--secondary-bg); color: var(--text); border: 1px solid var(--border-strong); }
@@ -192,6 +179,9 @@ export function renderLayout(
         .model-flag-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 8px; margin-top: 10px; }
         .flag-toggle { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; color: var(--text); }
         .flag-toggle input { width: auto; margin: 0; }
+        .fallback-chain-toggle-wrap { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; margin: 0; }
+        .fallback-chain-toggle { width: auto; margin: 0; }
+        .fallback-chain-label { font-size: 10px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
         .provider-model-list { margin-top: 14px; border: 1px solid var(--border); border-radius: 8px; overflow-x: hidden; overflow-y: auto; max-height: 360px; }
         .provider-model-item { padding: 10px 12px; border-top: 1px solid var(--border); background: var(--surface-raised); }
         .provider-model-item:first-child { border-top: 0; }
@@ -208,11 +198,6 @@ export function renderLayout(
         .fallback-route-item .meta { font-size: 12px; color: var(--muted); margin: 3px 0; word-break: break-word; }
         .fallback-route-item .actions { margin-top: 8px; display: flex; gap: 8px; flex-wrap: wrap; }
         .fallback-route-empty { padding: 10px 12px; font-size: 13px; color: var(--muted); background: var(--surface-soft); }
-        .router-tabs { display: flex; gap: 0; margin-bottom: 0; border-bottom: 2px solid var(--border); }
-        .router-tab-btn { padding: 8px 16px; border: none; border-radius: 4px 4px 0 0; background: var(--secondary-bg); color: var(--muted); cursor: pointer; font-size: 13px; font-weight: 600; }
-        .router-tab-btn.active { background: var(--surface-raised); color: var(--primary); border: 2px solid var(--border); border-bottom-color: var(--surface-raised); margin-bottom: -2px; }
-        .router-tab-btn:hover { color: var(--text); }
-        .router-tab-content { padding: 14px; border: 1px solid var(--border); border-top: 0; border-radius: 0 0 6px 6px; background: var(--surface-raised); }
         .dropdown-search-container { position: relative; }
         .dropdown-search-menu { position: absolute; top: 100%; left: 0; right: 0; max-height: 240px; overflow-y: auto; background: var(--surface-raised); border: 1px solid var(--border-strong); border-radius: 4px; z-index: 100; box-shadow: 0 4px 12px var(--shadow); display: none; }
         .dropdown-search-item { padding: 8px 10px; cursor: pointer; font-size: 13px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; gap: 8px; }
@@ -231,9 +216,6 @@ export function renderLayout(
         .router-candidate-item .candidate-info { flex: 1; min-width: 0; }
         .router-candidate-item .candidate-model { font-size: 14px; font-weight: 600; word-break: break-word; }
         .router-candidate-item .provider-badge { display: inline-block; font-size: 10px; padding: 1px 6px; border-radius: 999px; background: var(--primary-soft); color: var(--primary); margin-left: 6px; vertical-align: middle; }
-        .router-candidate-item .metadata-row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 4px; }
-        .router-candidate-item .metadata-row input { width: 90px; padding: 3px 6px; font-size: 12px; border: 1px solid var(--border); border-radius: 3px; background: var(--surface-soft); }
-        .router-candidate-item .metadata-row label { font-size: 11px; font-weight: normal; color: var(--muted); margin-bottom: 1px; }
         .router-candidate-item .remove-btn { background: none; border: none; color: var(--danger-text); cursor: pointer; font-size: 18px; padding: 2px 6px; border-radius: 4px; }
         .router-candidate-item .remove-btn:hover { background: var(--secondary-hover); }
         .router-candidate-empty { padding: 10px 12px; font-size: 13px; color: var(--muted); background: var(--surface-soft); }
@@ -521,7 +503,6 @@ export function renderLayout(
       <nav class="sidebar-nav">
         <a href="/config/providers" class="nav-link">Providers &amp; Models</a>
         <a href="/config/fallback" class="nav-link">Fallback Routes</a>
-        <a href="/config/routers" class="nav-link">Auto Router Models</a>
         <a href="/config/thinking" class="nav-link">Prompt &amp; Thinking</a>
         <a href="/config/pricing" class="nav-link">Pricing Overrides</a>
         <a href="/config/diagnostics" class="nav-link">Diagnostics &amp; Sessions</a>
@@ -544,8 +525,6 @@ export function renderLayout(
     <script>
     // Server-side parameters
     const params = {
-      defaultRouterId: ${defaultRouterIdJs},
-      defaultRouterCandidatesText: ${defaultRouterCandidatesTextJs},
       defaultFallbackModelsText: ${defaultFallbackModelsTextJs}
     };
 
@@ -557,20 +536,18 @@ export function renderLayout(
       <script>
         let providerConfigs = [];
         let fallbackRoutes = [];
-        let routerRoutes = [];
         let diagnosticsEnabled = false;
         let activeModelEditId = '';
         let activeFallbackRouteId = '';
-        let activeRouterRouteId = '';
-        const DEFAULT_ROUTER_ID = ${JSON.stringify(params.defaultRouterId)};
-        const DEFAULT_ROUTER_CANDIDATES_TEXT = ${JSON.stringify(params.defaultRouterCandidatesText)};
         const DEFAULT_FALLBACK_MODELS_TEXT = ${JSON.stringify(params.defaultFallbackModelsText)};
-        let routerCandidateStore = [];
         let fallbackCandidateStore = [];
+        let systemFallbackChainStore = [];
+        let systemFallbackChainDisabledStore = [];
+        let fallbackChainsCache = {};
+        let fallbackChainsOrder = [];
+        let activeFallbackChainId = 'fallback-models';
         let allModelsCache = [];
         let modelAvailabilityCache = {};
-        let selectedDropdownIndex = -1;
-        let fallbackGroupMode = false;
         const ADD_CUSTOM_PROVIDER_VALUE = '__add_custom__';
 
         function escapeHtml(value) {
@@ -1252,236 +1229,15 @@ export function renderLayout(
           }
         }
 
-        function openModelDropdown() {
-          filterModelDropdown();
-          var dd = document.getElementById('routerModelDropdown');
-          if (dd) dd.style.display = 'block';
-        }
-
-        function closeDropdown(delay) {
-          setTimeout(function() {
-            var dd = document.getElementById('routerModelDropdown');
-            if (dd) dd.style.display = 'none';
-            selectedDropdownIndex = -1;
-          }, delay || 200);
-        }
-
-        function filterModelDropdown() {
-          var search = (document.getElementById('routerModelSearch').value || '').toLowerCase();
-          var dd = document.getElementById('routerModelDropdown');
-          if (!dd) return;
-          var filtered = allModelsCache;
-          if (search) {
-            filtered = allModelsCache.filter(function(m) { return m.toLowerCase().indexOf(search) !== -1; });
-          }
-          selectedDropdownIndex = -1;
-          dd.style.display = 'block';
-          if (filtered.length === 0) {
-            dd.innerHTML = '<div class="dropdown-search-item muted">No models match "' + escapeHtml(search) + '"</div>';
-            return;
-          }
-          dd.innerHTML = filtered.map(function(m, i) {
-            var parts = m.split('-');
-            var provider = parts.length > 1 ? parts.slice(0, parts.length > 2 ? parts.length - 2 : 1).join('-') : '';
-            var badge = provider ? '<span class="provider-badge">' + escapeHtml(provider) + '</span>' : '';
-            return '<div class="dropdown-search-item" data-index="' + i + '" data-model="' + escapeHtml(m) + '" onmousedown="selectDropdownItem(' + i + ', \\'' + escapeHtml(m) + '\\')">' +
-              '<span>' + escapeHtml(m) + '</span>' + badge +
-            '</div>';
-          }).join('');
-        }
-
-        function selectDropdownItem(index, model) {
-          document.getElementById('routerModelSearch').value = model;
-          selectedDropdownIndex = index;
-          closeDropdown(100);
-        }
-
-        function addSelectedCandidate() {
-          var searchInput = document.getElementById('routerModelSearch');
-          var model = searchInput.value.trim();
-          if (!model) return;
-          searchInput.value = '';
-          searchInput.focus();
-
-          if (fallbackGroupMode) {
-            addFallbackGroupCandidate(model);
-          } else {
-            addSingleCandidate(model);
-          }
-        }
-
-        function addSingleCandidate(model) {
-          routerCandidateStore.push({ model: model, enabled: true });
-          renderCandidateList();
-          syncCandidatesToTextarea();
-        }
-
-        function addFallbackGroupCandidate(model) {
-          var baseModel = extractBaseModel(model);
-          if (!baseModel) { addSingleCandidate(model); return; }
-
-          var existing = allModelsCache.filter(function(m) {
-            return m !== model && extractBaseModel(m) === baseModel;
-          });
-
-          routerCandidateStore.push({ model: model, enabled: true });
-          if (existing.length > 0) {
-            existing.forEach(function(m) {
-              if (!routerCandidateStore.some(function(c) { return c.model === m; })) {
-                routerCandidateStore.push({ model: m, fallbackOf: model, enabled: true });
-              }
-            });
-          }
-          renderCandidateList();
-          syncCandidatesToTextarea();
-        }
-
-        function extractBaseModel(modelId) {
-          var parts = modelId.split('-');
-          if (parts.length <= 1) return modelId;
-          var lastTwo = parts.slice(-2).join('-');
-          var knownSuffixes = ['flash', 'pro', 'preview', 'omni', 'highspeed', 'hs', 'max', 'plus', 'mini'];
-          for (var s = 0; s < knownSuffixes.length; s++) {
-            if (lastTwo === knownSuffixes[s]) return parts.slice(0, -1).join('-');
-          }
-          for (var p = parts.length - 2; p >= 1; p--) {
-            var candidate = parts.slice(p).join('-');
-            var found = false;
-            for (var s2 = 0; s2 < knownSuffixes.length; s2++) {
-              if (candidate === knownSuffixes[s2]) { found = true; break; }
-            }
-            if (found) return parts.slice(0, p).join('-');
-          }
-          return parts.slice(-1)[0];
-        }
-
-        function removeCandidateFromRouter(index) {
-          routerCandidateStore.splice(index, 1);
-          renderCandidateList();
-          syncCandidatesToTextarea();
-        }
-
-        function updateCandidateMeta(index, field, value) {
-          if (index < 0 || index >= routerCandidateStore.length) return;
-          var parsed = value.trim() === '' ? undefined : parseFloat(value);
-          if (field === 'codingScore') {
-            routerCandidateStore[index].codingScore = isNaN(parsed) ? undefined : Math.max(0, Math.min(1, parsed));
-          } else if (field === 'inputPrice') {
-            routerCandidateStore[index].inputPrice = isNaN(parsed) ? undefined : parsed;
-          } else if (field === 'outputPrice') {
-            routerCandidateStore[index].outputPrice = isNaN(parsed) ? undefined : parsed;
-          } else if (field === 'latencyMs') {
-            routerCandidateStore[index].latencyMs = isNaN(parsed) ? undefined : parsed;
-          }
-          syncCandidatesToTextarea();
-        }
-
-        function toggleCandidate(index, enabled) {
-          if (index < 0 || index >= routerCandidateStore.length) return;
-          routerCandidateStore[index].enabled = enabled;
-          renderCandidateList();
-          syncCandidatesToTextarea();
-        }
-
-        function renderCandidateList() {
-          var listEl = document.getElementById('routerCandidateList');
-          if (!listEl) return;
-          if (routerCandidateStore.length === 0) {
-            listEl.innerHTML = '<div class="router-candidate-empty">No candidates added yet. Search and add models above.</div>';
-            return;
-          }
-          listEl.innerHTML = routerCandidateStore.map(function(c, i) {
-            var modelParts = c.model.split('-');
-            var provider = modelParts.length > 1 ? modelParts.slice(0, modelParts.length > 2 ? modelParts.length - 2 : 1).join('-') : '';
-            var badge = provider ? '<span class="provider-badge">' + escapeHtml(provider) + '</span>' : '';
-            var fallbackTag = c.fallbackOf ? '<span class="provider-badge" style="background:var(--warning-bg);color:var(--warning-text);">fallback</span>' : '';
-            var statusBadge = availabilityBadgeHtml(c.model);
-            var isEnabled = c.enabled !== false;
-            var disabledClass = !isEnabled ? ' router-candidate-disabled' : '';
-            return '<div class="router-candidate-item' + disabledClass + '" draggable="true" data-candidate-index="' + i + '" ondragstart="candidateDragStart(event)" ondragover="candidateDragOver(event)" ondrop="candidateDrop(event)" ondragend="candidateDragEnd(event)">' +
-              '<span class="drag-handle" title="Drag to reorder">☰</span>' +
-              '<input type="checkbox" class="candidate-toggle" ' + (isEnabled ? 'checked' : '') + ' onchange="toggleCandidate(' + i + ', this.checked)" title="' + (isEnabled ? 'Enabled' : 'Disabled') + '">' +
-              '<div class="candidate-info">' +
-                '<span class="candidate-model">' + escapeHtml(c.model) + '</span>' + badge + fallbackTag + statusBadge +
-                '<div class="metadata-row">' +
-                  '<div><label>coding</label><input type="number" value="' + (c.codingScore !== undefined ? c.codingScore : '') + '" min="0" max="1" step="0.01" placeholder="0-1" onchange="updateCandidateMeta(' + i + ', ' + "'codingScore'" + ', this.value)"></div>' +
-                  '<div><label>input $</label><input type="number" value="' + (c.inputPrice !== undefined ? c.inputPrice : '') + '" min="0" step="0.01" placeholder="per 1M" onchange="updateCandidateMeta(' + i + ', ' + "'inputPrice'" + ', this.value)"></div>' +
-                  '<div><label>output $</label><input type="number" value="' + (c.outputPrice !== undefined ? c.outputPrice : '') + '" min="0" step="0.01" placeholder="per 1M" onchange="updateCandidateMeta(' + i + ', ' + "'outputPrice'" + ', this.value)"></div>' +
-                '</div>' +
-              '</div>' +
-              '<button class="remove-btn" title="Remove" onclick="removeCandidateFromRouter(' + i + ')">✕</button>' +
-            '</div>';
-          }).join('');
-          liveUpdateRouterRouteItem();
-        }
-
-        function syncCandidatesToTextarea() {
-          var textarea = document.getElementById('routerCandidatesText');
-          if (!textarea) return;
-          textarea.value = routerCandidateStore.map(function(c) {
-            var parts = [c.model];
-            if (c.codingScore !== undefined) parts.push('coding=' + c.codingScore);
-            if (c.inputPrice !== undefined) parts.push('input=' + c.inputPrice);
-            if (c.outputPrice !== undefined) parts.push('output=' + c.outputPrice);
-            if (c.enabled === false) parts.push('enabled=false');
-            return parts.join(', ');
-          }).join('\\n');
-        }
-
-        function syncTextareaToCandidates() {
-          var text = document.getElementById('routerCandidatesText').value.trim();
-          if (!text) { routerCandidateStore = []; renderCandidateList(); return; }
-          routerCandidateStore = text.split(/\\r?\\n|;/).map(function(line) {
-            var trimmed = line.trim();
-            if (!trimmed || trimmed.startsWith('#')) return null;
-            var parts = trimmed.split(',').map(function(p) { return p.trim(); });
-            var candidate = { model: parts[0], enabled: true };
-            for (var i = 1; i < parts.length; i++) {
-              var kv = parts[i].split('=');
-              var key = kv[0].trim().toLowerCase();
-              var val = kv.slice(1).join('=').trim();
-              if (key === 'coding' || key === 'coding_score') candidate.codingScore = parseFloat(val) || undefined;
-              else if (key === 'input' || key === 'input_price') candidate.inputPrice = parseFloat(val) || undefined;
-              else if (key === 'output' || key === 'output_price') candidate.outputPrice = parseFloat(val) || undefined;
-              else if (key === 'latency' || key === 'latency_ms') candidate.latencyMs = parseFloat(val) || undefined;
-              else if (key === 'enabled') {
-                var lowerVal = val.toLowerCase();
-                candidate.enabled = lowerVal !== 'false' && lowerVal !== '0' && lowerVal !== 'no';
-              }
-            }
-            return candidate;
-          }).filter(Boolean);
-          renderCandidateList();
-        }
-
-        function switchToBuilderTab() {
-          document.getElementById('tab-visual').style.display = '';
-          document.getElementById('tab-advanced').style.display = 'none';
-          document.getElementById('tab-visual-btn').classList.add('active');
-          document.getElementById('tab-advanced-btn').classList.remove('active');
-          syncTextareaToCandidates();
-        }
-
-        function switchToAdvancedTab() {
-          document.getElementById('tab-visual').style.display = 'none';
-          document.getElementById('tab-advanced').style.display = '';
-          document.getElementById('tab-visual-btn').classList.remove('active');
-          document.getElementById('tab-advanced-btn').classList.add('active');
-          syncCandidatesToTextarea();
-        }
-
-        function toggleFallbackGroupMode(enabled) {
-          fallbackGroupMode = enabled;
-        }
-
         // ── Drag and Drop ──
         var dragSourceIndex = -1;
-        var dragSourceList = 'router';
+        var dragSourceList = 'fallback';
 
         function resolveDragList(itemEl) {
           var list = itemEl && itemEl.closest ? itemEl.closest('.router-candidate-list') : null;
+          if (list && list.id === 'fallbackOrderList') return 'order';
           if (list && list.id === 'fallbackCandidateList') return 'fallback';
-          return 'router';
+          return 'fallback';
         }
 
         function candidateDragStart(e) {
@@ -1506,28 +1262,27 @@ export function renderLayout(
           var targetList = resolveDragList(targetEl);
           if (targetList !== dragSourceList) { dragSourceIndex = -1; return; }
           if (targetIndex === dragSourceIndex) return;
-          if (dragSourceList === 'fallback') {
+          if (dragSourceList === 'order') {
+            var movedOrd = systemFallbackChainStore.splice(dragSourceIndex, 1)[0];
+            systemFallbackChainStore.splice(targetIndex, 0, movedOrd);
+            renderFallbackOrderList();
+            persistFallbackOrder();
+          } else if (dragSourceList === 'fallback') {
             var movedFb = fallbackCandidateStore.splice(dragSourceIndex, 1)[0];
             fallbackCandidateStore.splice(targetIndex, 0, movedFb);
             renderFallbackCandidateList();
             syncFallbackCandidatesToTextarea();
             autoSaveFallbackRoute();
-          } else {
-            var moved = routerCandidateStore.splice(dragSourceIndex, 1)[0];
-            routerCandidateStore.splice(targetIndex, 0, moved);
-            renderCandidateList();
-            syncCandidatesToTextarea();
-            autoSaveRouterRoute();
           }
           dragSourceIndex = -1;
-          dragSourceList = 'router';
+          dragSourceList = 'fallback';
         }
 
         function candidateDragEnd(e) {
           var items = document.querySelectorAll('.router-candidate-item.dragging');
           items.forEach(function(el) { el.classList.remove('dragging'); });
           dragSourceIndex = -1;
-          dragSourceList = 'router';
+          dragSourceList = 'fallback';
         }
 
         function parseFallbackTextareaToStore(text) {
@@ -1650,69 +1405,6 @@ export function renderLayout(
           }
         }
 
-        // ── Click-outside closes dropdown ──
-        document.addEventListener('click', function(e) {
-          var dd = document.getElementById('routerModelDropdown');
-          var search = document.getElementById('routerModelSearch');
-          if (!dd || !search) return;
-          if (!search.contains(e.target) && !dd.contains(e.target)) {
-            dd.style.display = 'none';
-          }
-        });
-
-        function applyRouterDefaults() {
-          document.getElementById('routerType').value = 'auto-local';
-          document.getElementById('routerMinCodingScore').value = '0.66';
-          document.getElementById('routerCostQualityTradeoff').value = '7';
-          document.getElementById('routerExplorationBudget').value = '0.05';
-          document.getElementById('routerCandidatesText').value = DEFAULT_ROUTER_CANDIDATES_TEXT;
-          syncTextareaToCandidates();
-          toggleBanditFields();
-          refreshRouterCandidateAvailability();
-        }
-
-        function toggleBanditFields() {
-          var typeEl = document.getElementById('routerType');
-          if (!typeEl) return;
-          var isBandit = typeEl.value === 'bandit-local';
-          var groupEl = document.getElementById('banditExplorationGroup');
-          if (groupEl) groupEl.style.display = isBandit ? '' : 'none';
-          updateRouterTypeHelp();
-          liveUpdateRouterRouteItem();
-        }
-
-        function liveUpdateRouterRouteItem() {
-          if (!activeRouterRouteId) return;
-          var routeItemEl = document.querySelector('.fallback-route-item[data-router-route="' + activeRouterRouteId + '"]');
-          if (!routeItemEl) return;
-          var candidates = routerCandidateStore || [];
-          var models = candidates.map(function(c) { return c.model; }).filter(Boolean);
-          var modelsHtml = candidates.map(function(c) {
-            var modelId = c.model;
-            var isEnabled = c.enabled !== false;
-            var badge = availabilityBadgeHtml(modelId);
-            if (!isEnabled) {
-              badge = '<span class="candidate-status disabled" style="background:#ea4335;color:white;opacity:0.6;">Disabled</span>';
-            }
-            var style = !isEnabled ? ' style="text-decoration: line-through; opacity: 0.6;"' : '';
-            return '<span' + style + '>' + escapeHtml(modelId) + '</span>' + badge;
-          }).join(' | ');
-          var metaDivs = routeItemEl.querySelectorAll('.meta');
-          metaDivs.forEach(function(div) {
-            if (div.textContent.startsWith('Candidates:')) {
-              div.innerHTML = 'Candidates: ' + modelsHtml;
-            } else if (div.textContent.startsWith('Displayed as:')) {
-              var typeEl = document.getElementById('routerType');
-              var type = typeEl ? typeEl.value : 'auto-local';
-              var displayString = activeRouterRouteId + ': ' + (type === 'priority' ? 'priority' : type === 'pareto-code' ? 'pareto-code' : type === 'bandit-local' ? 'bandit-local' : 'auto-local') + ' router over ' + models.join(' | ');
-              div.innerHTML = 'Displayed as: ' + escapeHtml(displayString);
-            } else if (div.textContent.startsWith('Type:')) {
-              var typeEl = document.getElementById('routerType');
-              var type = typeEl ? typeEl.value : 'auto-local';
-              div.innerHTML = 'Type: ' + escapeHtml(type);
-            }
-          });
-        }
         function liveUpdateFallbackRouteItem() {
           if (!activeFallbackRouteId) return;
           var routeItemEl = document.querySelector('.fallback-route-item[data-fallback-route="' + activeFallbackRouteId + '"]');
@@ -1739,412 +1431,6 @@ export function renderLayout(
             }
           });
         }
-        function updateRouterTypeHelp() {
-          var typeEl = document.getElementById('routerType');
-          if (!typeEl) return;
-          var type = typeEl.value;
-          var help = {
-            'auto-local': 'Picks the best model from your candidate list using coding quality, cost, and speed. Use the Cost/Quality slider (0–10) to balance price vs quality. Recommended default.',
-            'pareto-code': 'Coding-first routing: drops models below Min Coding Score, then ranks eligible candidates by quality. Best for agent and tool-heavy workflows.',
-            'priority': 'Uses your candidate list top-to-bottom after basic capability checks. Best when you want predictable, manual ordering.',
-            'bandit-local': 'Learns from past requests which candidates work best for your workload. Needs about 10 samples per model before full ranking. Exploration Budget controls how often it tries new options.'
-          };
-          var helpEl = document.getElementById('routerTypeHelp');
-          if (helpEl) helpEl.innerText = help[type] || '';
-        }
-
-        async function refreshRouterCandidateAvailability() {
-          var ids = routerCandidateStore.map(function(c) { return c.model; }).filter(Boolean);
-          await refreshModelAvailability(ids);
-          renderCandidateList();
-        }
-
-        async function clearRouterRouteForm() {
-          activeRouterRouteId = '';
-          document.getElementById('routerRouteId').value = DEFAULT_ROUTER_ID;
-          document.getElementById('routerRouteId').disabled = false;
-          applyRouterDefaults();
-          try {
-            const res = await fetch('/api/router-models/reset-defaults', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ id: DEFAULT_ROUTER_ID })
-            });
-            const payload = await res.json().catch(() => ({}));
-            if (!res.ok) {
-              setMessage(payload.error || 'Failed to reset router defaults.', 'error');
-              return;
-            }
-            setMessage('Reset auto-router-main to default candidate catalog (' + (payload.candidateCount || 0) + ' models).', 'success');
-            await loadRouterRoutes();
-            await refreshCatalog();
-          } catch (error) {
-            setMessage('Failed to reset router defaults.', 'error');
-          }
-        }
-
-        function renderRouterRoutes() {
-          const countEl = document.getElementById('routerCount');
-          const listEl = document.getElementById('routerRouteList');
-          const routes = Array.isArray(routerRoutes) ? routerRoutes : [];
-          countEl.innerText = routes.length + ' router model' + (routes.length === 1 ? '' : 's');
-
-          if (routes.length === 0) {
-            listEl.innerHTML = '<div class="fallback-route-empty">No router models configured yet.</div>';
-            return;
-          }
-
-          listEl.innerHTML = routes.map((route) => {
-            const candidates = Array.isArray(route.candidates) ? route.candidates : [];
-            const modelsHtml = candidates.map((candidate) => {
-              const modelId = candidate.model || candidate;
-              const isEnabled = candidate.enabled !== false;
-              var badge = availabilityBadgeHtml(modelId);
-              if (!isEnabled) {
-                badge = '<span class="candidate-status disabled" style="background:#ea4335;color:white;opacity:0.6;">Disabled</span>';
-              }
-              var style = !isEnabled ? ' style="text-decoration: line-through; opacity: 0.6;"' : '';
-              return '<span' + style + '>' + escapeHtml(modelId) + '</span>' + badge;
-            }).join(' | ');
-            return '<div class="fallback-route-item" data-router-route="' + escapeHtml(route.id) + '">' +
-              '<h4>' + escapeHtml(route.id) + '</h4>' +
-              '<div class="meta">Type: ' + escapeHtml(route.type || 'priority') + '</div>' +
-              '<div class="meta">Candidates: ' + modelsHtml + '</div>' +
-              '<div class="meta">Displayed as: ' + escapeHtml(route.display || route.id) + '</div>' +
-              '<div class="actions">' +
-                '<button class="button-secondary" data-edit-router="' + escapeHtml(route.id) + '">Edit</button>' +
-                '<button class="button-secondary" data-delete-router="' + escapeHtml(route.id) + '">Delete</button>' +
-              '</div>' +
-            '</div>';
-          }).join('');
-
-          listEl.querySelectorAll('button[data-edit-router]').forEach((button) => {
-            button.addEventListener('click', () => {
-              const routeId = button.getAttribute('data-edit-router') || '';
-              const route = routes.find((entry) => entry.id === routeId);
-              if (!route) return;
-              activeRouterRouteId = route.id;
-              document.getElementById('routerRouteId').value = route.id;
-              document.getElementById('routerRouteId').disabled = true;
-              document.getElementById('routerType').value = route.type || 'auto-local';
-              document.getElementById('routerMinCodingScore').value = route.minCodingScore ?? '0.66';
-              document.getElementById('routerCostQualityTradeoff').value = route.costQualityTradeoff ?? '7';
-              document.getElementById('routerExplorationBudget').value = route.explorationBudget ?? '0.05';
-              document.getElementById('routerEnableAutoTiers').checked = route.enableAutoTiers === true;
-              toggleBanditFields();
-              document.getElementById('routerCandidatesText').value = Array.isArray(route.candidates)
-                ? route.candidates.map((candidate) => {
-                    const parts = [candidate.model];
-                    if (candidate.codingScore !== undefined) parts.push('coding=' + candidate.codingScore);
-                    if (candidate.inputPrice !== undefined) parts.push('input=' + candidate.inputPrice);
-                    if (candidate.outputPrice !== undefined) parts.push('output=' + candidate.outputPrice);
-                    if (candidate.latencyMs !== undefined) parts.push('latency=' + candidate.latencyMs);
-                    if (candidate.enabled === false) parts.push('enabled=false');
-                    return parts.join(', ');
-                  }).join('\\n')
-                : '';
-              syncTextareaToCandidates();
-            });
-          });
-
-          listEl.querySelectorAll('button[data-delete-router]').forEach((button) => {
-            button.addEventListener('click', () => {
-              deleteRouterRoute(button.getAttribute('data-delete-router') || '');
-            });
-          });
-        }
-
-        async function loadRouterRoutes() {
-          const res = await fetch('/api/router-models');
-          const payload = await res.json().catch(() => ({}));
-          routerRoutes = Array.isArray(payload?.data) ? payload.data : [];
-          const modelIds = routerRoutes.flatMap((route) => (
-            Array.isArray(route.candidates)
-              ? route.candidates.map((candidate) => candidate.model || candidate)
-              : []
-          ));
-          await refreshModelAvailability(modelIds);
-          renderRouterRoutes();
-          if (!activeRouterRouteId && routerRoutes.some((r) => r.id === 'local-router/auto-router-main')) {
-            activeRouterRouteId = 'local-router/auto-router-main';
-          }
-          if (activeRouterRouteId) {
-            const active = routerRoutes.find((entry) => entry.id === activeRouterRouteId);
-            if (active) {
-              const routeIdEl = document.getElementById('routerRouteId');
-              if (routeIdEl) {
-                routeIdEl.value = active.id;
-                routeIdEl.disabled = true;
-              }
-              const typeEl = document.getElementById('routerType');
-              if (typeEl) {
-                typeEl.value = active.type || 'auto-local';
-              }
-              const minCodingEl = document.getElementById('routerMinCodingScore');
-              if (minCodingEl) {
-                minCodingEl.value = active.minCodingScore ?? '0.66';
-              }
-              const tradeoffEl = document.getElementById('routerCostQualityTradeoff');
-              if (tradeoffEl) {
-                tradeoffEl.value = active.costQualityTradeoff ?? '7';
-              }
-              const budgetEl = document.getElementById('routerExplorationBudget');
-              if (budgetEl) {
-                budgetEl.value = active.explorationBudget ?? '0.05';
-              }
-              const tiersEl = document.getElementById('routerEnableAutoTiers');
-              if (tiersEl) {
-                tiersEl.checked = active.enableAutoTiers === true;
-              }
-              toggleBanditFields();
-              routerCandidateStore = Array.isArray(active.candidates) ? active.candidates.map((c) => ({ ...c })) : [];
-              renderCandidateList();
-              syncCandidatesToTextarea();
-            }
-          }
-        }
-
-        async function saveRouterRoute() {
-          const id = document.getElementById('routerRouteId').value.trim();
-          const type = document.getElementById('routerType').value;
-          syncCandidatesToTextarea();
-          const candidatesText = document.getElementById('routerCandidatesText').value.trim();
-          const minCodingScoreRaw = document.getElementById('routerMinCodingScore').value;
-          const costQualityTradeoffRaw = document.getElementById('routerCostQualityTradeoff').value;
-          const explorationBudgetRaw = document.getElementById('routerExplorationBudget').value;
-
-          if (!id || !candidatesText) {
-            setMessage('Enter a router model name and at least one candidate model.', 'error');
-            return;
-          }
-
-          const payload = { id, type, candidatesText };
-          if (minCodingScoreRaw !== '') payload.minCodingScore = Number(minCodingScoreRaw);
-          if (costQualityTradeoffRaw !== '') payload.costQualityTradeoff = Number(costQualityTradeoffRaw);
-          if (explorationBudgetRaw !== '' && type === 'bandit-local') payload.explorationBudget = Number(explorationBudgetRaw);
-          payload.enableAutoTiers = document.getElementById('routerEnableAutoTiers').checked;
-
-          const res = await fetch('/api/router-models', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload)
-          });
-          const responsePayload = await res.json().catch(() => ({}));
-          if (!res.ok) {
-            setMessage(responsePayload?.error || 'Failed to save router model.', 'error');
-            return;
-          }
-
-          setMessage('Router model saved persistently.', 'success');
-          clearRouterRouteForm();
-          await loadRouterRoutes();
-          await loadCatalog();
-        }
-
-        async function autoSaveRouterRoute() {
-          syncCandidatesToTextarea();
-          const id = document.getElementById('routerRouteId').value.trim();
-          const type = document.getElementById('routerType').value;
-          const candidatesText = document.getElementById('routerCandidatesText').value.trim();
-          if (!id || !candidatesText) return;
-          const minCodingScoreRaw = document.getElementById('routerMinCodingScore').value;
-          const costQualityTradeoffRaw = document.getElementById('routerCostQualityTradeoff').value;
-          const explorationBudgetRaw = document.getElementById('routerExplorationBudget').value;
-          const payload = { id, type, candidatesText };
-          if (minCodingScoreRaw !== '') payload.minCodingScore = Number(minCodingScoreRaw);
-          if (costQualityTradeoffRaw !== '') payload.costQualityTradeoff = Number(costQualityTradeoffRaw);
-          if (explorationBudgetRaw !== '' && type === 'bandit-local') payload.explorationBudget = Number(explorationBudgetRaw);
-          try {
-            const el = document.getElementById('routerEnableAutoTiers');
-            if (el) payload.enableAutoTiers = el.checked;
-          } catch {}
-          try {
-            const res = await fetch('/api/router-models', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(payload)
-            });
-            if (res.ok) await loadRouterRoutes();
-          } catch {
-            // Silent auto-save — best effort.
-          }
-        }
-
-        async function exportRouterSettings() {
-          const res = await fetch('/api/router-settings');
-          const settings = await res.json().catch(() => ({}));
-          const blob = new Blob([JSON.stringify(settings, null, 2)], { type: 'application/json' });
-          const url = URL.createObjectURL(blob);
-          const a = document.createElement('a');
-          a.href = url;
-          a.download = 'router-settings.json';
-          a.click();
-          URL.revokeObjectURL(url);
-        }
-
-        async function importRouterSettings(event) {
-          const file = event.target.files && event.target.files[0];
-          if (!file) return;
-          try {
-            const text = await file.text();
-            const settings = JSON.parse(text);
-            await fetch('/api/router-settings', {
-              method: 'PUT',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(settings)
-            });
-            setMessage('Router settings imported.', 'success');
-            await loadRouterRoutes();
-          } catch (e) {
-            setMessage('Failed to import router settings.', 'error');
-          }
-          event.target.value = '';
-        }
-
-        async function resetRouterSettings() {
-          if (!window.confirm('Reset router settings to defaults?')) return;
-          await fetch('/api/router-settings', { method: 'DELETE' });
-          setMessage('Router settings reset to defaults.', 'success');
-          await loadRouterRoutes();
-        }
-
-        async function deleteRouterRoute(routeId) {
-          if (!routeId) return;
-
-          const res = await fetch('/api/router-models', {
-            method: 'DELETE',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ id: routeId })
-          });
-          const payload = await res.json().catch(() => ({}));
-          if (!res.ok) {
-            setMessage(payload?.error || 'Failed to delete router model.', 'error');
-            return;
-          }
-
-          setMessage('Removed router model: ' + routeId, 'success');
-          if (activeRouterRouteId === routeId) {
-            clearRouterRouteForm();
-          }
-          await loadRouterRoutes();
-          await loadCatalog();
-        }
-
-        async function recomputeRouter() {
-          const routeId = activeRouterRouteId || document.getElementById('routerRouteId').value.trim();
-          if (!routeId) {
-            setMessage('Select or enter a router model name first.', 'error');
-            return;
-          }
-
-          setMessage('Analyzing telemetry...', 'success');
-          const res = await fetch('/api/router-models/' + encodeURIComponent(routeId) + '/recompute', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' }
-          });
-          const payload = await res.json().catch(() => ({}));
-          if (!res.ok) {
-            setMessage(payload?.error || 'Recompute failed.', 'error');
-            return;
-          }
-
-          const resultsEl = document.getElementById('recomputeResults');
-          const summaryEl = document.getElementById('recomputeSummary');
-          const proposalsEl = document.getElementById('recomputeProposals');
-          resultsEl.style.display = '';
-
-          summaryEl.innerHTML = payload.totalSampleCount + ' samples analyzed. ' + escapeHtml(payload.recommendation || '');
-
-          const proposals = Array.isArray(payload.proposals) ? payload.proposals : [];
-          if (proposals.length === 0) {
-            proposalsEl.innerHTML = '<div class="muted">No proposals to review.</div>';
-            setMessage('Recompute complete. No changes needed.', 'success');
-            return;
-          }
-
-          proposalsEl.innerHTML = proposals.map((proposal) => {
-            const changes = Array.isArray(proposal.changes) ? proposal.changes : [];
-            const needsReview = Boolean(proposal.needsReview);
-            if (!needsReview) {
-              return '<div class="provider-model-item" style="opacity:0.65;">' +
-                '<h5>' + escapeHtml(proposal.model) + '</h5>' +
-                '<div class="meta">' + escapeHtml(proposal.sampleCount) + ' samples | success rate: ' + escapeHtml(proposal.successRate) + ' | median latency: ' + (proposal.medianLatencyMs !== null ? escapeHtml(proposal.medianLatencyMs) + 'ms' : 'N/A') + '</div>' +
-                '<div class="muted">No changes needed — metadata consistent with observed telemetry.</div>' +
-                '</div>';
-            }
-
-            return '<div class="provider-model-item" style="border-left:3px solid #007acc;">' +
-              '<h5>' + escapeHtml(proposal.model) + '</h5>' +
-              '<div class="meta">' + escapeHtml(proposal.sampleCount) + ' samples | success rate: ' + escapeHtml(proposal.successRate) + (proposal.toolCallAccuracy !== null ? ' | tool accuracy: ' + escapeHtml(proposal.toolCallAccuracy) : '') + '</div>' +
-              '<div class="meta">Changes: ' + escapeHtml(changes.join('; ') || 'none') + '</div>' +
-              '<div class="actions">' +
-                '<button class="button-secondary" data-apply-proposal="' + escapeHtml(proposal.model) + '" data-proposed-coding="' + escapeHtml(proposal.proposedCodingScore) + '" data-proposed-latency="' + (proposal.proposedLatencyMs !== undefined ? escapeHtml(proposal.proposedLatencyMs) : '') + '">Apply these updates to form</button>' +
-              '</div>' +
-              '</div>';
-          }).join('');
-
-          proposalsEl.querySelectorAll('button[data-apply-proposal]').forEach((button) => {
-            button.addEventListener('click', () => {
-              const model = button.getAttribute('data-apply-proposal') || '';
-              const proposedCoding = button.getAttribute('data-proposed-coding') || '';
-              const proposedLatency = button.getAttribute('data-proposed-latency') || '';
-
-              const textarea = document.getElementById('routerCandidatesText');
-              const lines = textarea.value.split('\\n');
-              const updated = lines.map((line) => {
-                const trimmed = line.trim();
-                if (!trimmed || trimmed.startsWith('#')) return line;
-                const parts = trimmed.split(',').map((p) => p.trim());
-                if (parts[0] !== model) return line;
-                const metadata = parts.slice(1).map((part) => {
-                  const [key] = part.split('=');
-                  const k = key.trim().toLowerCase();
-                  if (k === 'coding' && proposedCoding) return 'coding=' + proposedCoding;
-                  if (k === 'latency' && proposedLatency) return 'latency=' + proposedLatency;
-                  return part;
-                });
-                return [parts[0], ...metadata].join(', ');
-              });
-              textarea.value = updated.join('\\n');
-              setMessage('Applied proposed updates for ' + model + ' to the candidate form. Review and save the router.', 'success');
-            });
-          });
-
-          setMessage('Recompute complete. ' + proposals.filter((p) => p.needsReview).length + ' candidate(s) need review.', 'success');
-        }
-
-        function importRouterBackup() {
-          document.getElementById('routerImportFile').click();
-        }
-
-        async function handleRouterImportFile(event) {
-          const file = event.target?.files?.[0];
-          if (!file) return;
-
-          try {
-            const text = await file.text();
-            const parsed = JSON.parse(text);
-            const res = await fetch('/api/router-models/import', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(parsed)
-            });
-            const payload = await res.json().catch(() => ({}));
-            if (!res.ok) {
-              setMessage(payload?.error || 'Import failed.', 'error');
-              return;
-            }
-
-            setMessage(payload?.summary || 'Import complete.', 'success');
-            await loadRouterRoutes();
-            await loadCatalog();
-          } catch (err) {
-            setMessage('Failed to parse import file. Expected JSON with a "routers" array.', 'error');
-          }
-
-          event.target.value = '';
-        }
-
         function formatDiagnosticsEntry(entry) {
           const timestamp = entry?.timestamp || '';
           const event = entry?.event || 'event';
@@ -2619,9 +1905,7 @@ export function renderLayout(
             if (block) block.open = true;
           }
           await loadCatalog();
-          await refreshRouterCandidateAvailability();
           await loadFallbackRoutes();
-          await loadRouterRoutes();
         }
 
         async function resetProviderKey(providerName) {
@@ -2640,9 +1924,7 @@ export function renderLayout(
           setMessage('Cleared in-memory key for ' + providerName + '.', 'success');
           await loadProviderConfigs();
           await loadCatalog();
-          await refreshRouterCandidateAvailability();
           await loadFallbackRoutes();
-          await loadRouterRoutes();
         }
 
         function saveProviderKey() {
@@ -2966,10 +2248,20 @@ export function renderLayout(
               const model = models[m];
               const key = catalogRowKey(group.provider, model.model);
               const checked = curationSelectedKeys.has(key) ? ' checked' : '';
-              html += '<li><label class="flag-toggle" style="display: flex; gap: 8px; align-items: flex-start;">'
+              const inFallbackChain = systemFallbackChainStore.indexOf(model.id) !== -1;
+              html += '<li style="display: flex; gap: 12px; align-items: center;">'
+                + '<label class="flag-toggle" style="display: flex; gap: 8px; align-items: flex-start; flex: 1;">'
                 + '<input type="checkbox"' + checked + ' onchange="toggleCatalogRow(' + p + ', ' + m + ', this.checked)">'
                 + '<span><strong>' + escapeHtml(model.id) + '</strong><br><span class="muted">' + escapeHtml(model.display || model.model || '') + '</span></span>'
-                + '</label></li>';
+                + '</label>'
+                + '<label class="fallback-chain-toggle-wrap" title="Include in the selected fallback chain">'
+                + '<input type="checkbox" class="fallback-chain-toggle"' + (inFallbackChain ? ' checked' : '')
+                + ' data-fallback-provider="' + escapeHtml(group.provider) + '"'
+                + ' data-fallback-model="' + escapeHtml(model.id) + '"'
+                + ' onchange="toggleFallbackChainRow(this.dataset.fallbackProvider, this.dataset.fallbackModel, this.checked)">'
+                + '<span class="fallback-chain-label">fallback</span>'
+                + '</label>'
+                + '</li>';
               shown++;
             }
             html += '</ul></section>';
@@ -3045,6 +2337,155 @@ export function renderLayout(
             await buildModelDropdown();
           } catch (e) {
             setMessage('Failed to save curation: ' + e.message, 'error');
+          }
+        }
+
+        // ── Fallback Chains (providers page order panel) ──
+        async function loadSystemFallbackChain() {
+          var res = await fetch('/api/fallback-models');
+          var payload = await res.json().catch(() => ({}));
+          var routes = Array.isArray(payload?.data) ? payload.data : [];
+          var byId = {};
+          routes.forEach(function(r) {
+            if (!r) return;
+            var raw = String(r.routeId || r.id || '').trim();
+            if (raw.indexOf('local-router/') === 0) raw = raw.substring('local-router/'.length);
+            if (!raw || byId[raw]) return;
+            byId[raw] = {
+              storeId: raw,
+              models: Array.isArray(r.models) ? r.models.slice() : [],
+              disabledModels: Array.isArray(r.disabledModels) ? r.disabledModels.slice() : []
+            };
+          });
+          var preferred = ['fallback-models', 'free', 'performance', 'multimodal'];
+          var orderedIds = preferred.filter(function(id) { return byId[id]; });
+          Object.keys(byId).sort().forEach(function(id) {
+            if (orderedIds.indexOf(id) === -1) orderedIds.push(id);
+          });
+          if (orderedIds.indexOf(activeFallbackChainId) === -1) {
+            activeFallbackChainId = 'fallback-models';
+          }
+          fallbackChainsCache = byId;
+          fallbackChainsOrder = orderedIds;
+          var selectorEl = document.getElementById('fallbackChainSelector');
+          if (selectorEl) {
+            selectorEl.innerHTML = orderedIds.map(function(id) {
+              return '<option value="' + escapeHtml(id) + '"' + (id === activeFallbackChainId ? ' selected' : '') + '>local-router/' + escapeHtml(id) + '</option>';
+            }).join('');
+          }
+          applyActiveFallbackChain();
+          await refreshModelAvailability(systemFallbackChainStore);
+          renderFallbackOrderList();
+          renderCurationCatalog();
+        }
+
+        function applyActiveFallbackChain() {
+          var current = fallbackChainsCache[activeFallbackChainId];
+          systemFallbackChainStore = current ? current.models.slice() : [];
+          systemFallbackChainDisabledStore = current ? current.disabledModels.slice() : [];
+        }
+
+        function selectFallbackChain(routeId) {
+          activeFallbackChainId = String(routeId || 'fallback-models');
+          applyActiveFallbackChain();
+          refreshModelAvailability(systemFallbackChainStore).then(function() {
+            renderFallbackOrderList();
+            renderCurationCatalog();
+          });
+        }
+
+        function renderFallbackOrderList() {
+          var listEl = document.getElementById('fallbackOrderList');
+          if (!listEl) return;
+          var countEl = document.getElementById('fallbackChainCount');
+          if (countEl) {
+            countEl.innerText = systemFallbackChainStore.length + ' model' + (systemFallbackChainStore.length === 1 ? '' : 's') + ' in local-router/' + activeFallbackChainId;
+          }
+          if (systemFallbackChainStore.length === 0) {
+            listEl.innerHTML = '<div class="router-candidate-empty">No models in this chain. Toggle models in the catalog to add them.</div>';
+            return;
+          }
+          listEl.innerHTML = systemFallbackChainStore.map(function(modelId, i) {
+            var badge = availabilityBadgeHtml(modelId);
+            var isDisabled = systemFallbackChainDisabledStore.indexOf(modelId) !== -1;
+            var disabledClass = isDisabled ? ' router-candidate-disabled' : '';
+            var disabledBadge = isDisabled ? '<span class="candidate-status disabled" style="background:#ea4335;color:white;opacity:0.6;">Disabled</span>' : '';
+            return '<div class="router-candidate-item' + disabledClass + '" draggable="true" data-candidate-index="' + i + '" ondragstart="candidateDragStart(event)" ondragover="candidateDragOver(event)" ondrop="candidateDrop(event)" ondragend="candidateDragEnd(event)">' +
+              '<span class="drag-handle" title="Drag to reorder">☰</span>' +
+              '<div class="candidate-info">' +
+                '<span class="candidate-model">' + escapeHtml(modelId) + '</span>' + badge + disabledBadge +
+              '</div>' +
+              '<button class="remove-btn" title="Remove from fallback chain" onclick="removeFallbackChainModel(' + i + ')">✕</button>' +
+            '</div>';
+          }).join('');
+        }
+
+        async function toggleFallbackChainRow(provider, modelId, on) {
+          if (!modelId) return;
+          try {
+            var res = await fetch('/api/fallback-chain/toggle', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ modelId: modelId, enabled: Boolean(on), routeId: activeFallbackChainId })
+            });
+            var payload = await res.json().catch(() => ({}));
+            if (!res.ok || !payload.success) {
+              setMessage((payload && payload.error) || 'Failed to update fallback chain.', 'error');
+              renderFallbackOrderList();
+              renderCurationCatalog();
+              return;
+            }
+            var route = payload.route || {};
+            systemFallbackChainStore = Array.isArray(route.models) ? route.models.slice() : systemFallbackChainStore;
+            systemFallbackChainDisabledStore = Array.isArray(route.disabledModels) ? route.disabledModels.slice() : systemFallbackChainDisabledStore;
+            if (fallbackChainsCache[activeFallbackChainId]) {
+              fallbackChainsCache[activeFallbackChainId].models = systemFallbackChainStore.slice();
+              fallbackChainsCache[activeFallbackChainId].disabledModels = systemFallbackChainDisabledStore.slice();
+            }
+            renderFallbackOrderList();
+            renderCurationCatalog();
+          } catch (e) {
+            setMessage('Failed to update fallback chain: ' + String(e && e.message || e), 'error');
+            renderFallbackOrderList();
+            renderCurationCatalog();
+          }
+        }
+
+        async function removeFallbackChainModel(index) {
+          var modelId = systemFallbackChainStore[index];
+          if (!modelId) return;
+          await toggleFallbackChainRow('', modelId, false);
+        }
+
+        async function persistFallbackOrder() {
+          try {
+            var res = await fetch('/api/fallback-chain/reorder', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ orderedIds: systemFallbackChainStore.slice(), routeId: activeFallbackChainId })
+            });
+            var payload = await res.json().catch(() => ({}));
+            if (!res.ok || !payload.success) {
+              if (res.status === 409) {
+                setMessage('Fallback chain changed elsewhere — reloading latest chain.', 'error');
+              } else {
+                setMessage((payload && payload.error) || 'Failed to save fallback order.', 'error');
+              }
+              await loadSystemFallbackChain();
+              renderFallbackOrderList();
+              renderCurationCatalog();
+              return;
+            }
+            var route = payload.route || {};
+            systemFallbackChainStore = Array.isArray(route.models) ? route.models.slice() : systemFallbackChainStore;
+            systemFallbackChainDisabledStore = Array.isArray(route.disabledModels) ? route.disabledModels.slice() : systemFallbackChainDisabledStore;
+            if (fallbackChainsCache[activeFallbackChainId]) {
+              fallbackChainsCache[activeFallbackChainId].models = systemFallbackChainStore.slice();
+              fallbackChainsCache[activeFallbackChainId].disabledModels = systemFallbackChainDisabledStore.slice();
+            }
+            renderFallbackOrderList();
+          } catch (e) {
+            setMessage('Failed to save fallback order: ' + String(e && e.message || e), 'error');
           }
         }
 
@@ -3143,10 +2584,6 @@ export function renderLayout(
           if (fbListEl && context === 'loadFallbackRoutes') {
             fbListEl.innerHTML = '<div class="fallback-route-empty" style="color: var(--danger-text);">Error: ' + msg + '</div>';
           }
-          const rListEl = document.getElementById('routerRouteList');
-          if (rListEl && context === 'loadRouterRoutes') {
-            rListEl.innerHTML = '<div class="fallback-route-empty" style="color: var(--danger-text);">Error: ' + msg + '</div>';
-          }
         }
 
         async function safeInit(name, fn) {
@@ -3161,10 +2598,8 @@ export function renderLayout(
         safeInit('loadProviderConfigs', loadProviderConfigs);
         safeInit('hydrateLiveModelBadges', hydrateLiveModelBadges);
         safeInit('loadFallbackRoutes', loadFallbackRoutes);
-        safeInit('loadRouterRoutes', loadRouterRoutes);
+        safeInit('loadSystemFallbackChain', loadSystemFallbackChain);
         try { buildModelDropdown(); } catch (err) { showUiError('buildModelDropdown', err); }
-        try { applyRouterDefaults(); } catch (err) { showUiError('applyRouterDefaults', err); }
-        try { updateRouterTypeHelp(); } catch (err) { showUiError('updateRouterTypeHelp', err); }
         safeInit('loadCatalog', loadCatalog);
         safeInit('loadProviderPricingPanel', loadProviderPricingPanel);
         loadSessionsPanel();

@@ -42,15 +42,12 @@ function getOAuthStateSafe(name: string): OAuthProviderState | undefined {
 import { sanitizeProviderRequestBody, stripReasoningMetadata, ThinkingLevel, DEFAULT_THINKING_LEVEL } from './reasoning';
 import { loadSessions, loadFeedback, recordRequest, getSessions, getSessionById, recordFeedback, saveSessions } from './sessions';
 import { loadExpertLogs, LogEntryTracker, createUsageSpyStream } from './expert-logs';
-import { computeTiers } from './tiers';
 import { buildWraparoundExecutionPlan } from './execution-plan';
-import { stableSortModelIdsByRoutingExhaustion } from './routing-exhaustion-order';
 import {
   applyPricingToRouterCandidates,
   deleteProviderPricingEntry,
   getProviderPricingSnapshot,
   loadProviderPricingStore,
-  resolveEffectiveCandidatePricing,
   upsertProviderPricingEntry
 } from './provider-pricing';
 import {
@@ -66,7 +63,6 @@ import {
   isOllamaCloudPresentedIdBlocked
 } from './ollama-cloud-catalog';
 import {
-  gatewayModelAllowedForRouter,
   gatewayModelCatalogDisplay,
   gatewayPresentedModelId,
   gatewayPresentedModelSegment,
@@ -78,20 +74,14 @@ import {
   providerHasNoLiveModelList
 } from './provider-model-registries';
 import { catalogProviderSummaries } from './provider-registry';
-import { loadRouterSettings, saveRouterSettings } from './config-persistence';
+import { loadRouterSettings } from './config-persistence';
 import { normalizeGatewayChatCompletionBody } from './gateway-response';
 import {
   DEFAULT_FALLBACK_ORDERED_IDS,
-  buildDefaultAutoRouterCandidateLines,
   buildDefaultFallbackModelIds,
   buildDefaultFallbackModelsText,
-  isAllowedAutoRouterGatewayFreeModel,
   PRESET_FALLBACK_ROUTES,
-  PRESET_ROUTER_ROUTES,
-  OBSOLETE_PRESET_ROUTE_IDS,
-  buildPresetRouterCandidatesText,
-  type PresetFallbackRoute,
-  type PresetRouterRoute
+  OBSOLETE_PRESET_ROUTE_IDS
 } from './routing-defaults';
 import {
   DEFAULT_OLLAMA_API_KEY,
@@ -154,47 +144,6 @@ type FallbackModelParseResult =
   | { ok: false; error: string };
 
 export type { FallbackModel, FallbackModelParseResult };
-
-type RouterType = 'priority' | 'pareto-code' | 'auto-local' | 'bandit-local';
-
-type BanditState = {
-  A: number[][];
-  b: number[];
-  gamma: number;
-  sampleCount: number;
-};
-
-type RouterCandidate = {
-  model: string;
-  codingScore?: number;
-  inputPrice?: number;
-  outputPrice?: number;
-  latencyMs?: number;
-  notes?: string;
-  enabled?: boolean;
-};
-
-export type RouterModel = {
-  id: string;
-  type: RouterType;
-  candidates: RouterCandidate[];
-  minCodingScore?: number;
-  costQualityTradeoff?: number;
-  explorationBudget?: number;
-  enableAutoTiers?: boolean;
-  banditState?: Record<string, BanditState>;
-};
-
-export type RouterModelParseResult =
-  | { ok: true; model: RouterModel }
-  | { ok: false; error: string };
-
-type RouterDecision = {
-  router: RouterModel;
-  selected: RouterCandidate;
-  orderedCandidates: RouterCandidate[];
-  candidateScores: Array<Record<string, unknown>>;
-};
 
 type ModelTarget = {
   providerName: string;
@@ -259,14 +208,10 @@ const LOCAL_ROUTER_CONFIG_DIR = path.join(os.homedir(), '.config', 'local-router
 const LEGACY_FVS_CONFIG_DIR = path.join(os.homedir(), '.config', 'fvs-code');
 const FALLBACK_MODELS_PATH = path.join(LOCAL_ROUTER_CONFIG_DIR, 'fallback-models.json');
 const LEGACY_FALLBACK_MODELS_PATH = path.join(LEGACY_FVS_CONFIG_DIR, 'fallback-models.json');
-const ROUTER_MODELS_PATH = path.join(LOCAL_ROUTER_CONFIG_DIR, 'router-models.json');
-const LEGACY_ROUTER_MODELS_PATH = path.join(LEGACY_FVS_CONFIG_DIR, 'router-models.json');
 const SYSTEM_PROMPT_PATH = path.join(LOCAL_ROUTER_CONFIG_DIR, 'system-prompt.json');
 const LEGACY_SYSTEM_PROMPT_PATH = path.join(LEGACY_FVS_CONFIG_DIR, 'system-prompt.json');
 const THINKING_CONFIG_PATH = path.join(LOCAL_ROUTER_CONFIG_DIR, 'thinking-config.json');
 const LEGACY_THINKING_CONFIG_PATH = path.join(LEGACY_FVS_CONFIG_DIR, 'thinking-config.json');
-const ROUTER_EVENTS_PATH = path.join(LOCAL_ROUTER_CONFIG_DIR, 'router-events.csv');
-const LEGACY_ROUTER_EVENTS_PATH = path.join(LEGACY_FVS_CONFIG_DIR, 'router-events.csv');
 const PROVIDER_MODELS_PATH = path.join(LOCAL_ROUTER_CONFIG_DIR, 'provider-models.json');
 const LEGACY_PROVIDER_MODELS_PATH = path.join(LEGACY_FVS_CONFIG_DIR, 'provider-models.json');
 const MODEL_SOURCE_CONFIG_PATH = path.join(LOCAL_ROUTER_CONFIG_DIR, 'model-source-config.json');
@@ -284,73 +229,7 @@ const RESERVED_PROVIDER_SLUGS = new Set([
 const PROVIDER_SLUG_PATTERN = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/;
 const PROVIDER_KEY_ENV_PATTERN = /^[A-Z0-9_]+_API_KEY$/;
 const MAX_PROVIDER_SLUG_LENGTH = 48;
-const DEFAULT_ROUTER_TYPE: RouterType = 'auto-local';
-const DEFAULT_ROUTER_MIN_CODING_SCORE = 0.66;
-const DEFAULT_ROUTER_COST_QUALITY_TRADEOFF = 7;
-const ROUTER_CANDIDATE_RETRIES = 2;
 const SYSTEM_FALLBACK_ROUTE_ID = 'fallback-models';
-const DEFAULT_ROUTER_ID = 'auto-router-main';
-const LEGACY_ROUTER_ROUTE_ALIASES: Record<string, string> = {
-  'auto-local-main': 'auto-router-main'
-};
-/**
- * Provider sub-order within a routing exhaustion band.
- * Free vs paid placement uses `routing-exhaustion-order.ts` (Kilo/Cline free early; Kilo/Cline paid before OpenCode paid).
- */
-const DEFAULT_PROVIDER_TIER_ORDER = [
-  'ollama',
-  'kilo',
-  'cline',
-  'nvidia-nim',
-  'modal',
-  'modal-proxy',
-  'nebius',
-  'opencode-zen',
-  'opencode-go',
-  'zai',
-  'xiaomi-mimo',
-  'wafer-serverless',
-  'zenmux',
-  'pioneer',
-  'nous-portal',
-  'openrouter'
-] as const;
-
-const PRESENTATION_PREFIX_TO_PROVIDER: Record<string, string> = {
-  ollama: 'ollama',
-  kilo: 'kilo',
-  cline: 'cline',
-  'nvidia-nim': 'nvidia-nim',
-  modal: 'modal',
-  'modal-proxy': 'modal-proxy',
-  nebius: 'nebius',
-  'opencode-zen': 'opencode-zen',
-  'opencode-go': 'opencode-go',
-  opencode: 'opencode-go',
-  zai: 'zai',
-  'xiaomi-mimo': 'xiaomi-mimo',
-  'wafer-ai': 'wafer-serverless',
-  'wafer-serverless': 'wafer-serverless',
-  zenmux: 'zenmux',
-  pioneer: 'pioneer',
-  'nous-portal': 'nous-portal',
-  portal: 'nous-portal',
-  nous: 'nous-portal',
-  openrouter: 'openrouter',
-  'openrouter-presets': 'openrouter'
-};
-
-function resolvedDefaultAutoRouterCandidatesText(): string {
-  return buildDefaultAutoRouterCandidateLines(catalogRefForPresentedModel).join('\n');
-}
-
-const LEGACY_AUTO_LOCAL_MAIN_MODELS = new Set([
-  'openrouter-1-million-chain-of-draft',
-  'openrouter-chain-of-draft',
-  'openrouter-openrouter-personal-router',
-  'openrouter-1-million-main',
-  'openrouter-free-chain-of-draft'
-]);
 
 /** Maps persisted upstream-style paths to presented catalog aliases. */
 const UPSTREAM_MODEL_ID_ALIASES: Record<string, string> = {
@@ -435,53 +314,7 @@ const UPSTREAM_MODEL_ID_ALIASES: Record<string, string> = {
   'kilo/moonshotai/kimi-k2.7-code': 'kilo-moonshotai-kimi-k2.7-code-paid'
 };
 
-function providerTierIndex(providerSlug: string): number {
-  const index = DEFAULT_PROVIDER_TIER_ORDER.indexOf(providerSlug as typeof DEFAULT_PROVIDER_TIER_ORDER[number]);
-  return index >= 0 ? index : DEFAULT_PROVIDER_TIER_ORDER.length;
-}
-
-function inferProviderSlugFromPresentedId(modelId: string): string | null {
-  const trimmed = String(modelId || '').trim();
-  if (!trimmed) return null;
-
-  const normalized = trimmed.toLowerCase();
-  const prefixes = Object.keys(PRESENTATION_PREFIX_TO_PROVIDER)
-    .sort((left, right) => right.length - left.length);
-  for (const prefix of prefixes) {
-    if (normalized === prefix || normalized.startsWith(`${prefix}-`)) {
-      return PRESENTATION_PREFIX_TO_PROVIDER[prefix];
-    }
-  }
-
-  return null;
-}
-
-function catalogRefForPresentedModel(modelId: string) {
-  const match = findProviderModel(modelId);
-  return match ? { provider: match.provider, model: match.model } : undefined;
-}
-
-function stableSortModelIdsByProviderTier(modelIds: string[]): string[] {
-  return stableSortModelIdsByRoutingExhaustion(modelIds, catalogRefForPresentedModel);
-}
-
-function orderEligibleRouterEntriesByExhaustion<T extends { candidate: RouterCandidate }>(entries: T[]): T[] {
-  const tierOrder = stableSortModelIdsByRoutingExhaustion(
-    entries.map((entry) => entry.candidate.model),
-    catalogRefForPresentedModel
-  );
-  const byModel = new Map(entries.map((entry) => [entry.candidate.model, entry]));
-  return tierOrder
-    .map((modelId) => byModel.get(modelId))
-    .filter((entry): entry is T => Boolean(entry));
-}
-
-function defaultFallbackModelIds(): string[] {
-  // No catalog lookup at module init (findProviderModel needs modelSourceConfig).
-  return buildDefaultFallbackModelIds(() => undefined);
-}
-
-const DEFAULT_FALLBACK_MODELS_TEXT = buildDefaultFallbackModelsText(() => undefined);
+const DEFAULT_FALLBACK_MODELS_TEXT = buildDefaultFallbackModelsText();
 
 const parsedFallbackBaseRetrySeconds = Number.parseInt(
   process.env.LOCAL_ROUTER_FALLBACK_BASE_RETRY_SECONDS || process.env.FVS_FALLBACK_BASE_RETRY_SECONDS || '2',
@@ -551,7 +384,6 @@ const modelStore: Record<string, ProviderModel[]> = {};
 const persistedProviderModelOverrides = new Set<string>();
 let customProviderStore: CustomProviderRecord[] = [];
 const fallbackModelStore: Record<string, FallbackModel> = {};
-const routerModelStore: Record<string, RouterModel> = {};
 const modelSourceConfig: {
   catalogMigrationVersion?: number;
   source: 'custom' | 'endpoints';
@@ -950,18 +782,6 @@ function providerReferencedInRouting(providerName: string): string[] {
       const resolved = resolveModelTarget(modelId);
       if (resolved?.providerName === providerName) {
         references.push(`fallback:${route.id}`);
-      }
-    }
-  }
-
-  for (const router of Object.values(routerModelStore)) {
-    for (const candidate of router.candidates) {
-      if (candidate.model === providerName || candidate.model.startsWith(prefix)) {
-        references.push(`router:${router.id}`);
-      }
-      const resolved = resolveModelTarget(candidate.model);
-      if (resolved?.providerName === providerName) {
-        references.push(`router:${router.id}`);
       }
     }
   }
@@ -1431,139 +1251,6 @@ export function parseFallbackModel(payload: any): FallbackModelParseResult {
   return { ok: true, model };
 }
 
-function normalizeRouterRouteId(value: string) {
-  const trimmed = typeof value === 'string' ? value.trim() : '';
-  if (!trimmed) return '';
-  if (LEGACY_ROUTER_ROUTE_ALIASES[trimmed]) {
-    return LEGACY_ROUTER_ROUTE_ALIASES[trimmed];
-  }
-  if (trimmed.startsWith(`${FALLBACK_PROVIDER_NAME}/`)) {
-    return trimmed.slice(FALLBACK_PROVIDER_NAME.length + 1).trim();
-  }
-  for (const legacyName of FALLBACK_PROVIDER_LEGACY_NAMES) {
-    if (trimmed.startsWith(`${legacyName}/`)) {
-      return trimmed.slice(legacyName.length + 1).trim();
-    }
-  }
-  return trimmed;
-}
-
-function validateRouteId(routeType: 'Fallback' | 'Router', id: string) {
-  if (!id) return `${routeType} model id is required.`;
-  if (id.length > 512) return `${routeType} model id is too long: ${id.slice(0, 64)}`;
-  if (!/^[A-Za-z0-9@._:\/+-]+$/.test(id)) return `${routeType} model id contains unsupported characters: ${id}`;
-  if (id.includes('/')) return `${routeType} model id must be a single route name or ${FALLBACK_PROVIDER_NAME}/route-name.`;
-  return '';
-}
-
-function parseRouterType(value: unknown): RouterType {
-  if (value === 'pareto-code' || value === 'auto-local' || value === 'priority' || value === 'bandit-local') return value;
-  return DEFAULT_ROUTER_TYPE;
-}
-
-function parseBoundedNumber(value: unknown, min: number, max: number): number | undefined {
-  if (value === undefined || value === null || value === '') return undefined;
-  const parsed = typeof value === 'number' ? value : Number.parseFloat(String(value));
-  if (!Number.isFinite(parsed)) return undefined;
-  return Math.min(max, Math.max(min, parsed));
-}
-
-function parseRouterCandidateLine(line: string): RouterCandidate | null {
-  const trimmed = line.trim();
-  if (!trimmed || trimmed.startsWith('#')) return null;
-  const [modelPart, ...metadataParts] = trimmed.split(',').map((part) => part.trim());
-  if (!modelPart) return null;
-
-  const candidate: RouterCandidate = { model: modelPart, enabled: true };
-  for (const part of metadataParts) {
-    const [rawKey, ...rawValueParts] = part.split('=');
-    const key = rawKey.trim().toLowerCase();
-    const value = rawValueParts.join('=').trim();
-    if (!key || !value) continue;
-    if (key === 'coding' || key === 'coding_score' || key === 'score') {
-      candidate.codingScore = parseBoundedNumber(value, 0, 1);
-    } else if (key === 'input' || key === 'input_price') {
-      candidate.inputPrice = parseBoundedNumber(value, 0, Number.MAX_SAFE_INTEGER);
-    } else if (key === 'output' || key === 'output_price') {
-      candidate.outputPrice = parseBoundedNumber(value, 0, Number.MAX_SAFE_INTEGER);
-    } else if (key === 'latency' || key === 'latency_ms') {
-      candidate.latencyMs = parseBoundedNumber(value, 0, Number.MAX_SAFE_INTEGER);
-    } else if (key === 'notes') {
-      candidate.notes = sanitizeDiagnosticText(value, 120);
-    } else if (key === 'enabled') {
-      const lowerValue = value.toLowerCase();
-      candidate.enabled = lowerValue !== 'false' && lowerValue !== '0' && lowerValue !== 'no';
-    }
-  }
-
-  return candidate;
-}
-
-export function parseRouterModel(payload: any): RouterModelParseResult {
-  const rawId = typeof payload?.id === 'string' ? payload.id.trim() : '';
-  const id = normalizeRouterRouteId(rawId);
-  const routeError = validateRouteId('Router', id);
-  if (routeError) return { ok: false, error: routeError };
-
-  const type = parseRouterType(payload?.type);
-  const rawCandidates = payload?.candidatesText !== undefined ? payload.candidatesText : payload?.candidates;
-  const entries = Array.isArray(rawCandidates)
-    ? rawCandidates
-    : typeof rawCandidates === 'string'
-      ? rawCandidates.split(/\r?\n|;/)
-      : [];
-
-  if (entries.length === 0) {
-    return { ok: false, error: 'Router candidates must be a non-empty array or newline-delimited string.' };
-  }
-
-  const seen = new Set<string>();
-  const candidates: RouterCandidate[] = [];
-  for (const entry of entries) {
-    const candidate = typeof entry === 'string'
-      ? parseRouterCandidateLine(entry)
-      : entry && typeof entry === 'object'
-        ? {
-            model: typeof entry.model === 'string' ? entry.model.trim() : '',
-            codingScore: parseBoundedNumber(entry.codingScore, 0, 1),
-            inputPrice: parseBoundedNumber(entry.inputPrice, 0, Number.MAX_SAFE_INTEGER),
-            outputPrice: parseBoundedNumber(entry.outputPrice, 0, Number.MAX_SAFE_INTEGER),
-            latencyMs: parseBoundedNumber(entry.latencyMs, 0, Number.MAX_SAFE_INTEGER),
-            notes: typeof entry.notes === 'string' ? sanitizeDiagnosticText(entry.notes, 120) : undefined,
-            enabled: entry.enabled !== false
-          }
-        : null;
-    if (!candidate || !candidate.model) continue;
-    if (candidate.model.length > 512) {
-      return { ok: false, error: `Router candidate model is too long: ${candidate.model.slice(0, 64)}` };
-    }
-    if (!/^[A-Za-z0-9@._:\/+-]+$/.test(candidate.model)) {
-      return { ok: false, error: `Router candidate model contains unsupported characters: ${candidate.model}` };
-    }
-    if (seen.has(candidate.model)) continue;
-    seen.add(candidate.model);
-    candidates.push(candidate);
-  }
-
-  if (candidates.length === 0) {
-    return { ok: false, error: 'Router requires at least one unique candidate model.' };
-  }
-
-  return {
-    ok: true,
-    model: {
-      id,
-      type,
-      candidates,
-      minCodingScore: parseBoundedNumber(payload?.minCodingScore, 0, 1) ?? DEFAULT_ROUTER_MIN_CODING_SCORE,
-      costQualityTradeoff: parseBoundedNumber(payload?.costQualityTradeoff, 0, 10) ?? DEFAULT_ROUTER_COST_QUALITY_TRADEOFF,
-      explorationBudget: parseBoundedNumber(payload?.explorationBudget, 0, 1) ?? 0.05,
-      enableAutoTiers: payload?.enableAutoTiers === true || payload?.enableAutoTiers === 'true',
-      banditState: type === 'bandit-local' ? (payload?.banditState || {}) : undefined
-    }
-  };
-}
-
 function normalizeFallbackRouteId(value: string) {
   const trimmed = typeof value === 'string' ? value.trim() : '';
   if (!trimmed) return '';
@@ -1602,9 +1289,7 @@ function migrateLegacyConfigIfNeeded() {
 
   const migrations: Array<[string, string]> = [
     [LEGACY_FALLBACK_MODELS_PATH, FALLBACK_MODELS_PATH],
-    [LEGACY_ROUTER_MODELS_PATH, ROUTER_MODELS_PATH],
-    [LEGACY_PROVIDER_MODELS_PATH, PROVIDER_MODELS_PATH],
-    [LEGACY_ROUTER_EVENTS_PATH, ROUTER_EVENTS_PATH]
+    [LEGACY_PROVIDER_MODELS_PATH, PROVIDER_MODELS_PATH]
   ];
 
   for (const [legacyPath, primaryPath] of migrations) {
@@ -1634,29 +1319,6 @@ export function cloneFallbackModel(model: FallbackModel): FallbackModel {
   };
   if (Array.isArray(model.disabledModels) && model.disabledModels.length > 0) {
     cloned.disabledModels = [...new Set(model.disabledModels.filter((entry) => typeof entry === 'string' && entry.length > 0))];
-  }
-  return cloned;
-}
-
-function cloneRouterModel(model: RouterModel): RouterModel {
-  const cloned: RouterModel = {
-    id: model.id,
-    type: model.type,
-    candidates: model.candidates.map((candidate) => ({ ...candidate })),
-    minCodingScore: model.minCodingScore,
-    costQualityTradeoff: model.costQualityTradeoff,
-    explorationBudget: model.explorationBudget
-  };
-  if (model.banditState) {
-    cloned.banditState = {};
-    for (const [key, state] of Object.entries(model.banditState)) {
-      cloned.banditState[key] = {
-        A: state.A.map((row) => [...row]),
-        b: [...state.b],
-        gamma: state.gamma,
-        sampleCount: state.sampleCount
-      };
-    }
   }
   return cloned;
 }
@@ -1706,52 +1368,6 @@ function loadPersistedFallbackModels() {
   }
 }
 
-function persistRouterModels() {
-  ensureLocalRouterConfigDir();
-  const routers = Object.values(routerModelStore)
-    .map((model) => cloneRouterModel(model))
-    .sort((a, b) => a.id.localeCompare(b.id));
-  const payload = {
-    version: 1,
-    routers
-  };
-  const temporaryPath = `${ROUTER_MODELS_PATH}.${process.pid}.tmp`;
-
-  fs.writeFileSync(temporaryPath, `${JSON.stringify(payload, null, 2)}\n`, {
-    encoding: 'utf8',
-    mode: 0o600
-  });
-  fs.renameSync(temporaryPath, ROUTER_MODELS_PATH);
-  fs.chmodSync(ROUTER_MODELS_PATH, 0o600);
-}
-
-function loadPersistedRouterModels() {
-  const persistedPath = existingPath(ROUTER_MODELS_PATH, LEGACY_ROUTER_MODELS_PATH);
-  if (!fs.existsSync(persistedPath)) return;
-
-  try {
-    const parsed = JSON.parse(fs.readFileSync(persistedPath, 'utf8'));
-    const entries = Array.isArray(parsed?.routers)
-      ? parsed.routers
-      : Array.isArray(parsed)
-        ? parsed
-        : [];
-
-    for (const entry of entries) {
-      const parsedRoute = parseRouterModel(entry);
-      if (!parsedRoute.ok) continue;
-
-      const referenceCheck = validateRouterReferences(parsedRoute.model, { lenient: true });
-      if (!referenceCheck.ok) continue;
-
-      const model = cloneRouterModel(parsedRoute.model);
-      model.candidates = applyPricingToRouterCandidates(model.candidates);
-      routerModelStore[parsedRoute.model.id] = model;
-    }
-  } catch (error: any) {
-    console.error('Failed to load persisted router routes:', sanitizeDiagnosticText(String(error?.message || error)));
-  }
-}
 function loadPersistedRouterSettings() {
   try {
     const settings = loadRouterSettings();
@@ -1763,16 +1379,6 @@ function loadPersistedRouterSettings() {
         fallbackModelStore[SYSTEM_FALLBACK_ROUTE_ID] = {
           id: SYSTEM_FALLBACK_ROUTE_ID,
           models: entries
-        };
-      }
-    }
-    if (typeof settings.autoRouterCandidatesText === 'string' && settings.autoRouterCandidatesText.trim()) {
-      const text = settings.autoRouterCandidatesText.trim();
-      const entries = text.split(/\r?\n|;/).map((line) => line.trim()).filter(Boolean);
-      if (entries.length >= 2 && routerModelStore[DEFAULT_ROUTER_ID]) {
-        routerModelStore[DEFAULT_ROUTER_ID] = {
-          ...routerModelStore[DEFAULT_ROUTER_ID],
-          candidates: entries.map((model) => ({ model, enabled: true }))
         };
       }
     }
@@ -2638,7 +2244,7 @@ async function resolveCatalogModels(options: CatalogResolveOptions = {}): Promis
   if (live) {
     if (providerFilter) {
       if (isLocalRouterProviderName(providerFilter)) {
-        return [...fallbackModelList(), ...routerModelList()];
+        return fallbackModelList();
       }
       const liveResult = await fetchLiveProviderModels(providerFilter);
       return mapLiveRawModelsToCatalog(providerFilter, liveResult.models);
@@ -2648,7 +2254,7 @@ async function resolveCatalogModels(options: CatalogResolveOptions = {}): Promis
 
   if (providerFilter) {
     if (isLocalRouterProviderName(providerFilter)) {
-      return [...fallbackModelList(), ...routerModelList()];
+      return fallbackModelList();
     }
     return effectiveProviderModels(providerFilter);
   }
@@ -2676,14 +2282,14 @@ async function discoveryModelList(live = false): Promise<ProviderModel[]> {
     const upstream = await resolveCatalogModels({ live: true });
     const seen = new Set<string>();
     const merged: ProviderModel[] = [];
-    for (const model of [...upstream, ...fallbackModelList(), ...routerModelList()]) {
+    for (const model of [...upstream, ...fallbackModelList()]) {
       if (seen.has(model.id)) continue;
       seen.add(model.id);
       merged.push(model);
     }
     return merged;
   }
-  return [...providerCatalogModels(), ...fallbackModelList(), ...routerModelList()];
+  return [...providerCatalogModels(), ...fallbackModelList()];
 }
 
 const MODEL_ENTRY_CREATED_TIMESTAMP = Math.floor(Date.now() / 1000);
@@ -2753,45 +2359,14 @@ function fallbackModelPresentation(model: FallbackModel): ProviderModel {
   };
 }
 
-function routerPresentedModelId(model: RouterModel | string) {
-  const routeId = typeof model === 'string' ? normalizeRouterRouteId(model) : normalizeRouterRouteId(model.id);
-  return `${FALLBACK_PROVIDER_NAME}/${routeId}`;
-}
-
-function routerModelPresentation(model: RouterModel): ProviderModel {
-  const firstTarget = model.candidates[0]?.model;
-  const firstResolved = firstTarget ? findProviderModel(firstTarget) : undefined;
-  const routeId = normalizeRouterRouteId(model.id);
-  const presentedId = routerPresentedModelId(routeId);
-
-  return {
-    id: presentedId,
-    provider: FALLBACK_PROVIDER_NAME,
-    model: routeId,
-    display: `${presentedId}: ${model.type} router over ${model.candidates.map((candidate) => candidate.model).join(' | ')}`,
-    contextLength: firstResolved?.contextLength || DEFAULT_CONTEXT_LENGTH,
-    outputTokens: firstResolved?.outputTokens || DEFAULT_OUTPUT_TOKENS,
-    supportsTools: model.candidates.some((candidate) => findProviderModel(candidate.model)?.supportsTools),
-    supportsImages: model.candidates.some((candidate) => findProviderModel(candidate.model)?.supportsImages),
-    supportsCache: model.candidates.some((candidate) => findProviderModel(candidate.model)?.supportsCache),
-    supportsReasoning: false
-  };
-}
-
 function fallbackModelList() {
   return Object.values(fallbackModelStore)
     .map((model) => fallbackModelPresentation(model))
     .sort((a, b) => a.id.localeCompare(b.id));
 }
 
-function routerModelList() {
-  return Object.values(routerModelStore)
-    .map((model) => routerModelPresentation(model))
-    .sort((a, b) => a.id.localeCompare(b.id));
-}
-
 function presentedModelList() {
-  return [...activeProviderModelList(), ...fallbackModelList(), ...routerModelList()];
+  return [...activeProviderModelList(), ...fallbackModelList()];
 }
 
 function findFallbackModel(modelName: string): FallbackModel | undefined {
@@ -2800,14 +2375,6 @@ function findFallbackModel(modelName: string): FallbackModel | undefined {
   const direct = fallbackModelStore[routeId];
   if (direct) return direct;
   return Object.values(fallbackModelStore).find((entry) => normalizeFallbackRouteId(entry.id) === routeId);
-}
-
-function findRouterModel(modelName: string): RouterModel | undefined {
-  if (typeof modelName !== 'string') return undefined;
-  const routeId = normalizeRouterRouteId(stripOllamaLatestSuffix(modelName));
-  const direct = routerModelStore[routeId];
-  if (direct) return direct;
-  return Object.values(routerModelStore).find((entry) => normalizeRouterRouteId(entry.id) === routeId);
 }
 
 function findSystemFallback(): FallbackModel | undefined {
@@ -2832,49 +2399,6 @@ function validateFallbackReferences(model: FallbackModel) {
   return { ok: true } as const;
 }
 
-/**
- * Serving toggles gate what tools see on /v1/models — they NEVER gate the
- * structural validity of default route construction. A candidate that exists
- * in the full known catalog (registry ∪ cache ∪ persisted overrides) stays
- * resolvable even when the user has toggled it off: it is dormant at runtime
- * and skipped by the availability pass like any other dormant candidate.
- */
-function findKnownCatalogModel(modelName: string): ProviderModel | undefined {
-  const lookup = resolveGatewayPresentedLegacyId(stripOllamaLatestSuffix(modelName.trim()));
-  return allCatalogModels().find((model) => providerModelAliases(model).has(lookup));
-}
-
-function validateRouterReferences(model: RouterModel, options: { lenient?: boolean } = {}) {
-  // Lenient mode (persistence load): reference checks are skipped entirely.
-  // Upstream refreshes legitimately retire models (a provider section can be
-  // replaced), and a dormant candidate must NEVER silently delete a persisted
-  // router. Runtime availability checks skip unresolvable candidates when
-  // requests arrive; the strict reference gate applies at creation/import.
-  if (options.lenient) {
-    const dormant = model.candidates.filter((candidate) => !findProviderModel(candidate.model));
-    if (dormant.length > 0) {
-      console.warn(
-        `[router] Loaded router "${model.id}" with ${dormant.length} dormant candidate(s): ${dormant.map((entry) => entry.model).slice(0, 5).join(', ')}${dormant.length > 5 ? ', …' : ''}`
-      );
-    }
-    return { ok: true } as const;
-  }
-
-  const unresolved = model.candidates.filter((candidate) => {
-    if (findProviderModel(candidate.model)) return false;
-    if (findKnownCatalogModel(candidate.model)) return false;
-    const resolved = resolveModelTarget(candidate.model);
-    if (!resolved || isLocalRouterProviderName(resolved.providerName)) return true;
-    return !getProviderSummary(resolved.providerName);
-  });
-
-  if (unresolved.length > 0) {
-    return { ok: false, error: `Router references unknown candidate model(s): ${unresolved.map((entry) => entry.model).join(', ')}` } as const;
-  }
-
-  return { ok: true } as const;
-}
-
 function findPresentedNameConflict(providerName: string, presentedName: string) {
   const modelConflict = activeProviderModelList().find((model) => (
     model.provider !== providerName && model.id === presentedName
@@ -2883,12 +2407,6 @@ function findPresentedNameConflict(providerName: string, presentedName: string) 
   if (findFallbackModel(presentedName)) {
     return {
       id: fallbackPresentedModelId(presentedName),
-      provider: FALLBACK_PROVIDER_NAME
-    } as Pick<ProviderModel, 'id' | 'provider'>;
-  }
-  if (findRouterModel(presentedName)) {
-    return {
-      id: routerPresentedModelId(presentedName),
       provider: FALLBACK_PROVIDER_NAME
     } as Pick<ProviderModel, 'id' | 'provider'>;
   }
@@ -2964,88 +2482,6 @@ function normalizeCatalogModelId(raw: string): string {
   return trimmed;
 }
 
-function isLegacyAutoLocalMainRouter(router: RouterModel): boolean {
-  const models = router.candidates.map((candidate) => candidate.model);
-  return models.length === LEGACY_AUTO_LOCAL_MAIN_MODELS.size
-    && models.every((modelId) => LEGACY_AUTO_LOCAL_MAIN_MODELS.has(modelId));
-}
-
-function buildDefaultAutoLocalRouterModel(): RouterModel | null {
-  const parsed = parseRouterModel({
-    id: DEFAULT_ROUTER_ID,
-    type: DEFAULT_ROUTER_TYPE,
-    minCodingScore: DEFAULT_ROUTER_MIN_CODING_SCORE,
-    costQualityTradeoff: DEFAULT_ROUTER_COST_QUALITY_TRADEOFF,
-    candidatesText: resolvedDefaultAutoRouterCandidatesText()
-  });
-  if (!parsed.ok) {
-    console.error('Failed to build default auto-local router:', parsed.error);
-    return null;
-  }
-  const referenceCheck = validateRouterReferences(parsed.model);
-  if (!referenceCheck.ok) {
-    console.error('Default auto-local router references unresolved candidates:', referenceCheck.error);
-    return null;
-  }
-  return {
-    ...parsed.model,
-    candidates: applyPricingToRouterCandidates(parsed.model.candidates)
-  };
-}
-
-function mergeMissingDefaultRouterCandidates(): void {
-  const defaultRouter = buildDefaultAutoLocalRouterModel();
-  const existingRouter = routerModelStore[DEFAULT_ROUTER_ID];
-  if (!defaultRouter || !existingRouter || existingRouter.type !== DEFAULT_ROUTER_TYPE) return;
-
-  const knownModels = new Set(existingRouter.candidates.map((candidate) => candidate.model));
-  let changed = false;
-  for (const candidate of defaultRouter.candidates) {
-    if (knownModels.has(candidate.model)) continue;
-    existingRouter.candidates.push({ ...candidate });
-    knownModels.add(candidate.model);
-    changed = true;
-  }
-
-  if (!changed) return;
-
-  existingRouter.candidates = applyPricingToRouterCandidates(existingRouter.candidates);
-  routerModelStore[DEFAULT_ROUTER_ID] = cloneRouterModel(existingRouter);
-  try {
-    persistRouterModels();
-    console.log('[router] Merged missing default candidates into auto-router-main.');
-  } catch (error: any) {
-    console.error('Failed to persist merged auto-router-main candidates:', sanitizeDiagnosticText(String(error?.message || error)));
-  }
-}
-
-function pruneDisallowedGatewayFreeRouting(): void {
-  let routerChanged = false;
-  const autoRouter = routerModelStore[DEFAULT_ROUTER_ID];
-  if (autoRouter?.candidates?.length) {
-    const before = autoRouter.candidates.length;
-    autoRouter.candidates = autoRouter.candidates.filter((candidate) => {
-      const modelId = String(candidate.model || '').trim();
-      if (!modelId.endsWith('-free')) return true;
-      if (!modelId.startsWith('cline-') && !modelId.startsWith('kilo-')) return true;
-      return isAllowedAutoRouterGatewayFreeModel(modelId);
-    });
-    if (autoRouter.candidates.length !== before) {
-      routerModelStore[DEFAULT_ROUTER_ID] = cloneRouterModel(autoRouter);
-      routerChanged = true;
-    }
-  }
-
-  if (routerChanged) {
-    try {
-      persistRouterModels();
-      console.log('[router] Pruned Cline/Kilo free models outside curated auto-router allowlist.');
-    } catch (error: any) {
-      console.error('Failed to persist pruned gateway free router candidates:', sanitizeDiagnosticText(String(error?.message || error)));
-    }
-  }
-}
-
 function migrateGatewayFallbackMiniMax(): void {
   const replacements: Record<string, string> = {
     'kilo-nvidia-nemotron-3-ultra-550b-a55b-free': 'kilo-minimax-minimax-m3-paid',
@@ -3070,26 +2506,6 @@ function migrateGatewayFallbackMiniMax(): void {
 
 function pruneDisallowedOllamaCloudRouting(): void {
   const allowsPro = ollamaCloudRoutingAllowsPro();
-  let routerChanged = false;
-  const autoRouter = routerModelStore[DEFAULT_ROUTER_ID];
-  if (autoRouter?.candidates?.length) {
-    const before = autoRouter.candidates.length;
-    autoRouter.candidates = autoRouter.candidates.filter((candidate) => {
-      const resolved = findProviderModel(candidate.model);
-      const target = resolveModelTarget(candidate.model);
-      if (target?.providerName !== 'ollama' || !resolved) return true;
-      return !isOllamaCloudPresentedIdBlocked(
-        candidate.model,
-        resolved.model,
-        allowsPro
-      );
-    });
-    if (autoRouter.candidates.length !== before) {
-      routerModelStore[DEFAULT_ROUTER_ID] = cloneRouterModel(autoRouter);
-      routerChanged = true;
-    }
-  }
-
   let fallbackChanged = false;
   for (const route of Object.values(fallbackModelStore)) {
     const before = route.models.length;
@@ -3104,15 +2520,6 @@ function pruneDisallowedOllamaCloudRouting(): void {
     }
   }
 
-  if (routerChanged) {
-    try {
-      persistRouterModels();
-      console.log('[router] Pruned Ollama Cloud models outside free-tier routing allowlist.');
-    } catch (error: any) {
-      console.error('Failed to persist pruned router candidates:', sanitizeDiagnosticText(String(error?.message || error)));
-    }
-  }
-
   if (fallbackChanged) {
     try {
       persistFallbackModels();
@@ -3124,28 +2531,6 @@ function pruneDisallowedOllamaCloudRouting(): void {
 }
 
 function normalizeRoutingTierOrder(): void {
-  let routerChanged = false;
-  const autoRouter = routerModelStore[DEFAULT_ROUTER_ID];
-  if (autoRouter?.candidates?.length) {
-    const sortedModelIds = stableSortModelIdsByProviderTier(
-      autoRouter.candidates.map((candidate) => candidate.model)
-    );
-    const orderChanged = sortedModelIds.some((modelId, index) => (
-      modelId !== autoRouter.candidates[index]?.model
-    ));
-    if (orderChanged) {
-      const candidatesByModel = new Map(
-        autoRouter.candidates.map((candidate) => [candidate.model, candidate])
-      );
-      autoRouter.candidates = sortedModelIds
-        .map((modelId) => candidatesByModel.get(modelId))
-        .filter((candidate): candidate is RouterCandidate => Boolean(candidate))
-        .map((candidate) => ({ ...candidate }));
-      routerModelStore[DEFAULT_ROUTER_ID] = cloneRouterModel(autoRouter);
-      routerChanged = true;
-    }
-  }
-
   const routerSettingsForFallback = loadRouterSettings();
   const hasUserCustomizedFallback = typeof routerSettingsForFallback.fallbackModelsText === 'string' && routerSettingsForFallback.fallbackModelsText.trim().length > 0;
 
@@ -3196,7 +2581,7 @@ function normalizeRoutingTierOrder(): void {
         deduped.push(trimmed);
       }
       if (deduped.length === 0) continue;
-      nextModels = stableSortModelIdsByProviderTier(deduped);
+      nextModels = deduped;
     }
 
     if (nextModels.length === 0) continue;
@@ -3212,15 +2597,6 @@ function normalizeRoutingTierOrder(): void {
       } else {
         otherFallbackChanged = true;
       }
-    }
-  }
-
-  if (routerChanged) {
-    try {
-      persistRouterModels();
-      console.log('[router] Reordered auto-router-main candidates by provider tier.');
-    } catch (error: any) {
-      console.error('Failed to persist tier-ordered router candidates:', sanitizeDiagnosticText(String(error?.message || error)));
     }
   }
 
@@ -3244,34 +2620,6 @@ function normalizeRoutingTierOrder(): void {
 }
 
 function migratePersistedRoutingConfig(): void {
-  const legacyRouter = routerModelStore['auto-local-main'];
-  if (legacyRouter && !routerModelStore[DEFAULT_ROUTER_ID]) {
-    routerModelStore[DEFAULT_ROUTER_ID] = cloneRouterModel({
-      ...legacyRouter,
-      id: DEFAULT_ROUTER_ID,
-      candidates: applyPricingToRouterCandidates(legacyRouter.candidates)
-    });
-    delete routerModelStore['auto-local-main'];
-    try {
-      persistRouterModels();
-      console.log('[router] Renamed auto-local-main → auto-router-main.');
-    } catch (error: any) {
-      console.error('Failed to persist router rename:', sanitizeDiagnosticText(String(error?.message || error)));
-    }
-  }
-
-  const defaultRouter = buildDefaultAutoLocalRouterModel();
-  const existingRouter = routerModelStore[DEFAULT_ROUTER_ID];
-  if (defaultRouter && existingRouter && isLegacyAutoLocalMainRouter(existingRouter)) {
-    routerModelStore[DEFAULT_ROUTER_ID] = cloneRouterModel(defaultRouter);
-    try {
-      persistRouterModels();
-      console.log('[router] Migrated auto-local-main from legacy OpenRouter-only presets to default candidate catalog.');
-    } catch (error: any) {
-      console.error('Failed to persist migrated auto-local-main router:', sanitizeDiagnosticText(String(error?.message || error)));
-    }
-  }
-
   let fallbackChanged = false;
   for (const route of Object.values(fallbackModelStore)) {
     const normalized = route.models
@@ -3290,11 +2638,9 @@ function migratePersistedRoutingConfig(): void {
     }
   }
 
-  mergeMissingDefaultRouterCandidates();
   normalizeRoutingTierOrder();
   migrateGatewayFallbackMiniMax();
   pruneDisallowedOllamaCloudRouting();
-  pruneDisallowedGatewayFreeRouting();
 
   if (fallbackChanged) {
     try {
@@ -3417,7 +2763,7 @@ function configureVSCodeModelPicker(hostUrl: string) {
   const userDir = vscodeUserDir();
   const chatLanguageModelsPath = path.join(userDir, 'chatLanguageModels.json');
   const statePath = path.join(userDir, 'globalStorage', 'state.vscdb');
-  const models = [...providerCatalogModels(), ...fallbackModelList(), ...routerModelList()];
+  const models = [...providerCatalogModels(), ...fallbackModelList()];
   const modelNames = models.map((model) => model.id);
   const candidateToModel = new Map<string, ProviderModel>();
 
@@ -3764,7 +3110,6 @@ function loadPqcSecrets(): void {
   if (process.env.LOCAL_ROUTER_SKIP_PQC_LOAD === 'true') {
     ensureDefaultOllamaApiKey(keyStore);
     pruneDisallowedOllamaCloudRouting();
-    pruneDisallowedGatewayFreeRouting();
     return;
   }
 
@@ -3778,7 +3123,6 @@ function loadPqcSecrets(): void {
     }
     ensureDefaultOllamaApiKey(keyStore);
     pruneDisallowedOllamaCloudRouting();
-    pruneDisallowedGatewayFreeRouting();
     reportMissingProviders();
     return;
   }
@@ -3796,7 +3140,6 @@ function loadPqcSecrets(): void {
     }
     ensureDefaultOllamaApiKey(keyStore);
     pruneDisallowedOllamaCloudRouting();
-    pruneDisallowedGatewayFreeRouting();
     reportMissingProviders();
     return;
   }
@@ -3819,7 +3162,6 @@ function loadPqcSecrets(): void {
   }
   ensureDefaultOllamaApiKey(keyStore);
   pruneDisallowedOllamaCloudRouting();
-  pruneDisallowedGatewayFreeRouting();
   reportMissingProviders();
 }
 
@@ -3989,11 +3331,6 @@ const configState = {
   set endpointModelsCache(val) { endpointModelsCache = val; }
 };
 
-type RouterSettings = {
-  fallbackModelsText?: string;
-  autoRouterCandidatesText?: string;
-};
-
 const configApiDeps = {
   state: configState,
   keyStore,
@@ -4035,19 +3372,10 @@ const configApiDeps = {
   providerReferencedInRouting,
   fallbackModelStore,
   cloneFallbackModel,
-  routerModelStore,
-  cloneRouterModel,
   candidateAvailability,
-  parseRouterModel,
   getProviderPricingSnapshot,
   upsertProviderPricingEntry,
   deleteProviderPricingEntry,
-  normalizeRouterRouteId,
-  DEFAULT_ROUTER_ID,
-  buildDefaultAutoLocalRouterModel,
-  existingPath,
-  ROUTER_EVENTS_PATH,
-  LEGACY_ROUTER_EVENTS_PATH,
   parseFallbackModel,
   normalizeFallbackRouteId,
   getSessions,
@@ -4066,14 +3394,11 @@ const configApiDeps = {
   persistHeadroomConfig,
   headroomApiPayload,
   DEFAULT_FALLBACK_MODELS_TEXT,
-  resolvedDefaultAutoRouterCandidatesText,
   DEFAULT_CHAIN_OF_DRAFT_PROMPT,
   DEFAULT_THINKING_LEVEL,
   activeProviderModelList,
   applyPricingToRouterCandidates,
   cloneProviderModel,
-  computeTiers,
-  csvEscape,
   diagnosticsSnapshot,
   editableProviderModels,
   ensureCuratedOverrideSelection,
@@ -4081,24 +3406,14 @@ const configApiDeps = {
   fallbackPresentedModelId,
   findFallbackModel,
   findProviderModel,
-  findRouterModel,
   modelStore,
-  parseCsvLine,
   parseProviderModels,
   persistFallbackModels,
-  persistRouterModels,
-  loadRouterSettings,
-  saveRouterSettings,
   persistedProviderModelOverrides,
   providerModelSource,
-  refreshRouterModelsPricing,
   resolveCatalogModels,
-  routerModelPresentation,
-  routerPresentedModelId,
   sanitizeDiagnosticText,
-  selectRouterCandidate,
   validateFallbackReferences,
-  validateRouterReferences,
   isOAuthProvider,
   getOAuthStatus,
   getOAuthStateSafe,
@@ -4227,7 +3542,6 @@ loadPersistedFallbackModels();
 if (waferZdrEnabled) {
   console.log('[Wafer] ZDR enabled for GLM-5.1, Kimi-K2.6, deepseek-v4-pro');
 }
-loadPersistedRouterModels();
 loadPersistedRouterSettings();
 loadProviderPricingStore();
 loadPersistedSystemPrompt();
@@ -4237,68 +3551,7 @@ loadHeadroomConfig();
 if (headroomEnabled) {
   console.log(`[Headroom] Context compression enabled (proxy: ${headroomProxyUrl})`);
 }
-function ensureDefaultRouter() {
-  if (routerModelStore[DEFAULT_ROUTER_ID]) return;
-
-  const hasAnyRouter = Object.keys(routerModelStore).length > 0;
-  if (hasAnyRouter) return;
-
-  const parsed = parseRouterModel({
-    id: DEFAULT_ROUTER_ID,
-    type: DEFAULT_ROUTER_TYPE,
-    minCodingScore: DEFAULT_ROUTER_MIN_CODING_SCORE,
-    costQualityTradeoff: DEFAULT_ROUTER_COST_QUALITY_TRADEOFF,
-    candidatesText: resolvedDefaultAutoRouterCandidatesText()
-  });
-
-  if (!parsed.ok) {
-    console.error('Failed to bootstrap default router:', parsed.error);
-    return;
-  }
-
-  const referenceCheck = validateRouterReferences(parsed.model);
-  if (!referenceCheck.ok) {
-    console.error('Default router references unresolved candidates:', referenceCheck.error);
-    return;
-  }
-
-  routerModelStore[parsed.model.id] = cloneRouterModel({
-    ...parsed.model,
-    candidates: applyPricingToRouterCandidates(parsed.model.candidates)
-  });
-  try {
-    persistRouterModels();
-  } catch (error: any) {
-    console.error('Failed to persist default router:', sanitizeDiagnosticText(String(error?.message || error)));
-    delete routerModelStore[parsed.model.id];
-  }
-}
-
-function refreshRouterModelsPricing(): void {
-  let changed = false;
-  for (const [id, router] of Object.entries(routerModelStore)) {
-    const priced = applyPricingToRouterCandidates(router.candidates);
-    const samePricing = priced.every((candidate, index) => (
-      candidate.inputPrice === router.candidates[index]?.inputPrice
-      && candidate.outputPrice === router.candidates[index]?.outputPrice
-    ));
-    if (samePricing) continue;
-    routerModelStore[id] = {
-      ...router,
-      candidates: priced
-    };
-    changed = true;
-  }
-  if (!changed) return;
-  try {
-    persistRouterModels();
-  } catch (error: any) {
-    console.error('Failed to persist router pricing refresh:', sanitizeDiagnosticText(String(error?.message || error)));
-  }
-}
-
 migratePersistedRoutingConfig();
-ensureDefaultRouter();
 
 function ensureDefaultFallback() {
   if (fallbackModelStore[SYSTEM_FALLBACK_ROUTE_ID]) return;
@@ -4341,18 +3594,11 @@ ensurePresetRoutes();
 
 function ensurePresetRoutes() {
   let fallbackChanged = false;
-  let routerChanged = false;
-
   for (const obsoleteId of OBSOLETE_PRESET_ROUTE_IDS) {
     if (fallbackModelStore[obsoleteId]) {
       delete fallbackModelStore[obsoleteId];
       fallbackChanged = true;
       console.log(`[router] Removed obsolete preset fallback "${obsoleteId}".`);
-    }
-    if (routerModelStore[obsoleteId]) {
-      delete routerModelStore[obsoleteId];
-      routerChanged = true;
-      console.log(`[router] Removed obsolete preset router "${obsoleteId}".`);
     }
   }
 
@@ -4368,38 +3614,12 @@ function ensurePresetRoutes() {
     console.log(`[router] Bootstrapped preset fallback route "${preset.id}" with ${parsed.model.models.length} models.`);
   }
 
-  for (const preset of PRESET_ROUTER_ROUTES) {
-    if (routerModelStore[preset.id]) continue;
-    const parsed = parseRouterModel({
-      id: preset.id,
-      type: preset.type,
-      minCodingScore: preset.minCodingScore,
-      costQualityTradeoff: preset.costQualityTradeoff,
-      candidatesText: buildPresetRouterCandidatesText(preset)
-    });
-    if (!parsed.ok) {
-      console.error(`[router] Failed to bootstrap preset router "${preset.id}":`, parsed.error);
-      continue;
-    }
-    routerModelStore[parsed.model.id] = cloneRouterModel({
-      ...parsed.model,
-      candidates: applyPricingToRouterCandidates(parsed.model.candidates)
-    });
-    routerChanged = true;
-    console.log(`[router] Bootstrapped preset router "${preset.id}" with ${parsed.model.candidates.length} candidates.`);
-  }
-
   if (fallbackChanged) {
     try { persistFallbackModels(); } catch (e: any) {
       console.error('[router] Failed to persist preset fallback routes:', sanitizeDiagnosticText(String(e?.message || e)));
     }
   }
-  if (routerChanged) {
-    try { persistRouterModels(); } catch (e: any) {
-      console.error('[router] Failed to persist preset router routes:', sanitizeDiagnosticText(String(e?.message || e)));
-    }
   }
-}
 
 
 function ollamaImageToOpenAIUrl(image: unknown) {
@@ -4611,63 +3831,6 @@ function createOpenAIReasoningStripTransform() {
   });
 }
 
-function requestFeatureSummary(body: any) {
-  const messages = Array.isArray(body?.messages) ? body.messages : [];
-  const summary = summarizeMessagesForDiagnostics(messages);
-  const requestedOutputTokens = typeof body?.max_tokens === 'number' && body.max_tokens > 0
-    ? body.max_tokens
-    : DEFAULT_OUTPUT_TOKENS;
-
-  let allText = '';
-  let firstUserLength = 0;
-  const roles = new Set<string>();
-  for (const message of messages) {
-    if (!message || typeof message !== 'object') continue;
-    if (typeof message.role === 'string') roles.add(message.role);
-    const content = message.content;
-    if (typeof content === 'string') {
-      allText += content;
-      if (!firstUserLength && message.role === 'user') firstUserLength = content.length;
-    } else if (Array.isArray(content)) {
-      for (const part of content) {
-        if (typeof part?.text === 'string') allText += part.text;
-      }
-      if (!firstUserLength && message.role === 'user') firstUserLength = allText.length;
-    }
-  }
-
-  const codeIndicators = (allText.match(/[{}\[\]();=><|&^~`@#\$\\\/.:*+-]+/g) || []).length;
-  const wordChars = (allText.match(/[a-zA-Z0-9_]+/g) || []).length;
-  const codeDensity = wordChars > 0 ? codeIndicators / (codeIndicators + wordChars) : 0;
-
-  const languagePatterns: Array<[RegExp, string]> = [
-    [/import\s+(React|{.*})?\s*from\s*['"]/g, 'tsx'],
-    [/def\s+\w+\s*\(|import\s+\w+/g, 'py'],
-    [/func\s+\w+\s*\(|package\s+\w+/g, 'go'],
-    [/fn\s+\w+\s*[<(]|let\s+mut\s+/g, 'rs'],
-    [/function\s+\w+\s*\(|const\s+\w+\s*=\s*(\(\)|function)/g, 'js'],
-    [/class\s+\w+\s*\{|public\s+(static\s+)?void\s+/g, 'java'],
-    [/SELECT\s+.+\s+FROM\s+/i, 'sql'],
-    [/<[a-zA-Z]+\s*\/?>|<\/[a-zA-Z]+>/g, 'html']
-  ];
-  const detectedLanguages = new Set<string>();
-  for (const [pattern, lang] of languagePatterns) {
-    if (pattern.test(allText)) detectedLanguages.add(lang);
-  }
-
-  return {
-    approxInputTokens: Math.ceil(((summary.approxContentCharacters || 0) + (typeof body?.prompt === 'string' ? body.prompt.length : 0)) / 4),
-    requestedOutputTokens,
-    requiresTools: Array.isArray(body?.tools) && body.tools.length > 0,
-    requiresImages: summary.imageMessageCount > 0,
-    codeDensity: Math.round(codeDensity * 1000) / 1000,
-    languageCount: detectedLanguages.size,
-    detectedLanguages: Array.from(detectedLanguages).slice(0, 6),
-    multiTurnDepth: roles.size,
-    instructionLength: firstUserLength
-  };
-}
-
 function ollamaCloudRoutingAllowsPro(): boolean {
   return isRealOllamaComApiKey(String(keyStore.ollama || resolveOllamaApiKey() || ''));
 }
@@ -4724,7 +3887,7 @@ function candidateAvailability(modelName: string) {
 }
 
 function resolvedDefaultFallbackModels(): string[] {
-  return buildDefaultFallbackModelIds(catalogRefForPresentedModel)
+  return buildDefaultFallbackModelIds()
     .filter((id) => Boolean(findProviderModel(id)));
 }
 
@@ -4770,583 +3933,6 @@ function fallbackStagePreflight(modelName: string): AttemptFailure | null {
   }
 
   return null;
-}
-
-function isImmediateRouterSkipError(errorType: AttemptFailure['errorType']) {
-  return errorType === 'provider_config'
-    || errorType === 'provider_not_found'
-    || errorType === 'unknown_model'
-    || errorType === 'upstream_http_auth'
-    || errorType === 'upstream_http_invalid_request';
-}
-
-function inferredCodingScore(model: ProviderModel, candidate: RouterCandidate) {
-  if (typeof candidate.codingScore === 'number') return candidate.codingScore;
-  const haystack = `${model.id} ${model.model} ${model.display}`.toLowerCase();
-  if (/(deepseek.*v4-pro|qwen3\.7|max|gemini.*pro|glm-5\.1|kimi-k2\.[67])/.test(haystack)) return 0.82;
-  if (/(pro|sonnet|opus|coder|coding)/.test(haystack)) return 0.72;
-  if (/(flash|mini|max|m2\.5|mimo|glm)/.test(haystack)) return 0.48;
-  return 0.34;
-}
-
-function candidateCostEstimate(candidate: RouterCandidate, model: ProviderModel) {
-  const resolved = resolveEffectiveCandidatePricing(candidate.model, {
-    inputPrice: candidate.inputPrice,
-    outputPrice: candidate.outputPrice
-  });
-  const inputPrice = typeof resolved.inputPrice === 'number' ? resolved.inputPrice : 0;
-  const outputPrice = typeof resolved.outputPrice === 'number' ? resolved.outputPrice : 0;
-  if (inputPrice || outputPrice) return inputPrice + outputPrice;
-
-  let base = 2;
-  if (model.contextLength >= 1000000) base = 3;
-  else if (model.contextLength >= 128000) base = 2;
-  else base = 1;
-
-  const id = `${model.id} ${model.model}`.toLowerCase();
-  if (/(pro|opus|sonnet|v4-pro|k2\.6|max)/.test(id)) base = Math.max(base, 3);
-  if (/(flash|mini|nano|haiku|v1-8k|v1-32k)/.test(id)) base = Math.min(base, 1);
-
-  return base;
-}
-
-const BANDIT_CONTEXT_DIM = 6;
-
-function banditContextVector(features: ReturnType<typeof requestFeatureSummary>, body: any): number[] {
-  const toolCount = Array.isArray(body?.tools) ? Math.min(body.tools.length, 10) : 0;
-  const messageCount = Array.isArray(body?.messages) ? Math.min(body.messages.length, 20) : 0;
-
-  return [
-    Math.min(features.approxInputTokens / 100000, 1),
-    Math.min(features.requestedOutputTokens / 100000, 1),
-    features.requiresTools ? 1 : 0,
-    features.requiresImages ? 1 : 0,
-    toolCount / 10,
-    messageCount / 20
-  ];
-}
-
-function banditIdentityMatrix(dim: number): number[][] {
-  const I: number[][] = [];
-  for (let i = 0; i < dim; i += 1) {
-    I.push(Array(dim).fill(0));
-    I[i][i] = 1;
-  }
-  return I;
-}
-
-function banditMatrixVectorMul(A: number[][], v: number[]): number[] {
-  return A.map((row) => row.reduce((sum, a, j) => sum + a * v[j], 0));
-}
-
-function banditDot(a: number[], b: number[]): number {
-  return a.reduce((sum, val, i) => sum + val * b[i], 0);
-}
-
-function banditVectorScale(v: number[], scale: number): number[] {
-  return v.map((val) => val * scale);
-}
-
-function banditMatrixScale(A: number[][], scale: number): number[][] {
-  return A.map((row) => row.map((val) => val * scale));
-}
-
-function banditOuterProduct(a: number[], b: number[]): number[][] {
-  return a.map((ai) => b.map((bj) => ai * bj));
-}
-
-function banditMatrixAdd(A: number[][], B: number[][]): number[][] {
-  return A.map((row, i) => row.map((val, j) => val + B[i][j]));
-}
-
-function banditSolve(A: number[][], b: number[]): number[] {
-  const n = A.length;
-  const augmented = A.map((row, i) => [...row, b[i]]);
-
-  for (let col = 0; col < n; col += 1) {
-    let maxRow = col;
-    for (let row = col + 1; row < n; row += 1) {
-      if (Math.abs(augmented[row][col]) > Math.abs(augmented[maxRow][col])) maxRow = row;
-    }
-    [augmented[col], augmented[maxRow]] = [augmented[maxRow], augmented[col]];
-
-    const pivot = augmented[col][col];
-    if (Math.abs(pivot) < 1e-12) continue;
-
-    for (let j = col; j <= n; j += 1) augmented[col][j] /= pivot;
-
-    for (let row = 0; row < n; row += 1) {
-      if (row === col) continue;
-      const factor = augmented[row][col];
-      for (let j = col; j <= n; j += 1) augmented[row][j] -= factor * augmented[col][j];
-    }
-  }
-
-  return augmented.map((row) => row[n]);
-}
-
-function banditInitState(dim: number, gamma: number): BanditState {
-  return {
-    A: banditIdentityMatrix(dim),
-    b: Array(dim).fill(0),
-    gamma,
-    sampleCount: 0
-  };
-}
-
-function banditPredict(state: BanditState, context: number[], explorationAlpha: number): { score: number; theta: number[]; uncertainty: number } {
-  const theta = banditSolve(state.A, state.b);
-  const AInvContext = banditSolve(state.A, context);
-  const uncertainty = Math.sqrt(Math.max(0, banditDot(context, AInvContext)));
-  const predictedReward = banditDot(theta, context);
-  return {
-    score: predictedReward + explorationAlpha * uncertainty,
-    theta,
-    uncertainty
-  };
-}
-
-function banditUpdate(state: BanditState, context: number[], reward: number): void {
-  const gamma = state.gamma;
-  state.A = banditMatrixAdd(
-    banditMatrixScale(state.A, gamma),
-    banditOuterProduct(context, context)
-  );
-  state.b = banditVectorAdd(
-    banditVectorScale(state.b, gamma),
-    banditVectorScale(context, reward)
-  );
-  state.sampleCount += 1;
-}
-
-function banditVectorAdd(a: number[], b: number[]): number[] {
-  return a.map((val, i) => val + b[i]);
-}
-
-function routerCandidateEligibility(router: RouterModel, candidate: RouterCandidate, body: any) {
-  const resolved = findProviderModel(candidate.model);
-  const target = resolveModelTarget(candidate.model);
-  const features = requestFeatureSummary(body);
-  const rejectionReasons: string[] = [];
-
-  if (candidate.enabled === false) {
-    rejectionReasons.push('candidate_disabled');
-  }
-  if (!target || isLocalRouterProviderName(target.providerName)) {
-    rejectionReasons.push('unresolved');
-  }
-  if (target && !providerHasConfiguredKey(target.providerName)) {
-    rejectionReasons.push('missing_provider_key');
-  }
-  if (target && rejectionReasons.includes('missing_provider_key')) {
-    console.warn(`[router] Skipping candidate "${candidate.model}" — provider "${target.providerName}" has no configured API key`);
-  }
-  if (
-    target?.providerName === 'ollama'
-    && resolved
-    && isOllamaCloudPresentedIdBlocked(candidate.model, resolved.model, ollamaCloudRoutingAllowsPro())
-  ) {
-    rejectionReasons.push('ollama_cloud_tier_blocked');
-  }
-  if (
-    target
-    && resolved
-    && (target.providerName === 'kilo' || target.providerName === 'cline')
-    && !gatewayModelAllowedForRouter(target.providerName, resolved.model)
-  ) {
-    rejectionReasons.push('gateway_tier_blocked');
-  }
-  if (resolved) {
-    if (features.requiresTools && !resolved.supportsTools) rejectionReasons.push('tools_required');
-    if (features.requiresImages && !resolved.supportsImages) rejectionReasons.push('vision_required');
-    if (features.approxInputTokens + features.requestedOutputTokens > resolved.contextLength) rejectionReasons.push(`context_exceeded(need=${features.approxInputTokens + features.requestedOutputTokens},limit=${resolved.contextLength})`);
-    if (features.requestedOutputTokens > resolved.outputTokens) rejectionReasons.push(`output_exceeded(need=${features.requestedOutputTokens},limit=${resolved.outputTokens})`);
-  }
-
-  const codingScore = resolved ? inferredCodingScore(resolved, candidate) : (candidate.codingScore || 0);
-  if (router.type === 'pareto-code' && typeof router.minCodingScore === 'number' && codingScore < router.minCodingScore) {
-    rejectionReasons.push('coding_score_below_minimum');
-  }
-
-  return {
-    ok: rejectionReasons.length === 0,
-    rejectionReasons,
-    resolved,
-    target,
-    codingScore,
-    features
-  };
-}
-
-function selectBanditCandidate(router: RouterModel, body: any): RouterDecision | { error: string; candidateScores: Array<Record<string, unknown>> } {
-  const features = requestFeatureSummary(body);
-  const context = banditContextVector(features, body);
-  const explorationAlpha = router.explorationBudget ?? 0.05;
-  const dim = BANDIT_CONTEXT_DIM;
-
-  if (!router.banditState) {
-    router.banditState = {};
-  }
-
-  const banditState = router.banditState;
-
-  const scored = router.candidates.map((candidate, index) => {
-    const eligibility = routerCandidateEligibility(router, candidate, body);
-    const model = eligibility.resolved;
-    const cost = model ? candidateCostEstimate(candidate, model) : Number.MAX_SAFE_INTEGER;
-    const latencyMs = typeof candidate.latencyMs === 'number' ? candidate.latencyMs : 2000;
-
-    let banditScore = eligibility.codingScore;
-    let theta: number[] = [];
-    let uncertainty = 0;
-
-    if (eligibility.ok) {
-      const state = banditState[candidate.model] || banditInitState(dim, 0.98);
-      banditState[candidate.model] = state;
-      const prediction = banditPredict(state, context, explorationAlpha * (1 / Math.max(1, Math.log(state.sampleCount + 2))));
-      banditScore = Math.max(0, Math.min(1, prediction.score));
-      theta = prediction.theta;
-      uncertainty = prediction.uncertainty;
-    }
-
-    return {
-      candidate,
-      index,
-      eligible: eligibility.ok,
-      reasons: eligibility.rejectionReasons,
-      model,
-      codingScore: eligibility.codingScore,
-      cost,
-      latencyMs,
-      banditScore,
-      theta,
-      uncertainty
-    };
-  });
-
-  const candidateScores = scored.map((entry) => ({
-    model: entry.candidate.model,
-    eligible: entry.eligible,
-    reasons: entry.reasons,
-    codingScore: Number(entry.codingScore.toFixed(4)),
-    costEstimate: entry.cost === Number.MAX_SAFE_INTEGER ? null : entry.cost,
-    latencyMs: null,
-    contextLength: entry.model?.contextLength || null,
-    maxOutput: entry.model?.outputTokens || null,
-    banditScore: entry.eligible ? Number(entry.banditScore.toFixed(4)) : null,
-    uncertainty: entry.eligible ? Number(entry.uncertainty.toFixed(4)) : null,
-    sampleCount: entry.eligible ? (banditState[entry.candidate.model]?.sampleCount || 0) : null,
-    score: entry.eligible ? Number(entry.banditScore.toFixed(4)) : null
-  }));
-
-  const eligibleEntries = scored.filter((entry) => entry.eligible);
-  if (eligibleEntries.length === 0) {
-    const missingProviders = [...new Set(
-      scored
-        .filter((e) => e.reasons?.includes('missing_provider_key'))
-        .map((e) => { const t = resolveModelTarget(e.candidate.model); return t?.providerName; })
-        .filter(Boolean) as string[]
-    )];
-    const detail = missingProviders.length > 0
-      ? ` Configure one of these providers: ${missingProviders.join(', ')}.`
-      : '';
-    return {
-      error: `Router has no eligible configured candidate models for this request.${detail}`,
-      candidateScores
-    };
-  }
-
-  const MIN_EXPLORATION_SAMPLES = 10;
-  const needsExploration = eligibleEntries.some((entry) => {
-    const state = banditState[entry.candidate.model];
-    return !state || state.sampleCount < MIN_EXPLORATION_SAMPLES;
-  });
-
-  let ordered: typeof scored;
-  if (needsExploration) {
-    const unexplored = eligibleEntries.filter((entry) => {
-      const state = banditState[entry.candidate.model];
-      return !state || state.sampleCount < MIN_EXPLORATION_SAMPLES;
-    });
-    const explored = eligibleEntries.filter((entry) => {
-      const state = banditState[entry.candidate.model];
-      return state && state.sampleCount >= MIN_EXPLORATION_SAMPLES;
-    });
-    const unexploredSorted = unexplored.sort((a, b) => (
-      (banditState[a.candidate.model]?.sampleCount || 0) - (banditState[b.candidate.model]?.sampleCount || 0)
-    ));
-    const exploredSorted = explored.sort((a, b) => b.banditScore - a.banditScore || a.index - b.index);
-    ordered = orderEligibleRouterEntriesByExhaustion([...unexploredSorted, ...exploredSorted]);
-  } else {
-    ordered = orderEligibleRouterEntriesByExhaustion(eligibleEntries);
-  }
-
-  return {
-    router,
-    selected: ordered[0].candidate,
-    orderedCandidates: ordered.map((entry) => entry.candidate),
-    candidateScores
-  };
-}
-
-export function selectRouterCandidate(router: RouterModel, body: any): RouterDecision | { error: string; candidateScores: Array<Record<string, unknown>> } {
-  const tradeOff = router.costQualityTradeoff ?? DEFAULT_ROUTER_COST_QUALITY_TRADEOFF;
-
-  if (router.type === 'bandit-local') {
-    return selectBanditCandidate(router, body);
-  }
-
-  const scored = router.candidates.map((candidate, index) => {
-    const eligibility = routerCandidateEligibility(router, candidate, body);
-    const model = eligibility.resolved;
-    const cost = model ? candidateCostEstimate(candidate, model) : Number.MAX_SAFE_INTEGER;
-    const latencyMs = typeof candidate.latencyMs === 'number' ? candidate.latencyMs : 2000;
-
-    return {
-      candidate,
-      index,
-      eligible: eligibility.ok,
-      reasons: eligibility.rejectionReasons,
-      model,
-      codingScore: eligibility.codingScore,
-      cost,
-      latencyMs
-    };
-  });
-
-  const eligible = scored.filter((entry) => entry.eligible);
-
-  // Auto-tier deranking
-  if (router.enableAutoTiers) {
-    const eventsPath = existingPath(ROUTER_EVENTS_PATH, LEGACY_ROUTER_EVENTS_PATH);
-    const candidateModels = router.candidates.map((c) => c.model);
-    const tiers = computeTiers(candidateModels, eventsPath);
-    const derankedSet = new Set(tiers.filter((t) => t.tier === 'deranked').map((t) => t.model));
-    if (derankedSet.size > 0) {
-      for (const entry of scored) {
-        if (derankedSet.has(entry.candidate.model)) {
-          entry.eligible = false;
-          entry.reasons = [...(entry.reasons || []), 'auto_tier_deranked'];
-        }
-      }
-    }
-  }
-
-  const allCosts = scored.map((entry) => entry.cost).filter((c) => c !== Number.MAX_SAFE_INTEGER);
-  const maxCost = allCosts.length > 0 ? Math.max(...allCosts) : 1;
-  const allContexts = scored.map((entry) => entry.model?.contextLength || 0).filter(Boolean);
-  const maxContext = allContexts.length > 0 ? Math.max(...allContexts) : 1;
-
-  const scoredNormalized = scored.map((entry) => {
-    if (!entry.eligible) {
-      return { ...entry, score: Number.NEGATIVE_INFINITY };
-    }
-
-    const qualityWeight = router.type === 'auto-local' ? tradeOff / 10 : router.type === 'pareto-code' ? 1.0 : 1.0;
-    const costWeight = router.type === 'auto-local' ? (10 - tradeOff) / 10 : router.type === 'pareto-code' ? 0.2 : 1.0;
-    const contextWeight = router.type === 'auto-local' ? 0.1 : router.type === 'pareto-code' ? 0.1 : 0.3;
-
-    const normalizedCoding = entry.codingScore;
-    const normalizedCost = maxCost > 0 ? entry.cost / maxCost : 0;
-    const normalizedContext = maxContext > 0 ? (entry.model?.contextLength || 0) / maxContext : 0;
-    const indexPenalty = entry.index / Math.max(scored.length, 1);
-
-    const isFree = entry.cost === 0 || entry.candidate.model.includes('-free') || entry.candidate.model.includes('cloud') || entry.candidate.model.includes('openrouter-free');
-    const freeTerm = isFree ? 0.15 : 0.0;
-
-    const score = (qualityWeight * normalizedCoding)
-      - (costWeight * normalizedCost)
-      + (contextWeight * normalizedContext)
-      + freeTerm
-      - (0.001 * indexPenalty);
-
-    return { ...entry, score };
-  });
-
-  const candidateScores = scoredNormalized.map((entry) => ({
-    model: entry.candidate.model,
-    eligible: entry.eligible,
-    reasons: entry.reasons,
-    codingScore: Number(entry.codingScore.toFixed(4)),
-    costEstimate: entry.cost === Number.MAX_SAFE_INTEGER ? null : entry.cost,
-    latencyMs: null,
-    contextLength: entry.model?.contextLength || null,
-    maxOutput: entry.model?.outputTokens || null,
-    score: Number.isFinite(entry.score) ? Number(entry.score.toFixed(4)) : null
-  }));
-
-  const eligibleEntries = scoredNormalized.filter((entry) => entry.eligible && Number.isFinite(entry.score));
-  if (eligibleEntries.length === 0) {
-    const missingProviders = [...new Set(
-      scoredNormalized
-        .filter((e) => e.reasons?.includes('missing_provider_key'))
-        .map((e) => { const t = resolveModelTarget(e.candidate.model); return t?.providerName; })
-        .filter(Boolean) as string[]
-    )];
-    const detail = missingProviders.length > 0
-      ? ` Configure one of these providers: ${missingProviders.join(', ')}.`
-      : '';
-    return {
-      error: `Router has no eligible configured candidate models for this request.${detail}`,
-      candidateScores
-    };
-  }
-
-  const ordered = router.type === 'priority'
-    ? eligibleEntries.sort((a, b) => a.index - b.index)
-    : orderEligibleRouterEntriesByExhaustion(eligibleEntries);
-
-  return {
-    router,
-    selected: ordered[0].candidate,
-    orderedCandidates: ordered.map((entry) => entry.candidate),
-    candidateScores
-  };
-}
-
-function csvEscape(value: unknown) {
-  let text = String(value ?? '');
-  // Redact sensitive values before writing to telemetry CSV.
-  text = text
-    .replace(/(Bearer\s+)[A-Za-z0-9._~+/=-]+/gi, '$1[REDACTED]')
-    .replace(/([A-Za-z0-9_]*(?:api[_-]?key|token|secret|password|authorization)[A-Za-z0-9_]*\s*[:=]\s*)([^,\s]+)/gi, '$1[REDACTED]');
-  if (/[,\r\n]/.test(text)) {
-    return `"${text.replace(/"/g, '""')}"`;
-  }
-  return text;
-}
-
-function parseCsvLine(line: string): string[] {
-  const fields: string[] = [];
-  let current = '';
-  let inQuotes = false;
-  for (let i = 0; i < line.length; i++) {
-    const ch = line[i];
-    if (inQuotes) {
-      if (ch === '"') {
-        if (i + 1 < line.length && line[i + 1] === '"') {
-          current += '"';
-          i++;
-        } else {
-          inQuotes = false;
-        }
-      } else {
-        current += ch;
-      }
-    } else {
-      if (ch === '"') {
-        inQuotes = true;
-      } else if (ch === ',') {
-        fields.push(current);
-        current = '';
-      } else {
-        current += ch;
-      }
-    }
-  }
-  fields.push(current);
-  return fields;
-}
-
-function routerEventFeatures(features: ReturnType<typeof requestFeatureSummary>, body: any) {
-  let promptHash = '';
-  try {
-    const messages = Array.isArray(body?.messages) ? body.messages : [];
-    const sample = JSON.stringify(messages.slice(0, 3)).slice(0, 500);
-    promptHash = crypto.createHash('sha256').update(sample).digest('hex').slice(0, 16);
-  } catch { /* ignore hash failures */ }
-
-  return {
-    requires_tools: features.requiresTools,
-    requires_images: features.requiresImages,
-    code_density: features.codeDensity,
-    language_count: features.languageCount,
-    multi_turn_depth: features.multiTurnDepth,
-    instruction_length: features.instructionLength,
-    coding_task: features.codeDensity > 0.1 || features.languageCount > 0,
-    approx_input_tokens: features.approxInputTokens,
-    requested_output_tokens: features.requestedOutputTokens,
-    tool_calls_requested: Array.isArray(body?.tools) ? body.tools.length : 0,
-    tool_calls_valid: 0,
-    reward_signal: 0,
-    prompt_hash: promptHash
-  };
-}
-
-function recordProxyTelemetry(event: {
-  routeKind: 'router' | 'direct' | 'fallback';
-  routerId?: string;
-  routerType?: string;
-  presentedModel: string;
-  selectedModel: string;
-  status: number;
-  durationMs: number;
-  stream: boolean;
-  body: any;
-  errorType?: string;
-  rewardSignal?: number;
-  toolCallsValid?: boolean;
-  candidateScores?: unknown;
-}) {
-  const features = requestFeatureSummary(event.body);
-  const eventFeatures = routerEventFeatures(features, event.body);
-  appendRouterEvent({
-    timestamp: new Date().toISOString(),
-    router_id: event.routeKind === 'router' ? (event.routerId || '') : event.routeKind,
-    presented_model: event.presentedModel,
-    router_type: event.routeKind === 'router' ? (event.routerType || '') : event.routeKind,
-    selected_model: event.selectedModel,
-    status: event.status,
-    duration_ms: event.durationMs,
-    candidate_latency_ms: event.durationMs,
-    stream: event.stream,
-    ...eventFeatures,
-    tool_calls_valid: event.toolCallsValid ?? 0,
-    reward_signal: event.rewardSignal ?? 0,
-    prompt_hash: eventFeatures.prompt_hash,
-    candidate_scores: event.candidateScores ? JSON.stringify(event.candidateScores) : '',
-    error_type: event.errorType || ''
-  });
-}
-
-function appendRouterEvent(event: Record<string, unknown>) {
-  try {
-    ensureLocalRouterConfigDir();
-    const headers = [
-      'timestamp',
-      'router_id',
-      'presented_model',
-      'router_type',
-      'selected_model',
-      'status',
-      'duration_ms',
-      'candidate_latency_ms',
-      'stream',
-      'requires_tools',
-      'requires_images',
-      'code_density',
-      'language_count',
-      'multi_turn_depth',
-      'instruction_length',
-      'coding_task',
-      'approx_input_tokens',
-      'requested_output_tokens',
-      'tool_calls_requested',
-      'tool_calls_valid',
-      'reward_signal',
-      'prompt_hash',
-      'candidate_scores',
-      'error_type'
-    ];
-    if (!fs.existsSync(ROUTER_EVENTS_PATH)) {
-      fs.writeFileSync(ROUTER_EVENTS_PATH, `${headers.join(',')}\n`, { encoding: 'utf8', mode: 0o600 });
-    }
-    const row = headers.map((header) => csvEscape(event[header])).join(',');
-    fs.appendFileSync(ROUTER_EVENTS_PATH, `${row}\n`, { encoding: 'utf8', mode: 0o600 });
-    fs.chmodSync(ROUTER_EVENTS_PATH, 0o600);
-  } catch {
-    // best-effort telemetry — never crash a request over CSV writes
-  }
 }
 
 export function classifyHttpFailure(status: number, bodyText: string): AttemptFailure['errorType'] {
@@ -5998,287 +4584,13 @@ async function handleChatCompletion(req: Request, res: Response, bodyOverrides?:
   const rawClient = req.headers['x-local-router-client'];
   const clientName = typeof rawClient === 'string' ? rawClient : Array.isArray(rawClient) ? rawClient[0] : 'unknown';
   recordRequest(clientName, String(model));
-  const routerRoute = findRouterModel(model);
   const fallbackRoute = findFallbackModel(model);
   const logTracker = new LogEntryTracker(
     clientName,
     String(model),
-    routerRoute ? 'router' : (fallbackRoute ? 'fallback' : 'direct'),
-    routerRoute?.id
+    fallbackRoute ? 'fallback' : 'direct'
   );
   logTracker.setRequestDetails(body);
-
-  if (routerRoute) {
-    const decision = selectRouterCandidate(routerRoute, body);
-    if ('error' in decision) {
-      const features = requestFeatureSummary(body);
-      const eventFeatures = routerEventFeatures(features, body);
-      appendRouterEvent({
-        timestamp: new Date().toISOString(),
-        router_id: routerRoute.id,
-        presented_model: routerPresentedModelId(routerRoute),
-        router_type: routerRoute.type,
-        selected_model: '',
-        status: 400,
-        duration_ms: Date.now() - requestStartedAt,
-        candidate_latency_ms: 0,
-        stream: Boolean(stream),
-        ...eventFeatures,
-        candidate_scores: JSON.stringify(decision.candidateScores),
-        error_type: 'no_eligible_candidates'
-      });
-
-      const systemFallbackForEligibility = findSystemFallback();
-      if (systemFallbackForEligibility) {
-        pushDiagnostic({
-          event: 'proxy_error',
-          route: requestRoute,
-          presentedModel: model,
-          stream: Boolean(stream),
-          status: 400,
-          durationMs: Date.now() - requestStartedAt,
-          data: {
-            routerNoEligibleCandidates: {
-              route: routerRoute.id,
-              error: decision.error,
-              candidateScores: decision.candidateScores
-            },
-            cascadingToSystemFallback: systemFallbackForEligibility.id
-          }
-        });
-        logTracker.onFailure(400, 'no_eligible_candidates', decision.error);
-        return executeFallbackRoute(
-          systemFallbackForEligibility,
-          body,
-          model,
-          stream,
-          requestRoute,
-          outputFormat,
-          requestStartedAt,
-          res,
-          logTracker
-        );
-      }
-
-      logTracker.onFailure(400, 'no_eligible_candidates', decision.error);
-      logTracker.onFinish(Date.now() - requestStartedAt);
-      return res.status(400).json({
-        error: decision.error,
-        router: {
-          id: routerPresentedModelId(routerRoute),
-          routeId: routerRoute.id,
-          type: routerRoute.type,
-          candidates: routerRoute.candidates.map((candidate) => candidate.model),
-          candidateScores: decision.candidateScores
-        }
-      });
-    }
-
-    const attemptLog: Array<Record<string, unknown>> = [];
-    let lastFailure: AttemptFailure | null = null;
-    const candidateByModel = new Map(decision.orderedCandidates.map((entry) => [entry.model, entry]));
-    const routerExecutionPlan = buildWraparoundExecutionPlan(
-      decision.orderedCandidates.map((entry) => entry.model),
-      1 + ROUTER_CANDIDATE_RETRIES
-    );
-    let stageOrdinal = 0;
-
-    for (const stage of routerExecutionPlan) {
-      const candidate = candidateByModel.get(stage.model);
-      if (!candidate) continue;
-      stageOrdinal += 1;
-      const routerData = {
-        route: routerRoute.id,
-        type: routerRoute.type,
-        selectedModel: decision.selected.model,
-        targetModel: candidate.model,
-        candidateIndex: stageOrdinal,
-        candidateCount: routerExecutionPlan.length,
-        candidateScores: decision.candidateScores,
-        executionStage: stage.stage,
-        wraparoundRevisit: !stage.primary
-      };
-
-      let candidateSucceeded = false;
-      for (let attempt = 1; attempt <= stage.attempts; attempt += 1) {
-        const result = await proxyModelAttempt(
-          body,
-          requestRoute,
-          outputFormat,
-          model,
-          candidate.model,
-          Boolean(stream),
-          requestStartedAt,
-          { ...routerData, candidateAttempt: attempt, candidateMaxAttempts: stage.attempts }
-        );
-
-        if (result.ok) {
-          candidateSucceeded = true;
-          logTracker.onSuccess(result.value.providerName, result.value.actualModel, result.value.response.status);
-          const features = requestFeatureSummary(body);
-          const eventFeatures = routerEventFeatures(features, body);
-          const attemptDuration = Date.now() - requestStartedAt;
-
-          if (routerRoute.type === 'bandit-local' && routerRoute.banditState) {
-            const context = banditContextVector(features, body);
-            const state = routerRoute.banditState[candidate.model];
-            if (state) {
-              banditUpdate(state, context, 1);
-              try { persistRouterModels(); } catch { /* best-effort */ }
-            }
-          }
-
-          appendRouterEvent({
-            timestamp: new Date().toISOString(),
-            router_id: routerRoute.id,
-            presented_model: routerPresentedModelId(routerRoute),
-            router_type: routerRoute.type,
-            selected_model: candidate.model,
-            status: result.value.response.status,
-            duration_ms: attemptDuration,
-            candidate_latency_ms: attemptDuration,
-            stream: Boolean(stream),
-            ...eventFeatures,
-            tool_calls_valid: eventFeatures.tool_calls_requested > 0,
-            reward_signal: 1,
-            candidate_scores: JSON.stringify(decision.candidateScores),
-            error_type: ''
-          });
-          return sendSuccessfulProxyResponse(
-            res,
-            model,
-            Boolean(stream),
-            requestRoute,
-            requestStartedAt,
-            outputFormat,
-            result.value,
-            {
-              router: {
-                route: routerRoute.id,
-                type: routerRoute.type,
-                selectedModel: candidate.model,
-                primarySelectedModel: decision.selected.model,
-                candidateAttempt: attempt,
-                candidateMaxAttempts: stage.attempts,
-                executionStage: stage.stage,
-                failedAttemptsBeforeSuccess: attemptLog.length
-              }
-            },
-            logTracker
-          );
-        }
-
-        lastFailure = result.error;
-
-        if (routerRoute.type === 'bandit-local' && routerRoute.banditState && attempt === stage.attempts) {
-          const requestFeats = requestFeatureSummary(body);
-          const ctx = banditContextVector(requestFeats, body);
-          const state = routerRoute.banditState[candidate.model];
-          if (state) {
-            banditUpdate(state, ctx, 0);
-            try { persistRouterModels(); } catch { /* best-effort */ }
-          }
-        }
-
-        attemptLog.push({
-          routerRoute: routerRoute.id,
-          targetModel: candidate.model,
-          executionStage: stage.stage,
-          candidateAttempt: attempt,
-          candidateMaxAttempts: stage.attempts,
-          provider: result.error.providerName || null,
-          actualModel: result.error.actualModel || null,
-          status: result.error.status || null,
-          errorType: result.error.errorType,
-          errorMessage: sanitizeDiagnosticText(result.error.message, 220),
-          providerErrorPreview: sanitizeDiagnosticText(result.error.responseText || '', 280)
-        });
-
-        if (isImmediateRouterSkipError(result.error.errorType)) {
-          break;
-        }
-
-        if (attempt < stage.attempts) {
-          const waitSeconds = fallbackRetryDelaySeconds(attempt);
-          pushDiagnostic({
-            event: 'proxy_error',
-            route: requestRoute,
-            provider: result.error.providerName,
-            presentedModel: model,
-            actualModel: result.error.actualModel,
-            stream: Boolean(stream),
-            status: result.error.status || 500,
-            durationMs: Date.now() - requestStartedAt,
-            data: {
-              routerRetry: { route: routerRoute.id, candidate: candidate.model, attempt, waitBeforeRetrySeconds: waitSeconds },
-              errorType: result.error.errorType,
-              errorMessage: sanitizeDiagnosticText(result.error.message, 220),
-              providerErrorPreview: sanitizeDiagnosticText(result.error.responseText || '', 180)
-            }
-          });
-          await waitMs(waitSeconds * 1000);
-        }
-      }
-    }
-
-    const terminalFailure = lastFailure as AttemptFailure | null;
-    const status = terminalFailure?.status || 502;
-    const features = requestFeatureSummary(body);
-    const eventFeatures = routerEventFeatures(features, body);
-    appendRouterEvent({
-      timestamp: new Date().toISOString(),
-      router_id: routerRoute.id,
-      presented_model: routerPresentedModelId(routerRoute),
-      router_type: routerRoute.type,
-      selected_model: decision.selected.model,
-      status,
-      duration_ms: Date.now() - requestStartedAt,
-      candidate_latency_ms: Date.now() - requestStartedAt,
-      stream: Boolean(stream),
-      ...eventFeatures,
-      tool_calls_valid: false,
-      candidate_scores: JSON.stringify(decision.candidateScores),
-      error_type: terminalFailure?.errorType || 'router_exhausted'
-    });
-
-    const systemFallback = findSystemFallback();
-    if (systemFallback) {
-      pushDiagnostic({
-        event: 'proxy_error',
-        route: requestRoute,
-        presentedModel: model,
-        stream: Boolean(stream),
-        status,
-        durationMs: Date.now() - requestStartedAt,
-        data: {
-          routerExhausted: { route: routerRoute.id, attempts: attemptLog.length },
-          cascadingToSystemFallback: systemFallback.id
-        }
-      });
-      return executeFallbackRoute(systemFallback, body, model, stream, requestRoute, outputFormat, requestStartedAt, res, logTracker);
-    }
-
-    if (logTracker) {
-      logTracker.onFailure(
-        status,
-        terminalFailure?.errorType || 'router_exhausted',
-        `Router model "${routerRoute.id}" exhausted all eligible candidates. No system fallback configured.`
-      );
-      logTracker.onFinish(Date.now() - requestStartedAt);
-    }
-
-    return res.status(status).json({
-      error: `Router model "${routerRoute.id}" exhausted all eligible candidates. No system fallback configured.`,
-      router: {
-        id: routerPresentedModelId(routerRoute),
-        routeId: routerRoute.id,
-        type: routerRoute.type,
-        selectedModel: decision.selected.model,
-        attempts: attemptLog,
-        candidateScores: decision.candidateScores
-      }
-    });
-  }
 
   if (fallbackRoute) {
     return executeFallbackRoute(fallbackRoute, body, model, stream, requestRoute, outputFormat, requestStartedAt, res, logTracker);
@@ -6297,19 +4609,6 @@ async function handleChatCompletion(req: Request, res: Response, bodyOverrides?:
 
   if (directModelResult.ok) {
     logTracker.onSuccess(directModelResult.value.providerName, directModelResult.value.actualModel, directModelResult.value.response.status);
-    const features = requestFeatureSummary(body);
-    const eventFeatures = routerEventFeatures(features, body);
-    recordProxyTelemetry({
-      routeKind: 'direct',
-      presentedModel: String(model),
-      selectedModel: directModelResult.value.actualModel || String(model),
-      status: directModelResult.value.response.status,
-      durationMs: Date.now() - requestStartedAt,
-      stream: Boolean(stream),
-      body,
-      rewardSignal: 1,
-      toolCallsValid: eventFeatures.tool_calls_requested > 0
-    });
     return sendSuccessfulProxyResponse(
       res,
       model,
@@ -6322,18 +4621,6 @@ async function handleChatCompletion(req: Request, res: Response, bodyOverrides?:
       logTracker
     );
   }
-
-  recordProxyTelemetry({
-    routeKind: 'direct',
-    presentedModel: String(model),
-    selectedModel: directModelResult.error.actualModel || String(model),
-    status: directModelResult.error.status || 500,
-    durationMs: Date.now() - requestStartedAt,
-    stream: Boolean(stream),
-    body,
-    errorType: directModelResult.error.errorType,
-    rewardSignal: 0
-  });
 
   const sysFallback = findSystemFallback();
 
@@ -6456,18 +4743,6 @@ async function executeFallbackRoute(
         if (logTracker) {
           logTracker.onSuccess(result.value.providerName, result.value.actualModel, result.value.response.status);
         }
-        recordProxyTelemetry({
-          routeKind: 'fallback',
-          routerId: fallbackRoute.id,
-          presentedModel,
-          selectedModel: stage.model,
-          status: result.value.response.status,
-          durationMs: Date.now() - requestStartedAt,
-          stream: Boolean(stream),
-          body,
-          rewardSignal: 1,
-          toolCallsValid: Array.isArray(body?.tools) && body.tools.length > 0
-        });
         return sendSuccessfulProxyResponse(
           res,
           presentedModel,

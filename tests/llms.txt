@@ -4,7 +4,7 @@ Test suite for local-router behavior, providers, routing, and API compliance.
 
 ## Purpose
 
-- Verify router selection, fallback execution, disabled models, gateway responses, responses API streams, websocket behavior, provider keys, catalog validation.
+- Verify fallback chain execution, disabled models, gateway responses, responses API streams, websocket behavior, provider keys, catalog validation.
 
 ## Ownership
 

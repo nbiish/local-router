@@ -1,8 +1,6 @@
 import { renderLayout } from './layout';
 
 export function renderProvidersPage(params: {
-  defaultRouterId: string;
-  defaultRouterCandidatesText: string;
   defaultFallbackModelsText: string;
 }): string {
   const body = `
@@ -180,6 +178,20 @@ export function renderProvidersPage(params: {
           <div class="muted" id="catalogCount">Loading catalog...</div>
         </div>
         <div id="catalog" class="catalog"></div>
+        <div style="margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--border, #d0d7de);">
+          <h3 style="margin: 0 0 4px;">Fallback Chains</h3>
+          <div class="muted" id="fallbackChainCount">Loading fallback chain...</div>
+          <p class="muted">Toggle models below to add/remove them; drag to set fallback order; changes save immediately.</p>
+          <div class="form-group" style="max-width: 320px; margin-bottom: 10px;">
+            <label for="fallbackChainSelector">Chain</label>
+            <select id="fallbackChainSelector" onchange="selectFallbackChain(this.value)">
+              <option value="fallback-models" selected>local-router/fallback-models</option>
+            </select>
+          </div>
+          <div id="fallbackOrderList" class="router-candidate-list">
+            <div class="router-candidate-empty">Loading fallback chain...</div>
+          </div>
+        </div>
       </div>
       <div class="card">
         <h2>OAuth Provider Logins</h2>
