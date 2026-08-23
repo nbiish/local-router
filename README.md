@@ -50,6 +50,10 @@ Configuration UI:
 http://127.0.0.1:11434/config
 ```
 
+## Platforms
+
+Local Router is architecture-agnostic: the same Node.js code runs on **macOS**, **Linux**, and **Windows** (use an **Ubuntu terminal via WSL**). Every command in this README is shell-generic — run it as-is in zsh (macOS default), bash (Linux), or your WSL/Ubuntu shell (Windows). The only requirements are Node.js and npm.
+
 ## Install And Run
 
 ```bash
@@ -138,13 +142,13 @@ Limited-time provider promos (ZenMux matched Qwen pricing, Wafer MiniMax-M3 week
 
 ## Configuration Storage
 
-Local Router writes non-secret route and telemetry files under:
+Local Router writes non-secret route and telemetry files under your POSIX home directory:
 
 ```text
 ~/.config/local-router
 ```
 
-It reads legacy `~/.config/fvs-code` files when the new files do not exist yet. Provider API keys are not written to these JSON or CSV files.
+(`~` is your macOS/Linux home directory, or your Ubuntu/WSL home on Windows.) It reads legacy `~/.config/fvs-code` files when the new files do not exist yet. Provider API keys are not written to these JSON or CSV files.
 
 ## Security Notes
 
@@ -152,7 +156,7 @@ It reads legacy `~/.config/fvs-code` files when the new files do not exist yet. 
 
 ### PQC secrets bootstrap (fresh machine)
 
-The bundle and keypair are **machine-local** — a clone brings neither (by design: **keys are never transported, pushed, or synced between machines**). One command after pulling the repo:
+The bundle and keypair are **machine-local** — a clone brings neither (by design: **keys are never transported, pushed, or synced between machines**). One command after pulling the repo, run in any POSIX shell (Terminal on macOS, any shell on Linux, or the Ubuntu/WSL terminal on Windows):
 
 ```bash
 ./bin/pqc-secrets setup
