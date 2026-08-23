@@ -1,0 +1,74 @@
+openrouter-presets — Prompt/Context Caching
+Last verified: 2026-08-23
+
+Overview
+--------
+openrouter-presets is a local-router preset alias for the OpenRouter provider:
+it targets the same upstream (https://openrouter.ai/api/v1) but addresses
+account-scoped OpenRouter presets such as `@preset/chain-of-draft` (model IDs
+of the form `@preset/<name>`). In local-router this slug was renamed/
+canonicalized to `openrouter` on 2026-08-18; both names resolve to the same
+provider. Caching behavior is therefore identical to OpenRouter itself — the
+preset only pins a model/provider preference list on the OpenRouter side.
+
+Mechanism
+---------
+Same as OpenRouter (see openrouter.txt):
+- Explicit Anthropic-style `cache_control: {"type":"ephemeral"}` breakpoints
+  (top-level or per-block, ttl:"1h" optional) forwarded to Anthropic, Gemini,
+  and Alibaba/Qwen upstreams.
+- Automatic/implicit caching on OpenAI, DeepSeek, Grok, Moonshot, Groq,
+  Gemini 2.5+ implicit, Z.AI.
+- Provider sticky routing keyed by conversation hash, `session_id`, or
+  `prompt_cache_key`, with 10-minute inactivity expiry.
+
+Max configuration
+-----------------
+Identical to OpenRouter: Anthropic-style presets get maximum benefit from a
+top-level `cache_control: {"type":"ephemeral","ttl":"1h"}` plus a stable
+`session_id`. Whatever model/provider set the preset resolves to determines
+which per-upstream rules (thresholds, TTLs, pricing) apply — check the
+resolved provider for the request in the OpenRouter activity log.
+
+Limits & thresholds
+-------------------
+- All OpenRouter per-upstream limits apply (Anthropic 1024-4096 token minimums
+  and 4 breakpoint cap; OpenAI 1024 min; Gemini 1024/4096 min and ~3-5 min
+  implicit TTL / 5 min explicit TTL).
+- Preset caution: a preset that pins `provider.order` on the OpenRouter side
+  DISABLES OpenRouter's provider sticky routing for those requests, which
+  lowers cache-hit rates when multiple providers could serve the model. Prefer
+  presets that allow fallback/sorting to let sticky routing work.
+- Sticky sessions expire after 10 minutes of inactivity; each successful
+  request resets the timer.
+
+Pricing
+-------
+No preset-specific pricing; per-upstream cache multipliers apply
+(Anthropic read 0.1x / write 1.25x-2x; OpenAI read 0.25-0.5x; DeepSeek read
+0.1x; Moonshot/Grok read 0.25x; Google read 0.25x; Groq read 0.5x; Alibaba
+read 0.1x). Confirm on the resolved provider's model page.
+
+Maxing recipe
+-------------
+1. Treat exactly like openrouter.txt's recipe: stable prompt head, dynamic
+   tail, `session_id` set, 1h TTL on Anthropic-family breakpoints.
+2. Keep the preset's provider list unpinned (no hard provider.order) so
+   sticky routing can anchor to whichever upstream served the warm cache.
+3. Verify hits in `usage.prompt_tokens_details.cached_tokens` / `cache_discount`.
+
+Local-router integration
+------------------------
+Same injection pipeline as openrouter: local-router strips `provider.order`
+(so sticky routing stays active unless the preset itself pins providers),
+injects `cache_control: {"type":"ephemeral","ttl":"1h"}` on the system and
+second-to-last messages for Anthropic-style models, and sets
+`prompt_cache_retention: '24h'` + `prompt_cache_key` (OpenAI-family) or
+`prompt_cache_key` (kimi/moonshot-family). The slug is an alias of `openrouter`
+in the canonical provider map.
+
+Sources
+-------
+- https://openrouter.ai/docs/guides/best-practices/prompt-caching
+- https://openrouter.ai/docs/guides/routing/provider-selection
+- https://openrouter.ai/blog/tutorials/prompt-caching-sticky-routing/

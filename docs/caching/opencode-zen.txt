@@ -1,0 +1,71 @@
+OpenCode Zen (opencode.ai/zen/v1) — Prompt Caching
+Last verified: 2026-08-23
+
+Overview
+  OpenCode Zen is a curated, pay-as-you-go AI gateway for coding models. It
+  routes each model family over a protocol-native endpoint: Anthropic
+  Messages at /zen/v1/messages (Claude, Qwen3.x), OpenAI Responses at
+  /zen/v1/responses (GPT, Grok, Muse), and OpenAI chat/completions at
+  /zen/v1/chat/completions (DeepSeek, Kimi, GLM, MiniMax). Caching is
+  passed through from the upstream provider; Zen publishes per-model
+  "Cached Read" and (for some models) "Cached Write" prices.
+
+Mechanism
+  - Anthropic-protocol models (Claude, Qwen3.x on /zen/v1/messages):
+    explicit cache_control breakpoints. Cached-write is priced at 1.25x the
+    input rate and cached-read at ~10% of input — the Anthropic 5-minute
+    ephemeral cache signature.
+  - OpenAI Responses models (GPT 5.x, Grok): automatic prompt caching;
+    cached reads ~10-25% of input.
+  - chat/completions models (DeepSeek V4, Kimi, GLM, MiniMax): automatic
+    prefix caching upstream; cached-read price only (no write charge),
+    matching DeepSeek/Kimi/GLM context-cache behavior.
+
+Max configuration
+  For /zen/v1/messages models: mark cache breakpoints with
+  cache_control {type: 'ephemeral'} (add ttl '1h' where the upstream
+  accepts it), up to 4 breakpoints, stable byte-identical prefix. For
+  /zen/v1/responses models: keep the longest possible stable input prefix;
+  caching is automatic. For /zen/v1/chat/completions models: keep system
+  prompt, tools, and early history identical across turns; hits need no
+  flags.
+
+Limits & thresholds
+  Zen publishes no gateway-specific TTL, breakpoint, or minimum-token
+  limits; they inherit from upstreams (e.g. Anthropic semantics: 4
+  breakpoints, 5m default / 1h extended TTL, ~1024-token minimum for
+  Sonnet/Opus families). Zen requires a preloaded credit balance
+  (auto-reload $20 below $5) and supports monthly workspace/member caps.
+
+Pricing (per 1M tokens, selected; full table on Zen docs)
+  Claude Fable 5: in $10.00, cached read $1.00, cached write $12.50
+  Claude Opus 5 / 4.x: in $5.00, cached read $0.50, cached write $6.25
+  Claude Sonnet 4.6: in $3.00, cached read $0.30, cached write $3.75
+  Claude Haiku 4.5: in $1.00, cached read $0.10, cached write $1.25
+  Qwen3.7 Max: in $2.50, cached read $0.50, cached write $3.125
+  GPT 5.6 Sol (<=272K): in $2.00, cached read $0.20, cached write $2.50
+  Kimi K3: in $3.00, cached read $0.30 (no write fee)
+  GLM 5.2/5.1: in $1.40, cached read $0.26 (no write fee)
+  DeepSeek V4 Flash off-peak: in $0.22, cached read $0.007 — ~3% of input
+
+Maxing recipe
+  1. Route Claude/Qwen through /zen/v1/messages and place cache_control on
+     the system prompt and the second-to-last stable block.
+  2. Keep the entire prefix byte-identical across turns; append-only
+     history, no per-turn doc rebuilds.
+  3. On GPT/Grok (Responses) reuse a stable prompt_cache_key-equivalent
+     (input prefix); on DeepSeek/Kimi/GLM/MiniMax rely on automatic prefix
+     cache + off-peak scheduling for DeepSeek.
+  4. Watch usage for cached-token counts; refactor prompts when hits drop.
+
+Local-router integration
+  local-router applies its generic stack to Zen: Anthropic-protocol models
+  get cache_control {type:'ephemeral', ttl:'1h'} injected on system +
+  second-to-last message; OpenAI-family models get prompt_cache_key +
+  prompt_cache_retention:'24h'; kimi/moonshot IDs get prompt_cache_key.
+  Prefixes are kept deterministic so automatic caches engage.
+
+Sources
+  https://opencode.ai/docs/zen/
+  https://opencode.ai/zen/v1/models
+  https://docs.anthropic.com/en/docs/build-with-claude/prompt-caching

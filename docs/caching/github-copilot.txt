@@ -1,0 +1,71 @@
+GitHub Copilot — Copilot inference endpoint (api.githubcopilot.com) — Prompt Caching
+Last verified: 2026-08-23
+
+Overview
+  GitHub Copilot's OpenAI-compatible inference endpoint
+  (api.githubcopilot.com) serves GPT-5.x, Claude, Gemini 3.x, xAI Grok,
+  Microsoft MAI and open-weight (Kimi) models behind a Copilot OAuth
+  token. GitHub publishes NO client-controllable prompt-caching API —
+  no cache_control parameters, no cache fields in the documented usage
+  contract — but its official model-hosting docs state that GitHub
+  itself uses prompt caching server-side for Claude and Gemini models
+  to cut latency. Cached-token billing is also acknowledged in Copilot
+  billing docs (cached tokens billed at ~10% of normal input price per
+  the models-and-pricing page — inference from page snippet; page body
+  was not independently re-fetched).
+
+Mechanism
+  Server-side, automatic. Per docs.github.com/copilot/reference/
+  ai-models/model-hosting: "To provide better service quality and reduce
+  latency, GitHub uses prompt caching" for Anthropic models (hosted on
+  AWS Bedrock / Anthropic PBC / GCP, with ZDR agreements) and again for
+  Gemini models hosted on Google Cloud. Client requests go through the
+  Copilot API; GitHub's proxy decides caching. No TTL, breakpoint, or
+  threshold is documented for the Copilot surface; the upstream
+  Anthropic/Vertex defaults apply invisibly.
+
+Max configuration
+  Nothing to configure per published docs. Best practice matches any
+  prefix-cache overlay: keep system prompt and early context
+  byte-identical and append-only across turns, so GitHub's server-side
+  cache can reuse the prefix; reuse within minutes (Anthropic ephemeral
+  defaults) rather than hours.
+
+Limits & thresholds
+  No documented limits on the Copilot API (no published breakpoint
+  count, TTL, or minimum token count). Models retired from the catalog
+  (gpt-4o, gpt-5, o3-mini) show the surface changes without notice —
+  the caching contract is similarly opaque and internal.
+
+Pricing
+  Copilot bills per-request premium multipliers on paid plans; cached
+  tokens are documented as a token category in usage and (per the
+  models-and-pricing page) priced around 10% of the normal input rate
+  [INFERENCE from search snippet]. Copilot CLI/explicit clients display
+  input/output/cache token counts but offer no cache controls.
+
+Maxing recipe
+  1. Do nothing client-side: GitHub's proxy handles caching for Claude
+     and Gemini routes.
+  2. Keep the prompt prefix stable and unchanged between turns; put
+     volatile content last.
+  3. Reuse context within minutes of the previous call so server-side
+     ephemeral entries are still warm.
+  4. Watch reported usage (input/output/cache counts where exposed)
+     rather than trying to inject markers — cache_control is not a
+     documented Copilot parameter.
+
+Local-router integration
+  local-router's Anthropic cache_control injection is best-effort here:
+  the OpenAI-compatible Copilot endpoint is not documented to accept it
+  and GitHub already caches Claude/Gemini prefixes server-side
+  [INFERENCE: markers are ignored or stripped]. The effective levers
+  are prompt_cache_key/prefix stability on the OpenAI-family shaping,
+  which align with GitHub's automatic caching. No provider-specific
+  fields are set for github-copilot.
+
+Sources
+  https://docs.github.com/en/copilot/reference/ai-models/model-hosting
+  https://docs.github.com/copilot/reference/copilot-billing/models-and-pricing
+  https://docs.github.com/en/enterprise-cloud@latest/copilot/tutorials/optimize-ai-usage
+  https://docs.github.com/en/copilot/how-tos/copilot-cli/cli-best-practices

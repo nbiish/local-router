@@ -1,0 +1,69 @@
+Ollama (local localhost:11434 + ollama.com cloud) — Prompt Caching
+Last verified: 2026-08-23
+
+Overview
+  Ollama has NO documented, client-addressable prompt-caching API: no
+  cache breakpoints, no TTL, no cache-pricing rows. Its official
+  Anthropic-compatible endpoint explicitly lists prompt caching
+  (cache_control blocks) under "Not supported". Caching gains come only
+  from the runner keeping a loaded model's state (KV cache) in memory, so
+  the closest levers are prefix stability, KV-cache sizing, keep_alive,
+  and context-length configuration. Applies to local runs and Ollama
+  Cloud models alike (no cached-token pricing is published for cloud).
+
+Mechanism
+  No explicit mechanism. While a model stays loaded, its KV context cache
+  is held in VRAM/RAM and repeated leading context avoids full re-prefill
+  on follow-up turns of a session; when the model unloads or context
+  shifts, computation repeats. Downloads (model blobs) are cached on disk
+  separately. There is no cross-process persistent cache and no billing
+  distinction — local inference is unmetered.
+
+Max configuration
+  Keep the model resident: keep_alive default is 5 minutes; send
+  keep_alive "24h" or -1 via /api/chat or /api/generate, or set
+  OLLAMA_KEEP_ALIVE on the server. Max out context: defaults are 4k (<24
+  GiB VRAM), 32k (24-48 GiB), 256k (>=48 GiB), cloud at model max; raise
+  with OLLAMA_CONTEXT_LENGTH or per-request num_ctx. Quantize the cache to
+  fit more of it in VRAM: OLLAMA_KV_CACHE_TYPE=q8_0 (~1/2 memory of f16)
+  or q4_0 (~1/4), which requires Flash Attention (automatic on supported
+  backends; OLLAMA_FLASH_ATTENTION=1 to force).
+
+Limits & thresholds
+  Cache lifetime = model residency (keep_alive; 5 min default). Context
+  window is capped by num_ctx and available VRAM; parallel requests
+  multiply context (OLLAMA_NUM_PARALLEL * OLLAMA_CONTEXT_LENGTH). Default
+  concurrency: 1 parallel request per model, 3 concurrent loaded models,
+  512 queue depth. No published minimum tokens or breakpoint counts — the
+  feature simply does not exist as an API surface.
+
+Pricing
+  Local: free (hardware-bound). Cloud: requires an ollama.com account
+  (ollama signin) and runs :cloud-tagged models; direct API access via
+  https://ollama.com/api/chat with an OLLAMA_API_KEY. No cache-read/write
+  pricing is published anywhere in Ollama docs.
+
+Maxing recipe
+  1. Set keep_alive long enough ("-1" or hours) so the KV cache always
+     survives between agent turns; use ollama stop to free memory.
+  2. Keep the conversation prefix byte-identical; only append new turns —
+     prefix edits force full re-prefill.
+  3. Enable OLLAMA_KV_CACHE_TYPE=q8_0 + Flash Attention to hold larger
+     contexts in VRAM (>= 64k recommended for agents/coding tools).
+  4. Note: tools speaking Anthropic protocol (e.g. Claude Code via
+     ANTHROPIC_BASE_URL=http://localhost:11434) lose cache_control — it is
+     silently unsupported, so don't budget on cached-token savings there.
+
+Local-router integration
+  local-router's Anthropic-style cache_control injection and
+  prompt_cache_key/retention flags have no documented effect against
+  Ollama; the reliable lever it applies is deterministically stable
+  prefixes so the in-memory KV cache is reused while the model stays
+  loaded (5-minute default keep_alive).
+
+Sources
+  https://docs.ollama.com/api/anthropic-compatibility
+  https://docs.ollama.com/faq
+  https://docs.ollama.com/context-length
+  https://docs.ollama.com/cloud
+  https://docs.ollama.com/api/chat

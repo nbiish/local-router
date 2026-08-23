@@ -1,0 +1,65 @@
+Wafer Serverless (pass.wafer.ai) — Prompt Caching
+Last verified: 2026-08-23
+
+Overview
+  Wafer Serverless is pay-as-you-go inference for open models behind an
+  OpenAI-compatible endpoint (https://pass.wafer.ai/v1), an Anthropic-compatible
+  endpoint (https://pass.wafer.ai/v1/messages), and a /v1/responses surface.
+  Prompt caching is offered as automatic prefix caching with per-model
+  cache-read pricing exposed directly in the model catalog.
+
+Mechanism
+  Automatic prefix caching. No request parameters (no cache_control, no TTL,
+  no cache IDs) are documented or required; the prefix KV cache is matched and
+  reused server-side. [INFERENCE] Wafer's serving stack is SGLang/vLLM-class —
+  Wafer's own site references profiling "SGLang scheduler" configurations —
+  so the cache is a radix-style prefix KV cache with capacity-based eviction,
+  not a client-addressable cache. Wafer surfaces cache behavior through
+  telemetry instead of request knobs: dedicated-endpoint request inspection
+  returns per-request cache_read_tokens, an aggregate cache_hit_pct metric,
+  and a max_cache_hit_pct filter for finding poorly-cached large requests.
+
+Max configuration
+  Nothing client-side to configure. Maximum effective caching = identical
+  prompt prefixes across calls (static system prompt + context first).
+  Support cache-analysis workflows with the Wafer-Request-Tag header
+  (e.g. "prewarm") on dedicated endpoints so cache misses can be isolated
+  via the request-inspection API.
+
+Limits & thresholds
+  No documented minimum token threshold, TTL, or breakpoint count; cache
+  retention is platform-managed. [INFERENCE] Prefix caches of this class
+  hold entries while capacity lasts (minutes-scale, traffic-dependent).
+  cache_read_tokens / cache_hit_pct observability is documented for
+  dedicated endpoints; serverless accounts see billing-level effects.
+
+Pricing
+  Published per model in GET /v1/models as wafer.pricing with
+  cache_read_cents_per_million alongside input_cents_per_million and
+  output_cents_per_million. Example from the docs (GLM-5.2): input 126 c/M,
+  output 396 c/M, cache read 23 c/M (~18% of uncached input). No cache-write
+  surcharge field is published.
+
+Maxing recipe
+  1. Keep a byte-stable prefix: system prompt, tool definitions, and static
+     context first; timestamps/IDs/dynamic content last.
+  2. Repeat the same prefix across turns so later calls bill the prefix at
+     the model's cache_read rate.
+  3. On dedicated endpoints, inspect cache_hit_pct and hunt offenders with
+     max_cache_hit_pct + min_input_tokens; fix any dynamic value near the
+     top of the prompt.
+  4. Do not rely on a long retention window — warm traffic beats prewarming.
+
+Local-router integration
+  Wafer is Anthropic/OpenAI-shaped, so local-router's cache_control:
+  {type:'ephemeral', ttl:'1h'} injection on system + second-to-last message is
+  a no-op/harmless here — real savings come from Wafer's automatic prefix
+  cache. Since Wafer serves kimi/moonshot-family and OpenAI-family models,
+  local-router's prompt_cache_key passthrough applies where the upstream
+  honors it; prefix stability is the primary lever regardless.
+
+Sources
+  https://docs.wafer.ai/serverless.md
+  https://docs.wafer.ai/serverless/api-reference.md
+  https://docs.wafer.ai/dedicated-endpoints/request-inspection.md
+  https://www.wafer.ai/

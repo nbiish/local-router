@@ -1,0 +1,74 @@
+Z.AI / Zhipu GLM (api.z.ai, docs.z.ai) — Prompt Caching
+Last verified: 2026-08-23
+
+Overview
+  Z.AI's Open Platform serves GLM-5.x models with built-in context caching
+  on the standard chat completions API, plus a GLM Coding Plan (devpack)
+  that additionally exposes an Anthropic-compatible endpoint
+  (https://api.z.ai/api/anthropic) for Claude Code, Cline, Roo Code, and
+  similar tools. Cached input tokens are billed at a steep discount.
+
+Mechanism
+  Automatic (implicit) prefix caching: "Automatic Cache Recognition —
+  implicit caching that intelligently identifies repeated context content
+  without manual configuration." When repeated system prompts or history
+  are detected, previous computation is reused; hits are reported via
+  usage.prompt_tokens_details.cached_tokens. Supported on GLM-5, GLM-4.7,
+  GLM-4.6, GLM-4.5 series and newer. The separate coding-plan endpoints:
+  Anthropic Messages https://api.z.ai/api/anthropic,
+  OpenAI chat https://api.z.ai/api/coding/paas/v4,
+  OpenAI Responses https://api.z.ai/api/v1. Because the Anthropic endpoint
+  serves Claude Code (which always emits cache_control breakpoints),
+  Anthropic-style cache_control blocks are accepted there, layered on top
+  of the underlying implicit cache.
+
+Max configuration
+  There are no cache breakpoints or TTL knobs on the paas v4 API — maximum
+  caching = longest stable byte-identical prefix: fixed system prompt and
+  reference docs first, conversation history append-only, changing user
+  turn last. On the /api/anthropic endpoint, use Anthropic semantics:
+  cache_control {type:'ephemeral'} breakpoints on stable blocks (5m default
+  TTL, 1h extended where supported).
+
+Limits & thresholds
+  Docs state the cache is "automatically triggered based on content
+  similarity" — identical content hits best; minor formatting differences
+  can break a hit. "Cache has reasonable time limits, will recalculate
+  after expiration" — no numeric TTL, retrieval window, breakpoint count,
+  or minimum-token threshold is published. Coding Plan usage is
+  subscription- and quota-based rather than metered per token.
+
+Pricing (per 1M tokens, standard platform)
+  GLM-5.3 / 5.2 / 5.1: in $1.40, cached input $0.26, out $4.40
+  GLM-5: in $1.00, cached input $0.20, out $3.20
+  GLM-5-Turbo: in $1.20, cached input $0.24, out $4.00
+  GLM-4.7 / 4.6 / 4.5: in $0.60, cached input $0.11, out $2.20
+  GLM-4.5-Air: in $0.20, cached input $0.03, out $1.10
+  GLM-4.7-FlashX: in $0.07, cached input $0.01, out $0.40
+  "Cached Input Storage" column: limited-time free. GLM-4.7-Flash and
+  GLM-4.5-Flash are entirely free. (The cache guide loosely cites cache-hit
+  billing "usually 50% of standard price" — the pricing table's ~19% figure
+  is the authoritative current rate.)
+
+Maxing recipe
+  1. Put long documents and stable system prompts at the head of messages;
+     keep them byte-identical (even small formatting deltas reduce hits).
+  2. Batch similar jobs against one fixed system prompt to share its cache.
+  3. In coding tools, point the Anthropic client at
+     https://api.z.ai/api/anthropic so tool-issued cache_control
+     breakpoints ride the coding plan.
+  4. Confirm hits from usage.prompt_tokens_details.cached_tokens and track
+     the hit ratio per session.
+
+Local-router integration
+  local-router keeps GLM prefixes deterministic so Z.AI's implicit cache
+  engages (cached input ~19% of list price). For GLM reached through the
+  Anthropic-compatible base (/api/anthropic), its generic injection of
+  cache_control {type:'ephemeral', ttl:'1h'} on system + second-to-last
+  message applies; OpenAI-protocol GLM needs no flags.
+
+Sources
+  https://docs.z.ai/guides/capabilities/cache
+  https://docs.z.ai/guides/overview/pricing
+  https://docs.z.ai/devpack/quick-start
+  https://docs.z.ai/devpack/tool/claude

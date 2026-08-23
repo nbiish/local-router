@@ -1,0 +1,62 @@
+Moonshot AI / Kimi (platform.moonshot.ai, api.moonshot.ai) — Prompt Caching
+Last verified: 2026-08-23
+
+Overview
+  The Kimi API (OpenAI-compatible, base https://api.moonshot.ai/v1; docs now
+  served from platform.kimi.ai) provides automatic Context Caching on every
+  chat completion, plus a prompt_cache_key request field to steer cache hits.
+  Cached content is billed at a steeply discounted cache-hit input rate.
+
+Mechanism
+  Automatic prefix context caching, always on: "no manual creation, no cache
+  ID references, no TTL management." When repeated initial context (system
+  prompts, knowledge documents, tool definitions) is detected, the cached
+  prefix is reused for cost and TTFT savings (docs cite first-token latency
+  under ~5s in long-context scenarios and up to ~90% cost compression).
+  The chat completions request also accepts prompt_cache_key (string): a
+  session/task ID - required for Kimi Code Plan and recommended for all
+  multi-turn/coding agents - to improve hit rates. Responses report
+  usage.cached_tokens ("Number of tokens served from cache").
+
+Max configuration
+  There are no cache breakpoints or TTL knobs to tune. Maximum caching =
+  longest stable shared prefix + a stable prompt_cache_key per agent
+  session/task (kept identical when a session resumes) + fixed large context
+  placed at the HEAD of the messages array (before the system message), with
+  the changing user turn last.
+
+Limits & thresholds
+  A prompt is only cached when the previous request's prompt tokens exceed
+  256; smaller prompts are never cached. Cache lifecycle/retention is
+  system-managed (no published TTL). Keep system prompts, knowledge docs, and
+  tool definitions stable for hit-rate; dynamic tool loading is supported and
+  is designed to preserve prefix caching.
+
+Pricing (Kimi K3, per 1M tokens, excl. tax)
+  Input cache hit: $0.30; input cache miss: $3.00; output: $15.00 — cache-hit
+  input is 10% of miss price (10x discount). Other models (K2.7 Code, K2.6,
+  K2.5, Moonshot V1) publish their own cache-hit/miss rows on the pricing
+  pages. No cache-write or storage fee is published for automatic caching.
+
+Maxing recipe
+  1. Fixed large context (docs, code, tool defs) first in messages; dynamic
+     question last; keep prefix byte-identical (spacing/punctuation included).
+  2. Always exceed the 256-token prompt threshold; group queries against the
+     same fixed corpus.
+  3. Send prompt_cache_key per session/task on every turn (required on Kimi
+     Code Plan).
+  4. Confirm hits via usage.cached_tokens in streaming final chunk or the
+     non-streaming usage object; refactor prompts when hits drop.
+
+Local-router integration
+  For kimi/moonshot models local-router sets prompt_cache_key (stable per
+  session) exactly as the platform recommends, and keeps prompt prefixes
+  deterministic so Moonshot's automatic 256-token+ context cache engages;
+  savings land at the $0.30/M cache-hit rate on K3. Anthropic-style
+  cache_control injection does not apply to this provider.
+
+Sources
+  https://platform.kimi.ai/docs/guide/use-context-caching-feature-of-kimi-api.md
+  https://platform.kimi.ai/docs/api/chat.md
+  https://platform.kimi.ai/docs/pricing/chat-k3.md
+  https://platform.kimi.ai/docs/pricing/chat.md

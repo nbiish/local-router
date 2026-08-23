@@ -1,0 +1,72 @@
+xiaomi-mimo (MiMo Token Plan) — Prompt/Context Caching
+Last verified: 2026-08-23
+
+Overview
+--------
+xiaomi-mimo targets Xiaomi's MiMo Token Plan endpoint
+(https://token-plan-sgp.xiaomimimo.com/v1), an OpenAI-compatible API
+(Anthropic-compatible mode also documented) serving the miMo V2.5 family:
+mimo-v2.5-pro (1M ctx, text), mimo-v2.5 (1M ctx, omni-modal), plus
+ASR/TTS models. Billing is subscription-style credits under the Token Plan
+(sgp = Singapore region endpoint).
+
+Mechanism
+---------
+Automatic (implicit) prefix caching. Xiaomi publishes separate "Input (cache
+hit)" vs "Input (cache miss)" prices, which means the platform detects and
+reuses repeated prompt prefixes server-side with no client configuration —
+the same pattern as Moonshot/DeepSeek automatic context caching. There is NO
+documented explicit cache_control/breakpoint API and no client-controllable
+TTL in the Token Plan docs as of this date.
+
+Max configuration
+-----------------
+Nothing to configure: caching engagement is server-side. Keep the prompt
+prefix (system prompt, tool definitions, reference material) token-identical
+across requests and place dynamic content at the tail. Cache-hit eligibility
+requires a sufficiently long repeated prefix (no official minimum is
+published; the ~256-token floor used by comparable Moonshot/DeepSeek-style
+automatic caches is a reasonable working assumption).
+
+Limits & thresholds
+-------------------
+- No explicit breakpoints; no published breakpoint count or TTL knobs.
+- No published minimum token threshold or cache TTL for the Token Plan
+  endpoint; cache lifetime is managed by the platform.
+- Prefix match must begin at the first token; early edits invalidate the rest.
+- multimodal (image/audio/video) inputs on mimo-v2.5 may not participate in
+  prefix reuse the same way text does — not documented; verify per request.
+
+Pricing (Token Plan list prices, USD per MTok)
+----------------------------------------------
+- mimo-v2.5-pro:        input hit $0.0036  / miss $0.435   / output $0.87
+- mimo-v2.5-pro-ultra:  input hit $0.0108  / miss $1.305   / output $2.61
+- mimo-v2.5:            input hit $0.0028  / miss $0.14    / output $0.28
+Cache-hit input is roughly 0.8-2% of the cache-miss price — among the
+steepest published cache discounts of any provider (~50-120x), so warm-prefix
+traffic is nearly free on input.
+(TTS free for a limited time; ASR billed per audio hour.)
+
+Maxing recipe
+-------------
+1. Front-load a large, stable prefix: system prompt, tool schemas, docs/RAG
+   context — byte-identical across requests.
+2. Append conversation history after the fixed block; put the newest user
+   turn and any timestamps/IDs at the very end.
+3. Send turns in bursts so the server-side cache entry stays warm.
+4. Watch usage fields / billing for cache-hit input tokens to confirm hits.
+
+Local-router integration
+------------------------
+local-router treats xiaomi-mimo as an OpenAI-compatible provider: it injects
+`prompt_cache_retention: '24h'` and a `prompt_cache_key` for OpenAI-family
+model IDs; MiMo's own automatic prefix cache does the real work server-side.
+Anthropic-style cache_control blocks are not injected for this provider (no
+documented explicit caching API), but the OpenAI-compatible pass-through is
+harmless.
+
+Sources
+-------
+- https://platform.xiaomimimo.com/docs/en-US/pricing
+- https://platform.xiaomimimo.com/docs/en-US/api/chat/anthropic-api
+- https://platform.xiaomimimo.com/docs/news/token-plan-release

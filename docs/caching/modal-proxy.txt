@@ -1,0 +1,75 @@
+modal-proxy (self-deployed Kimi-K3 on Modal) — Prompt/Context Caching
+Last verified: 2026-08-23
+
+Overview
+--------
+modal-proxy is a private, self-deployed moonshotai/Kimi-K3 endpoint running on
+Modal (vLLM server, single model):
+https://nbiish--ep-kimi-k3-nbiish-server.us-west.modal.direct/v1
+It bills as Modal compute (GPU-seconds), not per-token Moonshot pricing, and
+has no multi-tenant contention — the KV cache serves only this deployment's
+traffic.
+
+Mechanism
+---------
+Dual inheritance:
+1. Serving layer: vLLM Automatic Prefix Caching (APC) — implicit KV-block
+   reuse of token-identical prefixes, enabled by default in current vLLM
+   (`enable_prefix_caching=True`). No explicit breakpoint/TTL API.
+2. Model family: Kimi-K3 is Moonshot's model; Moonshot's hosted API uses
+   fully automatic server-side context caching with a 256-prompt-token
+   eligibility floor and cache-hit discounted billing. On this self-deployment
+   the *engine* mechanics are vLLM's, but the same Kimi prompt-design guidance
+   applies (stable system prompts, tool definitions, and knowledge docs at the
+   head of the message array).
+
+Max configuration
+-----------------
+- Keep the replica warm (scaledown window pinned high in the Modal app) so the
+  GPU KV cache survives between turns; this is the only "TTL" lever.
+- Send `prompt_cache_key` (session/conversation id) per request — vLLM ignores
+  it, but it keeps behavior consistent with Moonshot-family upstreams and
+  future-proofs proxy layers.
+- Stable prefix > everything: system prompt + tool defs + long context first,
+  then conversation history, then the fresh user turn last.
+
+Limits & thresholds
+-------------------
+- Cache capacity = replica GPU VRAM minus weights/activations (plus CPU
+  offload if configured); LRU eviction under pressure.
+- Cache is lost on scale-down, redeploy, or replica replacement. Keep at least
+  one warm replica for cache continuity.
+- No documented minimum shared-prefix size for APC itself; benefit grows with
+  prefix length (Moonshot's hosted floor of 256 prompt tokens is a useful
+  heuristic).
+- Any token change early in the prompt invalidates the suffix from that point.
+
+Pricing
+-------
+No cache-hit token discount exists here — billing is Modal GPU compute time.
+Prefix-cache hits directly reduce prefill GPU-seconds and TTFT, which is the
+cost saving on a compute-billed deployment. For comparison, Moonshot's hosted
+Kimi pricing lists separate cache-hit input rates (see Kimi pricing docs).
+
+Maxing recipe
+-------------
+1. Order messages exactly like Moonshot's caching guide: fixed large context
+   (system prompt, tools, knowledge docs) first; conversation grows behind it.
+2. Keep the deployment warm (min 1 replica / generous scaledown window).
+3. Batch related requests back-to-back to hit the same in-memory KV blocks.
+4. Don't re-send volatile timestamps/IDs inside the stable prefix.
+
+Local-router integration
+------------------------
+The model ID is moonshotai/Kimi-K3, so local-router's kimi/moonshot rule fires:
+it injects a `prompt_cache_key` per conversation. Anthropic-style
+cache_control blocks are NOT injected (the vLLM endpoint has no explicit
+caching API), and OpenAI 24h retention fields are not relevant here — caching
+is purely the deployment's vLLM APC plus prefix stability.
+
+Sources
+-------
+- https://platform.kimi.ai/docs/guide/use-context-caching-feature-of-kimi-api
+- https://platform.kimi.ai/docs/pricing/chat-k3
+- https://docs.vllm.ai/en/latest/features/automatic_prefix_caching/
+- https://modal.com/docs/examples/vllm_inference

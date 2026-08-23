@@ -1,0 +1,80 @@
+Pioneer — api.pioneer.ai (docs.pioneer.ai) — Prompt Caching
+Last verified: 2026-08-23
+
+Overview
+  Pioneer exposes inference on three surfaces — POST /v1/chat/completions
+  (OpenAI-compatible), POST /v1/messages (Anthropic-compatible), POST
+  /v1/responses, plus native POST /inference — all reaching the same
+  model catalog (Claude/Anthropic-style, GPT-family, and others).
+  Pioneer has a dedicated prompt-caching doc: caching is a PASS-THROUGH
+  of each family's upstream semantics, and for Claude models it is
+  opt-in at the API level — Pioneer forwards the request as-is and
+  never adds cache markers for you.
+
+Mechanism
+  Explicit cache_control blocks (Anthropic style) for Claude-family
+  models; automatic upstream caching for GPT-family models (which reject
+  explicit markers); other models: send markers — "honored where
+  supported and ignored where the model auto-caches". Markers work on
+  system/message/tools content blocks on /v1/chat/completions
+  (content-block array required — plain-string system prompts cannot
+  carry a marker and will not cache), /v1/messages, /v1/responses (via
+  system/developer input block, NOT the instructions string), and
+  /inference. Legacy /v1/completions has no blocks to attach to.
+  Cache hits surface as usage.prompt_tokens_details.cached_tokens
+  (OpenAI shape) or cache_read_input_tokens / cache_creation_input_tokens
+  (Anthropic shape).
+
+Max configuration
+  Up to 4 cache_control breakpoints per request (first 4 applied), in
+  prefix order: system prompt, tool definitions, last message of the
+  stable conversation prefix. Optional cache_control
+  {type:'ephemeral', ttl:'1h'} extends lifetime beyond the provider
+  default; omitting ttl uses the default ephemeral window (Anthropic
+  caches expire after 5 minutes of inactivity). 1h is the maximum
+  documented TTL knob. Everything up to and including each marked block
+  becomes the cached prefix.
+
+Limits & thresholds
+  Minimum cacheable prefix ~1K–4K tokens depending on model; Pioneer
+  notes a 4096-token system-prompt minimum for most Anthropic models.
+  Below the threshold no cache entry is created even with a correct
+  marker. Max 4 markers; >4 silently truncated to the first 4.
+  Adding cache_control to auto-caching (GPT) models is ignored or
+  rejected. Prefix must be byte-for-byte identical across turns (no
+  timestamps in the system prompt).
+
+Pricing
+  Rates relative to model input price: Claude/Opus cache read 0.1x
+  input, cache write 1.25x input; GPT-4 family cached read 0.5x input
+  with writes billed at input rate; GPT-5 family cached read 0.1x input
+  with writes billed at input rate. First request pays the write rate,
+  repeated hits pay the read rate. Cache charges are visible in
+  Settings -> Credits, broken down per model or per request.
+
+Maxing recipe
+  1. Send the stable prefix as content-block arrays (never plain
+     strings) with cache_control on system + tools + a stable message
+     boundary; keep per-turn content AFTER the last marker.
+  2. Ensure the marked prefix exceeds ~1K–4K tokens (target >=4096 for
+     Anthropic routes).
+  3. Use {type:'ephemeral', ttl:'1h'} for cross-turn reuse; otherwise
+     refire within the 5-minute idle window.
+  4. Verify via usage.cache_read_tokens / cache_write_tokens (or
+     prompt_tokens_details.cached_tokens) — zeros mean: missing marker,
+     prefix too small, prefix drifted, or model auto-caches.
+
+Local-router integration
+  local-router injects cache_control {type:'ephemeral', ttl:'1h'} on the
+  system + second-to-last message block for Anthropic-family models —
+  exactly the marker shape Pioneer's doc prescribes for its Claude
+  routes — and sets prompt_cache_key for kimi/moonshot plus
+  prompt_cache_key + prompt_cache_retention for OpenAI-family shaping.
+  Pioneer's 4-breakpoint budget comfortably fits local-router's two
+  markers.
+
+Sources
+  https://docs.pioneer.ai/api-reference/prompt-caching.md
+  https://docs.pioneer.ai/api-reference/inference/openai-compatible.md
+  https://docs.pioneer.ai/api-reference/inference/anthropic-compatible.md
+  https://docs.pioneer.ai/llms.txt

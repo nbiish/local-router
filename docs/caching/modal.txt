@@ -1,0 +1,70 @@
+Modal (hosted Shared Endpoints) — Prompt/Context Caching
+Last verified: 2026-08-23
+
+Overview
+--------
+Modal serves OpenAI-compatible LLM inference as "Shared Endpoints" reachable at
+https://inference.us-west.modal.direct/v1 (local-router uses
+https://api.us-west-2.modal.direct/v1). Models are routed on the OpenAI `model`
+field; current catalog entries include moonshotai/Kimi-K3,
+thinkingmachines/Inkling-NVFP4, and zai-org/GLM-5.1-FP8. Serving is built on
+vLLM (see Modal's official vLLM examples), so caching behavior follows vLLM.
+
+Mechanism
+---------
+Automatic prefix caching (vLLM APC). vLLM caches KV blocks of prior queries
+and reuses them when a new request shares a token-identical prefix
+(PagedAttention block granularity, typically 16-token blocks). There is NO
+explicit cache_control / breakpoint API, no cache IDs, and no TTL knobs —
+prefix reuse is implicit and per serving replica.
+
+Max configuration
+-----------------
+Nothing to configure client-side: send stable, identical prompt prefixes and
+ APC applies automatically while the same replica stays warm. Server-side the
+deployer pins `enable_prefix_caching=True` (vLLM default) and can extend KV
+offload tiers; clients cannot influence this.
+
+Limits & thresholds
+-------------------
+- KV cache lives in replica GPU/CPU memory only; it is evicted under memory
+  pressure via LRU and disappears entirely on scale-down / cold start.
+- Shared Endpoints scale to zero; Modal's examples use scaledown windows of
+  ~15 minutes, so effective cache lifetime is on the order of minutes, not
+  hours. No guaranteed TTL is published.
+- Prefix match must start at token 0; any early-token change invalidates the
+  rest of the prefix.
+- No minimum-token threshold is documented for Shared Endpoints (vLLM APC has
+  no per-request minimum; benefit scales with shared-prefix length).
+
+Pricing
+-------
+No separate cache-read/cache-write pricing is published for Modal Shared
+Endpoints; cache hits manifest as lower latency (TTFT) and fewer recomputed
+prefill tokens rather than a discounted token rate. Billing is per token
+(model-dependent) or per GPU-second for dedicated deployments.
+See https://modal.com/pricing.
+
+Maxing recipe
+-------------
+1. Keep system prompt, tool definitions, and reference docs byte-identical at
+   the head of messages; push all dynamic content to the tail.
+2. Send requests in quick succession so the same warm replica serves them
+   (avoid scaledown gaps between turns).
+3. Avoid multi-tenant dilution you cannot control; accept that cold starts
+   lose the cache and warm up with one "primer" request after idle periods.
+
+Local-router integration
+------------------------
+local-router treats modal as an OpenAI-compatible endpoint:
+`prompt_cache_retention: '24h'` and a `prompt_cache_key` are injected for
+OpenAI-family models (harmless if ignored by vLLM), and a `prompt_cache_key`
+is set for kimi/moonshot-family IDs such as moonshotai/Kimi-K3. No
+Anthropic-style cache_control blocks are injected for this provider since the
+upstream has no explicit caching API.
+
+Sources
+-------
+- https://modal.com/docs/guide/endpoint-integrations
+- https://modal.com/docs/examples/vllm_inference
+- https://docs.vllm.ai/en/latest/features/automatic_prefix_caching/

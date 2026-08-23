@@ -1,0 +1,84 @@
+OpenRouter — Prompt/Context Caching
+Last verified: 2026-08-23
+
+Overview
+--------
+OpenRouter (https://openrouter.ai/api/v1) is a multi-provider router. Prompt
+caching is performed by the upstream provider that serves each request —
+OpenRouter passes through (and normalizes) cache controls, reports savings via
+`usage.prompt_tokens_details` (cached_tokens / cache_write_tokens) and the
+`cache_discount` field, and uses provider sticky routing to keep caches warm.
+
+Mechanism
+---------
+Provider-dependent:
+- Explicit cache_control blocks: Anthropic Claude and Alibaba Qwen require
+  `cache_control: {"type":"ephemeral"}` on content blocks (Anthropic also
+  accepts a top-level `cache_control` for automatic caching, plus
+  `"ttl":"1h"`). Breakpoints are also forwarded to Google Gemini (only the
+  LAST breakpoint is used for Gemini).
+- Automatic/implicit caching: OpenAI (min 1024 prompt tokens; explicit
+  `prompt_cache_breakpoint` + `prompt_cache_options` on GPT-5.6+, min 30-min
+  TTL), Gemini 2.5+ implicit, DeepSeek, Grok, Moonshot, Groq (Kimi K2), Z.AI.
+- OpenRouter translates Anthropic `cache_control` <-> OpenAI
+  `prompt_cache_breakpoint` markers across upstreams (TTLs NOT translated).
+- Sticky routing: follow-ups for a model route to the same provider after a
+  cached request. Keyed by hash of first system + first non-system message, or
+  explicit `session_id` (body or x-session-id header, <=256 chars), falling
+  back to `prompt_cache_key`. Sessions expire after 10 min of inactivity;
+  sticky routing is DISABLED when a manual `provider.order` is sent.
+
+Max configuration
+-----------------
+Anthropic models: top-level `cache_control: {"type":"ephemeral","ttl":"1h"}`
+for automatic multi-turn caching, or up to 4 explicit breakpoints (1h TTL on
+writes). Pair with `session_id` (or `prompt_cache_key`) so sticky routing
+keeps the warm provider; do NOT send `provider.order`.
+
+Limits & thresholds
+-------------------
+- Anthropic min cacheable prompt: 4096 tokens (Opus 4.x, Haiku 4.5), 2048
+  (Haiku 3.5), 1024 (Sonnet 4.x / Opus 4/4.1). Max 4 explicit breakpoints.
+  TTL: 5 min default, 1h with ttl:"1h".
+- OpenAI: 1024-token minimum; explicit caching (GPT-5.6+) cached prefixes have
+  >=30-min TTL.
+- Gemini: implicit caching min 1024 (2.5 Flash) / 4096 (2.5 Pro) tokens, TTL
+  ~3-5 min; explicit caching 5-min TTL, only last breakpoint used, and
+  systemInstruction is cached as an immutable block.
+- Alibaba/Qwen explicit caching: 5-minute write TTL; select qwen/deepseek
+  models only (snapshot endpoints excluded).
+- Sticky session: 10-minute inactivity expiry, account+model+conversation
+  scoped.
+
+Pricing (multipliers of base input price)
+-----------------------------------------
+- Anthropic: write 1.25x (5-min) / 2x (1-hour); read 0.1x.
+- OpenAI: writes free pre-GPT-5.6, 1.25x on GPT-5.6+; reads 0.25x-0.5x.
+- Google: read 0.25x (implicit: no write cost; explicit: input + 5-min storage).
+- DeepSeek: write = 1x input; read 0.1x. Grok/Moonshot: write free; read 0.25x.
+- Groq: write free; read 0.5x. Alibaba: write 1.25x; read 0.1x.
+- Z.AI: write free (limited time); read ~0.2x.
+
+Maxing recipe
+-------------
+1. For Claude-family: top-level `cache_control {"type":"ephemeral","ttl":"1h"}`
+   plus stable system prompt; let the breakpoint auto-advance.
+2. Always send a consistent `session_id` (or `prompt_cache_key`) per
+   conversation; never set `provider.order` when you want sticky routing.
+3. Keep the prompt head byte-identical; dynamic content goes last.
+4. Verify via `usage.prompt_tokens_details.cached_tokens` and `cache_discount`.
+
+Local-router integration
+------------------------
+local-router strips `provider.order` for OpenRouter so sticky routing stays
+active, injects `cache_control: {"type":"ephemeral","ttl":"1h"}` on the system
+message and the second-to-last message for Anthropic-style models, and sets
+`prompt_cache_retention: '24h'` + `prompt_cache_key` for OpenAI-family models
+plus `prompt_cache_key` for kimi/moonshot models — the same fields OpenRouter
+uses as sticky-routing keys.
+
+Sources
+-------
+- https://openrouter.ai/docs/guides/best-practices/prompt-caching
+- https://openrouter.ai/blog/tutorials/prompt-caching-sticky-routing/
+- https://platform.claude.com/docs/en/build-with-claude/prompt-caching

@@ -1,0 +1,75 @@
+Cline / Cline API (api.cline.bot, docs.cline.bot) — Prompt Caching
+Last verified: 2026-08-23
+
+Overview
+  Cline's hosted access comes in three shapes: Cline (usage-billing), a
+  pay-as-you-go multi-provider gateway inside the extension/CLI; ClinePass
+  ($9.99/mo flat subscription for open coding models); and the public
+  Cline API at https://api.cline.bot/api/v1/chat/completions — an
+  OpenAI-compatible endpoint serving anthropic/*, openai/*, google/* and
+  other model IDs in provider/model format (same convention as OpenRouter).
+  Prompt caching is passed through from upstream Anthropic-lineage models;
+  cached tokens are documented in the API usage object.
+
+Mechanism
+  Pass-through of the upstream caching model. For Claude models, Cline's
+  own provider stack speaks the Anthropic cache_control format — the
+  cline/cline source routes prompt caching as "anthropic-cache-control"
+  and stamps cache_control {type:'ephemeral'} blocks onto the stable
+  prefix (system prompt and tail blocks), so the Cline gateway receives
+  standard Anthropic ephemeral caching. Hits surface as
+  usage.prompt_tokens_details.cached_tokens in the final SSE chunk or the
+  non-streaming usage object ("Tokens served from cache (reduces cost)").
+  TTL follows Anthropic ephemeral semantics: 5-minute default, extended
+  1-hour ephemeral TTL via cache_control {type:'ephemeral', ttl:'1h'} on
+  supported Claude models. Non-Anthropic models fall back to whatever
+  automatic prefix caching their upstream offers.
+
+Max configuration
+  Cache the maximum stable prefix with up to 4 cache_control breakpoints
+  (Anthropic limit): system prompt + tools first, then a breakpoint on the
+  second-to-last stable message before the volatile tail. Use
+  cache_control {type:'ephemeral', ttl:'1h'} for cross-session reuse
+  (1h is the maximum TTL Anthropic offers), keep blocks byte-identical,
+  and respect Anthropic's minimum cacheable lengths (1024 tokens for
+  Sonnet/Opus families, 2048/4096 for Haiku per Anthropic docs).
+
+Limits & thresholds
+  No Cline-specific TTL/breakpoint limits published — Anthropic limits
+  apply on Claude routes (4 breakpoints, 5m/1h TTL, minimum token
+  thresholds, ~25% write premium). Cline (usage-billing) charges from a
+  shared credit balance; free-tagged models are NOT available through the
+  Cline API, only in the extension/CLI; ClinePass is extension/CLI-only.
+  402 Payment Required when credits run out.
+
+Pricing
+  The Cline API meters per request and returns a USD cost field in usage;
+  per-model cached-read prices follow the underlying provider (e.g. Claude
+  cached reads ~10% of input price, ephemeral writes ~1.25x). Cline docs
+  publish no separate cache price table; model list/pricing is exposed via
+  the app/model catalog rather than a static page.
+
+Maxing recipe
+  1. Keep system prompt, tool definitions, and early history byte-identical
+     and append-only; that is what lands in cache_control breakpoints.
+  2. Use the 1h ephemeral TTL on the big stable blocks so idle periods
+     between agent turns still read from cache.
+  3. Verify hits per request: usage.prompt_tokens_details.cached_tokens in
+     the final stream chunk (plus the cost field for the realized saving).
+  4. Pick anthropic/* models for the deep caching path; open models rely
+     on upstream automatic prefix caching only.
+
+Local-router integration
+  local-router's default Anthropic-style injection — cache_control
+  {type:'ephemeral', ttl:'1h'} on system + second-to-last message — lands
+  on api.cline.bot's Claude routes and proxies through to Anthropic,
+  matching Cline's own anthropic-cache-control behavior, with reads at
+  ~10% of input price and hits visible in usage.cached_tokens.
+
+Sources
+  https://docs.cline.bot/api/overview
+  https://docs.cline.bot/api/chat-completions
+  https://docs.cline.bot/getting-started/cline-provider
+  https://docs.cline.bot/provider-config/anthropic
+  https://github.com/cline/cline (sdk/packages/llms/src/providers/routing/anthropic-compatible.ts)
+  https://docs.anthropic.com/en/docs/build-with-claude/prompt-caching

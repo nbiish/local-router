@@ -1,0 +1,67 @@
+Kilo — Kilo AI Gateway (api.kilo.ai/api/gateway) — Prompt Caching
+Last verified: 2026-08-23
+
+Overview
+  The Kilo AI Gateway (docs: kilo.ai/docs/gateway) is an OpenAI-compatible
+  multi-provider gateway at https://api.kilo.ai/api/gateway, routing
+  anthropic/*, openai/*, google/* and 500+ other upstream models in
+  provider/model format. As of this verification, the published gateway
+  docs document NO prompt-caching API surface — the request schema lists
+  only standard OpenAI fields and the usage response carries only
+  prompt_tokens / completion_tokens / total_tokens (no cached_tokens
+  field). [INFERENCE] Kilo is a passthrough gateway: caching behavior is
+  whatever the upstream model/provider does with the forwarded request.
+
+Mechanism
+  No documented mechanism. The request Message/ContentPart schema
+  (text + image_url parts only) publishes no cache_control slot, and the
+  usage schema exposes no cache read/write counters. [INFERENCE] Because
+  the gateway passes OpenAI-compatible bodies upstream, Anthropic-native
+  cache_control blocks on Claude-model routes are likely honored by the
+  Anthropic upstream, and auto-caching families (OpenAI, DeepSeek, Gemini
+  2.5+ implicit) cache transparently — but Kilo documents none of this
+  and does not report cache tokens back.
+
+Max configuration
+  Nothing to configure client-side per the docs. In practice
+  [INFERENCE]:
+  - Claude models: attach Anthropic cache_control {type:'ephemeral',
+    ttl:'1h'} content-block markers; upstream limit is 4 breakpoints.
+  - Auto-caching families: keep the stable prefix byte-identical and
+    request back-to-back; nothing else is configurable.
+
+Limits & thresholds
+  No Kilo-specific TTL, breakpoint, or minimum-token figures are published.
+  Upstream semantics (5m/1h Anthropic ephemeral, ~1024-token minimums,
+  OpenAI >=1024-token auto caching, etc.) apply where the upstream
+  honors them. Free-tagged models are flagged by zero pricing in
+  GET /models, not by any caching hint.
+
+Pricing
+  No cache read/write pricing published in the gateway docs; usage
+  tracking is microdollar-per-request against a credit balance, so any
+  upstream cache discount is only visible as a lower realized cost
+  [INFERENCE]. GET /models returns per-model pricing.
+
+Maxing recipe
+  1. Send Anthropic-style cache_control blocks on Claude routes and keep
+     the stable prefix byte-identical [INFERENCE].
+  2. Keep large common content at the head of the prompt so upstream
+     automatic prefix caching (OpenAI/Gemini/DeepSeek) can hit.
+  3. Fire reuse requests within the upstream live window (5 minutes for
+     Anthropic default ephemeral; 1h with explicit ttl).
+  4. Since usage lacks cache counters, verify savings on the credit
+     ledger (Settings/billing) rather than per-response.
+
+Local-router integration
+  local-router injects cache_control {type:'ephemeral', ttl:'1h'} on the
+  system + second-to-last message block for Anthropic-family models; on
+  Kilo this rides through to the Anthropic upstream [INFERENCE]. For
+  OpenAI-family models it sets prompt_cache_key (+ retention where
+  supported); no Kilo-specific fields are required.
+
+Sources
+  https://kilo.ai/docs/gateway
+  https://kilo.ai/docs/gateway/api-reference
+  https://kilo.ai/docs/gateway/models-and-providers
+  https://api.kilo.ai/api/gateway/models (live model list, repo-verified 2026-06/08)

@@ -1,0 +1,67 @@
+Nous Portal — Nous Research inference API (inference-api.nousresearch.com) — Prompt Caching
+Last verified: 2026-08-23
+
+Overview
+  Nous Portal (portal.nousresearch.com) is Nous Research's single account
+  for Hermes Agent, a hosted tool gateway, and an OpenAI-compatible
+  inference API at https://inference-api.nousresearch.com/v1 listing
+  300+ models — Anthropic Claude, OpenAI GPT, Google Gemini, DeepSeek,
+  Kimi, Qwen, MiniMax, AionLabs, Nous own models, etc. — billed in
+  credits at published in/out per-1M rates. The portal's public pages do
+  NOT document any prompt-caching mechanism, cache-token pricing, or
+  cache fields in the API contract. [INFERENCE] Nous Portal behaves as a
+  passthrough aggregator: any caching is whatever the serving upstream
+  does automatically.
+
+Mechanism
+  No documented mechanism on the Nous surface. Upstream mechanisms that
+  plausibly apply [INFERENCE]: Anthropic cache_control blocks on Claude
+  routes (the fullest published model list suggests messages-schema
+  compatibility on some routes, though only the chat-completions shape
+  is confirmed public); automatic prefix caching for DeepSeek-family
+  models; OpenAI automatic prompt caching on GPT-family; Gemini 2.5+
+  implicit caching on Google routes. None of these is confirmed by Nous
+  docs, and the docs site (docs.nousresearch.com) was unreachable at
+  verification time.
+
+Max configuration
+  Nothing per docs. In practice [INFERENCE]: send Anthropic cache-style
+  content blocks on Claude models and keep large stable prefixes at the
+  head of the prompt; reuse them within minutes. If a route rejects
+  cache_control, fall back to prefix stability alone.
+
+Limits & thresholds
+  No Nous-published TTLs, breakpoints, or token minimums. Upstream
+  defaults apply invisibly (5-minute Anthropic ephemeral, ~1K+ token
+  minimums). GET /v1/models is the documented discovery surface and does
+  not advertise caching capabilities.
+
+Pricing
+  Portal publishes flat in/out per-1M-token rates per model (and even
+  batch upcharges (~50%) on many models: (batch) variants listed).
+  NO cache read/write pricing is published anywhere on the portal; any
+  upstream cache saving is not surfaced as a separate line item
+  [INFERENCE].
+
+Maxing recipe
+  1. Keep the prompt prefix (system, repo digest, tools) byte-identical
+     and front-loaded; append the volatile tail last.
+  2. Refire similar requests quickly to catch upstream automatic prefix
+     caching windows (DeepSeek/GPT) [INFERENCE].
+  3. Where the model is Claude and the schema tolerates it, attach
+     cache_control {type:'ephemeral'} markers [INFERENCE].
+  4. Watch the model list (GET /v1/models): portal-specific models
+     (Hermes/Aion) have no caching story — treat them as uncached.
+
+Local-router integration
+  local-router's cache_control injection on Anthropic-family shaping is
+  best-effort here [INFERENCE: honored only if the route accepts
+  content-block arrays]; for kimi/moonshot models it sets
+  prompt_cache_key which Kimi-family upstreams honor transparently;
+  OpenAI-family shaping gets prompt_cache_retention: '24h' +
+  prompt_cache_key. No Nous-specific fields exist to set.
+
+Sources
+  https://portal.nousresearch.com (model catalog + in/out pricing)
+  https://inference-api.nousresearch.com/v1/models (live model list, repo-verified 2026-08)
+  https://docs.nousresearch.com (docs intro — unreachable at verification time)
