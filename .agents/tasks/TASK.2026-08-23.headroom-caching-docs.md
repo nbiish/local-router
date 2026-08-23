@@ -20,5 +20,8 @@
 ####
 
 ## Status
-- headroom 0.36.5 installed; tsc clean; headroom-compression + headroom-integration tests 9/9 pass
-- Awaiting research agents for docs
+- headroom 0.36.5 installed; tsc clean; headroom tests 9/9 pass
+- 21 docs/caching/*.txt written, source-cited
+- llms.txt changelog entry added
+- Smoke: /api/headroom-config GET/PUT live on :11440 pass
+- Committed on chore/headroom-caching-docs; awaiting merge confirm
