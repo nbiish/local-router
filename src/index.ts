@@ -2345,7 +2345,13 @@ function resolveModelTarget(modelName: string): ModelTarget | null {
 
 function fallbackModelPresentation(model: FallbackModel): ProviderModel {
   const firstTarget = model.models[0];
-  const firstResolved = firstTarget ? findProviderModel(firstTarget) : undefined;
+  // Resolve the presenting step's specs from the full catalog inventory
+  // (registry ∪ cache) first: chains are authored inventory-wide, so the
+  // route must not advertise default 64k/4k metadata just because its first
+  // step happens to be outside the curated serving subset right now.
+  const firstResolved = firstTarget
+    ? (findCatalogModel(firstTarget) || findProviderModel(firstTarget))
+    : undefined;
   const routeId = normalizeFallbackRouteId(model.id);
   const presentedId = fallbackPresentedModelId(routeId);
 
