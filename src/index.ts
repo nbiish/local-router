@@ -2558,7 +2558,7 @@ function normalizeRoutingTierOrder(): void {
 
     let nextModels: string[];
     if (isSystemFallback && !hasUserCustomizedFallback) {
-      const catalogValid = (modelId: string) => Boolean(findProviderModel(modelId));
+      const catalogValid = (modelId: string) => Boolean(findCatalogModel(modelId));
       const preferred = DEFAULT_FALLBACK_ORDERED_IDS.filter(catalogValid);
       const preferredSet = new Set(preferred);
       const extras: string[] = [];
@@ -2577,7 +2577,7 @@ function normalizeRoutingTierOrder(): void {
       const seen = new Set<string>();
       for (const modelId of route.models) {
         const trimmed = String(modelId || '').trim();
-        if (!trimmed || seen.has(trimmed) || !findProviderModel(trimmed)) continue;
+        if (!trimmed || seen.has(trimmed) || !findCatalogModel(trimmed)) continue;
         seen.add(trimmed);
         deduped.push(trimmed);
       }
@@ -2587,7 +2587,7 @@ function normalizeRoutingTierOrder(): void {
       const seenModels = new Set<string>();
       for (const modelId of route.models) {
         const trimmed = String(modelId || '').trim();
-        if (!trimmed || seenModels.has(trimmed) || !findProviderModel(trimmed)) continue;
+        if (!trimmed || seenModels.has(trimmed) || !findCatalogModel(trimmed)) continue;
         seenModels.add(trimmed);
         deduped.push(trimmed);
       }
