@@ -201,3 +201,9 @@ export function ollamaBackendBaseUrl(): string {
 export function ollamaBackendTagsUrl(): string {
   return OLLAMA_BACKEND_TAGS_URL;
 }
+
+/** Version probe for the real ollama backend (used to mirror /api/version so
+ * IDEs see the actual upstream Ollama version instead of a static floor). */
+export function ollamaBackendVersionUrl(): string {
+  return `http://${OLLAMA_BACKEND_HOST}/api/version`;
+}

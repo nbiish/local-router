@@ -204,6 +204,8 @@ export function renderLayout(
         .dropdown-search-item:last-child { border-bottom: 0; }
         .dropdown-search-item:hover, .dropdown-search-item.selected { background: var(--primary-soft); }
         .dropdown-search-item .provider-badge { font-size: 10px; padding: 1px 6px; border-radius: 999px; background: var(--secondary-bg); color: var(--muted); white-space: nowrap; }
+        .dropdown-search-item .in-chain-badge { font-size: 10px; padding: 1px 6px; border-radius: 999px; background: var(--success-bg); color: var(--success-text); white-space: nowrap; }
+        .model-config-summary { font-size: 10px; margin-left: 6px; white-space: nowrap; }
         .router-candidate-list { margin-top: 8px; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
         .router-candidate-item { padding: 10px 12px; border-top: 1px solid var(--border); background: var(--surface-raised); display: flex; align-items: center; gap: 10px; }
         .router-candidate-item:first-child { border-top: 0; }
@@ -498,7 +500,7 @@ export function renderLayout(
     <aside class="sidebar">
       <div class="sidebar-header">
         <h2>Local Router</h2>
-        <div class="muted">v0.6.4</div>
+        <div class="muted" id="ollamaVersionBadge">Ollama API v0.6.4+</div>
       </div>
       <nav class="sidebar-nav">
         <a href="/config/providers" class="nav-link">Providers &amp; Models</a>
@@ -547,6 +549,7 @@ export function renderLayout(
         let fallbackChainsOrder = [];
         let activeFallbackChainId = 'fallback-models';
         let allModelsCache = [];
+        let catalogInfoById = {};
         let modelAvailabilityCache = {};
         const ADD_CUSTOM_PROVIDER_VALUE = '__add_custom__';
 
@@ -1103,6 +1106,10 @@ export function renderLayout(
           listEl.innerHTML = routes.map((route) => {
             const models = Array.isArray(route.models) ? route.models : [];
             const disabled = new Set(Array.isArray(route.disabledModels) ? route.disabledModels : []);
+            const detailByModel = {};
+            (Array.isArray(route.chainDetails) ? route.chainDetails : []).forEach(function(detail) {
+              if (detail && detail.id) detailByModel[detail.id] = detail;
+            });
             const chainHtml = models.map((modelId) => {
               const isEnabled = !disabled.has(modelId);
               var badge = availabilityBadgeHtml(modelId);
@@ -1110,11 +1117,28 @@ export function renderLayout(
                 badge = '<span class="candidate-status disabled" style="background:#ea4335;color:white;opacity:0.6;">Disabled</span>';
               }
               var style = !isEnabled ? ' style="text-decoration: line-through; opacity: 0.6;"' : '';
-              return '<span' + style + '>' + escapeHtml(modelId) + '</span>' + badge;
+              var detail = detailByModel[modelId];
+              var tip = modelId;
+              if (detail) {
+                var tipParts = [];
+                if (detail.provider) tipParts.push('provider: ' + detail.provider);
+                if (typeof detail.contextLength === 'number') tipParts.push('context: ' + detail.contextLength);
+                if (typeof detail.outputTokens === 'number') tipParts.push('max output: ' + detail.outputTokens);
+                if (detail.supportsTools !== null && detail.supportsTools !== undefined) tipParts.push('tools: ' + (detail.supportsTools ? 'yes' : 'no'));
+                if (detail.supportsVision !== null && detail.supportsVision !== undefined) tipParts.push('vision: ' + (detail.supportsVision ? 'yes' : 'no'));
+                if (detail.status) tipParts.push('status: ' + detail.status);
+                if (detail.known === false) tipParts.push('not in catalog');
+                if (tipParts.length) tip = modelId + ' — ' + tipParts.join(' · ');
+              }
+              var spec = modelConfigSummaryHtml(modelId);
+              return '<span' + style + ' title="' + escapeHtml(tip) + '">' + escapeHtml(modelId) + '</span>' + badge + spec;
             }).join(' → ');
+            const readyCount = models.filter(function(modelId) { return detailByModel[modelId] && detailByModel[modelId].status === 'ready'; }).length;
+            const readinessMeta = '<div class="meta">' + readyCount + ' of ' + models.length + ' chain models ready (provider key configured)</div>';
             return '<div class="fallback-route-item" data-fallback-route="' + escapeHtml(route.id) + '">' +
               '<h4>' + escapeHtml(route.id) + '</h4>' +
               '<div class="meta">Chain: ' + chainHtml + '</div>' +
+              readinessMeta +
               '<div class="meta">Displayed as: ' + escapeHtml(route.display || ('fallback:' + models.join(' -> '))) + '</div>' +
               '<div class="actions">' +
                 '<button class="button-secondary" data-delete-fallback="' + escapeHtml(route.id) + '">Delete</button>' +
@@ -1133,6 +1157,7 @@ export function renderLayout(
           const res = await fetch('/api/fallback-models');
           const payload = await res.json().catch(() => ({}));
           fallbackRoutes = Array.isArray(payload?.data) ? payload.data : [];
+          mergeChainDetailsIntoInfo(fallbackRoutes);
           const modelIds = fallbackRoutes.flatMap((route) => Array.isArray(route.models) ? route.models : []);
           await refreshModelAvailability(modelIds);
           renderFallbackRoutes();
@@ -1251,13 +1276,94 @@ export function renderLayout(
         }
 
         // ── Visual Builder Dropdown ──
+        // Source: the full toggle catalog (/api/model-curation) — the same
+        // inventory /api/fallback-chain/toggle and save validation accept —
+        // NOT the curated /api/tags serving subset. Otherwise models the
+        // operator flagged for the fallback chain (but did not also check for
+        // direct serving) silently vanish from "Add Model to Chain".
         async function buildModelDropdown() {
           try {
-            const res = await fetch('/api/tags');
-            const data = await res.json();
-            allModelsCache = (data.models || []).map(function(m) { return m.name; }).sort();
+            const res = await fetch('/api/model-curation');
+            const payload = await res.json();
+            const groups = Array.isArray(payload?.data) ? payload.data : [];
+            const ids = [];
+            const infoMap = {};
+            for (const group of groups) {
+              for (const model of (group && Array.isArray(group.models) ? group.models : [])) {
+                if (!model || !model.id) continue;
+                ids.push(model.id);
+                infoMap[model.id] = {
+                  provider: group.provider || model.provider || '',
+                  contextLength: typeof model.contextLength === 'number' ? model.contextLength : null,
+                  outputTokens: typeof model.outputTokens === 'number' ? model.outputTokens : null,
+                  supportsTools: typeof model.supportsTools === 'boolean' ? model.supportsTools : null,
+                  supportsVision: typeof model.supportsImages === 'boolean' ? model.supportsImages : null
+                };
+              }
+            }
+            if (ids.length === 0) throw new Error('empty catalog');
+            catalogInfoById = infoMap;
+            allModelsCache = ids.sort();
           } catch (e) {
-            allModelsCache = [];
+            // Legacy/edge fallback: the served-tags subset.
+            try {
+              const tagsRes = await fetch('/api/tags');
+              const data = await tagsRes.json();
+              allModelsCache = (data.models || []).map(function(m) { return m.name; }).sort();
+            } catch (e2) {
+              allModelsCache = [];
+            }
+          }
+        }
+
+        // Merge per-member configs reported by /api/fallback-models
+        // (chainDetails) into the shared info map so chain views render specs
+        // even before (or without) a catalog refresh.
+        function mergeChainDetailsIntoInfo(routes) {
+          (Array.isArray(routes) ? routes : []).forEach(function(route) {
+            (Array.isArray(route?.chainDetails) ? route.chainDetails : []).forEach(function(detail) {
+              if (!detail || !detail.id) return;
+              const existing = catalogInfoById[detail.id] || {};
+              catalogInfoById[detail.id] = {
+                provider: existing.provider || detail.provider || '',
+                contextLength: existing.contextLength ?? detail.contextLength ?? null,
+                outputTokens: existing.outputTokens ?? detail.outputTokens ?? null,
+                supportsTools: existing.supportsTools ?? detail.supportsTools ?? null,
+                supportsVision: existing.supportsVision ?? detail.supportsVision ?? null,
+                status: detail.status || existing.status || null
+              };
+            });
+          });
+        }
+
+        function modelConfigSummaryHtml(modelId) {
+          const info = catalogInfoById[modelId];
+          if (!info) return '';
+          const parts = [];
+          if (typeof info.contextLength === 'number' && info.contextLength > 0) {
+            parts.push(Math.round(info.contextLength / 1000) + 'k ctx');
+          }
+          if (typeof info.outputTokens === 'number' && info.outputTokens > 0) {
+            parts.push(Math.round(info.outputTokens / 1000) + 'k out');
+          }
+          if (info.supportsTools === true) parts.push('tools');
+          if (info.supportsVision === true) parts.push('vision');
+          if (parts.length === 0) return '';
+          return '<span class="model-config-summary muted" title="' + escapeHtml(parts.join(' · ')) + '">' + escapeHtml(parts.join(' · ')) + '</span>';
+        }
+
+        async function hydrateOllamaVersionBadge() {
+          const el = document.getElementById('ollamaVersionBadge');
+          if (!el) return;
+          try {
+            const res = await fetch('/api/version');
+            const payload = await res.json().catch(() => ({}));
+            if (payload && typeof payload.version === 'string' && payload.version) {
+              el.textContent = 'Ollama API v' + payload.version + ' · mirrored from backend';
+              el.title = 'Reported by /api/version — mirror of the real ollama on this host (env OLLAMA_VERSION overrides; floor 0.6.4).';
+            }
+          } catch (e) {
+            // Static badge stays as-is when the probe fails.
           }
         }
 
@@ -1376,13 +1482,14 @@ export function renderLayout(
             var provider = modelParts.length > 1 ? modelParts.slice(0, modelParts.length > 2 ? modelParts.length - 2 : 1).join('-') : '';
             var badge = provider ? '<span class="provider-badge">' + escapeHtml(provider) + '</span>' : '';
             var statusBadge = availabilityBadgeHtml(c.model);
+            var specBadge = modelConfigSummaryHtml(c.model);
             var isEnabled = c.enabled !== false;
             var disabledClass = !isEnabled ? ' router-candidate-disabled' : '';
             return '<div class="router-candidate-item' + disabledClass + '" draggable="true" data-candidate-index="' + i + '" ondragstart="candidateDragStart(event)" ondragover="candidateDragOver(event)" ondrop="candidateDrop(event)" ondragend="candidateDragEnd(event)">' +
               '<span class="drag-handle" title="Drag to reorder">☰</span>' +
               '<input type="checkbox" class="candidate-toggle" ' + (isEnabled ? 'checked' : '') + ' onchange="toggleFallbackCandidate(' + i + ', this.checked)" title="' + (isEnabled ? 'Enabled — will be tried' : 'Disabled — skipped at execution') + '">' +
               '<div class="candidate-info">' +
-                '<span class="candidate-model">' + escapeHtml(c.model) + '</span>' + badge + statusBadge +
+                '<span class="candidate-model">' + escapeHtml(c.model) + '</span>' + badge + statusBadge + specBadge +
               '</div>' +
               '<button class="remove-btn" title="Remove" onclick="removeFallbackCandidate(' + i + ')">✕</button>' +
             '</div>';
@@ -1414,8 +1521,11 @@ export function renderLayout(
               var parts = m.split('-');
               var provider = parts.length > 1 ? parts.slice(0, parts.length > 2 ? parts.length - 2 : 1).join('-') : '';
               var badge = provider ? '<span class="provider-badge">' + escapeHtml(provider) + '</span>' : '';
+              var inChain = fallbackCandidateStore.some(function(c) { return c.model === m; });
+              var chainMark = inChain ? '<span class="in-chain-badge" title="Already in this chain">✓ in chain</span>' : '';
+              var spec = modelConfigSummaryHtml(m);
               return '<div class="dropdown-search-item" data-model="' + escapeHtml(m) + '" onmousedown="addFallbackCandidate(&apos;' + escapeHtml(m).replace(/'/g, '&apos;') + '&apos;)">' +
-                '<span>' + escapeHtml(m) + '</span>' + badge +
+                '<span>' + escapeHtml(m) + '</span>' + badge + spec + chainMark +
               '</div>';
             }).join('');
           }
@@ -2224,6 +2334,32 @@ export function renderLayout(
           }
         }
 
+        // Per-provider key status merged into the catalog group headers (the
+        // logical join of "Provider Key Configs" with "Available Providers &
+        // Models"): pill + env var + a shortcut that opens this provider in
+        // the key form above.
+        function providerKeyStatusHtml(providerName) {
+          if (!Array.isArray(providerConfigs) || providerConfigs.length === 0) return '';
+          const cfg = providerConfigs.find(function(p) { return p && p.name === providerName; });
+          if (!cfg) return '';
+          const pill = cfg.configured
+            ? '<span class="pill status-pill configured">Key configured</span>'
+            : '<span class="pill status-pill pending">No key</span>';
+          const envVar = cfg.keyEnvVar ? ' <span class="muted">' + escapeHtml(cfg.keyEnvVar) + '</span>' : '';
+          return '<span class="provider-key-status" style="font-size: 12px;">' + pill + envVar
+            + ' <button type="button" class="button-secondary" data-configure-provider="' + escapeHtml(cfg.name) + '" style="padding: 1px 8px; font-size: 11px;">' + (cfg.configured ? 'Update key' : 'Configure key') + '</button></span>';
+        }
+
+        function openProviderKeyConfig(providerName) {
+          if (!providerName) return;
+          selectProvider(providerName);
+          const keyInput = document.getElementById('providerKey');
+          if (keyInput) {
+            keyInput.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            keyInput.focus();
+          }
+        }
+
         function setCurationProviderSearch(provider, value, caret) {
           curationSearchByProvider[provider] = value;
           renderCurationCatalog();
@@ -2267,7 +2403,7 @@ export function renderLayout(
             if (!search && !providerSearch && matching.length === 0) continue;
 
             html += '<section class="provider-group">'
-              + '<h3>' + escapeHtml(group.provider) + ' <span class="muted">(' + matching.length + (matching.length !== models.length ? ' / ' + models.length : '') + ')</span></h3>'
+              + '<h3>' + escapeHtml(group.provider) + ' <span class="muted">(' + matching.length + (matching.length !== models.length ? ' / ' + models.length : '') + ')</span> ' + providerKeyStatusHtml(group.provider) + '</h3>'
               + '<input type="search" class="curation-provider-search" data-curation-provider="' + escapeHtml(group.provider) + '"'
               + ' placeholder="Search ' + escapeHtml(group.provider) + ' models…"'
               + ' value="' + escapeHtml(curationSearchByProvider[group.provider] || '') + '"'
@@ -2301,6 +2437,12 @@ export function renderLayout(
 
           catalogEl.innerHTML = html
             || '<div class="muted">No ported endpoint models match. Use 🔄 Refresh Endpoints to port models from every provider.</div>';
+
+          catalogEl.querySelectorAll('button[data-configure-provider]').forEach(function(btn) {
+            btn.addEventListener('click', function() {
+              openProviderKeyConfig(btn.getAttribute('data-configure-provider') || '');
+            });
+          });
 
           if (statusEl) {
             statusEl.innerText = curationSelectedKeys.size + ' of ' + totalCurationModelCount() + ' models selected for serving'
@@ -2544,6 +2686,7 @@ export function renderLayout(
           var res = await fetch('/api/fallback-models');
           var payload = await res.json().catch(() => ({}));
           var routes = Array.isArray(payload?.data) ? payload.data : [];
+          mergeChainDetailsIntoInfo(routes);
           var byId = {};
           routes.forEach(function(r) {
             if (!r) return;
@@ -2606,13 +2749,14 @@ export function renderLayout(
           }
           listEl.innerHTML = systemFallbackChainStore.map(function(modelId, i) {
             var badge = availabilityBadgeHtml(modelId);
+            var specBadge = modelConfigSummaryHtml(modelId);
             var isDisabled = systemFallbackChainDisabledStore.indexOf(modelId) !== -1;
             var disabledClass = isDisabled ? ' router-candidate-disabled' : '';
             var disabledBadge = isDisabled ? '<span class="candidate-status disabled" style="background:#ea4335;color:white;opacity:0.6;">Disabled</span>' : '';
             return '<div class="router-candidate-item' + disabledClass + '" draggable="true" data-candidate-index="' + i + '" ondragstart="candidateDragStart(event)" ondragover="candidateDragOver(event)" ondrop="candidateDrop(event)" ondragend="candidateDragEnd(event)">' +
               '<span class="drag-handle" title="Drag to reorder">☰</span>' +
               '<div class="candidate-info">' +
-                '<span class="candidate-model">' + escapeHtml(modelId) + '</span>' + badge + disabledBadge +
+                '<span class="candidate-model">' + escapeHtml(modelId) + '</span>' + badge + specBadge + disabledBadge +
               '</div>' +
               '<button class="remove-btn" title="Remove from fallback chain" onclick="removeFallbackChainModel(' + i + ')">✕</button>' +
             '</div>';
@@ -2794,6 +2938,7 @@ export function renderLayout(
         }
 
         initializeThemeScale();
+        safeInit('hydrateOllamaVersionBadge', hydrateOllamaVersionBadge);
         safeInit('loadProviderConfigs', loadProviderConfigs);
         safeInit('hydrateLiveModelBadges', hydrateLiveModelBadges);
         safeInit('loadFallbackRoutes', loadFallbackRoutes);
