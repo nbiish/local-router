@@ -138,14 +138,21 @@ test('POST /api/show for a local-router route exposes local_router_chain', { ski
   assert.ok(typeof body.model_info['local-router.chain'] === 'string');
 });
 
-test('Providers page merges key configs into the providers & models card', { skip: skipReason || undefined }, async () => {
+test('Providers page renders one section per provider (no grid/catalog duplicates)', { skip: skipReason || undefined }, async () => {
   const response = await fetch(`${baseUrl}/config/providers`);
   assert.equal(response.status, 200);
   const html = await response.text();
   assert.match(html, /Providers, Keys &amp; Models/, 'merged card title');
   assert.doesNotMatch(html, /<h2>Available Providers &amp; Models<\/h2>/, 'old separate catalog card removed');
-  assert.ok(html.includes('id="providerGrid"'), 'provider grid present');
+  assert.ok(!html.includes('id="providerGrid"'), 'duplicate provider grid removed');
+  assert.ok(html.includes('id="providerCount"'), 'provider count moved to the card header');
   assert.ok(html.includes('id="catalog"'), 'catalog present');
-  assert.ok(html.indexOf('id="providerGrid"') < html.indexOf('id="catalog"'), 'key grid precedes catalog');
+  assert.ok(!html.includes('id="fallbackChainSelector"') && !html.includes('id="fallbackOrderList"'),
+    'providers-page fallback chain editor removed (single editor lives on Fallback Routes)');
   assert.match(html, /Unable to verify Ollama server version/, 'IDE compatibility explainer');
+  assert.ok(html.includes('data-configure-provider'), 'group-header Configure key wiring present');
+  assert.ok(html.includes('data-fetch-provider'), 'group-header Fetch live wiring present');
+  assert.ok(html.includes('data-reset-provider'), 'group-header Reset key wiring present');
+  assert.ok(html.includes('data-stage-fallback'), 'catalog row + Fallback staging wiring present');
+  assert.ok(html.includes('stageModelFromQuery'), 'fallback page query staging handler present');
 });
