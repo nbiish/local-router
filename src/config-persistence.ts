@@ -7,7 +7,6 @@ export const ROUTER_SETTINGS_PATH = path.join(LOCAL_ROUTER_CONFIG_DIR, 'router-s
 
 export type RouterSettings = {
   fallbackModelsText?: string;
-  autoRouterCandidatesText?: string;
 };
 
 export function loadRouterSettings(): RouterSettings {

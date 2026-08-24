@@ -8,20 +8,18 @@ Point VS Code Copilot Chat, Claude Code, Cline, Roo Code, Continue, Codex, or sc
 
 ### Capabilities & Topology
 - **Port:** `11434` (Ollama default — drop-in). `develop` verification build uses `11436` (the main server port + 2) to avoid colliding with the running main server. Override with the `PORT` env var.
-- **Model IDs:** `{provider-slug}/{presented-alias}` (e.g. `zenmux/qwen3.7-max`, `my-vendor/my-alias`) or `local-router/{router-or-fallback-id}`
+- **Model IDs:** `{provider-slug}/{presented-alias}` (e.g. `zenmux/qwen3.7-max`, `my-vendor/my-alias`) or `local-router/{fallback-id}`
 - **Keys:** `/config` UI → in-memory while running → **PQC bundle** `~/.config/pqc-secrets/secrets.bundle.json` on every save (ML-KEM-768 + AES-256-GCM). Never committed to git or `providers.txt`.
 - **Catalog:** the persisted **toggle store** — `endpoint-models-cache.json` (discovered models per provider) + curated selection keys in `model-source-config.json` — is the single model catalog (2026-08-20). `providers.txt` lists providers only (endpoints + env vars); its former model table was migrated pre-checked into the toggle store on first boot (frozen copy: `providers.legacy-catalog.txt`). Runtime edits live in `provider-models.json`, custom providers in `custom-providers.json`.
 - **Custom providers:** `/config` → **Add custom provider…** or `POST /api/providers` (HTTPS `/v1` upstream; loopback HTTP allowed for dev).
-- **Auto-router:** `local-router/auto-router-main` — expanded curated set (`src/routing-defaults.ts`): free → subscription (`opencode-go` → Z.ai → Xiaomi) → OAuth subscription (`antigravity-gemini-3.5-flash` → `github-copilot-gemini-3.1-pro`) → paid (Wafer → ZenMux → OpenRouter → Nebius → Cline → Kilo + NIM/Modal/Zen extras); exhaustion-sorted at bootstrap; routes based on coding ability, context length, and price (includes free-tier boost; latency metrics deprecated).
-- **System fallback:** `local-router/fallback-models` — **23** fixed steps (`DEFAULT_FALLBACK_ORDERED_IDS`): Ollama → NIM → Cline/Kilo free → OpenCode Zen free → Modal → **Nous Portal Step 3.7 Flash free (positioned above the subscription band, step 7)** → **OAuth subscription (antigravity-gemini-3.5-flash at step 8, github-copilot-gemini-3.1-pro at step 9)** → Z.ai/Xiaomi subscription → Pioneer paid → Go/CommandCode subscription → Nebius/Wafer paid → Kilo/Cline paid → **Nous Portal MiniMax M3 (positioned in the paid tail just after Cline DeepSeek V4 Pro paid)** → ZenMux/OpenRouter paid → OpenRouter free (no exhaustion re-sort on bootstrap).
-- **Preset routes** (4 built-in, bootstrapped on first run from `src/routing-defaults.ts`):
-  - `local-router/multimodal` — **fallback** chain of 15 vision-capable models (NIM MiniMax M3 → Cline/Kilo/OpenCode Zen MiniMax M3 free → Nous Portal Step 3.7 Flash free → Antigravity Gemini 3.5 Flash → Copilot Gemini 3.1 Pro → Z.ai GLM-4.6v → Xiaomi MiMo v2.5 → CommandCode MiniMax M3 → Pioneer MiniMax M3 → Wafer AI MiniMax M3 → Kilo MiniMax M3 paid → OpenRouter chain-of-draft + kimi-k2.7-code).
-  - `local-router/performance` — **auto-local** router, 15 top-quality candidates (text + multimodal union, deduped), `minCodingScore=0.88`, max quality (`costQualityTradeoff=10`).
-  - `local-router/low-cost` — **auto-local** router, 7 free candidates (one from each provider with free models), `minCodingScore=0.75`, cost-optimized (`costQualityTradeoff=2`).
-  - `local-router/nanoboozhoo` — **auto-local** SOTA router, 64 candidates (full superset of auto-router-main + all fallback models), `minCodingScore=0.86`, max quality. Named for the Anishinaabe trickster-teacher; implements reasoning-aware routing principles from RADAR/ODAR/PILOT/IRT-Router academic research (NeurIPS 2025, EMNLP 2025, ACL 2025) — uses the broadest candidate pool with aggressive quality gating so the auto-local scorer always picks the best available model at runtime.
-- **Ollama Cloud:** Shared quota — router/fallback/pull use **nemotron-3-ultra**, **minimax-m3**, **deepseek-v4-flash** only unless a real `ollama.com` API key is set (Pro tags gated).
+- **System fallback:** `local-router/fallback-models` — **24** curated steps (`DEFAULT_FALLBACK_ORDERED_IDS`): Ollama → NIM → Cline/Kilo free → OpenCode Zen free → Modal (GLM-5.1 FP8 + Kimi-K3) → Nous Portal Step 3.7 Flash free (above the subscription band) → OAuth subscription (antigravity-gemini-3.5-flash → github-copilot-gemini-3.1-pro) → Z.ai/Xiaomi subscription → Pioneer paid → Go/CommandCode subscription → Nebius/Wafer paid → Kilo/Cline paid → Nous Portal MiniMax M3 → ZenMux/OpenRouter paid → OpenRouter free. Users re-shape the chain live from the Providers & Models toggles (`POST /api/fallback-chain/toggle` and `/api/fallback-chain/reorder`).
+- **Preset routes** (3 built-in **fallback** chains, bootstrapped on first run from `src/routing-defaults.ts`; each exhausts into the system `fallback-models` chain):
+  - `local-router/multimodal` — chain of 15 vision-capable models (NIM MiniMax M3 → Cline/Kilo/OpenCode Zen MiniMax M3 free → Nous Portal Step 3.7 Flash free → Antigravity Gemini 3.5 Flash → Copilot Gemini 3.1 Pro → Z.ai GLM-4.6v → Xiaomi MiMo v2.5 → CommandCode MiniMax M3 → Pioneer MiniMax M3 → Wafer AI MiniMax M3 → Kilo MiniMax M3 paid → OpenRouter chain-of-draft + kimi-k2.7-code).
+  - `local-router/free` — 21 no-cost models across providers, quality-first; maximizes free-tier usage before any paid hop.
+  - `local-router/performance` — 18 subscription/credit models, quality-first; prefers subscribed and paid capacity over free tiers.
+- **Ollama Cloud:** Shared quota — fallback chains and auto-start pulls use **nemotron-3-ultra**, **minimax-m3**, **deepseek-v4-flash** only unless a real `ollama.com` API key is set (Pro tags gated).
 - **Service shims:** `local-router route set` → drop-in shims for `ollama`, `llama-server` (llama.cpp), and `unsloth` in `~/.local/bin`; service starts launch Local Router on `11434` (real Ollama on `11435`) and self-register llama.cpp/unsloth as keyless loopback custom providers; other commands pass through to the real binaries. `LOCAL_ROUTER_NO_SHIM=1` bypasses any shim.
-- **Operator CLI:** `localrouter list`, `keys`, `router export|import|list|show|check`, `verify`, `config --open`.
+- **Operator CLI:** `localrouter list`, `keys`, `verify`, `config --open`.
 - **Thinking:** Proxy toggle default **OFF** (IDE passthrough); optional levels when enabled. Responses strip `reasoning_content` for VS Code safety; requests preserve it for multi-turn tools.
 
 ```text
@@ -29,7 +27,7 @@ Clients (VS Code, Claude Code, Codex, Cline, scripts)
         │
         ▼
  127.0.0.1:11434  Local Router (Express, src/index.ts)
-        │  model resolve → router / fallback / direct
+        │  model resolve → fallback / direct
         │  keys from PQC bundle + in-memory keyStore
         ▼
  Per-provider upstream OpenAI-compat APIs
@@ -41,7 +39,7 @@ Clients (VS Code, Claude Code, Codex, Cline, scripts)
 ### Product North Star
 Local Router should become an easy local drop-in replacement for Ollama-compatible tooling: one localhost server, one familiar Ollama/OpenAI-compatible surface, and many provider-backed or locally routed models behind it.
 
-The end-state product should feel like an approachable open-source Ollama-compatible proxy with extra routing intelligence, not a closed provider gateway. Users should be able to point VS Code, Copilot Chat, Continue, Cline, Roo Code, scripts, or Ollama-native clients at `http://127.0.0.1:11434` and keep working while Local Router handles provider keys, model aliases, fallback chains, router models, diagnostics, and explicit routing policy.
+The end-state product should feel like an approachable open-source Ollama-compatible proxy with extra routing intelligence, not a closed provider gateway. Users should be able to point VS Code, Copilot Chat, Continue, Cline, Roo Code, scripts, or Ollama-native clients at `http://127.0.0.1:11434` and keep working while Local Router handles provider keys, model aliases, fallback chains, diagnostics, and explicit routing policy.
 
 The project may take product inspiration from Ollama's local-first ergonomics and API shape, but it must remain its own implementation and brand. Do not copy Ollama source, trademarks, mascot assets, or visual identity unless a future license review explicitly permits it. Compatibility is the goal: same easy local mental model, same drop-in endpoint expectations, and clear behavior under open-source Local Router logic.
 
@@ -51,7 +49,7 @@ Local Router should have a cool, cutesy cyberpunk Anishinaabe character and inte
 `BRAND.md` is the working source of truth for product identity and character direction. Keep it aligned with this PRD before generating or shipping visual assets.
 
 #### Routing Direction
-Auto-routing should be open, inspectable, and improvable by the community. Prefer local TypeScript/Node logic, explicit candidate lists, redacted telemetry, CSV/JSON exports, dry-run scoring, recompute tools, and documented scoring formulas over opaque hosted router behavior. Users should be able to see why a model was selected, tune the policy, share improvements, and verify that no hidden model pool or provider-managed default was used unless they configured it as a normal candidate.
+The auto-routing system (scored router models, bandit selection, telemetry CSVs) was removed on 2026-08-23 in favor of explicit, user-configured fallback chains. Routing stays open, inspectable, and improvable by the community: a chain is a plain ordered list of provider models, visible and editable in `/config` and over the API, persisted as local JSON. Community curation now flows through explicit fallback chains — users can see exactly which models are tried and in what order, tune the chain, share improvements, and verify that no hidden model pool or provider-managed default was used unless they configured it as a normal chain step.
 
 ### Web & Architectural Inspiration
 - **Free Claude Code (`fcc-server`):** Repo: https://github.com/Alishahryar1/free-claude-code — A proxy layer between Claude Code and multiple LLM backends. Local Router follows its pattern of browser UI key management and in-memory key storage.
@@ -180,14 +178,9 @@ This is the core security system of the project. Every API key for every applica
 Clients format model names using the patterns:
 - `provider/upstream-id` (e.g. `nebius/deepseek-ai/DeepSeek-V4-Pro`) — direct upstream.
 - `provider/presented-alias` (e.g. `zenmux/qwen3.7-max`) — custom or catalog friendly alias.
-- `local-router/router-id` (e.g. `local-router/auto-router-main`) — candidate list auto-selection.
 - `local-router/fallback-id` (e.g. `local-router/fallback-models`) — fallback ordered retry chain.
 
 Slashes after the first segment are passed through as part of the upstream ID (e.g. OpenRouter preset paths).
-
-### Telemetry Formats
-- `router-events.csv`: Decisions logging. Columns: timestamp, router_id, presented_model, router_type, selected_model, status, duration_ms, candidate_latency_ms, stream, request features, coding_task, approx_input_tokens, requested_output_tokens, tool_calls_*, reward_signal, prompt_hash, candidate_scores, error_type. Prompt hash is SHA-256.
-- `router-candidates.csv`: Candidate performance statistics. Columns: model ID, provider, upstream_model, context/output, capabilities, cost, latency, success_rate, tool_call_accuracy, latency_p50_ms, latency_p95_ms, sample_count, tier, last_observed_at.
 
 ### Configuration Directories & Settings Map
 Setting files reside at `~/.config/local-router/` (or legacy `~/.config/fvs-code/` as fallback):
@@ -198,7 +191,6 @@ Setting files reside at `~/.config/local-router/` (or legacy `~/.config/fvs-code
 | `recipient.pub` | No | Public | ML-KEM public key |
 | `custom-providers.json` | No | local JSON | Custom provider metadata (endpoints, env variables) |
 | `provider-models.json` | No | local JSON | Custom model overrides and context details |
-| `router-models.json` | No | local JSON | Router specifications and candidate lists |
 | `fallback-models.json` | No | local JSON | Fallback chain ordered routes |
 || `thinking-config.json` | No | local JSON | Thinking levels (none/low/medium/high/xhigh) |
 || `wafer-config.json` | No | local JSON | Wafer AI ZDR enhancement toggle (enabled by default) |
@@ -352,8 +344,8 @@ Local Router integrates [Headroom](https://github.com/chopratejas/headroom) (`he
 - **Usage fields (OpenRouter-specific):** `prompt_tokens_details.cached_tokens`, `prompt_tokens_details.cache_write_tokens`, `prompt_tokens_details.audio_tokens`, `cost`, `cost_details.upstream_inference_cost` (BYOK only). Note: `usage: { include: true }` and `stream_options: { include_usage: true }` are deprecated — full usage details are now always included automatically.
 - **Implementation guidance for Local Router:**
   - When routing through OpenRouter, do not override `provider.order` unless explicitly requested by the user — doing so breaks sticky routing.
-  - Preserve message ordering and content across auto-router and fallback hops. Even a single character change in the first 1,024 tokens causes a cache miss.
-  - Surface `cached_tokens` in router telemetry (`router-events.csv`) to track cache hit rates per model.
+  - Preserve message ordering and content across fallback hops. Even a single character change in the first 1,024 tokens causes a cache miss.
+  - Surface `cached_tokens` in diagnostics/expert logs to track cache hit rates per model.
 
 ##### Moonshot / Kimi (`moonshot`, plus any Kimi route via OpenRouter or Groq)
 - **Mode:** Two mechanisms depending on model series:
@@ -560,8 +552,6 @@ local-router route set|unset|custom|status           # service drop-in shims (ol
 localrouter list --custom                            # lists the curated toggle catalog
 localrouter list --all                               # lists catalog + endpoint cache
 localrouter keys list|set|unset                      # key management via PQC endpoints
-localrouter router list|show|check                   # router configuration check
-localrouter router export|import <file>              # routing state backup (CI/CD)
 localrouter verify --json                            # headless verification check
 localrouter config --open                            # launch browser config page
 ```
@@ -582,7 +572,7 @@ localrouter config --open                            # launch browser config pag
 
 #### Troubleshooting
 - **Model unknown / 400 provider not found:** check `localrouter list` output. Confirm the presented slug exists. Check for spelling.
-- **Auto-router skips all candidates:** Check logs for `[PQC] Providers without keys`. Configure at least one candidate provider key.
+- **Fallback chain skips all steps:** Check logs for `[PQC] Providers without keys`. Configure at least one chain provider key.
 - **Ollama cloud models missing:** Ensure `ollama signin` session is active. Confirm `[ollama] Backend ready` in server logs.
 - **Restart loop / CLI issues:** Check logs at `~/.config/local-router/proxy-11434.log` (or `~/.config/fvs-code/`). Verify no duplicate servers listen on port 11434.
 
@@ -615,39 +605,29 @@ VS Code Copilot Chat strips reasoning tags on follow-up requests, leading to ups
 - **Ollama compat:** `/api/tags` / `POST /api/show` return standard alias mappings (`basename`, `name`, `details.parameter_size`). Capabilities are advertised (`completion`, `tools`, `vision`). `thinking` is omitted.
 - **Integration API:** `POST /api/vscode/configure` modifies `chatLanguageModels.json` and updates `globalStorage/state.vscdb` to insert custom presented aliases and capabilities.
 
-### Router & Bandit Models
-Presented as `local-router/<router-name>` (saved to `router-models.json`):
-- **Pareto-code:** uses `minCodingScore` filters, cost/latency tie-breakers.
-- **Auto-local:** uses task features (tool use, image, context size, cache, prior success/latency).
-- **Bandit-local:** dLinUCB with discount forgetting factor `γ=0.98`, UCB selection (`explorationBudget` UCB coefficient), persisted matrices.
-- **System fallback:** `fallback-models` safety net.
+### Fallback Chains
+Presented as `local-router/<chain-id>` (saved to `fallback-models.json`), a fallback chain is a user-configured ordered list of provider models tried in turn until one succeeds; when a non-system chain exhausts, the request cascades into the system `fallback-models` chain.
+- The auto-router system (pareto-code/auto-local/bandit router types, `router-models.json`, telemetry CSVs, bandit and tier tooling) was removed on 2026-08-23. Routing is either a direct provider model or an explicit fallback chain.
+- **Live toggles:** `POST /api/fallback-chain/toggle { modelId, enabled, routeId? }` appends a model to (or removes it from) the selected chain; `POST /api/fallback-chain/reorder { orderedIds, routeId? }` replaces the ordering (the id set must match exactly). `routeId` defaults to `fallback-models`; other chain ids must already exist (404 otherwise).
+- **Visual builder:** `/config` Fallback page — search, dropdown, per-model toggles, drag-reorder; Providers & Models page toggles write the currently selected chain.
 
 #### Preset Routes (bootstrapped on first run)
-4 built-in preset routes are auto-created via `ensurePresetRoutes()` during startup if they don't already exist. Users can customize or delete them via `/config` UI or API. Defined in `src/routing-defaults.ts` as `PRESET_FALLBACK_ROUTES` and `PRESET_ROUTER_ROUTES`.
+3 built-in preset fallback chains are auto-created via `ensurePresetRoutes()` during startup if they don't already exist. Users can customize or delete them via `/config` UI or API. Defined in `src/routing-defaults.ts` as `PRESET_FALLBACK_ROUTES`. Each exhausts into the system `fallback-models` chain.
 
-| Route ID | Type | Candidates | minCodingScore | costQualityTradeoff | Purpose |
-|---|---|---|---|---|---|
-| `multimodal` | fallback | 15 | — | — | Vision-capable ordered retry chain (multimodal subset of curated fallback + Z.ai GLM-4.6v + Xiaomi MiMo v2.5 + CommandCode MiniMax M3 + Wafer AI MiniMax M3) |
-| `performance` | auto-local | 15 | 0.88 | 10 | Maximum coding quality, text + vision union (top paid) |
-| `low-cost` | auto-local | 7 | 0.75 | 2 | Free models only (one from each provider) |
-| `nanoboozhoo` | auto-local | 64 | 0.86 | 10 | SOTA routing — full candidate superset with aggressive quality gating |
-
-#### Statistical Outlier Tiering (Auto Exacto)
-- Uses median and Median Absolute Deviation (MAD) over accumulated telemetry.
-- Models categorized into: `verified` (50+ samples within threshold), `insufficient` (<50 samples), and `deranked` (outliers or success rate < 0.85).
-- Recomputed via `POST /api/router-models/:id/recompute` which reads telemetry and offers tier change proposals. Mapped to `enableAutoTiers` flag in router settings.
+| Route ID | Models | Purpose |
+|---|---|---|
+| `multimodal` | 15 | Vision-capable ordered retry chain (multimodal subset of curated fallback + Z.ai GLM-4.6v + Xiaomi MiMo v2.5 + CommandCode MiniMax M3 + Wafer AI MiniMax M3) |
+| `free` | 21 | No-cost models across providers, quality-first; maximizes free-tier usage before any paid hop |
+| `performance` | 18 | Subscription/credit models, quality-first; prefers subscribed and paid capacity over free tiers |
 
 ### CIP Telemetry System
 - **cip-daily-research.mts:** Computes metrics (insufficient data, deranked models, latency warnings) from CSV logs, appends findings to `cip-findings.jsonl`.
-- **cip-apply-findings.mts:** Reads findings and patches `router-models.json` settings automatically.
+- **cip-apply-findings.mts:** Reads findings and patches routing defaults automatically (formerly `router-models.json`; auto-router patching removed 2026-08-23 — curated output now flows into fallback chains).
 - **crx-validate.mts:** Schema check on community registry pull requests.
 - **crx-aggregate.mts:** consensus merging script (majority vote, high-consensus filters).
 
 ### Roadmap / Next Steps
 - **Config UI Modularization:** Extract the inline HTML/JS config routes (~3400 lines) from `src/index.ts` into TS route modules (`src/routes/config-*.ts`), mapping shared memory to a consolidated `ConfigState` object.
-- **Scoring Normalization:** Normalize scoring to `[0,1]` and map weights derived dynamically from `costQualityTradeoff`.
-- **Complexity Vectors:** Add `codeDensity`, `languageCount`, `multiTurnDepth`, and `instructionLength` to auto-router scoring logic.
-- **Bandit Management:** Implement UCB state export/import endpoints for backup/restore.
 
 ---
 
@@ -731,6 +711,8 @@ curl -s http://127.0.0.1:11434/api/fallback-models | jq '.data[] | select(.route
 
 - **2026-06-13 (multimodal catalog fix):** Operator reported that the two new multimodal anchors `zai-code-pass-glm-4.6v` and `commandcode-minimax-m3` showed Unavailable in the models page even though `providers/zai` and `providers/commandcode` had keys configured. Root cause: the 2026-06-13 multimodal-expansion commit added the new `providers.txt` rows with letter-suffixed row numbers `64a│ zai` and `72a│ commandcode` (intended as "variant of row 64/72" notation), but `readProviderModels()` in [src/index.ts:3421](src/index.ts) uses `if (!/^\d+$/.test(rowNumber)) continue;` to skip rows, so both new entries were silently dropped from the catalog. The zai row also used the upstream-namespace model name `zai-org/GLM-4.6v`; after `modelAliasSegment()` normalization that would have produced presented ID `zai-glm-4.6v` — not the `zai-code-pass-glm-4.6v` the multimodal route and pricing entry expect. Fix: renumbered `64a → 80` and `72a → 137` (free integers) and switched the zai model from `zai-org/GLM-4.6v` to `code-pass-glm-4.6v` to match the sibling `zai-code-pass-glm-5.1` convention and produce the correct presented ID. Verified: `scripts/validate-model-specs.mts` 0 errors / 117 rows parsed (was 115), `npx tsc --noEmit` clean, 65/66 unit tests pass (the 1 cancelled is a pre-existing ollama-backend test), smoke on `:11436` shows `resolved: true, keyConfigured: true, status: "ready"` for both anchors; full 15-anchor availability dump: 13 ready + 2 no_key (antigravity + github-copilot, OAuth subscription requiring user sign-in). Merged `fix/multimodal-zai-commandcode-unavailable` → `develop` (merge `90f04bc`) → `main` (release `e733527`). Worktree `fix/multimodal-zai-commandcode-unavailable`.
 
+
+- **2026-08-23 (auto-router removed; live fallback chains):** Removed the entire auto-router system — scored router models (`auto-local`/`pareto-code`/`priority`/`bandit-local`), `router-models.json`, `router-events.csv`/`router-candidates.csv` telemetry, recompute/tier tooling, the `localrouter router` CLI subcommands, and the `/config` Router Models page. Routing is now direct models + explicit fallback chains only. Chains became live user configuration: Providers & Models gains a per-model *fallback* checkbox bound to the chain chosen in a new chain selector (default `fallback-models`), plus a drag-reorderable order panel — backed by new `POST /api/fallback-chain/toggle { modelId, enabled, routeId? }` and `POST /api/fallback-chain/reorder { orderedIds, routeId? }` endpoints. Two new preset chains seed on boot: `local-router/free` (21 no-cost models, quality-first) and `local-router/performance` (18 subscription/credit models, quality-first); `multimodal` stays; each exhausts into the system `fallback-models` chain. Worktree `feat/models-fallback-ordering`.
 
 - **2026-08-23 (headroom 0.36.5 + per-provider caching docs):** Upgraded `headroom-ai` from `^0.22.4` to `^0.36.5` (latest, released 2026-08-22). The `compress(messages, { model, baseUrl, timeout, fallback, retries, stack })` API is backward-compatible — no call-site changes required; `tsc` clean and all 9 headroom tests pass. Added `docs/caching/<provider>.txt` — 21 plain-text docs (one per registry provider, incl. `openrouter-presets`), each a researched, source-cited snapshot of that provider's maximum prompt/context caching: mechanism type, max TTL, breakpoint caps, minimum token thresholds, cache read/write pricing, a maxing recipe, and how local-router's `injectPromptCaching` leverages it. Every file stamped "Last verified: 2026-08-23" with source URLs. Worktree `chore/headroom-caching-docs`.
 

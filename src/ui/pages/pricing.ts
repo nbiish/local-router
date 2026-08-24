@@ -1,8 +1,6 @@
 import { renderLayout } from './layout';
 
 export function renderPricingPage(params: {
-  defaultRouterId: string;
-  defaultRouterCandidatesText: string;
   defaultFallbackModelsText: string;
 }): string {
   const body = `
@@ -10,7 +8,7 @@ export function renderPricingPage(params: {
         <div class="catalog-meta">
           <div>
             <h2>Model Pricing Overrides</h2>
-            <p class="muted">USD per 1M tokens for router cost scoring. Saved to <code>~/.config/local-router/provider-pricing.json</code>. Use for limited-time promos (ZenMux matched rates, Wafer MiniMax-M3 weekly pricing, etc.).</p>
+            <p class="muted">USD per 1M tokens. Saved to <code>~/.config/local-router/provider-pricing.json</code>. Use for limited-time promos (ZenMux matched rates, Wafer MiniMax-M3 weekly pricing, etc.).</p>
           </div>
           <div class="muted" id="pricingCount">Loading pricing...</div>
         </div>

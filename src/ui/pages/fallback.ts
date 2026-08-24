@@ -1,8 +1,6 @@
 import { renderLayout } from './layout';
 
 export function renderFallbackPage(params: {
-  defaultRouterId: string;
-  defaultRouterCandidatesText: string;
   defaultFallbackModelsText: string;
 }): string {
   const body = `
@@ -11,7 +9,7 @@ export function renderFallbackPage(params: {
           <div>
             <h2>Fallback Model Routes</h2>
             <p class="muted">Create a presented fallback model from existing model IDs. The route appears in /v1/models, /api/tags, /api/show, and VS Code picker refreshes.</p>
-            <p class="muted">The <strong>fallback-models</strong> route is the system safety net: when a direct model or router fails (or has no eligible candidates), Local Router cascades to this chain automatically.</p>
+            <p class="muted">The <strong>fallback-models</strong> route is the system safety net: when a direct model fails, Local Router cascades to this chain automatically.</p>
           </div>
           <div class="muted" id="fallbackCount">Loading fallback routes...</div>
         </div>
@@ -58,10 +56,9 @@ export function renderFallbackPage(params: {
           <h4>How routing works</h4>
           <ul>
             <li><strong>Direct model</strong> — one provider call (e.g. <code>zenmux-deepseek-v4-pro</code>). On failure, cascades to the system fallback chain.</li>
-            <li><strong>Router model</strong> (<code>local-router/&lt;name&gt;</code>) — scores and filters your candidate list, then tries models in router order. On exhaustion or zero eligible candidates, cascades to system fallback.</li>
             <li><strong>Fallback route</strong> (<code>local-router/&lt;chain&gt;</code>) — ordered retry chain with backoff. Use <code>local-router/fallback-models</code> as the system safety net.</li>
           </ul>
-          <p class="muted" style="margin:10px 0 0;">Recommended out-of-box model: <code>local-router/auto-router-main</code> (legacy alias: <code>auto-local-main</code>). Configure provider keys above — candidates light up when ready.</p>
+          <p class="muted" style="margin:10px 0 0;">Mark your favorites from the Providers &amp; Models page — the fallback checkbox on each catalog model adds or removes it from this chain instantly. Configure provider keys — candidates light up when ready.</p>
         </div>
       </div>
 `;

@@ -22,12 +22,7 @@ Usage:
   localrouter keys set <provider> [--stdin|--env VAR]
   localrouter keys unset <provider> [--json]
   localrouter providers [--json]
-  localrouter router list [--json]
-  localrouter router show <route-id> [--json]
-  localrouter router check [--json]
-  localrouter router export [--json]
-  localrouter router import <file-path> [--json]
-  localrouter verify [--json]          Headless smoke checks (server, keys, routers, catalog)
+  localrouter verify [--json]          Headless smoke checks (server, keys, catalog, fallback routes)
   localrouter config [--open]          Print or open http://127.0.0.1:11434/config
   localrouter route <set|unset|status|custom ...>
   localrouter version
@@ -111,11 +106,6 @@ function emitOrJson(options, value, renderText) {
     return;
   }
   renderText(value);
-}
-
-function routerCandidateIds(route) {
-  const raw = route.candidates || route.models || [];
-  return raw.map((entry) => (typeof entry === 'string' ? entry : entry.model)).filter(Boolean);
 }
 
 function delegateLocalRouter(args) {
@@ -275,191 +265,6 @@ async function cmdProviders(options) {
   return cmdKeysList(options);
 }
 
-async function cmdRouterList(options) {
-  const probeResult = await client.probe(options.host, options.port);
-  client.requireServer(probeResult);
-
-  const payload = await client.fetchJson('/api/router-models', {}, options.host, options.port);
-  const routes = (payload.data || []).map((route) => ({
-    id: route.routeId || route.id,
-    type: route.type,
-    candidates: routerCandidateIds(route),
-    minCodingScore: route.minCodingScore,
-    costQualityTradeoff: route.costQualityTradeoff
-  }));
-
-  emitOrJson(options, { routers: routes }, (value) => {
-    for (const route of value.routers) {
-      console.log(`${route.id} (${route.type}) — ${route.candidates.length} candidate(s)`);
-    }
-  });
-}
-
-async function cmdRouterShow(routeId, options) {
-  if (!routeId) {
-    throw new Error('Route id required. Example: localrouter router show auto-router-main');
-  }
-
-  const probeResult = await client.probe(options.host, options.port);
-  client.requireServer(probeResult);
-
-  const payload = await client.fetchJson('/api/router-models', {}, options.host, options.port);
-  const route = (payload.data || []).find((entry) => (
-    entry.routeId === routeId || entry.id === routeId || entry.id === `local-router/${routeId}`
-  ));
-
-  if (!route) {
-    throw new Error(`Router not found: ${routeId}`);
-  }
-
-  const candidateIds = routerCandidateIds(route);
-  emitOrJson(options, { ...route, candidateIds }, (value) => {
-    console.log(`${value.routeId || value.id} (${value.type})`);
-    console.log(`Candidates (${value.candidateIds.length}):`);
-    for (const candidate of value.candidateIds) {
-      console.log(`  - ${candidate}`);
-    }
-  });
-}
-
-async function cmdRouterExport(options) {
-  const probeResult = await client.probe(options.host, options.port);
-  client.requireServer(probeResult);
-
-  const payload = await client.fetchJson('/api/router-models', {}, options.host, options.port);
-  const routers = payload.data || [];
-
-  if (options.json) {
-    emitJson(routers);
-  } else {
-    console.log(JSON.stringify(routers, null, 2));
-  }
-}
-
-async function cmdRouterImport(filePath, options) {
-  const probeResult = await client.probe(options.host, options.port);
-  client.requireServer(probeResult);
-
-  let rawContent;
-  if (!filePath || filePath === '-') {
-    rawContent = await new Promise((resolve, reject) => {
-      let data = '';
-      process.stdin.on('data', chunk => { data += chunk; });
-      process.stdin.on('end', () => resolve(data));
-      process.stdin.on('error', err => reject(err));
-    });
-  } else {
-    const absolutePath = path.resolve(filePath);
-    if (!fs.existsSync(absolutePath)) {
-      throw new Error(`File not found: ${filePath}`);
-    }
-    rawContent = fs.readFileSync(absolutePath, 'utf8');
-  }
-
-  let parsedJson;
-  try {
-    parsedJson = JSON.parse(rawContent);
-  } catch (err) {
-    throw new Error(`Invalid JSON: ${err.message}`);
-  }
-
-  const body = {
-    routers: Array.isArray(parsedJson) ? parsedJson : (parsedJson.routers || [parsedJson]),
-    overwrite: true
-  };
-
-  const result = await client.fetchJson('/api/router-models/import', {
-    method: 'POST',
-    body
-  }, options.host, options.port);
-
-  emitOrJson(options, result, (val) => {
-    console.log(`Import status: ${val.summary}`);
-    if (val.errors && val.errors.length > 0) {
-      console.log('Errors:');
-      for (const err of val.errors) {
-        console.log(`  - Index ${err.index}: ${err.error}`);
-      }
-    }
-    if (val.skipped && val.skipped.length > 0) {
-      console.log('Skipped:');
-      for (const skip of val.skipped) {
-        console.log(`  - ${skip.id}: ${skip.reason}`);
-      }
-    }
-  });
-}
-
-async function cmdRouterCheck(options) {
-  const probeResult = await client.probe(options.host, options.port);
-  client.requireServer(probeResult);
-
-  const routers = await client.fetchJson('/api/router-models', {}, options.host, options.port);
-  const fallbacks = await client.fetchJson('/api/fallback-models', {}, options.host, options.port);
-  const configs = await client.fetchJson('/api/provider-configs', {}, options.host, options.port);
-  const configured = new Set((configs.data || []).filter((p) => p.configured).map((p) => p.name));
-
-  const report = {
-    routers: [],
-    fallbacks: (fallbacks.data || []).map((f) => f.routeId || f.id),
-    issues: []
-  };
-
-  for (const route of routers.data || []) {
-    const candidates = routerCandidateIds(route);
-    const availability = await client.fetchJson(
-      `/api/routing/availability?models=${encodeURIComponent(candidates.join(','))}`,
-      {},
-      options.host,
-      options.port
-    );
-
-    const ready = (availability.data || []).filter((row) => row.status === 'ready').length;
-    const entry = {
-      id: route.routeId || route.id,
-      type: route.type,
-      candidates: candidates.length,
-      ready,
-      unavailable: (availability.data || []).filter((row) => row.status !== 'ready')
-    };
-    report.routers.push(entry);
-
-    if (candidates.length === 0) {
-      report.issues.push(`${entry.id}: no candidates configured`);
-    }
-    if (ready === 0 && candidates.length > 0) {
-      report.issues.push(`${entry.id}: zero ready candidates (check provider keys)`);
-    }
-  }
-
-  const missingProviders = (configs.data || [])
-    .filter((p) => !p.configured)
-    .map((p) => p.name);
-  if (missingProviders.length) {
-    report.issues.push(`Unconfigured providers: ${missingProviders.join(', ')}`);
-  }
-
-  if (!options.silent) {
-    emitOrJson(options, report, (value) => {
-      console.log('Router check');
-      for (const route of value.routers) {
-        console.log(`  ${route.id}: ${route.ready}/${route.candidates} ready (${route.type})`);
-      }
-      console.log(`Fallback routes: ${value.fallbacks.length}`);
-      if (value.issues.length) {
-        console.log('\nIssues:');
-        for (const issue of value.issues) {
-          console.log(`  - ${issue}`);
-        }
-      } else {
-        console.log('\nNo issues detected.');
-      }
-    });
-  }
-
-  return report.issues.length ? 1 : 0;
-}
-
 async function cmdVerify(options) {
   const probeResult = await client.probe(options.host, options.port);
   if (!probeResult.running || probeResult.kind !== 'local-router') {
@@ -501,8 +306,13 @@ async function cmdVerify(options) {
     add('catalog-all', false, error.message);
   }
 
-  const routerExit = await cmdRouterCheck({ ...options, silent: true });
-  add('router-check', routerExit === 0, routerExit === 0 ? 'ok' : 'issues found');
+  try {
+    const fallbacks = await client.fetchJson('/api/fallback-models', {}, options.host, options.port);
+    const count = (fallbacks.data || []).length;
+    add('fallback-routes', count > 0, `${count} route(s)`);
+  } catch (error) {
+    add('fallback-routes', false, error.message);
+  }
 
   const ok = checks.every((check) => check.ok);
   const result = { ok, baseUrl: probeResult.baseUrl, checks, configUrl: `${probeResult.baseUrl}/config` };
@@ -525,7 +335,7 @@ function cmdConfig(options) {
   }
   emitOrJson(options, { url }, () => {
     console.log(url);
-    console.log('Use the Config UI to manage keys, router models, and catalog source.');
+    console.log('Use the Config UI to manage keys, fallback chains, and catalog source.');
     console.log('Planned: LiteLLM-inspired proxy admin panel (test chat, model matrix) at this URL.');
   });
   return 0;
@@ -605,30 +415,7 @@ async function main() {
       return 0;
     }
 
-    if (command === 'router') {
-      if (sub === 'list') {
-        await cmdRouterList(options);
-        return 0;
-      }
-      if (sub === 'show') {
-        await cmdRouterShow(args[1], options);
-        return 0;
-      }
-      if (sub === 'check') {
-        return await cmdRouterCheck(options);
-      }
-      if (sub === 'export') {
-        await cmdRouterExport(options);
-        return 0;
-      }
-      if (sub === 'import') {
-        await cmdRouterImport(args[1], options);
-        return 0;
-      }
-      throw new Error('Unknown router subcommand. Use: list | show | check | export | import');
-    }
-
-    if (command === 'verify') {
+        if (command === 'verify') {
       return await cmdVerify(options);
     }
 
