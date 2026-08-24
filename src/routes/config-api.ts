@@ -121,6 +121,7 @@ export interface ConfigApiDeps {
   fallbackPresentedModelId: (model: FallbackModel | string) => string;
   findFallbackModel: (modelName: string) => FallbackModel | undefined;
   findProviderModel: (modelName: string) => ProviderModel | undefined;
+  findCatalogModel: (modelName: string) => ProviderModel | undefined;
   modelStore: Record<string, ProviderModel[]>;
   parseProviderModels: (provider: string, payload: any) => ProviderModelParseResult;
   persistFallbackModels: () => void;
@@ -207,6 +208,7 @@ export function registerConfigApiRoutes(app: express.Express, deps: ConfigApiDep
     fallbackPresentedModelId,
     findFallbackModel,
     findProviderModel,
+    findCatalogModel,
     modelStore,
     parseProviderModels,
     persistFallbackModels,
@@ -1046,7 +1048,7 @@ app.post('/api/fallback-chain/toggle', (req: Request, res: Response) => {
   if (typeof enabled !== 'boolean') {
     return res.status(400).json({ error: 'enabled must be a boolean.' });
   }
-  if (!findProviderModel(modelId)) {
+  if (!findCatalogModel(modelId)) {
     return res.status(400).json({ error: `Unknown model: ${modelId}` });
   }
 

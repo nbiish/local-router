@@ -2386,7 +2386,7 @@ function findSystemFallback(): FallbackModel | undefined {
 
 function validateFallbackReferences(model: FallbackModel) {
   const unresolved = model.models.filter((entry) => {
-    if (findProviderModel(entry)) return false;
+    if (findCatalogModel(entry)) return false;
     const resolved = resolveModelTarget(entry);
     if (!resolved || isLocalRouterProviderName(resolved.providerName)) return true;
     return !getProviderSummary(resolved.providerName);
@@ -2450,6 +2450,17 @@ function ollamaTag(model: ProviderModel) {
 function findProviderModel(modelName: string): ProviderModel | undefined {
   const lookup = resolveGatewayPresentedLegacyId(stripOllamaLatestSuffix(modelName.trim()));
   return activeProviderModelList().find((model) => providerModelAliases(model).has(lookup));
+}
+
+/**
+ * Inventory-scoped lookup: serving catalog ∪ endpoint cache. Chain authoring
+ * (bootstrap, reference validation, UI toggles) accepts every model the router
+ * actually knows about — chain steps with unconfigured providers are skipped
+ * at runtime, so authoring must not be gated on the curated serving subset.
+ */
+function findCatalogModel(modelName: string): ProviderModel | undefined {
+  const lookup = resolveGatewayPresentedLegacyId(stripOllamaLatestSuffix(modelName.trim()));
+  return allCatalogModels().find((model) => providerModelAliases(model).has(lookup));
 }
 
 function normalizeCatalogModelId(raw: string): string {
@@ -2547,7 +2558,7 @@ function normalizeRoutingTierOrder(): void {
 
     let nextModels: string[];
     if (isSystemFallback && !hasUserCustomizedFallback) {
-      const catalogValid = (modelId: string) => Boolean(findProviderModel(modelId));
+      const catalogValid = (modelId: string) => Boolean(findCatalogModel(modelId));
       const preferred = DEFAULT_FALLBACK_ORDERED_IDS.filter(catalogValid);
       const preferredSet = new Set(preferred);
       const extras: string[] = [];
@@ -2566,7 +2577,7 @@ function normalizeRoutingTierOrder(): void {
       const seen = new Set<string>();
       for (const modelId of route.models) {
         const trimmed = String(modelId || '').trim();
-        if (!trimmed || seen.has(trimmed) || !findProviderModel(trimmed)) continue;
+        if (!trimmed || seen.has(trimmed) || !findCatalogModel(trimmed)) continue;
         seen.add(trimmed);
         deduped.push(trimmed);
       }
@@ -2576,7 +2587,7 @@ function normalizeRoutingTierOrder(): void {
       const seenModels = new Set<string>();
       for (const modelId of route.models) {
         const trimmed = String(modelId || '').trim();
-        if (!trimmed || seenModels.has(trimmed) || !findProviderModel(trimmed)) continue;
+        if (!trimmed || seenModels.has(trimmed) || !findCatalogModel(trimmed)) continue;
         seenModels.add(trimmed);
         deduped.push(trimmed);
       }
@@ -3406,6 +3417,7 @@ const configApiDeps = {
   fallbackPresentedModelId,
   findFallbackModel,
   findProviderModel,
+  findCatalogModel,
   modelStore,
   parseProviderModels,
   persistFallbackModels,
@@ -3888,7 +3900,7 @@ function candidateAvailability(modelName: string) {
 
 function resolvedDefaultFallbackModels(): string[] {
   return buildDefaultFallbackModelIds()
-    .filter((id) => Boolean(findProviderModel(id)));
+    .filter((id) => Boolean(findCatalogModel(id)));
 }
 
 function fallbackStagePreflight(modelName: string): AttemptFailure | null {
