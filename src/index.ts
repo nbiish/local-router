@@ -2672,7 +2672,39 @@ function findPresentedModel(modelName: string): ProviderModel | undefined {
   return presentedModelList().find((model) => providerModelAliases(model).has(lookup));
 }
 
+/** Ordered chain-member configurations for a local-router/<chain> route,
+ * exposed in /api/show so clients and the config UI can see exactly which
+ * models (and their specs) sit behind the route id. */
+function fallbackChainInfo(model: ProviderModel) {
+  if (model.provider !== FALLBACK_PROVIDER_NAME) return null;
+  const route = findFallbackModel(model.model);
+  if (!route) return null;
+  const disabled = new Set(Array.isArray(route.disabledModels) ? route.disabledModels : []);
+  const members = (Array.isArray(route.models) ? route.models : []).map((modelId, index) => {
+    const info = findCatalogModel(modelId) || findProviderModel(modelId);
+    const availability = candidateAvailability(modelId);
+    return {
+      order: index + 1,
+      id: modelId,
+      enabled: !disabled.has(modelId),
+      known: Boolean(info),
+      provider: info?.provider || availability?.provider || null,
+      context_length: info?.contextLength ?? null,
+      max_output_tokens: info ? modelMaxOutputTokens(info) : null,
+      supports_tools: info?.supportsTools ?? null,
+      supports_vision: info?.supportsImages ?? null,
+      status: availability?.status || 'unavailable'
+    };
+  });
+  return {
+    route_id: route.id,
+    members,
+    display: `${fallbackPresentedModelId(route)}: ${route.models.join(' -> ')}`
+  };
+}
+
 function ollamaShowPayload(model: ProviderModel) {
+  const chain = fallbackChainInfo(model);
   return {
     license: '',
     modelfile: `FROM ${model.id}`,
@@ -2691,8 +2723,10 @@ function ollamaShowPayload(model: ProviderModel) {
       context_length: model.contextLength,
       max_output_tokens: modelMaxOutputTokens(model),
       supports_tools: model.supportsTools,
-      supports_vision: model.supportsImages
+      supports_vision: model.supportsImages,
+      ...(chain ? { 'local-router.chain': chain.members.map((member) => member.id).join(' -> ') } : {})
     },
+    ...(chain ? { local_router_chain: chain } : {}),
     projector_info: {},
     capabilities: modelCapabilities(model),
     modified_at: new Date().toISOString()
@@ -5647,6 +5681,23 @@ const server = shouldServe ? app.listen(PORT, bindHost, () => {
   })();
 }) : null;
 
+// Dual-stack loopback: several IDEs (VS Code Copilot Chat and friends) resolve
+// `localhost` to ::1 first; an IPv4-only socket means their ollama probe hits
+// ECONNREFUSED and surfaces the misleading "Unable to verify Ollama server
+// version" error even though the proxy is healthy. Bind the IPv6 loopback
+// alongside 127.0.0.1 (loopback-only posture unchanged); skip when the
+// operator opted into LAN-wide binding (0.0.0.0 covers the intent) and
+// degrade gracefully on hosts without IPv6.
+const serverV6 = shouldServe && bindHost === '127.0.0.1'
+  ? app.listen(PORT, '::1', () => {
+    console.log('[Security] Also bound to ::1 (IPv6 loopback — dual-stack localhost)');
+  })
+  : null;
+serverV6?.on('error', (err: any) => {
+  console.warn('[Security] IPv6 loopback bind failed; continuing IPv4-only:',
+    sanitizeDiagnosticText(String(err?.message || err)));
+});
+
 const wss = new WebSocketServer({ noServer: true });
 
 wss.on('connection', (ws: WebSocket) => {
@@ -5734,7 +5785,7 @@ wss.on('connection', (ws: WebSocket) => {
   });
 });
 
-server?.on('upgrade', (request, socket, head) => {
+function handleHttpUpgrade(request: any, socket: any, head: any) {
   const urlObj = new URL(request.url || '', `http://${request.headers.host || 'localhost'}`);
   const pathname = urlObj.pathname;
   if (pathname === '/v1/responses') {
@@ -5744,4 +5795,7 @@ server?.on('upgrade', (request, socket, head) => {
   } else {
     socket.destroy();
   }
-});
+}
+
+server?.on('upgrade', handleHttpUpgrade);
+serverV6?.on('upgrade', handleHttpUpgrade);

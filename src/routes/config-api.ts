@@ -9,6 +9,7 @@ import {
   startCopilotLogin,
   OAuthProviderId
 } from '../oauth-providers';
+import { ollamaBackendVersionUrl } from '../ollama-backend';
 import { renderProvidersPage } from '../ui/pages/providers';
 import { renderFallbackPage } from '../ui/pages/fallback';
 import { renderThinkingPage } from '../ui/pages/thinking';
@@ -1047,6 +1048,32 @@ app.delete('/api/providers/:id', (req: Request, res: Response) => {
   });
 });
 
+// Per-chain-member configuration summary (context size, output budget,
+// capability flags, catalog knowledge, key/readiness status) so config UIs
+// can show exactly which models and configurations back each
+// local-router/<chain> route without N secondary lookups.
+function fallbackChainDetails(route: FallbackModel) {
+  return (Array.isArray(route.models) ? route.models : []).map((modelId) => {
+    const catalogModel = findCatalogModel(modelId);
+    const servedModel = findProviderModel(modelId);
+    const info = servedModel || catalogModel;
+    const availability = candidateAvailability(modelId);
+    return {
+      id: modelId,
+      known: Boolean(catalogModel),
+      served: Boolean(servedModel),
+      provider: info?.provider || availability?.provider || null,
+      contextLength: info?.contextLength ?? null,
+      outputTokens: info?.outputTokens ?? null,
+      supportsTools: info?.supportsTools ?? null,
+      supportsVision: info?.supportsImages ?? null,
+      supportsCache: info?.supportsCache ?? null,
+      supportsReasoning: info?.supportsReasoning ?? null,
+      status: availability?.status || 'unavailable'
+    };
+  });
+}
+
 app.get('/api/fallback-models', (req: Request, res: Response) => {
   const data = Object.values(fallbackModelStore)
     .map((model) => {
@@ -1055,7 +1082,8 @@ app.get('/api/fallback-models', (req: Request, res: Response) => {
         ...cloned,
         id: fallbackPresentedModelId(model),
         routeId: normalizeFallbackRouteId(model.id),
-        display: fallbackModelPresentation(model).display
+        display: fallbackModelPresentation(model).display,
+        chainDetails: fallbackChainDetails(model)
       };
     })
     .sort((a, b) => a.id.localeCompare(b.id));
@@ -1556,12 +1584,44 @@ app.put('/api/headroom-config', (req: Request, res: Response) => {
   return res.json(headroomApiPayload());
 });
 
+// IDE version-probe compatibility (VS Code Copilot Chat requires ollama >=
+// 0.6.4): report the real backend ollama's version when it is reachable so
+// clients always see a true, current version. An explicit OLLAMA_VERSION env
+// override still wins (legacy operator knob); the 0.6.4 floor is the last
+// resort so a probe failure never degrades the response below the IDE
+// minimum. Never fail: this endpoint must answer 200 JSON fast, because
+// clients translate any transport/parse failure into the "Unable to verify
+// Ollama server version" error.
+const DEFAULT_OLLAMA_VERSION = '0.6.4';
+const OLLAMA_VERSION_CACHE_MS = 30_000;
+let mirroredOllamaVersion: { value: string; fetchedAt: number } | null = null;
+
+async function currentOllamaVersion(): Promise<string> {
+  const envOverride = String(process.env.OLLAMA_VERSION || '').trim();
+  if (envOverride) return envOverride;
+  if (mirroredOllamaVersion && Date.now() - mirroredOllamaVersion.fetchedAt < OLLAMA_VERSION_CACHE_MS) {
+    return mirroredOllamaVersion.value;
+  }
+  try {
+    const probe = await fetch(ollamaBackendVersionUrl(), { signal: AbortSignal.timeout(1000) });
+    const parsed = await probe.json().catch(() => ({})) as { version?: unknown };
+    const version = typeof parsed?.version === 'string' ? parsed.version.trim() : '';
+    if (version) {
+      mirroredOllamaVersion = { value: version, fetchedAt: Date.now() };
+      return version;
+    }
+  } catch {
+    // Backend offline or slow — fall through to the minimum floor.
+  }
+  return DEFAULT_OLLAMA_VERSION;
+}
+
 app.head('/api/version', (req: Request, res: Response) => {
   res.status(200).end();
 });
 
-app.get('/api/version', (req: Request, res: Response) => {
-  res.json({ version: process.env.OLLAMA_VERSION || '0.6.4' });
+app.get('/api/version', async (req: Request, res: Response) => {
+  res.json({ version: await currentOllamaVersion() });
 });
 
 }
