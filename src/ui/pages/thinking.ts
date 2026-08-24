@@ -1,8 +1,6 @@
 import { renderLayout } from './layout';
 
 export function renderThinkingPage(params: {
-  defaultRouterId: string;
-  defaultRouterCandidatesText: string;
   defaultFallbackModelsText: string;
 }): string {
   const body = `

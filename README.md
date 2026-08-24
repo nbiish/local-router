@@ -4,7 +4,7 @@ One localhost port. Every model.
 
 Local Router is a local Ollama-compatible and OpenAI-compatible model router for VS Code, Copilot Chat, Continue, Cline, Roo Code, and any AI tool that can point at `localhost`.
 
-It runs on Ollama's default port, exposes OpenAI-compatible and Ollama-compatible endpoints, and routes requests to your configured provider models, fallback chains, or local router models.
+It runs on Ollama's default port, exposes OpenAI-compatible and Ollama-compatible endpoints, and routes requests to your configured provider models or fallback chains.
 
 ## Vision
 
@@ -19,10 +19,9 @@ Most AI coding tools already know how to talk to Ollama or an OpenAI-compatible 
 - Replace an Ollama endpoint without replacing your tools.
 - Route one tool surface across many hosted providers.
 - Present readable model aliases instead of raw provider model IDs.
-- Create `local-router/<name>` fallback routes and router models.
+- Create `local-router/<name>` fallback chains and re-shape them live from the config UI.
 - Keep provider keys in memory through the local config UI.
-- Export redacted router telemetry without storing prompts, responses, or secrets.
-- Inspect, dry-run, and improve routing behavior through open local logic instead of opaque hosted router defaults.
+- Inspect and improve routing behavior through open local logic instead of opaque hosted router defaults.
 
 ## Endpoints
 
@@ -50,6 +49,10 @@ Configuration UI:
 http://127.0.0.1:11434/config
 ```
 
+## Platforms
+
+Local Router is architecture-agnostic: the same Node.js code runs on **macOS**, **Linux**, and **Windows** (use an **Ubuntu terminal via WSL**). Every command in this README is shell-generic — run it as-is in zsh (macOS default), bash (Linux), or your WSL/Ubuntu shell (Windows). The only requirements are Node.js and npm.
+
 ## Install And Run
 
 ```bash
@@ -73,7 +76,6 @@ localrouter list --custom
 localrouter list --all
 localrouter keys list
 localrouter keys set zenmux --env ZENMUX_API_KEY
-localrouter router check
 localrouter verify --json
 localrouter config --open
 ```
@@ -96,8 +98,6 @@ Custom route targets are restricted to `localhost` or `127.0.0.1`, ports `1024-6
 
 ## Model Names
 
-Provider models use their configured presented aliases from `providers.txt`.
-
 Local Router routes use:
 
 ```text
@@ -106,25 +106,20 @@ local-router/<route-name>
 
 Legacy `fvs-code/<route-name>` and `fallback/<route-name>` inputs still resolve as compatibility aliases, but new docs and APIs present `local-router/<route-name>`.
 
-## Choosing a Router Type
+## Fallback Chains
 
-Open `http://localhost:11434/config` → **Router Models**. Each type selects from your explicit candidate list only:
+Routing is either a **direct provider model** (`zenmux-deepseek-v4-pro`) or a **fallback chain** (`local-router/<chain-id>`) — an ordered retry chain with backoff. When a chain exhausts, the request cascades into the system safety-net chain `local-router/fallback-models`.
 
-| Type | When to use |
-|---|---|
-| `auto-local` | **Recommended default.** Balances coding quality, cost, and latency. Adjust Cost/Quality (0–10). |
-| `pareto-code` | Coding-first workflows. Drops models below Min Coding Score. |
-| `priority` | Predictable top-to-bottom order after capability checks. |
-| `bandit-local` | Learns from your usage over time (dLinUCB). Needs ~10 samples per candidate. |
+Configure chains live: open `http://localhost:11434/config` → **Providers & Models** and tick the *fallback* checkbox on any catalog model to add it to the chain selected in the **Fallback Chains** panel, then drag the chain into the order you want — changes save immediately. The **Fallback Routes** page authors whole chains (bulk text, enable/disable steps, import/export).
 
-**Out-of-box recommendation:** use `local-router/auto-router-main` or `local-router/nanoboozhoo` as your model. The system fallback chain `local-router/fallback-models` is bootstrapped automatically and catches failures when providers are missing or upstream calls fail.
+**Out-of-box recommendation:** point your tools at `local-router/performance` (subscriptions and prepaid credits first) or `local-router/free` (no-cost models only). The system fallback chain `local-router/fallback-models` is bootstrapped automatically and catches failures when providers are missing or upstream calls fail.
 
-### Preset Routes (built-in)
-4 built-in preset routes are auto-bootstrapped on first startup:
-- `local-router/multimodal` — fallback chain of 16 vision-capable models (NIM Kimi K2.6 → Antigravity → Copilot → Pioneer → ZenMux → Wafer).
-- `local-router/performance` — auto-local router, 15 top-quality candidates (text + multimodal union, deduped), `minCodingScore=0.88`, max quality (`costQualityTradeoff=10`).
-- `local-router/low-cost` — auto-local router, 7 free candidates (one from each provider with free models), `minCodingScore=0.75`, cost-optimized (`costQualityTradeoff=2`).
-- `local-router/nanoboozhoo` — auto-local SOTA router, 64 candidates (full candidate pool), quality=10, `minCodingScore=0.86`. Implements reasoning-aware routing principles from NeurIPS/ACL 2025 SOTA papers (broad candidate pool + aggressive quality gating to guarantee the best selection at runtime).
+### Preset Chains (built-in)
+4 built-in preset chains are auto-bootstrapped on first startup (system chain + 3 named presets):
+- `local-router/fallback-models` — system safety net, 24 curated steps spanning free → subscription → paid.
+- `local-router/free` — 21 no-cost models across providers, quality-first; maximizes free-tier usage before any paid hop.
+- `local-router/performance` — 18 subscription/credit models, quality-first; spends already-paid capacity before metered billing.
+- `local-router/multimodal` — 15 vision-capable models.
 
 ### Universal Prompt Caching Policy
 Local Router enforces maximum caching and savings across all providers and models automatically, preventing any IDE/client tool from disabling it:
@@ -138,13 +133,13 @@ Limited-time provider promos (ZenMux matched Qwen pricing, Wafer MiniMax-M3 week
 
 ## Configuration Storage
 
-Local Router writes non-secret route and telemetry files under:
+Local Router writes non-secret route files (chains, catalogs, provider metadata) under your POSIX home directory:
 
 ```text
 ~/.config/local-router
 ```
 
-It reads legacy `~/.config/fvs-code` files when the new files do not exist yet. Provider API keys are not written to these JSON or CSV files.
+(`~` is your macOS/Linux home directory, or your Ubuntu/WSL home on Windows.) It reads legacy `~/.config/fvs-code` files when the new files do not exist yet. Provider API keys are never written to these JSON files.
 
 ## Security Notes
 
@@ -152,7 +147,7 @@ It reads legacy `~/.config/fvs-code` files when the new files do not exist yet. 
 
 ### PQC secrets bootstrap (fresh machine)
 
-The bundle and keypair are **machine-local** — a clone brings neither (by design: **keys are never transported, pushed, or synced between machines**). One command after pulling the repo:
+The bundle and keypair are **machine-local** — a clone brings neither (by design: **keys are never transported, pushed, or synced between machines**). One command after pulling the repo, run in any POSIX shell (Terminal on macOS, any shell on Linux, or the Ubuntu/WSL terminal on Windows):
 
 ```bash
 ./bin/pqc-secrets setup
@@ -177,8 +172,8 @@ eval "$(./bin/pqc-secrets export)"
 Local Router reads **only** `LOCALROUTER_<KEY_ENV_VAR>` names for provider keys — plainly-named ambient variables for other tools are invisible to it by design; see `llms.txt` § PQC Key Management. There is deliberately no export-to-file, sync, or push path anywhere in this tooling.
 
 - Provider keys are process-local unless supplied by the environment.
-- Router telemetry is redacted and does not store prompt text, responses, API keys, auth headers, local paths, or provider secrets.
-- Route definitions store model IDs and routing metadata only.
+- No prompts, responses, API keys, auth headers, local paths, or provider secrets are persisted.
+- Chain definitions store model IDs and ordering metadata only.
 - New environment variables use `LOCAL_ROUTER_*`; legacy `FVS_*` names are accepted only as compatibility fallback.
 
 ## Development
@@ -258,8 +253,8 @@ No feature work ships to `main` without passing through `develop`. `staging` and
 
 Primary implementation files:
 
-- `src/index.ts`: server, routing, config UI, persistence, and compatibility surfaces.
+- `src/index.ts`: server, routing, persistence, and compatibility surfaces.
+- `src/routes/config-api.ts` + `src/ui/pages/`: configuration API and UI.
 - `bin/local-router.js`: CLI lifecycle and Ollama route shim.
-- `providers.txt`: provider and model metadata source.
-- `ROUTER.md`: router design notes and future routing improvements.
+- `ROUTER.md`: fallback-chain design notes and maintainer guide.
 - `BRAND.md`: product identity and character brief for the original cyberpunk Anishinaabe guide concept.

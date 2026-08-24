@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { once } from 'node:events';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync, unlinkSync } from 'node:fs';
+import { mkdtempSync, rmSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -310,45 +310,11 @@ test('provider key save/reset lifecycle exposes configured source', async (t) =>
     'Expected bootstrapped fallback-models system route on first run'
   );
 
-  const bootstrappedRouterModels = await requestJson('/api/router-models');
-  assert.equal(bootstrappedRouterModels.response.status, 200);
-  assert.ok(
-    bootstrappedRouterModels.body?.data?.some((route) => route.routeId === 'auto-router-main'),
-    'Expected bootstrapped auto-router-main router on first run'
-  );
-
-  const autoRouter = bootstrappedRouterModels.body?.data?.find((route) => route.routeId === 'auto-router-main');
-  const autoRouterCandidates = (autoRouter?.candidates || []).map((entry) => entry.model);
-  assert.ok(
-    autoRouterCandidates.includes('ollama-nemotron-3-ultra-cloud'),
-    'auto-router-main should include Ollama Nemotron 3 Ultra cloud candidate'
-  );
-  assert.ok(
-    autoRouterCandidates.includes('ollama-minimax-m3-cloud'),
-    'auto-router-main should include Ollama MiniMax M3 cloud candidate'
-  );
-  assert.ok(
-    autoRouterCandidates.includes('ollama-deepseek-v4-flash-cloud'),
-    'auto-router-main should include Ollama DeepSeek V4 Flash cloud candidate'
-  );
-  const ollamaCloudCandidates = autoRouterCandidates.filter((id) => String(id).startsWith('ollama-'));
-  assert.equal(
-    ollamaCloudCandidates.length,
-    3,
-    `Expected exactly 3 Ollama cloud router candidates (shared quota), got: ${ollamaCloudCandidates.join(', ')}`
-  );
-  assert.equal(
-    autoRouterCandidates.includes('ollama-qwen3.5-cloud'),
-    false,
-    'Pro-only Ollama Qwen 3.5 cloud should not be in default auto-router'
-  );
-
   const systemFallback = bootstrappedFallbackRoutes.body?.data?.find((route) => route.routeId === 'fallback-models');
   const fallbackChain = systemFallback?.models || [];
-  // The fallback chain is built from DEFAULT_FALLBACK_ORDERED_IDS and sorted by
-  // routingExhaustionBandForModel at bootstrap time. The exact order is
-  // exercised by routing-exhaustion tests; this assertion is a *membership*
-  // check that the chain contains all expected anchors (no orphans, no extras).
+  // The fallback chain is bootstrapped from DEFAULT_FALLBACK_ORDERED_IDS.
+  // This assertion is a *membership* check that the chain contains all
+  // expected anchors (no orphans, no extras).
   const expectedFallbackAnchors = [
     // Original 20 anchors (pre-Nous-Portal)
     'ollama-nemotron-3-ultra-cloud',
@@ -394,73 +360,6 @@ test('provider key save/reset lifecycle exposes configured source', async (t) =>
     [],
     `fallback-models contains unexpected entries not in the expected anchor set: ${extraEntries.join(', ')}; full chain: ${fallbackChain.join(', ')}`
   );
-  assert.ok(
-    autoRouterCandidates.includes('openrouter-free'),
-    'auto-router should include OpenRouter openrouter/free'
-  );
-  assert.ok(
-    autoRouterCandidates.includes('cline-nvidia-nemotron-3-ultra-550b-a55b-free'),
-    'auto-router should include curated Cline Nemotron Ultra free'
-  );
-  assert.ok(
-    autoRouterCandidates.includes('cline-minimax-minimax-m3-free'),
-    'auto-router should include curated Cline MiniMax M3 free'
-  );
-  assert.ok(
-    autoRouterCandidates.includes('kilo-nvidia-nemotron-3-ultra-550b-a55b-free'),
-    'auto-router should include curated Kilo Nemotron Ultra free'
-  );
-  assert.ok(
-    autoRouterCandidates.includes('kilo-stepfun-step-3.7-flash-free'),
-    'auto-router should include curated Kilo Step 3.7 Flash free'
-  );
-  assert.equal(
-    autoRouterCandidates.includes('kilo-openrouter-free'),
-    false,
-    'auto-router should not include non-curated Kilo openrouter/free'
-  );
-  assert.equal(
-    autoRouterCandidates.includes('cline-deepseek-deepseek-v4-flash-free'),
-    false,
-    'auto-router should not include non-curated Cline DeepSeek V4 Flash free'
-  );
-  assert.ok(
-    autoRouterCandidates.includes('opencode-go-minimax-m3'),
-    'auto-router should include OpenCode Go subscription models'
-  );
-
-  const firstRouterCandidate = autoRouterCandidates[0] || '';
-  assert.ok(
-    firstRouterCandidate.startsWith('ollama-'),
-    'auto-router-main candidates should list Ollama tier first'
-  );
-  const routerKiloIdx = autoRouterCandidates.findIndex((id) => String(id).startsWith('kilo-'));
-  const routerClineIdx = autoRouterCandidates.findIndex((id) => String(id).startsWith('cline-'));
-  const routerOzenIdx = autoRouterCandidates.findIndex((id) => String(id).startsWith('opencode-zen-'));
-  const routerOpencodeFreeIdx = autoRouterCandidates.findIndex((id) => (
-    id === 'opencode-zen-minimax-m3-free'
-  ));
-  const routerOpencodeSubIdx = autoRouterCandidates.findIndex((id) => (
-    id === 'opencode-go-deepseek-v4-pro'
-  ));
-  const routerZaiIdx = autoRouterCandidates.findIndex((id) => String(id).startsWith('zai-'));
-  const routerXiaomiIdx = autoRouterCandidates.findIndex((id) => String(id).startsWith('xiaomi-mimo-'));
-  const routerNvidiaIdx = autoRouterCandidates.findIndex((id) => id === 'nvidia-nim-kimi-k2.6');
-  if (routerKiloIdx >= 0 && routerClineIdx >= 0) {
-    assert.ok(routerKiloIdx < routerClineIdx, 'auto-router should list Kilo before Cline');
-  }
-  if (routerClineIdx >= 0 && routerOzenIdx >= 0) {
-    assert.ok(routerClineIdx < routerOzenIdx, 'auto-router should list Cline before OpenCode Zen free');
-  }
-  if (routerOpencodeSubIdx >= 0 && routerOpencodeFreeIdx >= 0) {
-    assert.ok(routerOpencodeSubIdx > routerOpencodeFreeIdx, 'auto-router should list OpenCode Go subscription after Zen free');
-  }
-  if (routerZaiIdx >= 0 && routerOpencodeSubIdx >= 0) {
-    assert.ok(routerZaiIdx > routerOpencodeSubIdx, 'auto-router should list Z.ai after OpenCode Go subscription');
-  }
-  if (routerNvidiaIdx >= 0 && routerXiaomiIdx >= 0) {
-    assert.ok(routerNvidiaIdx > routerXiaomiIdx, 'auto-router should list API-paid NVIDIA after subscription');
-  }
 
   const providerPricing = await requestJson('/api/provider-pricing');
   assert.equal(providerPricing.response.status, 200);
@@ -759,37 +658,6 @@ test('provider key save/reset lifecycle exposes configured source', async (t) =>
   });
   assert.equal(zeroEligibleFallbackSave.response.status, 200);
 
-  const zeroEligibleRouterSave = await requestJson('/api/router-models', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      id: 'zero-eligible-router',
-      type: 'priority',
-      candidatesText: missingKeyCatalogModel.name
-    })
-  });
-  assert.equal(zeroEligibleRouterSave.response.status, 200);
-
-  upstreamRequests = [];
-  upstreamAttemptByModel = new Map();
-  const zeroEligibleChat = await requestJson('/v1/chat/completions', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      model: 'local-router/zero-eligible-router',
-      stream: false,
-      messages: [{ role: 'user', content: 'zero eligible cascade test' }]
-    })
-  });
-  assert.equal(zeroEligibleChat.response.status, 200);
-  assert.equal(zeroEligibleChat.body?.choices?.[0]?.message?.content, 'ok:success-third');
-  const zeroEligibleUpstreamModels = upstreamRequests.map((entry) => entry?.body?.model).filter(Boolean);
-  assert.ok(
-    !zeroEligibleUpstreamModels.includes(missingKeyCatalogModel.model),
-    'Unconfigured catalog model should be skipped without upstream calls'
-  );
-  assert.ok(zeroEligibleUpstreamModels.includes('success-third'));
-
   upstreamRequests = [];
   upstreamAttemptByModel = new Map();
   const fastSkipFallbackChat = await requestJson('/v1/chat/completions', {
@@ -938,205 +806,6 @@ test('provider key save/reset lifecycle exposes configured source', async (t) =>
     fallbackExhausted.body?.fallback?.attempts?.some((attempt) => String(attempt?.providerErrorPreview || '').includes('upstream unavailable')),
     'Expected provider error preview in fallback failure payload'
   );
-
-  const routerRouteSave = await requestJson('/api/router-models', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      id: 'pareto-router-main',
-      type: 'pareto-code',
-      minCodingScore: 0.66,
-      candidatesText: [
-        'fallback-first-fail, coding=0.70, input=1, output=2, latency=2000',
-        'fallback-third-success, coding=0.92, input=3, output=6, latency=1500'
-      ].join('\n')
-    })
-  });
-  assert.equal(routerRouteSave.response.status, 200);
-  assert.equal(routerRouteSave.body?.success, true);
-  assert.equal(routerRouteSave.body?.persisted, true);
-  assert.equal(routerRouteSave.body?.model?.id, 'local-router/pareto-router-main');
-  assert.equal(routerRouteSave.body?.model?.routeId, 'pareto-router-main');
-
-  const routerRoutes = await requestJson('/api/router-models');
-  assert.equal(routerRoutes.response.status, 200);
-  assert.ok(
-    routerRoutes.body?.data?.some((route) => (
-      route.id === 'local-router/pareto-router-main'
-      && route.routeId === 'pareto-router-main'
-      && route.type === 'pareto-code'
-    )),
-    'Expected router route in router list'
-  );
-
-  const modelsWithRouter = await requestJson('/v1/models');
-  assert.ok(
-    modelsWithRouter.body?.data?.some((entry) => (
-      entry.id === 'local-router/pareto-router-main' && entry.owned_by === 'local-router'
-    )),
-    'Expected router route to appear in OpenAI-compatible model list'
-  );
-
-  const routerShowPath = await requestJson('/api/show/local-router/pareto-router-main');
-  assert.equal(routerShowPath.response.status, 200);
-  assert.equal(routerShowPath.body?.details?.family, 'local-router');
-  assert.equal(routerShowPath.body?.details?.parameter_size, 'local-router/pareto-router-main');
-  assert.equal(routerShowPath.body?.model_info?.['general.basename'], 'local-router/pareto-router-main');
-
-  const routerShowLegacyPath = await requestJson('/api/show/fvs-code/pareto-router-main');
-  assert.equal(routerShowLegacyPath.response.status, 200);
-  assert.equal(routerShowLegacyPath.body?.model_info?.['general.basename'], 'local-router/pareto-router-main');
-
-  upstreamRequests = [];
-  upstreamAttemptByModel = new Map();
-  const routerChat = await requestJson('/v1/chat/completions', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      model: 'local-router/pareto-router-main',
-      stream: false,
-      messages: [{ role: 'user', content: 'router route test' }]
-    })
-  });
-  assert.equal(routerChat.response.status, 200);
-  assert.equal(routerChat.body?.choices?.[0]?.message?.content, 'ok:success-third');
-  assert.deepEqual(
-    upstreamRequests.map((entry) => entry?.body?.model).filter(Boolean),
-    [
-      'fail-always-first',
-      'fail-always-first',
-      'fail-always-first',
-      'fail-always-first',
-      'success-third'
-    ]
-  );
-
-  const routerEvents = await fetch(`${baseUrl}/api/router-events.csv`);
-  assert.equal(routerEvents.status, 200);
-  const routerEventsText = await routerEvents.text();
-  assert.ok(routerEventsText.includes('pareto-router-main'));
-  assert.ok(routerEventsText.includes('fallback-third-success'));
-  assert.equal(routerEventsText.includes('router route test'), false);
-
-  const routerCandidates = await fetch(`${baseUrl}/api/router-candidates.csv`);
-  assert.equal(routerCandidates.status, 200);
-  const routerCandidatesText = await routerCandidates.text();
-  assert.ok(routerCandidatesText.includes('router_id,presented_model,router_type,candidate_model'));
-  assert.ok(routerCandidatesText.includes('local-router/pareto-router-main'));
-
-  // Router recompute pipeline
-  const recomputeRes = await fetch(`${baseUrl}/api/router-models/pareto-router-main/recompute`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' }
-  });
-  assert.equal(recomputeRes.status, 200);
-  const recomputeBody = await recomputeRes.json();
-  assert.ok(typeof recomputeBody.totalSampleCount === 'number');
-  assert.ok(Array.isArray(recomputeBody.proposals));
-  assert.ok(typeof recomputeBody.recommendation === 'string');
-  assert.equal(recomputeBody.router.routeId, 'pareto-router-main');
-  // At least one proposal should reference the candidate models
-  const proposalModels = recomputeBody.proposals.map((p) => p.model);
-  assert.ok(proposalModels.includes('fallback-first-fail') || proposalModels.includes('fallback-third-success'));
-
-  // Router import/export round-trip
-  const routerExportRes = await fetch(`${baseUrl}/api/router-models`);
-  assert.equal(routerExportRes.status, 200);
-  const routerExportBody = await routerExportRes.json();
-  const routersForImport = (routerExportBody.data || []).filter((r) => r.routeId === 'pareto-router-main');
-  assert.equal(routersForImport.length, 1);
-
-  const importRes = await fetch(`${baseUrl}/api/router-models/import`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ routers: routersForImport, overwrite: true })
-  });
-  assert.equal(importRes.status, 200);
-  const importBody = await importRes.json();
-  assert.equal(importBody.success, true);
-  assert.ok(importBody.imported.includes('local-router/pareto-router-main'));
-  assert.equal(importBody.errors.length, 0);
-
-  // Remove the existing persistent-fallback-route so findSystemFallback picks up ours
-  await requestJson('/api/fallback-models', {
-    method: 'DELETE',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ id: 'persistent-fallback-route' })
-  });
-
-  // System fallback cascade: router exhausts → cascades to fallback
-  const cascadeRouterSave = await requestJson('/api/router-models', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      id: 'cascade-router',
-      type: 'priority',
-      candidatesText: 'fallback-first-fail\nfallback-second-fail'
-    })
-  });
-  assert.equal(cascadeRouterSave.response.status, 200);
-
-  // Add a second model to the test provider for the fallback cascade
-  await requestJson(`/api/provider-models/${selectedProvider.name}/models`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      model: 'second-cascade-model',
-      id: 'cascade-fallback-target',
-      contextLength: 64000,
-      outputTokens: 4096,
-      supportsTools: true,
-      supportsImages: false,
-      supportsCache: false,
-      supportsReasoning: false
-    })
-  });
-
-  const cascadeFallbackSave = await requestJson('/api/fallback-models', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      id: 'fallback-models',
-      modelsText: ['custom-presented-1', 'cascade-fallback-target'].join('\n')
-    })
-  });
-  assert.equal(cascadeFallbackSave.response.status, 200);
-
-  upstreamRequests = [];
-  upstreamAttemptByModel = new Map();
-  const cascadeChat = await requestJson('/v1/chat/completions', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      model: 'local-router/cascade-router',
-      stream: false,
-      messages: [{ role: 'user', content: 'cascade test' }]
-    })
-  });
-  assert.equal(cascadeChat.response.status, 200);
-  // Should have succeeded via system fallback cascade — upstream model is deepseek-v4-pro
-  assert.ok(cascadeChat.body?.choices?.[0]?.message?.content?.startsWith('ok:'));
-
-  // Verify the cascade: router candidates were tried (and failed), then fallback succeeded
-  const cascadeUpstreamOrder = upstreamRequests.map((entry) => entry?.body?.model).filter(Boolean);
-  assert.ok(cascadeUpstreamOrder.includes('fail-always-first'));
-  // Fallback model should appear after the router candidates
-  const firstRouterIdx = cascadeUpstreamOrder.indexOf('fail-always-first');
-  const fallbackSuccessIdx = cascadeUpstreamOrder.findIndex((m) => !m.includes('fail-always') && !m.startsWith('fallback-'));
-  assert.ok(fallbackSuccessIdx >= 0, 'System fallback candidate should appear in upstream order');
-  assert.ok(fallbackSuccessIdx > firstRouterIdx, 'System fallback should be tried after router candidates fail');
-
-  // Clean up cascade test routes
-  await requestJson('/api/router-models', {
-    method: 'DELETE',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ id: 'cascade-router' })
-  });
-  await requestJson('/api/fallback-models', {
-    method: 'DELETE',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ id: 'fallback-models' })
-  });
 
   const fallbackRouteDelete = await requestJson('/api/fallback-models', {
     method: 'DELETE',
@@ -1616,7 +1285,7 @@ test('ollama provider is always configured with default Local Router API key', a
   }
 });
 
-test('localrouter CLI lists models and inspects routers against running server', async (t) => {
+test('localrouter CLI lists models against running server', async (t) => {
   if (skipReason) {
     t.skip(skipReason);
     return;
@@ -1642,20 +1311,6 @@ test('localrouter CLI lists models and inspects routers against running server',
   assert.equal(listPayload.catalog, 'custom');
   assert.ok(Array.isArray(listPayload.models));
   assert.ok(listPayload.models.length > 0);
-
-  const routers = spawnSync(process.execPath, [cliPath, 'router', 'list', '--json'], {
-    encoding: 'utf8',
-    env: cliEnv,
-    maxBuffer: cliMaxBuffer
-  });
-  assert.equal(routers.status, 0, routers.stderr || routers.stdout);
-  const routerPayload = JSON.parse(routers.stdout);
-  assert.ok(Array.isArray(routerPayload.routers));
-  assert.ok(routerPayload.routers.length > 0, 'Expected default router bootstrap');
-  assert.ok(
-    routerPayload.routers.some((route) => route.candidates.length > 0),
-    'Expected router candidates in CLI output'
-  );
 });
 
 test('separate OPENCODE_API_KEY and OPENCODE_ZEN_API_KEY apply to opencode-go and opencode-zen', async (t) => {
@@ -1710,71 +1365,5 @@ test('separate OPENCODE_API_KEY and OPENCODE_ZEN_API_KEY apply to opencode-go an
   assert.equal(entryZenAfter.configured, true);
 
   await requestJson('/api/keys/opencode-zen', { method: 'DELETE' });
-});
-
-test('router export and import via CLI', async (t) => {
-  if (skipReason) {
-    t.skip(skipReason);
-    return;
-  }
-
-  const cliPath = fileURLToPath(new URL('../bin/localrouter.js', import.meta.url));
-  const cliEnv = {
-    ...process.env,
-    LOCAL_ROUTER_HOST: '127.0.0.1',
-    LOCAL_ROUTER_PORT: port
-  };
-
-  // 1. Test CLI export
-  const exportRes = spawnSync(process.execPath, [cliPath, 'router', 'export', '--json'], {
-    encoding: 'utf8',
-    env: cliEnv
-  });
-  assert.equal(exportRes.status, 0, exportRes.stderr || exportRes.stdout);
-  const exportedRouters = JSON.parse(exportRes.stdout);
-  assert.ok(Array.isArray(exportedRouters));
-  assert.ok(exportedRouters.length > 0);
-
-  // Find auto-router-main
-  const targetRouter = exportedRouters.find((r) => r.routeId === 'auto-router-main' || r.id === 'local-router/auto-router-main');
-  assert.ok(targetRouter);
-
-  // 2. Modify exported router id and candidates to import it as a new router
-  const importedRouterId = 'imported-test-router';
-  const importedRouter = {
-    ...targetRouter,
-    id: importedRouterId,
-    routeId: importedRouterId,
-    candidatesText: 'wafer-serverless/GLM-5.1'
-  };
-
-  const tempFile = join(tmpdir(), 'imported-test-router.json');
-  writeFileSync(tempFile, JSON.stringify([importedRouter]));
-
-  // 3. Test CLI import
-  const importRes = spawnSync(process.execPath, [cliPath, 'router', 'import', tempFile, '--json'], {
-    encoding: 'utf8',
-    env: cliEnv
-  });
-  assert.equal(importRes.status, 0, importRes.stderr || importRes.stdout);
-  const importPayload = JSON.parse(importRes.stdout);
-  assert.equal(importPayload.success, true);
-  assert.ok(importPayload.imported.includes(`local-router/${importedRouterId}`));
-
-  // 4. Verify via GET /api/router-models
-  const routerList = await requestJson('/api/router-models');
-  assert.equal(routerList.response.status, 200);
-  const found = routerList.body?.data?.find((r) => r.routeId === importedRouterId);
-  assert.ok(found);
-
-  // Cleanup
-  try {
-    unlinkSync(tempFile);
-  } catch (err) {}
-  await requestJson('/api/router-models', {
-    method: 'DELETE',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ id: importedRouterId })
-  });
 });
 

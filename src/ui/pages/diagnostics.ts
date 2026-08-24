@@ -1,8 +1,6 @@
 import { renderLayout } from './layout';
 
 export function renderDiagnosticsPage(params: {
-  defaultRouterId: string;
-  defaultRouterCandidatesText: string;
   defaultFallbackModelsText: string;
 }): string {
   const body = `
