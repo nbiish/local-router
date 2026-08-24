@@ -137,21 +137,13 @@ export function renderProvidersPage(params: {
       <div class="card">
         <div class="catalog-meta">
           <div>
-            <h2>Provider Key Configs</h2>
-            <p class="muted">Select one of the registry providers, then save the API key in-memory for that backend.</p>
-          </div>
-          <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 8px;">
-            <div class="muted" id="providerCount">Loading providers...</div>
-            <button type="button" class="button-secondary" onclick="syncPqcBundleKeys(true)" style="padding: 4px 10px; font-size: 13px;">🔁 Sync PQC keys</button>
-          </div>
-        </div>
-        <div id="providerGrid" class="provider-grid"></div>
-      </div>
-      <div class="card">
-        <div class="catalog-meta">
-          <div>
-            <h2>Available Providers & Models</h2>
+            <h2>Providers, Keys &amp; Models</h2>
             <p class="muted" id="catalogDescription">Toggle the models you want served — the selection powers both the OpenAI-compatible and Ollama-compatible endpoints.</p>
+            <details class="endpoint-help" style="margin-top:10px;">
+              <summary>IDE compatibility — VS Code "Unable to verify Ollama server version"</summary>
+              <p class="muted">VS Code Copilot Chat verifies the server before listing models: <code>GET /api/version</code> must answer 200 JSON with version ≥ 0.6.4, then <code>GET /api/tags</code> and per-model <code>POST /api/show</code>. This proxy mirrors the real backend ollama's version at <code>/api/version</code> (env <code>OLLAMA_VERSION</code> overrides) and listens on both <code>127.0.0.1</code> and <code>::1</code> so <code>http://localhost:11434</code> resolves on IPv4-only and IPv6-first hosts alike.</p>
+              <p class="muted" style="margin-top:6px;">If VS Code still shows the error: point Copilot Chat at this proxy explicitly — set <code>github.copilot.chat.byok.ollamaEndpoint</code> (or Manage Models → Ollama) to <code>http://localhost:11434</code>, reload the window, then use <em>Refresh VS Code Model Picker</em>. A real <code>ollama serve</code> bound on this port ahead of Local Router also triggers the error; Local Router keeps real Ollama on port 11435 for this reason.</p>
+            </details>
             <div style="margin-top: 12px; display: flex; align-items: center; gap: 16px; flex-wrap: wrap;">
               <button id="refreshEndpointsBtn" class="button-secondary" onclick="refreshEndpointModels()" style="padding: 4px 10px; font-size: 13px;">🔄 Refresh All Provider Models</button>
             </div>
@@ -187,6 +179,19 @@ export function renderProvidersPage(params: {
             </div>
           </div>
           <div class="muted" id="catalogCount">Loading catalog...</div>
+        </div>
+        <div class="provider-keys-section" style="margin-bottom: 18px; padding-bottom: 16px; border-bottom: 1px solid var(--border, #d0d7de);">
+          <div class="catalog-meta">
+            <div>
+              <h3 style="margin: 0;">Provider Key Configs</h3>
+              <p class="muted">Select one of the registry providers, then save the API key in-memory for that backend. Key status also shows on each provider group header below.</p>
+            </div>
+            <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 8px;">
+              <div class="muted" id="providerCount">Loading providers...</div>
+              <button type="button" class="button-secondary" onclick="syncPqcBundleKeys(true)" style="padding: 4px 10px; font-size: 13px;">🔁 Sync PQC keys</button>
+            </div>
+          </div>
+          <div id="providerGrid" class="provider-grid"></div>
         </div>
         <div id="catalog" class="catalog"></div>
         <div style="margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--border, #d0d7de);">
