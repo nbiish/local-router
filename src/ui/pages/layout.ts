@@ -988,21 +988,83 @@ export function renderLayout(
           await loadCatalog();
         }
 
-        function clearFallbackRouteForm() {
-          activeFallbackRouteId = '';
-          document.getElementById('fallbackRouteId').value = '';
-          document.getElementById('fallbackRouteId').disabled = false;
-          document.getElementById('fallbackModelsText').value = '';
-          fallbackCandidateStore = [];
-          renderFallbackCandidateList();
+        var NEW_FALLBACK_CHAIN_VALUE = '__new__';
+
+        function currentFallbackEditTarget() {
+          var sel = document.getElementById('fallbackRouteSelect');
+          var raw = sel && sel.value ? sel.value : '';
+          if (raw && raw !== NEW_FALLBACK_CHAIN_VALUE) return { mode: 'existing', id: raw };
+          var nameEl = document.getElementById('fallbackRouteNewName');
+          var name = nameEl ? nameEl.value.trim() : '';
+          return { mode: 'new', id: name };
         }
 
-        function applyFallbackDefaults() {
-          activeFallbackRouteId = '';
-          document.getElementById('fallbackRouteId').value = 'fallback-models';
-          document.getElementById('fallbackRouteId').disabled = false;
+        function hydrateFallbackForm(route) {
+          var disabled = new Set(route && Array.isArray(route.disabledModels) ? route.disabledModels : []);
+          fallbackCandidateStore = (route && Array.isArray(route.models) ? route.models : []).map(function(modelId) {
+            return { model: modelId, enabled: !disabled.has(modelId) };
+          });
+          renderFallbackCandidateList();
+          syncFallbackCandidatesToTextarea();
+        }
+
+        function selectFallbackRouteToEdit(value) {
+          var nameEl = document.getElementById('fallbackRouteNewName');
+          if (value === NEW_FALLBACK_CHAIN_VALUE) {
+            activeFallbackRouteId = '';
+            if (nameEl) {
+              nameEl.style.display = '';
+              nameEl.value = '';
+            }
+            fallbackCandidateStore = [];
+            renderFallbackCandidateList();
+            syncFallbackCandidatesToTextarea();
+            return;
+          }
+          if (nameEl) nameEl.style.display = 'none';
+          if (!value) return;
+          activeFallbackRouteId = value;
+          var route = (Array.isArray(fallbackRoutes) ? fallbackRoutes : []).find(function(entry) { return entry.id === value; });
+          if (route) hydrateFallbackForm(route);
+        }
+
+        function populateFallbackRouteSelect() {
+          var sel = document.getElementById('fallbackRouteSelect');
+          if (!sel) return;
+          var routes = Array.isArray(fallbackRoutes) ? fallbackRoutes : [];
+          var preferred = ['local-router/fallback-models', 'local-router/free', 'local-router/performance', 'local-router/multimodal'];
+          var orderedIds = preferred.filter(function(id) {
+            return routes.some(function(r) { return r.id === id; });
+          });
+          routes.forEach(function(r) {
+            if (orderedIds.indexOf(r.id) === -1) orderedIds.push(r.id);
+          });
+          sel.innerHTML = orderedIds.map(function(id) {
+            return '<option value="' + escapeHtml(id) + '">' + escapeHtml(id) + '</option>';
+          }).join('') + '<option value="' + NEW_FALLBACK_CHAIN_VALUE + '">— New chain…</option>';
+          var wanted = (activeFallbackRouteId && orderedIds.indexOf(activeFallbackRouteId) !== -1)
+            ? activeFallbackRouteId
+            : (orderedIds[0] || NEW_FALLBACK_CHAIN_VALUE);
+          sel.value = wanted;
+          selectFallbackRouteToEdit(wanted);
+        }
+
+        function clearFallbackRouteForm() {
+          var sel = document.getElementById('fallbackRouteSelect');
+          if (sel) sel.value = NEW_FALLBACK_CHAIN_VALUE;
+          selectFallbackRouteToEdit(NEW_FALLBACK_CHAIN_VALUE);
+        }
+
+        async function applyFallbackDefaults() {
+          var sel = document.getElementById('fallbackRouteSelect');
+          if (sel && fallbackRoutes.some(function(r) { return r.id === 'local-router/fallback-models'; })) {
+            activeFallbackRouteId = 'local-router/fallback-models';
+            sel.value = 'local-router/fallback-models';
+            selectFallbackRouteToEdit('local-router/fallback-models');
+          }
           document.getElementById('fallbackModelsText').value = DEFAULT_FALLBACK_MODELS_TEXT;
           applyFallbackTextareaToStore();
+          await saveFallbackRoute();
         }
 
         function availabilityBadgeHtml(modelId) {
@@ -1055,29 +1117,10 @@ export function renderLayout(
               '<div class="meta">Chain: ' + chainHtml + '</div>' +
               '<div class="meta">Displayed as: ' + escapeHtml(route.display || ('fallback:' + models.join(' -> '))) + '</div>' +
               '<div class="actions">' +
-                '<button class="button-secondary" data-edit-fallback="' + escapeHtml(route.id) + '">Edit</button>' +
                 '<button class="button-secondary" data-delete-fallback="' + escapeHtml(route.id) + '">Delete</button>' +
               '</div>' +
             '</div>';
           }).join('');
-
-          listEl.querySelectorAll('button[data-edit-fallback]').forEach((button) => {
-            button.addEventListener('click', () => {
-              const routeId = button.getAttribute('data-edit-fallback') || '';
-              const route = routes.find((entry) => entry.id === routeId);
-              if (!route) return;
-              activeFallbackRouteId = route.id;
-              document.getElementById('fallbackRouteId').value = route.id;
-              document.getElementById('fallbackRouteId').disabled = true;
-              const disabled = new Set(Array.isArray(route.disabledModels) ? route.disabledModels : []);
-              const models = Array.isArray(route.models) ? route.models : [];
-              fallbackCandidateStore = models.map(function(modelId) {
-                return { model: modelId, enabled: !disabled.has(modelId) };
-              });
-              renderFallbackCandidateList();
-              syncFallbackCandidatesToTextarea();
-            });
-          });
 
           listEl.querySelectorAll('button[data-delete-fallback]').forEach((button) => {
             button.addEventListener('click', () => {
@@ -1096,31 +1139,19 @@ export function renderLayout(
           if (!activeFallbackRouteId && fallbackRoutes.some((r) => r.id === 'local-router/fallback-models')) {
             activeFallbackRouteId = 'local-router/fallback-models';
           }
-          if (activeFallbackRouteId) {
-            const active = fallbackRoutes.find((entry) => entry.id === activeFallbackRouteId);
-            if (active) {
-              const routeIdEl = document.getElementById('fallbackRouteId');
-              if (routeIdEl) {
-                routeIdEl.value = active.id;
-                routeIdEl.disabled = true;
-              }
-              const disabled = new Set(Array.isArray(active.disabledModels) ? active.disabledModels : []);
-              fallbackCandidateStore = (Array.isArray(active.models) ? active.models : []).map(function(modelId) {
-                return { model: modelId, enabled: !disabled.has(modelId) };
-              });
-              renderFallbackCandidateList();
-              syncFallbackCandidatesToTextarea();
-            }
-          }
+          populateFallbackRouteSelect();
         }
 
         async function saveFallbackRoute() {
-          const id = document.getElementById('fallbackRouteId').value.trim();
+          const target = currentFallbackEditTarget();
+          const id = target.id;
           syncFallbackCandidatesToTextarea();
           const modelsText = document.getElementById('fallbackModelsText').value.trim();
 
           if (!id || !modelsText) {
-            setMessage('Enter a fallback model name and at least two model entries.', 'error');
+            setMessage(target.mode === 'new'
+              ? 'Enter a name for the new chain and at least two model entries.'
+              : 'Add at least two model entries to the selected chain.', 'error');
             return;
           }
 
@@ -1136,14 +1167,15 @@ export function renderLayout(
           }
 
           setMessage('Fallback route saved persistently.', 'success');
-          clearFallbackRouteForm();
+          activeFallbackRouteId = (payload && payload.model && payload.model.id) || ('local-router/' + (id.indexOf('local-router/') === 0 ? id.substring('local-router/'.length) : id));
           await loadFallbackRoutes();
           await loadCatalog();
         }
 
         async function autoSaveFallbackRoute() {
           syncFallbackCandidatesToTextarea();
-          const id = document.getElementById('fallbackRouteId').value.trim();
+          const target = currentFallbackEditTarget();
+          const id = target.mode === 'existing' ? target.id : '';
           const modelsText = document.getElementById('fallbackModelsText').value.trim();
           if (!id || !modelsText) return;
           try {
