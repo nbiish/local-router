@@ -132,6 +132,29 @@ test('system fallback chain bootstraps from inventory when curated selection is 
   );
 });
 
+test('toggle + validation accept registry-known-but-uncached models', async () => {
+  // zenmux-minimax-m3 exists in the static provider registry but not in this
+  // test's endpoint cache — registry inventory must also count as known.
+  const toggle = await requestJson('/api/fallback-chain/toggle', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ modelId: 'zenmux-minimax-m3', enabled: true, routeId: 'free' })
+  });
+  assert.equal(toggle.response.status, 200);
+
+  // Preset save flow (Fallback Routes page Edit → Save): a chain containing
+  // registry-only ids must pass reference validation.
+  const save = await requestJson('/api/fallback-models', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      id: 'free',
+      models: ['nvidia-nim-minimax-m3', 'zai-code-pass-glm-4.6v', 'openrouter-chain-of-draft']
+    })
+  });
+  assert.equal(save.response.status, 200, `preset save failed: ${save.body?.error || save.text}`);
+});
+
 test('toggle accepts cache-known-but-unserved models', async () => {
   const toggle = await requestJson('/api/fallback-chain/toggle', {
     method: 'POST',

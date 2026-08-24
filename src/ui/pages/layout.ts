@@ -2290,6 +2290,173 @@ export function renderLayout(
           renderCurationCatalog();
         }
 
+        function selectAllCatalog() {
+          for (const group of curationCatalogData) {
+            for (const model of (group.models || [])) {
+              curationSelectedKeys.add(catalogRowKey(group.provider, model.model));
+            }
+          }
+          renderCurationCatalog();
+        }
+
+        // ── Named curation configs ──
+        let curationConfigsCache = [];
+
+        async function loadCurationConfigsList() {
+          var selectEl = document.getElementById('curationConfigSelect');
+          if (!selectEl) return;
+          try {
+            var res = await fetch('/api/curation-configs');
+            var payload = await res.json().catch(() => ({}));
+            curationConfigsCache = Array.isArray(payload?.data) ? payload.data : [];
+          } catch (e) {
+            curationConfigsCache = [];
+          }
+          var current = selectEl.value;
+          selectEl.innerHTML = curationConfigsCache.length === 0
+            ? '<option value="">(no saved configs)</option>'
+            : curationConfigsCache.map(function(config) {
+                var label = (config.isDefault ? '★ ' : '') + config.name + ' (' + config.count + ')';
+                return '<option value="' + escapeHtml(config.name) + '">' + escapeHtml(label) + '</option>';
+              }).join('');
+          if (current && curationConfigsCache.some(function(c) { return c.name === current; })) {
+            selectEl.value = current;
+          }
+          onCurationConfigSelected();
+        }
+
+        function onCurationConfigSelected() {
+          var selectEl = document.getElementById('curationConfigSelect');
+          var nameEl = document.getElementById('curationConfigName');
+          if (!selectEl || !nameEl) return;
+          if (selectEl.value) nameEl.value = selectEl.value;
+        }
+
+        async function saveCurationConfig() {
+          var nameEl = document.getElementById('curationConfigName');
+          var name = String((nameEl && nameEl.value) || '').trim();
+          if (!name) {
+            setMessage('Enter a config name first.', 'error');
+            return;
+          }
+          try {
+            var res = await fetch('/api/curation-configs', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ name: name, selectedKeys: Array.from(curationSelectedKeys) })
+            });
+            var payload = await res.json().catch(() => ({}));
+            if (!res.ok) {
+              setMessage(payload?.error || 'Failed to save curation config.', 'error');
+              return;
+            }
+            setMessage('Saved curation config "' + name + '" (' + (payload?.config?.count ?? curationSelectedKeys.size) + ' models).', 'success');
+            await loadCurationConfigsList();
+            var selectEl = document.getElementById('curationConfigSelect');
+            if (selectEl) selectEl.value = name;
+          } catch (e) {
+            setMessage('Failed to save curation config: ' + String(e && e.message || e), 'error');
+          }
+        }
+
+        async function loadCurationConfig() {
+          var selectEl = document.getElementById('curationConfigSelect');
+          var name = String((selectEl && selectEl.value) || '').trim();
+          if (!name) {
+            setMessage('Pick a saved config to load.', 'error');
+            return;
+          }
+          try {
+            var res = await fetch('/api/curation-configs/load', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ name: name })
+            });
+            var payload = await res.json().catch(() => ({}));
+            if (!res.ok) {
+              setMessage(payload?.error || 'Failed to load curation config.', 'error');
+              return;
+            }
+            curationEnabled = true;
+            curationSelectedKeys = new Set(Array.isArray(payload?.selectedKeys) ? payload.selectedKeys : []);
+            renderCurationCatalog();
+            await buildModelDropdown();
+            setMessage('Loaded curation config "' + name + '" — ' + (payload?.selectedCount ?? curationSelectedKeys.size) + ' models now served.', 'success');
+          } catch (e) {
+            setMessage('Failed to load curation config: ' + String(e && e.message || e), 'error');
+          }
+        }
+
+        async function deleteCurationConfig() {
+          var selectEl = document.getElementById('curationConfigSelect');
+          var name = String((selectEl && selectEl.value) || '').trim();
+          if (!name) {
+            setMessage('Pick a saved config to delete.', 'error');
+            return;
+          }
+          if (!window.confirm('Delete curation config "' + name + '"?')) return;
+          try {
+            var res = await fetch('/api/curation-configs', {
+              method: 'DELETE',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ name: name })
+            });
+            var payload = await res.json().catch(() => ({}));
+            if (!res.ok) {
+              setMessage(payload?.error || 'Failed to delete curation config.', 'error');
+              return;
+            }
+            setMessage('Deleted curation config "' + name + '".', 'success');
+            await loadCurationConfigsList();
+          } catch (e) {
+            setMessage('Failed to delete curation config: ' + String(e && e.message || e), 'error');
+          }
+        }
+
+        async function setDefaultCurationConfig() {
+          var selectEl = document.getElementById('curationConfigSelect');
+          var name = String((selectEl && selectEl.value) || '').trim();
+          if (!name) {
+            setMessage('Pick a saved config to mark as default.', 'error');
+            return;
+          }
+          try {
+            var res = await fetch('/api/curation-configs/default', {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ name: name })
+            });
+            var payload = await res.json().catch(() => ({}));
+            if (!res.ok) {
+              setMessage(payload?.error || 'Failed to set default config.', 'error');
+              return;
+            }
+            setMessage('"' + name + '" is now the default curation config — applied at every server start.', 'success');
+            await loadCurationConfigsList();
+          } catch (e) {
+            setMessage('Failed to set default config: ' + String(e && e.message || e), 'error');
+          }
+        }
+
+        async function clearDefaultCurationConfig() {
+          try {
+            var res = await fetch('/api/curation-configs/default', {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ name: null })
+            });
+            var payload = await res.json().catch(() => ({}));
+            if (!res.ok) {
+              setMessage(payload?.error || 'Failed to clear default config.', 'error');
+              return;
+            }
+            setMessage('Default curation config cleared.', 'success');
+            await loadCurationConfigsList();
+          } catch (e) {
+            setMessage('Failed to clear default config: ' + String(e && e.message || e), 'error');
+          }
+        }
+
         function selectAllShownCatalog() {
           const searchEl = document.getElementById('catalogSearch');
           const search = String((searchEl && searchEl.value) || '').trim().toLowerCase();
@@ -2599,6 +2766,7 @@ export function renderLayout(
         safeInit('hydrateLiveModelBadges', hydrateLiveModelBadges);
         safeInit('loadFallbackRoutes', loadFallbackRoutes);
         safeInit('loadSystemFallbackChain', loadSystemFallbackChain);
+        safeInit('loadCurationConfigsList', loadCurationConfigsList);
         try { buildModelDropdown(); } catch (err) { showUiError('buildModelDropdown', err); }
         safeInit('loadCatalog', loadCatalog);
         safeInit('loadProviderPricingPanel', loadProviderPricingPanel);
