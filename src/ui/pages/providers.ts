@@ -169,10 +169,21 @@ export function renderProvidersPage(params: {
                 </label>
                 <input id="catalogSearch" type="search" placeholder="Search ported models…" oninput="renderCurationCatalog()" style="flex: 1; min-width: 160px;">
                 <button type="button" class="button-secondary" onclick="selectAllShownCatalog()" style="padding: 4px 10px; font-size: 13px;">Select shown</button>
-                <button type="button" class="button-secondary" onclick="clearCatalogSelection()" style="padding: 4px 10px; font-size: 13px;">Clear all</button>
+                <button type="button" class="button-secondary" onclick="selectAllCatalog()" style="padding: 4px 10px; font-size: 13px;">Select all</button>
+                <button type="button" class="button-secondary" onclick="clearCatalogSelection()" style="padding: 4px 10px; font-size: 13px;">Deselect all</button>
                 <button type="button" onclick="saveCuration()" style="padding: 4px 10px; font-size: 13px;">Save Curation</button>
               </div>
               <div class="muted" id="curationStatus" style="margin-top: 6px;"></div>
+              <div style="margin-top: 10px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                <label for="curationConfigSelect" style="font-weight: 500;">Curation configs</label>
+                <select id="curationConfigSelect" onchange="onCurationConfigSelected()"></select>
+                <input id="curationConfigName" type="text" placeholder="config name…" maxlength="128" style="width: 180px;">
+                <button type="button" class="button-secondary" onclick="saveCurationConfig()" style="padding: 4px 10px; font-size: 13px;">Save as…</button>
+                <button type="button" class="button-secondary" onclick="loadCurationConfig()" style="padding: 4px 10px; font-size: 13px;">Load</button>
+                <button type="button" class="button-secondary" onclick="deleteCurationConfig()" style="padding: 4px 10px; font-size: 13px;">Delete</button>
+                <button type="button" class="button-secondary" onclick="setDefaultCurationConfig()" style="padding: 4px 10px; font-size: 13px;">Set as default</button>
+                <button type="button" class="button-secondary" onclick="clearDefaultCurationConfig()" style="padding: 4px 10px; font-size: 13px;">Clear default</button>
+              </div>
             </div>
           </div>
           <div class="muted" id="catalogCount">Loading catalog...</div>

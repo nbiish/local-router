@@ -74,7 +74,7 @@ import {
   providerHasNoLiveModelList
 } from './provider-model-registries';
 import { catalogProviderSummaries } from './provider-registry';
-import { loadRouterSettings } from './config-persistence';
+import { loadCurationConfigs, loadRouterSettings } from './config-persistence';
 import { normalizeGatewayChatCompletionBody } from './gateway-response';
 import {
   DEFAULT_FALLBACK_ORDERED_IDS,
@@ -390,6 +390,7 @@ const modelSourceConfig: {
   filterConfigured: boolean;
   curationEnabled: boolean;
   curatedEndpointModelKeys: string[];
+  defaultCurationConfig?: string;
 } = { source: 'custom', filterConfigured: true, curationEnabled: false, curatedEndpointModelKeys: [] };
 const MAX_CURATED_ENDPOINT_MODEL_KEYS = 5000;
 let endpointModelsCache: ProviderModel[] = [];
@@ -1757,6 +1758,9 @@ function loadModelSourceConfig(): void {
         .filter((key: string) => key.length > 0);
       modelSourceConfig.curatedEndpointModelKeys = Array.from(new Set(curatedKeys))
         .slice(0, MAX_CURATED_ENDPOINT_MODEL_KEYS);
+    }
+    if (typeof parsed.defaultCurationConfig === 'string' && parsed.defaultCurationConfig.trim()) {
+      modelSourceConfig.defaultCurationConfig = parsed.defaultCurationConfig.trim();
     }
   } catch (error: any) {
     console.error('Failed to load persisted model source config:', sanitizeDiagnosticText(String(error?.message || error)));
@@ -3503,9 +3507,12 @@ function customCatalogModels(): ProviderModel[] {
 }
 
 function allCatalogModels(): ProviderModel[] {
-  // Everything known: curated selection ∪ untoggled discoveries.
+  // Everything known: registry/override/custom inventory ∪ curated serving ∪
+  // live cache discoveries. Registry entries are meaningful chain candidates
+  // even when never curated or cached, so chain authoring (bootstrap,
+  // validation, toggles) resolves against this full inventory.
   const byKey = new Map<string, ProviderModel>();
-  for (const model of providerCatalogModels()) {
+  for (const model of modelPresentationList()) {
     byKey.set(`${model.provider}::${model.model}`, model);
   }
   for (const model of endpointModelsCache) {
@@ -3546,6 +3553,25 @@ loadCustomProviders();
 // route validation resolves candidates through the catalog, which is only
 // populated after the legacy-catalog migration seeds it.
 loadModelSourceConfig();
+
+// Re-apply the configured default curation config at boot: a named saved
+// selection the operator marked as the baseline for every server start.
+if (modelSourceConfig.defaultCurationConfig) {
+  const defaultConfig = loadCurationConfigs().find((config) => config.name === modelSourceConfig.defaultCurationConfig);
+  if (defaultConfig) {
+    modelSourceConfig.curatedEndpointModelKeys = Array.from(new Set(defaultConfig.selectedKeys))
+      .slice(0, MAX_CURATED_ENDPOINT_MODEL_KEYS);
+    modelSourceConfig.curationEnabled = true;
+    try {
+      persistModelSourceConfig();
+      console.log(`[catalog] Applied default curation config "${defaultConfig.name}" (${modelSourceConfig.curatedEndpointModelKeys.length} models).`);
+    } catch (error: unknown) {
+      console.error('Failed to persist default curation config application:', sanitizeDiagnosticText(String(error instanceof Error ? error.message : error)));
+    }
+  } else {
+    console.warn(`[catalog] Default curation config "${modelSourceConfig.defaultCurationConfig}" not found in curation-configs.json — leaving selection unchanged.`);
+  }
+}
 loadEndpointModelsCache();
 loadPersistedProviderModels();
 mergeBaselineProviderModelOverrides();
