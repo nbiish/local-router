@@ -15,8 +15,10 @@ export function renderFallbackPage(params: {
         </div>
         <div class="provider-picker">
           <div class="form-group">
-            <label for="fallbackRouteId">Presented Fallback Model Name</label>
-            <input id="fallbackRouteId" type="text" placeholder="fallback-models">
+            <label for="fallbackRouteSelect">Fallback Chain</label>
+            <select id="fallbackRouteSelect" onchange="selectFallbackRouteToEdit(this.value)"></select>
+            <input id="fallbackRouteNewName" type="text" placeholder="new-chain-name" maxlength="128" style="display:none; margin-top:6px;">
+            <p class="muted" style="margin:4px 0 0;">Pick an existing chain to edit its steps below (drag/toggle auto-saves). Pick <strong>— New chain…</strong> to author a fresh one.</p>
           </div>
           <div class="form-group">
             <label>Add Model to Chain</label>
@@ -58,7 +60,7 @@ export function renderFallbackPage(params: {
             <li><strong>Direct model</strong> — one provider call (e.g. <code>zenmux-deepseek-v4-pro</code>). On failure, cascades to the system fallback chain.</li>
             <li><strong>Fallback route</strong> (<code>local-router/&lt;chain&gt;</code>) — ordered retry chain with backoff. Use <code>local-router/fallback-models</code> as the system safety net.</li>
           </ul>
-          <p class="muted" style="margin:10px 0 0;">Mark your favorites from the Providers &amp; Models page — the fallback checkbox on each catalog model adds or removes it from this chain instantly. Configure provider keys — candidates light up when ready.</p>
+                      <p class="muted" style="margin:10px 0 0;">Mark your favorites from the Providers &amp; Models page — the fallback checkbox on each catalog model adds or removes it from the selected chain instantly, and the drag panel there orders it. Configure provider keys — candidates light up when ready.</p>
         </div>
       </div>
 `;
