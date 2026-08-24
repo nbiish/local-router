@@ -23,7 +23,7 @@ import {
   ProviderModelParseResult
 } from '../index';
 import type { RouterSettings } from '../config-persistence';
-import { loadRouterSettings, saveRouterSettings } from '../config-persistence';
+import { loadCurationConfigs, loadRouterSettings, saveCurationConfigs, saveRouterSettings } from '../config-persistence';
 import { getExpertLogs, importExpertLogs, clearExpertLogs, analyzeLogs } from '../expert-logs';
 
 export interface ConfigApiDeps {
@@ -50,6 +50,7 @@ export interface ConfigApiDeps {
     filterConfigured: boolean;
     curationEnabled: boolean;
     curatedEndpointModelKeys: string[];
+    defaultCurationConfig?: string;
   };
   persistModelSourceConfig: () => void;
   canonicalProviderSlug: (name: string) => string;
@@ -570,6 +571,145 @@ app.put('/api/model-curation', (req: Request, res: Response) => {
     selectedCount: modelSourceConfig.curatedEndpointModelKeys.length,
     selectedKeys: modelSourceConfig.curatedEndpointModelKeys
   });
+});
+
+const MAX_CURATED_ENDPOINT_MODEL_KEYS = 5000;
+
+// ── Named Curation Configs ──────────────────────────────────────────────────
+
+function parseCurationConfigName(raw: unknown): string {
+  return typeof raw === 'string' ? raw.trim().slice(0, 128) : '';
+}
+
+function parseCurationConfigKeys(raw: unknown): string[] | null {
+  if (!Array.isArray(raw)) return null;
+  const keys = raw
+    .map((key: unknown) => String(key || '').trim())
+    .filter((key: string) => key.length > 0 && key.includes('::'));
+  return Array.from(new Set(keys)).slice(0, MAX_CURATED_ENDPOINT_MODEL_KEYS);
+}
+
+app.get('/api/curation-configs', (req: Request, res: Response) => {
+  const defaultName = typeof modelSourceConfig.defaultCurationConfig === 'string'
+    ? modelSourceConfig.defaultCurationConfig
+    : '';
+  res.json({
+    data: loadCurationConfigs().map((config) => ({
+      name: config.name,
+      count: config.selectedKeys.length,
+      updatedAt: config.updatedAt || null,
+      isDefault: config.name === defaultName
+    }))
+  });
+});
+
+app.post('/api/curation-configs', (req: Request, res: Response) => {
+  const name = parseCurationConfigName(req.body?.name);
+  if (!name) {
+    return res.status(400).json({ error: 'name is required.' });
+  }
+  const selectedKeys = parseCurationConfigKeys(req.body?.selectedKeys);
+  if (!selectedKeys) {
+    return res.status(400).json({ error: 'selectedKeys must be an array of "provider::model" strings.' });
+  }
+  const configs = loadCurationConfigs();
+  const existing = configs.find((config) => config.name === name);
+  const record = { name, selectedKeys, updatedAt: new Date().toISOString() };
+  if (existing) {
+    configs[configs.indexOf(existing)] = record;
+  } else {
+    configs.push(record);
+  }
+  try {
+    saveCurationConfigs(configs);
+  } catch (error: unknown) {
+    return res.status(500).json({
+      error: 'Failed to persist curation config.',
+      details: sanitizeDiagnosticText(String(error instanceof Error ? error.message : error))
+    });
+  }
+  return res.json({ success: true, config: { name, count: selectedKeys.length } });
+});
+
+app.post('/api/curation-configs/load', (req: Request, res: Response) => {
+  const name = parseCurationConfigName(req.body?.name);
+  if (!name) {
+    return res.status(400).json({ error: 'name is required.' });
+  }
+  const config = loadCurationConfigs().find((entry) => entry.name === name);
+  if (!config) {
+    return res.status(404).json({ error: `Curation config not found: ${name}` });
+  }
+  modelSourceConfig.source = 'endpoints';
+  modelSourceConfig.curationEnabled = true;
+  modelSourceConfig.curatedEndpointModelKeys = Array.from(new Set(config.selectedKeys))
+    .slice(0, MAX_CURATED_ENDPOINT_MODEL_KEYS);
+  try {
+    persistModelSourceConfig();
+  } catch (error: unknown) {
+    return res.status(500).json({
+      error: 'Failed to apply curation config.',
+      details: sanitizeDiagnosticText(String(error instanceof Error ? error.message : error))
+    });
+  }
+  return res.json({
+    success: true,
+    name,
+    selectedCount: modelSourceConfig.curatedEndpointModelKeys.length,
+    selectedKeys: modelSourceConfig.curatedEndpointModelKeys
+  });
+});
+
+app.put('/api/curation-configs/default', (req: Request, res: Response) => {
+  const raw = req.body?.name;
+  const name = parseCurationConfigName(raw);
+  if (!name) {
+    delete modelSourceConfig.defaultCurationConfig;
+  } else if (!loadCurationConfigs().some((entry) => entry.name === name)) {
+    return res.status(404).json({ error: `Curation config not found: ${name}` });
+  } else {
+    modelSourceConfig.defaultCurationConfig = name;
+  }
+  try {
+    persistModelSourceConfig();
+  } catch (error: unknown) {
+    return res.status(500).json({
+      error: 'Failed to update default curation config.',
+      details: sanitizeDiagnosticText(String(error instanceof Error ? error.message : error))
+    });
+  }
+  return res.json({ success: true, defaultCurationConfig: name || null });
+});
+
+app.delete('/api/curation-configs', (req: Request, res: Response) => {
+  const name = parseCurationConfigName(req.body?.name);
+  if (!name) {
+    return res.status(400).json({ error: 'name is required.' });
+  }
+  const configs = loadCurationConfigs();
+  if (!configs.some((entry) => entry.name === name)) {
+    return res.status(404).json({ error: `Curation config not found: ${name}` });
+  }
+  try {
+    saveCurationConfigs(configs.filter((entry) => entry.name !== name));
+  } catch (error: unknown) {
+    return res.status(500).json({
+      error: 'Failed to delete curation config.',
+      details: sanitizeDiagnosticText(String(error instanceof Error ? error.message : error))
+    });
+  }
+  if (modelSourceConfig.defaultCurationConfig === name) {
+    delete modelSourceConfig.defaultCurationConfig;
+    try {
+      persistModelSourceConfig();
+    } catch (error: unknown) {
+      return res.status(500).json({
+        error: 'Deleted config, but failed to clear its default marker.',
+        details: sanitizeDiagnosticText(String(error instanceof Error ? error.message : error))
+      });
+    }
+  }
+  return res.json({ success: true, removed: name });
 });
 
 app.post('/api/provider-models/:provider/refresh', async (req: Request, res: Response) => {
