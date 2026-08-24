@@ -2451,6 +2451,22 @@ export function renderLayout(
           }
         }
 
+        // Serving toggles persist like the fallback chain panel ("changes
+        // save immediately"), 600ms debounced — an unsaved browser-side
+        // selection silently lost on reload was the 2026-08-24 "checked but
+        // nothing shows up in VS Code" report.
+        let curationSaveTimer = null;
+
+        function scheduleCurationAutoSave() {
+          if (curationSaveTimer) clearTimeout(curationSaveTimer);
+          const statusEl = document.getElementById('curationStatus');
+          if (statusEl) statusEl.innerText = 'Saving curation selection…';
+          curationSaveTimer = setTimeout(function() {
+            curationSaveTimer = null;
+            saveCuration({ silent: true });
+          }, 600);
+        }
+
         function toggleCatalogRow(pIdx, mIdx, checked) {
           const group = curationCatalogData[pIdx];
           const model = group && group.models ? group.models[mIdx] : null;
@@ -2462,6 +2478,7 @@ export function renderLayout(
             curationSelectedKeys.delete(key);
           }
           renderCurationCatalog();
+          scheduleCurationAutoSave();
         }
 
         function selectAllCatalog() {
@@ -2471,6 +2488,7 @@ export function renderLayout(
             }
           }
           renderCurationCatalog();
+          scheduleCurationAutoSave();
         }
 
         // ── Named curation configs ──
@@ -2644,19 +2662,23 @@ export function renderLayout(
             }
           }
           renderCurationCatalog();
+          scheduleCurationAutoSave();
         }
 
         function clearCatalogSelection() {
           curationSelectedKeys.clear();
           renderCurationCatalog();
+          scheduleCurationAutoSave();
         }
 
         function toggleCuration(checked) {
           curationEnabled = Boolean(checked);
           renderCurationCatalog();
+          scheduleCurationAutoSave();
         }
 
-        async function saveCuration() {
+        async function saveCuration(options) {
+          const silent = Boolean(options && options.silent);
           try {
             const res = await fetch('/api/model-curation', {
               method: 'PUT',
@@ -2673,9 +2695,14 @@ export function renderLayout(
             }
             curationEnabled = Boolean(data.curationEnabled);
             curationSelectedKeys = new Set(Array.isArray(data.selectedKeys) ? data.selectedKeys : curationSelectedKeys);
-            setMessage('Model curation saved: ' + data.selectedCount + ' models will be served.', 'success');
-            await loadCatalog();
-            await buildModelDropdown();
+            if (silent) {
+              const statusEl = document.getElementById('curationStatus');
+              if (statusEl) statusEl.innerText = data.selectedCount + ' models saved for serving.';
+            } else {
+              setMessage('Model curation saved: ' + data.selectedCount + ' models will be served.', 'success');
+              await loadCatalog();
+              await buildModelDropdown();
+            }
           } catch (e) {
             setMessage('Failed to save curation: ' + e.message, 'error');
           }
@@ -2838,7 +2865,7 @@ export function renderLayout(
 
           const descEl = document.getElementById('catalogDescription');
           if (descEl) {
-            descEl.innerHTML = 'Search and check the models you want served; save curation to apply.';
+            descEl.innerHTML = 'Search and check the models you want served; checks save automatically (Save Curation forces a refresh).';
           }
 
           setCurationControlsVisible(true);
