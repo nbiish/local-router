@@ -61,7 +61,7 @@ export function renderFallbackPage(params: {
             <li><strong>Direct model</strong> — one provider call (e.g. <code>zenmux-deepseek-v4-pro</code>). On failure, cascades to the system fallback chain.</li>
             <li><strong>Fallback route</strong> (<code>local-router/&lt;chain&gt;</code>) — ordered retry chain with backoff. Use <code>local-router/fallback-models</code> as the system safety net.</li>
           </ul>
-                      <p class="muted" style="margin:10px 0 0;">Mark your favorites from the Providers &amp; Models page — the fallback checkbox on each catalog model adds or removes it from the selected chain instantly, and the drag panel there orders it. Configure provider keys — candidates light up when ready.</p>
+                      <p class="muted" style="margin:10px 0 0;">This page is the only fallback chain editor. Use the <strong>＋ Fallback</strong> button on any model in the Providers &amp; Models catalog to stage it here (existing chains save instantly); then drag to order. Configure provider keys — candidates light up when ready.</p>
         </div>
       </div>
 `;

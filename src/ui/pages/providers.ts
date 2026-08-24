@@ -132,7 +132,6 @@ export function renderProvidersPage(params: {
             <div class="provider-model-empty">Loading selected provider models...</div>
           </div>
         </div>
-        <div id="message"></div>
       </div>
       <div class="card">
         <div class="catalog-meta">
@@ -178,36 +177,14 @@ export function renderProvidersPage(params: {
               </div>
             </div>
           </div>
-          <div class="muted" id="catalogCount">Loading catalog...</div>
-        </div>
-        <div class="provider-keys-section" style="margin-bottom: 18px; padding-bottom: 16px; border-bottom: 1px solid var(--border, #d0d7de);">
-          <div class="catalog-meta">
-            <div>
-              <h3 style="margin: 0;">Provider Key Configs</h3>
-              <p class="muted">Select one of the registry providers, then save the API key in-memory for that backend. Key status also shows on each provider group header below.</p>
-            </div>
-            <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 8px;">
-              <div class="muted" id="providerCount">Loading providers...</div>
-              <button type="button" class="button-secondary" onclick="syncPqcBundleKeys(true)" style="padding: 4px 10px; font-size: 13px;">🔁 Sync PQC keys</button>
-            </div>
+          <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 8px;">
+            <div class="muted" id="providerCount">Loading providers...</div>
+            <div class="muted" id="catalogCount">Loading catalog...</div>
+            <button type="button" class="button-secondary" onclick="syncPqcBundleKeys(true)" style="padding: 4px 10px; font-size: 13px;">🔁 Sync PQC keys</button>
           </div>
-          <div id="providerGrid" class="provider-grid"></div>
         </div>
+        <p class="muted">Each provider below shows its key status, fetch controls, and models in one place. Check a model to serve it (saves automatically); <strong>＋ Fallback</strong> stages it into a chain on the <a href="/config/fallback">Fallback Routes</a> page, where all chain editing lives.</p>
         <div id="catalog" class="catalog"></div>
-        <div style="margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--border, #d0d7de);">
-          <h3 style="margin: 0 0 4px;">Fallback Chains</h3>
-          <div class="muted" id="fallbackChainCount">Loading fallback chain...</div>
-          <p class="muted">Toggle models below to add/remove them; drag to set fallback order; changes save immediately.</p>
-          <div class="form-group" style="max-width: 320px; margin-bottom: 10px;">
-            <label for="fallbackChainSelector">Chain</label>
-            <select id="fallbackChainSelector" onchange="selectFallbackChain(this.value)">
-              <option value="fallback-models" selected>local-router/fallback-models</option>
-            </select>
-          </div>
-          <div id="fallbackOrderList" class="router-candidate-list">
-            <div class="router-candidate-empty">Loading fallback chain...</div>
-          </div>
-        </div>
       </div>
       <div class="card">
         <h2>OAuth Provider Logins</h2>
