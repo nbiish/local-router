@@ -179,9 +179,7 @@ export function renderLayout(
         .model-flag-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 8px; margin-top: 10px; }
         .flag-toggle { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; color: var(--text); }
         .flag-toggle input { width: auto; margin: 0; }
-        .fallback-chain-toggle-wrap { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; margin: 0; }
-        .fallback-chain-toggle { width: auto; margin: 0; }
-        .fallback-chain-label { font-size: 10px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+        .provider-group.active { border-color: var(--primary); box-shadow: 0 0 0 1px var(--primary-soft); }
         .provider-model-list { margin-top: 14px; border: 1px solid var(--border); border-radius: 8px; overflow-x: hidden; overflow-y: auto; max-height: 360px; }
         .provider-model-item { padding: 10px 12px; border-top: 1px solid var(--border); background: var(--surface-raised); }
         .provider-model-item:first-child { border-top: 0; }
@@ -543,11 +541,6 @@ export function renderLayout(
         let activeFallbackRouteId = '';
         const DEFAULT_FALLBACK_MODELS_TEXT = ${JSON.stringify(params.defaultFallbackModelsText)};
         let fallbackCandidateStore = [];
-        let systemFallbackChainStore = [];
-        let systemFallbackChainDisabledStore = [];
-        let fallbackChainsCache = {};
-        let fallbackChainsOrder = [];
-        let activeFallbackChainId = 'fallback-models';
         let allModelsCache = [];
         let catalogInfoById = {};
         let modelAvailabilityCache = {};
@@ -698,15 +691,13 @@ export function renderLayout(
         function renderProviderSelection() {
           const selectEl = document.getElementById('providerSelect');
           const envVarEl = document.getElementById('providerEnvVar');
-          const providerGridEl = document.getElementById('providerGrid');
           const providerCountEl = document.getElementById('providerCount');
           const existingSelection = selectEl.value;
 
           if (!Array.isArray(providerConfigs) || providerConfigs.length === 0) {
             selectEl.innerHTML = '<option value="' + ADD_CUSTOM_PROVIDER_VALUE + '">Add custom provider…</option>';
             envVarEl.value = '';
-            providerCountEl.innerText = '0/0 configured';
-            providerGridEl.innerHTML = '';
+            if (providerCountEl) providerCountEl.innerText = '0/0 configured';
             renderProviderModelList(null);
             toggleCustomProviderPanel(true, 'create', null);
             return;
@@ -748,80 +739,14 @@ export function renderLayout(
           setSelectedProvider();
 
           const configuredCount = providerConfigs.filter((provider) => provider.configured).length;
-          providerCountEl.innerText = configuredCount + '/' + providerConfigs.length + ' configured';
+          if (providerCountEl) providerCountEl.innerText = configuredCount + '/' + providerConfigs.length + ' configured';
 
-          providerGridEl.innerHTML = providerConfigs.map((provider) => {
-            const statusLabel = provider.configured ? 'Configured' : 'Not configured';
-            const statusClass = provider.configured ? 'configured' : 'pending';
-            const sourceLabel = provider.configured ? provider.configuredSource : 'none';
-            const modelSummary = provider.modelCount + ' models (' + provider.modelSource + ')';
-            const kindPill = provider.isCustom
-              ? '<span class="pill custom">Custom</span>'
-              : '';
-            const capabilitySummary = (Array.isArray(provider.models) ? provider.models : [])
-              .slice(0, 3)
-              .map((model) => model.id + ' (' + (model.contextLength || 0) + ' ctx, ' + (model.outputTokens || 0) + ' out)')
-              .join(', ');
-            const customActions = provider.isCustom
-              ? '<button class="button-secondary" data-edit-custom="' + escapeHtml(provider.name) + '">Edit metadata</button>' +
-                '<button class="button-secondary" data-delete-custom="' + escapeHtml(provider.name) + '">Delete provider</button>'
-              : '';
-            return '<section class="provider-card" data-provider="' + escapeHtml(provider.name) + '">' +
-              '<h4>' + escapeHtml(provider.displayName || provider.name) + (kindPill ? ' ' + kindPill : '') + '</h4>' +
-              '<div class="muted">ID: ' + escapeHtml(provider.name) + '</div>' +
-              '<div class="muted">Endpoint: ' + escapeHtml(provider.endpoint) + '</div>' +
-              '<div class="muted">Key Env Var: ' + escapeHtml(provider.keyEnvVar) + '</div>' +
-              '<div class="muted">Configured Source: ' + escapeHtml(sourceLabel) + '</div>' +
-              '<div class="muted">Presented Models: ' + escapeHtml(modelSummary) + '</div>' +
-              '<div class="muted">' + escapeHtml(capabilitySummary) + '</div>' +
-              '<div class="pill status-pill ' + statusClass + '">' + escapeHtml(statusLabel) + '</div>' +
-              '<div class="row row-actions">' +
-                '<button data-use-provider="' + escapeHtml(provider.name) + '">Use this provider</button>' +
-                '<button class="button-secondary" data-reset-provider="' + escapeHtml(provider.name) + '">Reset key</button>' +
-                customActions +
-              '</div>' +
-              '<details class="provider-live-models" data-provider="' + escapeHtml(provider.name) + '" style="margin-top:10px; border-top:1px solid var(--border-color,#333); padding-top:8px;">' +
-                '<summary style="cursor:pointer; font-weight:500;">Live models <span class="muted live-counts" data-live-counts>(not fetched)</span></summary>' +
-                '<div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-top:8px;">' +
-                  '<input type="search" data-live-search placeholder="Filter models…" style="flex:1; min-width:140px;">' +
-                  '<button type="button" class="button-secondary" data-live-refresh style="padding:4px 10px; font-size:13px;">🔄 Fetch live models</button>' +
-                  '<button type="button" data-live-save style="padding:4px 10px; font-size:13px;">Save selection</button>' +
-                '</div>' +
-                '<div class="muted" data-live-note style="margin-top:6px; font-size:12px;"></div>' +
-                '<div data-live-list class="provider-model-list" style="margin-top:6px;">' +
-                  '<div class="provider-model-empty">Click Fetch live models to list what this provider serves upstream.</div>' +
-                '</div>' +
-              '</details>' +
-            '</section>';
-          }).join('');
-
-          providerGridEl.querySelectorAll('details.provider-live-models').forEach((block) => {
-            wireProviderLiveBlock(block);
-          });
-          updateLiveBadgesFromSnapshot();
-
-          providerGridEl.querySelectorAll('button[data-use-provider]').forEach((button) => {
-            button.addEventListener('click', () => {
-              selectProvider(button.getAttribute('data-use-provider') || '');
-            });
-          });
-          providerGridEl.querySelectorAll('button[data-reset-provider]').forEach((button) => {
-            button.addEventListener('click', () => {
-              resetProviderKey(button.getAttribute('data-reset-provider') || '');
-            });
-          });
-          providerGridEl.querySelectorAll('button[data-edit-custom]').forEach((button) => {
-            button.addEventListener('click', () => {
-              openCustomProviderEditor(button.getAttribute('data-edit-custom') || '');
-            });
-          });
-          providerGridEl.querySelectorAll('button[data-delete-custom]').forEach((button) => {
-            button.addEventListener('click', () => {
-              deleteCustomProvider(button.getAttribute('data-delete-custom') || '');
-            });
-          });
-
-          highlightSelectedProvider(selectEl.value === ADD_CUSTOM_PROVIDER_VALUE ? '' : selectEl.value);
+          // The per-provider key cards live inline in the catalog group
+          // headers now (one section per provider — no grid/catalog double
+          // scroll). Refresh group headers if the catalog already rendered.
+          if (Array.isArray(curationCatalogData) && curationCatalogData.length > 0) {
+            renderCurationCatalog();
+          }
         }
 
         function selectProvider(providerName) {
@@ -832,8 +757,8 @@ export function renderLayout(
         }
 
         function highlightSelectedProvider(providerName) {
-          document.querySelectorAll('.provider-card').forEach((card) => {
-            card.classList.toggle('active', card.getAttribute('data-provider') === providerName);
+          document.querySelectorAll('.provider-group').forEach((group) => {
+            group.classList.toggle('active', group.getAttribute('data-provider') === providerName);
           });
         }
 
@@ -1095,6 +1020,7 @@ export function renderLayout(
         function renderFallbackRoutes() {
           const countEl = document.getElementById('fallbackCount');
           const listEl = document.getElementById('fallbackRouteList');
+          if (!countEl || !listEl) return; // only the Fallback Routes page hosts the editor
           const routes = Array.isArray(fallbackRoutes) ? fallbackRoutes : [];
           countEl.innerText = routes.length + ' fallback route' + (routes.length === 1 ? '' : 's');
 
@@ -1367,22 +1293,13 @@ export function renderLayout(
           }
         }
 
-        // ── Drag and Drop ──
+        // ── Drag and Drop (Fallback Routes page candidate list) ──
         var dragSourceIndex = -1;
-        var dragSourceList = 'fallback';
-
-        function resolveDragList(itemEl) {
-          var list = itemEl && itemEl.closest ? itemEl.closest('.router-candidate-list') : null;
-          if (list && list.id === 'fallbackOrderList') return 'order';
-          if (list && list.id === 'fallbackCandidateList') return 'fallback';
-          return 'fallback';
-        }
 
         function candidateDragStart(e) {
           var itemEl = e.target.closest('[data-candidate-index]');
           if (!itemEl) return;
           dragSourceIndex = parseInt(itemEl.getAttribute('data-candidate-index'), 10);
-          dragSourceList = resolveDragList(itemEl);
           itemEl.classList.add('dragging');
           e.dataTransfer.effectAllowed = 'move';
         }
@@ -1397,30 +1314,19 @@ export function renderLayout(
           var targetEl = e.target.closest('[data-candidate-index]');
           if (!targetEl || dragSourceIndex < 0) return;
           var targetIndex = parseInt(targetEl.getAttribute('data-candidate-index'), 10);
-          var targetList = resolveDragList(targetEl);
-          if (targetList !== dragSourceList) { dragSourceIndex = -1; return; }
           if (targetIndex === dragSourceIndex) return;
-          if (dragSourceList === 'order') {
-            var movedOrd = systemFallbackChainStore.splice(dragSourceIndex, 1)[0];
-            systemFallbackChainStore.splice(targetIndex, 0, movedOrd);
-            renderFallbackOrderList();
-            persistFallbackOrder();
-          } else if (dragSourceList === 'fallback') {
-            var movedFb = fallbackCandidateStore.splice(dragSourceIndex, 1)[0];
-            fallbackCandidateStore.splice(targetIndex, 0, movedFb);
-            renderFallbackCandidateList();
-            syncFallbackCandidatesToTextarea();
-            autoSaveFallbackRoute();
-          }
+          var moved = fallbackCandidateStore.splice(dragSourceIndex, 1)[0];
+          fallbackCandidateStore.splice(targetIndex, 0, moved);
+          renderFallbackCandidateList();
+          syncFallbackCandidatesToTextarea();
+          autoSaveFallbackRoute();
           dragSourceIndex = -1;
-          dragSourceList = 'fallback';
         }
 
         function candidateDragEnd(e) {
           var items = document.querySelectorAll('.router-candidate-item.dragging');
           items.forEach(function(el) { el.classList.remove('dragging'); });
           dragSourceIndex = -1;
-          dragSourceList = 'fallback';
         }
 
         function parseFallbackTextareaToStore(text) {
@@ -2032,21 +1938,10 @@ export function renderLayout(
             setMessage('Provider key saved in-memory successfully.', 'success');
           }
           await loadProviderConfigs();
-          await hydrateLiveModelBadges();
-          if (discovered && discovered.count > 0) {
-            const block = providerLiveBlock(provider);
-            const sourceLabels = { live: 'live upstream', registry: 'curated registry', catalog: 'static catalog' };
-            let note = 'Fetched ' + discovered.count + ' model(s) — source: ' +
-              (sourceLabels[discovered.source] || discovered.source) + '. All toggled off by default';
-            if (discovered.deselectedCount > 0) {
-              note += ' (previous selection of ' + discovered.deselectedCount + ' backed up)';
-            }
-            note += ' — check the few you want served.';
-            if (discovered.note) note += ' (' + discovered.note + ')';
-            populateProviderLiveBlock(provider, discovered.models || [], note);
-            if (block) block.open = true;
-          }
           await loadCatalog();
+          if (discovered && discovered.count > 0) {
+            scrollToProviderGroup(provider);
+          }
           await loadFallbackRoutes();
         }
 
@@ -2108,178 +2003,71 @@ export function renderLayout(
           setMessage('VS Code model picker refreshed. Reload the VS Code window if the dropdown is already open.', 'success');
         }
 
-        let liveModelsByProvider = {};
-        let liveSearchByProvider = {};
-        let curationKeySnapshot = new Set();
-        let curationAlreadyActive = null;
-        let liveCountsByProvider = {};
-
-        function liveCurationKey(provider, model) {
-          return provider + '::' + model;
-        }
-
-        function providerLiveBlock(provider) {
-          const gridEl = document.getElementById('providerGrid');
-          if (!gridEl) return null;
-          return gridEl.querySelector('details.provider-live-models[data-provider="' + escapeHtml(provider) + '"]');
-        }
-
-        async function hydrateLiveModelBadges() {
-          try {
-            const res = await fetch('/api/model-curation');
-            const data = await res.json();
-            curationKeySnapshot = new Set(Array.isArray(data.selectedKeys) ? data.selectedKeys : []);
-            if (curationAlreadyActive === null) {
-              curationAlreadyActive = data.source === 'endpoints' && data.curationEnabled === true;
-            }
-            liveCountsByProvider = {};
-            (Array.isArray(data.data) ? data.data : []).forEach((group) => {
-              if (group && group.provider && Array.isArray(group.models)) {
-                liveCountsByProvider[group.provider] = group.models.length;
-              }
-            });
-            updateLiveBadgesFromSnapshot();
-          } catch (err) {
-            console.error('[hydrateLiveModelBadges]', err);
-          }
-        }
-
-        function updateLiveBadgesFromSnapshot() {
-          const gridEl = document.getElementById('providerGrid');
-          if (!gridEl) return;
-          gridEl.querySelectorAll('details.provider-live-models').forEach((block) => {
-            const provider = block.getAttribute('data-provider') || '';
-            const countsEl = block.querySelector('[data-live-counts]');
-            if (!countsEl) return;
-            const cached = liveCountsByProvider[provider];
-            if (!cached) return;
-            let selected = 0;
-            curationKeySnapshot.forEach((key) => {
-              if (key.indexOf(provider + '::') === 0) selected++;
-            });
-            countsEl.innerText = '(' + cached + ' live, ' + selected + ' selected)';
-          });
-        }
-
-        function setLiveNote(block, text) {
-          const noteEl = block.querySelector('[data-live-note]');
-          if (noteEl) noteEl.innerText = text;
-        }
-
-        function populateProviderLiveBlock(provider, models, noteText) {
-          liveModelsByProvider[provider] = Array.isArray(models) ? models : [];
-          const block = providerLiveBlock(provider);
-          if (!block) return;
-          if (noteText) setLiveNote(block, noteText);
-          renderLiveModelList(block);
-          updateLiveBadgesFromSnapshot();
-        }
-
-        function renderLiveModelList(block) {
-          const provider = block.getAttribute('data-provider') || '';
-          const models = liveModelsByProvider[provider] || [];
-          const listEl = block.querySelector('[data-live-list]');
-          if (!listEl) return;
-          if (!models.length) {
-            listEl.innerHTML = '<div class="provider-model-empty">No live models cached — click Fetch live models.</div>';
-            return;
-          }
-          const search = (liveSearchByProvider[provider] || '').toLowerCase();
-          const rows = models.filter((model) => {
-            if (!search) return true;
-            const haystack = [model.model, model.display, model.id]
-              .map((part) => String(part || '').toLowerCase())
-              .join(' ');
-            return haystack.includes(search);
-          });
-          listEl.innerHTML = rows.map((model) => {
-            const key = liveCurationKey(provider, model.model);
-            const checked = curationKeySnapshot.has(key) ? ' checked' : '';
-            const ctx = model.contextLength ? ' <span class="muted">(' + escapeHtml(String(model.contextLength)) + ' ctx)</span>' : '';
-            const tier = model.tier
-              ? ' <span class="muted" style="border:1px solid currentColor; border-radius:3px; padding:0 4px; font-size:11px;">' + escapeHtml(model.tier) + '</span>'
-              : '';
-            return '<label class="flag-toggle" style="display:flex; align-items:center; gap:8px; padding:3px 0;">' +
-              '<input type="checkbox" data-live-key="' + escapeHtml(key) + '"' + checked + '>' +
-              '<span>' + escapeHtml(model.model || model.id) + ctx + tier + '</span>' +
-            '</label>';
-          }).join('') || '<div class="provider-model-empty">No models match the filter.</div>';
-        }
-
-        async function fetchProviderLiveModels(provider) {
-          const block = providerLiveBlock(provider);
-          if (block) setLiveNote(block, 'Fetching live models…');
+        // ── Per-provider model refresh (group header button) ──
+        // One section per provider now: the catalog group list IS the
+        // toggle/search surface; fetching live models refreshes that group's
+        // cache section off-by-default, then the normal serving toggles
+        // (auto-saved) apply — no second list, no second save button.
+        async function refreshSingleProviderModels(provider) {
+          if (!provider) return false;
+          const sourceLabels = { live: 'live upstream', registry: 'curated registry', catalog: 'static catalog' };
+          setMessage('Fetching live models for ' + provider + '…', 'success');
           try {
             const res = await fetch('/api/provider-models/' + encodeURIComponent(provider) + '/refresh', { method: 'POST' });
             const payload = await res.json().catch(() => ({}));
             if (!res.ok) throw new Error(payload?.error || 'Refresh failed');
-            await hydrateLiveModelBadges();
-            const sourceLabels = { live: 'live upstream', registry: 'curated registry', catalog: 'static catalog' };
-            const sourceLabel = sourceLabels[payload.source] || payload.source;
-            let note = 'Fetched ' + payload.count + ' model(s) — source: ' + sourceLabel + '. All toggled off by default';
+            let note = provider + ': fetched ' + payload.count + ' model(s) — source: ' + (sourceLabels[payload.source] || payload.source) + '. All toggled off by default';
             if (payload.deselectedCount > 0) {
               note += ' (previous selection of ' + payload.deselectedCount + ' backed up)';
             }
-            note += ' — check the few you want served.';
+            note += ' — check the few you want served (auto-saves).';
             if (payload.note) note += ' (' + payload.note + ')';
-            populateProviderLiveBlock(provider, payload.data || [], note);
+            await loadCatalog();
+            scrollToProviderGroup(provider);
+            setMessage(note, 'success');
             return true;
           } catch (err) {
-            if (block) setLiveNote(block, 'Fetch failed: ' + (err?.message || String(err)));
+            setMessage('Fetch failed for ' + provider + ': ' + (err && err.message ? err.message : err), 'error');
             return false;
           }
         }
 
-        async function saveProviderLiveSelection(block) {
-          const provider = block.getAttribute('data-provider') || '';
-          const checked = Array.from(block.querySelectorAll('input[data-live-key]:checked'))
-            .map((input) => input.getAttribute('data-live-key') || '');
-          const prefix = provider + '::';
-          const merged = new Set(Array.from(curationKeySnapshot).filter((key) => key.indexOf(prefix) !== 0));
-          checked.forEach((key) => merged.add(key));
-          const shouldActivate = !curationAlreadyActive && merged.size > 0;
-          const body = { selectedKeys: Array.from(merged) };
-          if (shouldActivate) body.activate = true;
-          try {
-            const res = await fetch('/api/model-curation', {
-              method: 'PUT',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(body)
-            });
-            const payload = await res.json().catch(() => ({}));
-            if (!res.ok) throw new Error(payload?.error || 'Save failed');
-            curationKeySnapshot = new Set(payload.selectedKeys || []);
-            curationAlreadyActive = true;
-            setLiveNote(block, shouldActivate
-              ? 'Selection saved — local-router now serves ONLY selected models.'
-              : 'Selection saved.');
-            updateLiveBadgesFromSnapshot();
-            await loadCatalog();
-          } catch (err) {
-            setLiveNote(block, 'Save failed: ' + (err?.message || String(err)));
-          }
+        function scrollToProviderGroup(provider) {
+          const group = document.querySelector('.provider-group[data-provider="' + CSS.escape(provider) + '"]');
+          if (group) group.scrollIntoView({ behavior: 'smooth', block: 'start' });
         }
 
-        function wireProviderLiveBlock(block) {
-          const provider = block.getAttribute('data-provider') || '';
-          const refreshBtn = block.querySelector('[data-live-refresh]');
-          const saveBtn = block.querySelector('[data-live-save]');
-          const searchEl = block.querySelector('[data-live-search]');
-          if (refreshBtn) {
-            refreshBtn.addEventListener('click', () => { fetchProviderLiveModels(provider); });
+        // Hand a model to the Fallback Routes page editor — all chain editing
+        // lives there (the Providers page no longer carries a second editor).
+        function stageModelOnFallbackPage(modelId) {
+          if (!modelId) return;
+          window.location.href = '/config/fallback?add=' + encodeURIComponent(modelId);
+        }
+
+        // On the Fallback Routes page: pre-stage a model handed over from the
+        // Providers & Models catalog (existing chains auto-save the add).
+        function stageModelFromQuery() {
+          const selectEl = document.getElementById('fallbackRouteSelect');
+          if (!selectEl) return;
+          const params = new URLSearchParams(window.location.search);
+          const addModel = String(params.get('add') || '').trim();
+          if (!addModel) return;
+          const chainParam = String(params.get('chain') || '').trim();
+          if (chainParam && (Array.isArray(fallbackRoutes) ? fallbackRoutes : []).some(function(r) { return r.id === chainParam; })) {
+            selectEl.value = chainParam;
+            selectFallbackRouteToEdit(chainParam);
           }
-          if (saveBtn) {
-            saveBtn.addEventListener('click', () => { saveProviderLiveSelection(block); });
-          }
-          if (searchEl) {
-            searchEl.addEventListener('input', () => {
-              liveSearchByProvider[provider] = searchEl.value || '';
-              renderLiveModelList(block);
-            });
-          }
-          if (liveModelsByProvider[provider]) {
-            renderLiveModelList(block);
-          }
+          const already = fallbackCandidateStore.some(function(c) { return c.model === addModel; });
+          if (!already) addFallbackCandidate(addModel);
+          const target = currentFallbackEditTarget();
+          if (!already && target.mode === 'existing') autoSaveFallbackRoute();
+          setMessage(already
+            ? addModel + ' is already in ' + (target.id || 'this chain') + '.'
+            : 'Staged ' + addModel + ' into ' + (target.id || 'the chain') + (target.mode === 'existing' ? ' (saved)' : ' — name and save the new chain to persist') + '.',
+            'success');
+          const listEl = document.getElementById('fallbackCandidateList');
+          if (listEl) listEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          window.history.replaceState({}, '', '/config/fallback');
         }
 
         let curationCatalogData = [];
@@ -2338,16 +2126,29 @@ export function renderLayout(
         // logical join of "Provider Key Configs" with "Available Providers &
         // Models"): pill + env var + a shortcut that opens this provider in
         // the key form above.
+        // One section per provider: key status + key actions + live fetch +
+        // custom-provider management all live here in the catalog group
+        // header (the old separate "Provider Key Configs" grid is gone).
         function providerKeyStatusHtml(providerName) {
-          if (!Array.isArray(providerConfigs) || providerConfigs.length === 0) return '';
+          if (!Array.isArray(providerConfigs) || providerConfigs.length === 0) {
+            return ' <button type="button" class="button-secondary" data-fetch-provider="' + escapeHtml(providerName) + '" style="padding: 1px 8px; font-size: 11px;" title="Fetch live /models for this provider (merged into this group, toggled off)">🔄 Fetch live</button>';
+          }
           const cfg = providerConfigs.find(function(p) { return p && p.name === providerName; });
           if (!cfg) return '';
           const pill = cfg.configured
             ? '<span class="pill status-pill configured">Key configured</span>'
             : '<span class="pill status-pill pending">No key</span>';
           const envVar = cfg.keyEnvVar ? ' <span class="muted">' + escapeHtml(cfg.keyEnvVar) + '</span>' : '';
+          const customActions = cfg.isCustom
+            ? ' <button type="button" class="button-secondary" data-edit-custom="' + escapeHtml(cfg.name) + '" style="padding: 1px 8px; font-size: 11px;">Edit</button>'
+            + ' <button type="button" class="button-secondary" data-delete-custom="' + escapeHtml(cfg.name) + '" style="padding: 1px 8px; font-size: 11px;">Delete</button>'
+            : '';
           return '<span class="provider-key-status" style="font-size: 12px;">' + pill + envVar
-            + ' <button type="button" class="button-secondary" data-configure-provider="' + escapeHtml(cfg.name) + '" style="padding: 1px 8px; font-size: 11px;">' + (cfg.configured ? 'Update key' : 'Configure key') + '</button></span>';
+            + ' <button type="button" class="button-secondary" data-configure-provider="' + escapeHtml(cfg.name) + '" style="padding: 1px 8px; font-size: 11px;">' + (cfg.configured ? 'Update key' : 'Configure key') + '</button>'
+            + ' <button type="button" class="button-secondary" data-fetch-provider="' + escapeHtml(cfg.name) + '" style="padding: 1px 8px; font-size: 11px;" title="Fetch live /models for this provider (merged into this group, toggled off)">🔄 Fetch live</button>'
+            + ' <button type="button" class="button-secondary" data-reset-provider="' + escapeHtml(cfg.name) + '" style="padding: 1px 8px; font-size: 11px;" title="Clear the in-memory key for this provider">Reset key</button>'
+            + customActions
+            + '</span>';
         }
 
         function openProviderKeyConfig(providerName) {
@@ -2402,8 +2203,11 @@ export function renderLayout(
             if (prunedByGlobal) continue;
             if (!search && !providerSearch && matching.length === 0) continue;
 
-            html += '<section class="provider-group">'
-              + '<h3>' + escapeHtml(group.provider) + ' <span class="muted">(' + matching.length + (matching.length !== models.length ? ' / ' + models.length : '') + ')</span> ' + providerKeyStatusHtml(group.provider) + '</h3>'
+            const servedCount = models.filter(function(model) {
+              return curationSelectedKeys.has(catalogRowKey(group.provider, model.model));
+            }).length;
+            html += '<section class="provider-group" data-provider="' + escapeHtml(group.provider) + '">'
+              + '<h3>' + escapeHtml(group.provider) + ' <span class="muted">(' + matching.length + (matching.length !== models.length ? ' / ' + models.length : '') + ' · ' + servedCount + ' served)</span> ' + providerKeyStatusHtml(group.provider) + '</h3>'
               + '<input type="search" class="curation-provider-search" data-curation-provider="' + escapeHtml(group.provider) + '"'
               + ' placeholder="Search ' + escapeHtml(group.provider) + ' models…"'
               + ' value="' + escapeHtml(curationSearchByProvider[group.provider] || '') + '"'
@@ -2416,19 +2220,14 @@ export function renderLayout(
               const model = models[m];
               const key = catalogRowKey(group.provider, model.model);
               const checked = curationSelectedKeys.has(key) ? ' checked' : '';
-              const inFallbackChain = systemFallbackChainStore.indexOf(model.id) !== -1;
               html += '<li style="display: flex; gap: 12px; align-items: center;">'
                 + '<label class="flag-toggle" style="display: flex; gap: 8px; align-items: flex-start; flex: 1;">'
                 + '<input type="checkbox"' + checked + ' onchange="toggleCatalogRow(' + p + ', ' + m + ', this.checked)">'
                 + '<span><strong>' + escapeHtml(model.id) + '</strong><br><span class="muted">' + escapeHtml(model.display || model.model || '') + '</span></span>'
                 + '</label>'
-                + '<label class="fallback-chain-toggle-wrap" title="Include in the selected fallback chain">'
-                + '<input type="checkbox" class="fallback-chain-toggle"' + (inFallbackChain ? ' checked' : '')
-                + ' data-fallback-provider="' + escapeHtml(group.provider) + '"'
-                + ' data-fallback-model="' + escapeHtml(model.id) + '"'
-                + ' onchange="toggleFallbackChainRow(this.dataset.fallbackProvider, this.dataset.fallbackModel, this.checked)">'
-                + '<span class="fallback-chain-label">fallback</span>'
-                + '</label>'
+                + '<button type="button" class="button-secondary" data-stage-fallback="' + escapeHtml(model.id) + '"'
+                + ' title="Stage this model into a chain on the Fallback Routes page (all chain editing lives there)"'
+                + ' style="padding: 1px 8px; font-size: 11px; white-space: nowrap;">＋ Fallback</button>'
                 + '</li>';
               shown++;
             }
@@ -2441,6 +2240,31 @@ export function renderLayout(
           catalogEl.querySelectorAll('button[data-configure-provider]').forEach(function(btn) {
             btn.addEventListener('click', function() {
               openProviderKeyConfig(btn.getAttribute('data-configure-provider') || '');
+            });
+          });
+          catalogEl.querySelectorAll('button[data-fetch-provider]').forEach(function(btn) {
+            btn.addEventListener('click', function() {
+              refreshSingleProviderModels(btn.getAttribute('data-fetch-provider') || '');
+            });
+          });
+          catalogEl.querySelectorAll('button[data-reset-provider]').forEach(function(btn) {
+            btn.addEventListener('click', function() {
+              resetProviderKey(btn.getAttribute('data-reset-provider') || '');
+            });
+          });
+          catalogEl.querySelectorAll('button[data-edit-custom]').forEach(function(btn) {
+            btn.addEventListener('click', function() {
+              openCustomProviderEditor(btn.getAttribute('data-edit-custom') || '');
+            });
+          });
+          catalogEl.querySelectorAll('button[data-delete-custom]').forEach(function(btn) {
+            btn.addEventListener('click', function() {
+              deleteCustomProvider(btn.getAttribute('data-delete-custom') || '');
+            });
+          });
+          catalogEl.querySelectorAll('button[data-stage-fallback]').forEach(function(btn) {
+            btn.addEventListener('click', function() {
+              stageModelOnFallbackPage(btn.getAttribute('data-stage-fallback') || '');
             });
           });
 
@@ -2708,156 +2532,10 @@ export function renderLayout(
           }
         }
 
-        // ── Fallback Chains (providers page order panel) ──
-        async function loadSystemFallbackChain() {
-          var res = await fetch('/api/fallback-models');
-          var payload = await res.json().catch(() => ({}));
-          var routes = Array.isArray(payload?.data) ? payload.data : [];
-          mergeChainDetailsIntoInfo(routes);
-          var byId = {};
-          routes.forEach(function(r) {
-            if (!r) return;
-            var raw = String(r.routeId || r.id || '').trim();
-            if (raw.indexOf('local-router/') === 0) raw = raw.substring('local-router/'.length);
-            if (!raw || byId[raw]) return;
-            byId[raw] = {
-              storeId: raw,
-              models: Array.isArray(r.models) ? r.models.slice() : [],
-              disabledModels: Array.isArray(r.disabledModels) ? r.disabledModels.slice() : []
-            };
-          });
-          var preferred = ['fallback-models', 'free', 'performance', 'multimodal'];
-          var orderedIds = preferred.filter(function(id) { return byId[id]; });
-          Object.keys(byId).sort().forEach(function(id) {
-            if (orderedIds.indexOf(id) === -1) orderedIds.push(id);
-          });
-          if (orderedIds.indexOf(activeFallbackChainId) === -1) {
-            activeFallbackChainId = 'fallback-models';
-          }
-          fallbackChainsCache = byId;
-          fallbackChainsOrder = orderedIds;
-          var selectorEl = document.getElementById('fallbackChainSelector');
-          if (selectorEl) {
-            selectorEl.innerHTML = orderedIds.map(function(id) {
-              return '<option value="' + escapeHtml(id) + '"' + (id === activeFallbackChainId ? ' selected' : '') + '>local-router/' + escapeHtml(id) + '</option>';
-            }).join('');
-          }
-          applyActiveFallbackChain();
-          await refreshModelAvailability(systemFallbackChainStore);
-          renderFallbackOrderList();
-          renderCurationCatalog();
-        }
-
-        function applyActiveFallbackChain() {
-          var current = fallbackChainsCache[activeFallbackChainId];
-          systemFallbackChainStore = current ? current.models.slice() : [];
-          systemFallbackChainDisabledStore = current ? current.disabledModels.slice() : [];
-        }
-
-        function selectFallbackChain(routeId) {
-          activeFallbackChainId = String(routeId || 'fallback-models');
-          applyActiveFallbackChain();
-          refreshModelAvailability(systemFallbackChainStore).then(function() {
-            renderFallbackOrderList();
-            renderCurationCatalog();
-          });
-        }
-
-        function renderFallbackOrderList() {
-          var listEl = document.getElementById('fallbackOrderList');
-          if (!listEl) return;
-          var countEl = document.getElementById('fallbackChainCount');
-          if (countEl) {
-            countEl.innerText = systemFallbackChainStore.length + ' model' + (systemFallbackChainStore.length === 1 ? '' : 's') + ' in local-router/' + activeFallbackChainId;
-          }
-          if (systemFallbackChainStore.length === 0) {
-            listEl.innerHTML = '<div class="router-candidate-empty">No models in this chain. Toggle models in the catalog to add them.</div>';
-            return;
-          }
-          listEl.innerHTML = systemFallbackChainStore.map(function(modelId, i) {
-            var badge = availabilityBadgeHtml(modelId);
-            var specBadge = modelConfigSummaryHtml(modelId);
-            var isDisabled = systemFallbackChainDisabledStore.indexOf(modelId) !== -1;
-            var disabledClass = isDisabled ? ' router-candidate-disabled' : '';
-            var disabledBadge = isDisabled ? '<span class="candidate-status disabled" style="background:#ea4335;color:white;opacity:0.6;">Disabled</span>' : '';
-            return '<div class="router-candidate-item' + disabledClass + '" draggable="true" data-candidate-index="' + i + '" ondragstart="candidateDragStart(event)" ondragover="candidateDragOver(event)" ondrop="candidateDrop(event)" ondragend="candidateDragEnd(event)">' +
-              '<span class="drag-handle" title="Drag to reorder">☰</span>' +
-              '<div class="candidate-info">' +
-                '<span class="candidate-model">' + escapeHtml(modelId) + '</span>' + badge + specBadge + disabledBadge +
-              '</div>' +
-              '<button class="remove-btn" title="Remove from fallback chain" onclick="removeFallbackChainModel(' + i + ')">✕</button>' +
-            '</div>';
-          }).join('');
-        }
-
-        async function toggleFallbackChainRow(provider, modelId, on) {
-          if (!modelId) return;
-          try {
-            var res = await fetch('/api/fallback-chain/toggle', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ modelId: modelId, enabled: Boolean(on), routeId: activeFallbackChainId })
-            });
-            var payload = await res.json().catch(() => ({}));
-            if (!res.ok || !payload.success) {
-              setMessage((payload && payload.error) || 'Failed to update fallback chain.', 'error');
-              renderFallbackOrderList();
-              renderCurationCatalog();
-              return;
-            }
-            var route = payload.route || {};
-            systemFallbackChainStore = Array.isArray(route.models) ? route.models.slice() : systemFallbackChainStore;
-            systemFallbackChainDisabledStore = Array.isArray(route.disabledModels) ? route.disabledModels.slice() : systemFallbackChainDisabledStore;
-            if (fallbackChainsCache[activeFallbackChainId]) {
-              fallbackChainsCache[activeFallbackChainId].models = systemFallbackChainStore.slice();
-              fallbackChainsCache[activeFallbackChainId].disabledModels = systemFallbackChainDisabledStore.slice();
-            }
-            renderFallbackOrderList();
-            renderCurationCatalog();
-          } catch (e) {
-            setMessage('Failed to update fallback chain: ' + String(e && e.message || e), 'error');
-            renderFallbackOrderList();
-            renderCurationCatalog();
-          }
-        }
-
-        async function removeFallbackChainModel(index) {
-          var modelId = systemFallbackChainStore[index];
-          if (!modelId) return;
-          await toggleFallbackChainRow('', modelId, false);
-        }
-
-        async function persistFallbackOrder() {
-          try {
-            var res = await fetch('/api/fallback-chain/reorder', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ orderedIds: systemFallbackChainStore.slice(), routeId: activeFallbackChainId })
-            });
-            var payload = await res.json().catch(() => ({}));
-            if (!res.ok || !payload.success) {
-              if (res.status === 409) {
-                setMessage('Fallback chain changed elsewhere — reloading latest chain.', 'error');
-              } else {
-                setMessage((payload && payload.error) || 'Failed to save fallback order.', 'error');
-              }
-              await loadSystemFallbackChain();
-              renderFallbackOrderList();
-              renderCurationCatalog();
-              return;
-            }
-            var route = payload.route || {};
-            systemFallbackChainStore = Array.isArray(route.models) ? route.models.slice() : systemFallbackChainStore;
-            systemFallbackChainDisabledStore = Array.isArray(route.disabledModels) ? route.disabledModels.slice() : systemFallbackChainDisabledStore;
-            if (fallbackChainsCache[activeFallbackChainId]) {
-              fallbackChainsCache[activeFallbackChainId].models = systemFallbackChainStore.slice();
-              fallbackChainsCache[activeFallbackChainId].disabledModels = systemFallbackChainDisabledStore.slice();
-            }
-            renderFallbackOrderList();
-          } catch (e) {
-            setMessage('Failed to save fallback order: ' + String(e && e.message || e), 'error');
-          }
-        }
+        // Fallback chain editing lives exclusively on the Fallback Routes
+        // page (2026-08-24 consolidation) — the Providers page only stages
+        // models over to it via the per-model "＋ Fallback" button. The old
+        // chain selector / order-panel JS for this page was removed with it.
 
         async function loadCatalog() {
           const catalogEl = document.getElementById('catalog');
@@ -2967,12 +2645,12 @@ export function renderLayout(
         initializeThemeScale();
         safeInit('hydrateOllamaVersionBadge', hydrateOllamaVersionBadge);
         safeInit('loadProviderConfigs', loadProviderConfigs);
-        safeInit('hydrateLiveModelBadges', hydrateLiveModelBadges);
         safeInit('loadFallbackRoutes', loadFallbackRoutes);
-        safeInit('loadSystemFallbackChain', loadSystemFallbackChain);
         safeInit('loadCurationConfigsList', loadCurationConfigsList);
         try { buildModelDropdown(); } catch (err) { showUiError('buildModelDropdown', err); }
         safeInit('loadCatalog', loadCatalog);
+        // Fallback Routes page only: absorb a model staged from the catalog.
+        try { stageModelFromQuery(); } catch (err) { showUiError('stageModelFromQuery', err); }
         safeInit('loadProviderPricingPanel', loadProviderPricingPanel);
         loadSessionsPanel();
         loadSystemPrompt();
