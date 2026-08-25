@@ -123,16 +123,19 @@ test.after(async () => {
   }
 });
 
-test('boot seeds no fallback chains (empty by default)', async () => {
+test('boot ships exactly the always-present empty system chain', async () => {
   const routes = await requestJson('/api/fallback-models');
   assert.equal(routes.response.status, 200);
-  assert.deepEqual(routes.body?.data, [], 'no chains should bootstrap by default');
+  const data = routes.body?.data || [];
+  assert.equal(data.length, 1, 'only the system chain should exist');
+  assert.equal(data[0].routeId, 'fallback-models');
+  assert.deepEqual(data[0].models, [], 'system chain starts empty (no curated steps)');
   const models = await requestJson('/v1/models');
   const localRouterEntries = (models.body?.data || []).filter((entry) => String(entry.id).startsWith('local-router/'));
-  assert.deepEqual(localRouterEntries, [], 'no local-router/* entries served while no chains exist');
+  assert.deepEqual(localRouterEntries.map((entry) => entry.id), ['local-router/fallback-models']);
 });
 
-test('toggle auto-creates the system chain on demand', async () => {
+test('toggle appends to the always-present empty system chain', async () => {
   const toggle = await requestJson('/api/fallback-chain/toggle', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -188,7 +191,8 @@ test('LOCAL_ROUTER_ROUTES_CONFIG applies declared chains + curation at boot', as
 
   const routes = await requestJson('/api/fallback-models');
   const ids = (routes.body?.data || []).map((route) => route.routeId).sort();
-  assert.deepEqual(ids, ['file-backup-chain', 'free-from-file'], 'config file replaces local chains');
+  assert.deepEqual(ids, ['fallback-models', 'file-backup-chain', 'free-from-file'],
+    'config file replaces local chains; the always-present empty system chain co-exists');
   const fromFile = routes.body.data.find((route) => route.routeId === 'free-from-file');
   assert.deepEqual(fromFile.disabledModels, ['wafer-ai-deepseek-v4-flash']);
 
