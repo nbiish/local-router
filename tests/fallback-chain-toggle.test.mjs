@@ -177,18 +177,9 @@ test('fallback-chain toggle + reorder manage the system fallback route', async (
 
   const initialRoutes = await requestJson('/api/fallback-models');
   assert.equal(initialRoutes.response.status, 200);
-  const systemRoute = findSystemRoute(initialRoutes.body);
-  assert.ok(systemRoute, 'Expected bootstrapped fallback-models system route');
-  const initialChain = systemRoute.models;
-  assert.ok(initialChain.length >= 2, 'System route should bootstrap with multiple models');
-
-  // Bootstrapped preset fallback chains (2026-08-23): free + performance.
-  const freePreset = findRoute(initialRoutes.body, 'free');
-  assert.ok(freePreset, 'Expected bootstrapped free preset fallback chain');
-  assert.ok(freePreset.models.length >= 2, 'free preset should bootstrap with multiple models');
-  const performancePreset = findRoute(initialRoutes.body, 'performance');
-  assert.ok(performancePreset, 'Expected bootstrapped performance preset fallback chain');
-  assert.ok(performancePreset.models.length >= 2, 'performance preset should bootstrap with multiple models');
+  // Empty by default (2026-08-24): no chains bootstrap; the system route is
+  // auto-created on the first successful toggle.
+  assert.deepEqual(initialRoutes.body?.data, []);
 
   // Toggle on an unknown model → 400.
   const unknown = await postJson('/api/fallback-chain/toggle', {
@@ -196,20 +187,6 @@ test('fallback-chain toggle + reorder manage the system fallback route', async (
     enabled: true
   });
   assert.equal(unknown.response.status, 400);
-
-  // Non-system routes are managed via /api/fallback-models, not toggle:
-  // referencing an absent chain id → 404.
-  const unknownChainToggle = await postJson('/api/fallback-chain/toggle', {
-    modelId: initialChain[0],
-    enabled: true,
-    routeId: 'no-such-chain'
-  });
-  assert.equal(unknownChainToggle.response.status, 404);
-  const unknownChainReorder = await postJson('/api/fallback-chain/reorder', {
-    orderedIds: [initialChain[0]],
-    routeId: 'no-such-chain'
-  });
-  assert.equal(unknownChainReorder.response.status, 404);
 
   // Pick two served catalog models that are not already in any chain.
   const catalog = await requestJson('/api/provider-models?catalog=active');
@@ -227,17 +204,31 @@ test('fallback-chain toggle + reorder manage the system fallback route', async (
   );
   const [modelA, modelB] = toggleable;
 
-  // Toggle A on → appended at the end of the chain.
+  // Non-system routes are managed via /api/fallback-models, not toggle:
+  // referencing an absent chain id → 404.
+  const unknownChainToggle = await postJson('/api/fallback-chain/toggle', {
+    modelId: modelA,
+    enabled: true,
+    routeId: 'no-such-chain'
+  });
+  assert.equal(unknownChainToggle.response.status, 404);
+  const unknownChainReorder = await postJson('/api/fallback-chain/reorder', {
+    orderedIds: [modelA],
+    routeId: 'no-such-chain'
+  });
+  assert.equal(unknownChainReorder.response.status, 404);
+
+  // Toggle A on → auto-creates the system chain with A as the first step.
   const toggleA = await postJson('/api/fallback-chain/toggle', { modelId: modelA, enabled: true });
   assert.equal(toggleA.response.status, 200);
   assert.equal(toggleA.body?.success, true);
-  assert.equal(toggleA.body?.route?.models?.length, initialChain.length + 1);
+  assert.equal(toggleA.body?.route?.models?.length, 1);
   assert.equal(toggleA.body.route.models.at(-1), modelA);
 
   // Toggle B on → appended after A (order preserved).
   const toggleB = await postJson('/api/fallback-chain/toggle', { modelId: modelB, enabled: true });
   assert.equal(toggleB.response.status, 200);
-  assert.equal(toggleB.body?.route?.models?.length, initialChain.length + 2);
+  assert.equal(toggleB.body?.route?.models?.length, 2);
   assert.equal(toggleB.body.route.models.at(-1), modelB);
   assert.equal(toggleB.body.route.models.at(-2), modelA);
 
@@ -281,21 +272,26 @@ test('fallback-chain toggle + reorder target a non-system preset chain', async (
     return;
   }
 
-  const freePaths = await requestJson('/api/fallback-models');
-  assert.equal(freePaths.response.status, 200);
-  const freeRoute = (freePaths.body?.data || []).find((route) => (
-    route.routeId === 'free' || route.id === 'local-router/free'
-  ));
-  assert.ok(freeRoute, 'Expected free preset chain');
-  const freeChain = freeRoute.models;
-  const freeSet = new Set(freeChain);
-
+  // Empty by default (2026-08-24): author the non-system chain first — no
+  // preset chains bootstrap anymore.
   const catalog = await requestJson('/api/provider-models?catalog=active');
   assert.equal(catalog.response.status, 200);
-  const candidate = (catalog.body?.data || [])
+  const catalogIds = (catalog.body?.data || [])
     .flatMap((entry) => entry.models || [])
     .map((model) => model.id)
-    .find((id) => typeof id === 'string' && id && !freeSet.has(id));
+    .filter((id) => typeof id === 'string' && id);
+  assert.ok(catalogIds.length >= 3, `Expected at least 3 catalog models, got: ${catalogIds.join(', ')}`);
+  const [seedA, seedB, ...restIds] = catalogIds;
+
+  const createFree = await postJson('/api/fallback-models', {
+    id: 'free',
+    models: [seedA, seedB]
+  });
+  assert.equal(createFree.response.status, 200, `could not author free chain: ${createFree.body?.error || createFree.text}`);
+  const freeChain = [seedA, seedB];
+  const freeSet = new Set(freeChain);
+
+  const candidate = restIds.find((id) => !freeSet.has(id));
   assert.ok(candidate, 'Expected a served catalog model outside the free chain');
 
   // Toggle the candidate onto the free chain → appended at the end.

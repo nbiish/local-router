@@ -7,12 +7,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 
-// Reproduction of the 2026-08-23 production bootstrap failure: a persisted
-// curated selection of ZERO keys collapses the serving catalog (ollama-only),
-// and chain-authoring resolution used that serving subset — so the system
-// fallback chain never seeded despite the endpoint cache holding every
-// default-chain model. Chain authoring must resolve against the full
-// inventory (serving ∪ endpoint cache).
+// 2026-08-24 empty-by-default: chains are NOT seeded at boot; users author
+// their own (config UI) or declare them via LOCAL_ROUTER_ROUTES_CONFIG /
+// `local-router start --config <file>`. This file covers the empty boot, the
+// toggle/save inventory scope (registry-known models without serving
+// curation), config-file application, and fail-closed invalid configs.
 
 const port = String(27000 + Math.floor(Math.random() * 500));
 const baseUrl = `http://127.0.0.1:${port}`;
@@ -62,19 +61,8 @@ async function requestJson(pathname, options) {
   return { response, body, text };
 }
 
-test.before(async () => {
-  testHome = mkdtempSync(join(tmpdir(), 'local-router-bootstrap-scope-'));
-  const configDir = join(testHome, '.config', 'local-router');
-  mkdirSync(configDir, { recursive: true });
-  writeFileSync(join(configDir, 'endpoint-models-cache.json'), JSON.stringify(CACHE_MODELS, null, 2));
-  writeFileSync(join(configDir, 'model-source-config.json'), JSON.stringify({
-    source: 'endpoints',
-    curationEnabled: true,
-    curatedEndpointModelKeys: [],
-    filterConfigured: true
-  }, null, 2));
-
-  serverProcess = spawn(process.execPath, ['build/index.js'], {
+function spawnServer(extraEnv) {
+  const child = spawn(process.execPath, ['build/index.js'], {
     cwd: process.cwd(),
     env: {
       ...process.env,
@@ -83,15 +71,19 @@ test.before(async () => {
       LOCAL_ROUTER_SKIP_PQC_LOAD: 'true',
       LOCAL_ROUTER_SKIP_OLLAMA_ENSURE: 'true',
       LOCAL_ROUTER_FALLBACK_BASE_RETRY_SECONDS: '0',
-      LOCAL_ROUTER_DEV: 'true'
+      LOCAL_ROUTER_DEV: 'true',
+      ...extraEnv
     },
     stdio: ['ignore', 'pipe', 'pipe']
   });
-  serverProcess.stdout.on('data', (chunk) => { serverLogs += chunk.toString(); });
-  serverProcess.stderr.on('data', (chunk) => { serverLogs += chunk.toString(); });
+  child.stdout.on('data', (chunk) => { serverLogs += chunk.toString(); });
+  child.stderr.on('data', (chunk) => { serverLogs += chunk.toString(); });
+  return child;
+}
 
+async function waitForServerReady(child) {
   for (let attempt = 0; attempt < 80; attempt += 1) {
-    if (serverProcess.exitCode !== null) {
+    if (child.exitCode !== null) {
       throw new Error(`Server exited early.\nLogs:\n${serverLogs}`);
     }
     try {
@@ -103,6 +95,22 @@ test.before(async () => {
     await delay(100);
   }
   throw new Error(`Server failed to start on ${baseUrl}\nLogs:\n${serverLogs}`);
+}
+
+test.before(async () => {
+  testHome = mkdtempSync(join(tmpdir(), 'local-router-empty-default-'));
+  const configDir = join(testHome, '.config', 'local-router');
+  mkdirSync(configDir, { recursive: true });
+  writeFileSync(join(configDir, 'endpoint-models-cache.json'), JSON.stringify(CACHE_MODELS, null, 2));
+  writeFileSync(join(configDir, 'model-source-config.json'), JSON.stringify({
+    source: 'endpoints',
+    curationEnabled: true,
+    curatedEndpointModelKeys: [],
+    filterConfigured: true
+  }, null, 2));
+  // Boot without LOCAL_ROUTER_ROUTES_CONFIG — the empty-by-default boot.
+  serverProcess = spawnServer({});
+  await waitForServerReady(serverProcess);
 });
 
 test.after(async () => {
@@ -115,54 +123,103 @@ test.after(async () => {
   }
 });
 
-test('system fallback chain bootstraps from inventory when curated selection is empty', async () => {
+test('boot seeds no fallback chains (empty by default)', async () => {
   const routes = await requestJson('/api/fallback-models');
   assert.equal(routes.response.status, 200);
-  const systemRoute = (routes.body?.data || []).find((route) => (
-    route.routeId === 'fallback-models' || route.id === 'local-router/fallback-models'
-  ));
-  assert.ok(systemRoute, 'system fallback chain must bootstrap despite an empty curated selection');
-  assert.ok(
-    systemRoute.models.includes('nvidia-nim-minimax-m3'),
-    `expected nvidia-nim-minimax-m3 in chain, got: ${systemRoute.models.join(', ')}`
-  );
-  assert.ok(
-    systemRoute.models.includes('zai-code-pass-glm-5.1'),
-    'registry-known cached ids must be accepted by bootstrap resolution'
-  );
+  assert.deepEqual(routes.body?.data, [], 'no chains should bootstrap by default');
+  const models = await requestJson('/v1/models');
+  const localRouterEntries = (models.body?.data || []).filter((entry) => String(entry.id).startsWith('local-router/'));
+  assert.deepEqual(localRouterEntries, [], 'no local-router/* entries served while no chains exist');
 });
 
-test('toggle + validation accept registry-known-but-uncached models', async () => {
-  // zenmux-minimax-m3 exists in the static provider registry but not in this
-  // test's endpoint cache — registry inventory must also count as known.
+test('toggle auto-creates the system chain on demand', async () => {
   const toggle = await requestJson('/api/fallback-chain/toggle', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ modelId: 'zenmux-minimax-m3', enabled: true, routeId: 'free' })
+    body: JSON.stringify({ modelId: 'zenmux-minimax-m3', enabled: true })
   });
   assert.equal(toggle.response.status, 200);
+  assert.equal(toggle.body?.route?.id, 'fallback-models');
+  assert.deepEqual(toggle.body?.route?.models, ['zenmux-minimax-m3']);
+});
 
-  // Preset save flow (Fallback Routes page Edit → Save): a chain containing
-  // registry-only ids must pass reference validation.
+test('save accepts registry/cache-known models without serving curation', async () => {
   const save = await requestJson('/api/fallback-models', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      id: 'free',
+      id: 'my-chain',
       models: ['nvidia-nim-minimax-m3', 'zai-code-pass-glm-4.6v', 'openrouter-chain-of-draft']
     })
   });
-  assert.equal(save.response.status, 200, `preset save failed: ${save.body?.error || save.text}`);
+  assert.equal(save.response.status, 200, `chain save failed: ${save.body?.error || save.text}`);
 });
 
 test('toggle accepts cache-known-but-unserved models', async () => {
   const toggle = await requestJson('/api/fallback-chain/toggle', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ modelId: 'wafer-ai-deepseek-v4-flash', enabled: true, routeId: 'free' })
+    body: JSON.stringify({ modelId: 'wafer-ai-deepseek-v4-flash', enabled: true, routeId: 'fallback-models' })
   });
   assert.equal(toggle.response.status, 200);
   assert.equal(toggle.body?.success, true);
   const chain = toggle.body?.route?.models || [];
   assert.equal(chain.at(-1), 'wafer-ai-deepseek-v4-flash');
+});
+
+test('LOCAL_ROUTER_ROUTES_CONFIG applies declared chains + curation at boot', async () => {
+  serverProcess.kill('SIGTERM');
+  await once(serverProcess, 'exit').catch(() => undefined);
+  const configDir = join(testHome, '.config', 'local-router');
+  const configPath = join(testHome, 'routes.json');
+  writeFileSync(configPath, JSON.stringify({
+    fallbackModels: {
+      'local-router/free-from-file': {
+        models: ['nvidia-nim-minimax-m3', 'wafer-ai-deepseek-v4-flash'],
+        disabledModels: ['wafer-ai-deepseek-v4-flash']
+      },
+      'file-backup-chain': ['nvidia-nim-minimax-m3', 'zai-code-pass-glm-5.1']
+    },
+    curation: { enabled: true, selectedKeys: ['nvidia-nim::minimax/minimax-m3'] },
+    filterConfigured: false
+  }));
+  serverProcess = spawnServer({ LOCAL_ROUTER_ROUTES_CONFIG: configPath });
+  await waitForServerReady(serverProcess);
+
+  const routes = await requestJson('/api/fallback-models');
+  const ids = (routes.body?.data || []).map((route) => route.routeId).sort();
+  assert.deepEqual(ids, ['file-backup-chain', 'free-from-file'], 'config file replaces local chains');
+  const fromFile = routes.body.data.find((route) => route.routeId === 'free-from-file');
+  assert.deepEqual(fromFile.disabledModels, ['wafer-ai-deepseek-v4-flash']);
+
+  const source = await requestJson('/api/model-source');
+  assert.deepEqual(source.body?.curatedEndpointModelKeys, ['nvidia-nim::minimax/minimax-m3']);
+  assert.equal(source.body?.filterConfigured, false);
+
+  const persisted = JSON.parse((await import('node:fs')).readFileSync(join(configDir, 'fallback-models.json'), 'utf8'));
+  assert.ok(
+    (persisted.routes || []).some((route) => route.id === 'free-from-file'),
+    'config-declared chains persist to fallback-models.json'
+  );
+});
+
+test('missing config file fails closed (non-zero boot exit)', async () => {
+  const child = spawn(process.execPath, ['build/index.js'], {
+    cwd: process.cwd(),
+    env: {
+      ...process.env,
+      HOME: testHome,
+      PORT: String(Number(port) + 7),
+      LOCAL_ROUTER_SKIP_PQC_LOAD: 'true',
+      LOCAL_ROUTER_SKIP_OLLAMA_ENSURE: 'true',
+      LOCAL_ROUTER_ROUTES_CONFIG: join(testHome, 'does-not-exist.json')
+    },
+    stdio: ['ignore', 'pipe', 'pipe']
+  });
+  let logs = '';
+  child.stdout.on('data', (chunk) => { logs += chunk.toString(); });
+  child.stderr.on('data', (chunk) => { logs += chunk.toString(); });
+  const [code] = await once(child, 'exit');
+  assert.notEqual(code, 0, 'server must refuse to boot with a missing config file');
+  assert.match(logs, /Routes config file not found/);
 });

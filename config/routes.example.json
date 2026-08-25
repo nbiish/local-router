@@ -1,0 +1,26 @@
+{
+  "$comment": "Local Router declarative startup config. Chains are empty by default; pass this file at boot with `local-router start --config ./config/routes.example.json` (or LOCAL_ROUTER_ROUTES_CONFIG=/abs/path). Anything declared here REPLACES the persisted state for that section: fallbackModels replaces all local-router/<route> chains (validate against the full model inventory — serving-curated or not); curation replaces the serving selection; filterConfigured flips the Ollama-proxy key filter. Omit a section to leave the persisted state alone.",
+  "fallbackModels": {
+    "fallback-models": [
+      "ollama-nemotron-3-ultra-cloud",
+      "zenmux-deepseek-v4-pro"
+    ],
+    "my-chain": {
+      "models": [
+        "zenmux-deepseek-v4-pro",
+        "openrouter-chain-of-draft"
+      ],
+      "disabledModels": [
+        "openrouter-chain-of-draft"
+      ]
+    }
+  },
+  "curation": {
+    "enabled": true,
+    "selectedKeys": [
+      "zenmux::deepseek-v4-pro",
+      "openrouter::chain-of-draft"
+    ]
+  },
+  "filterConfigured": true
+}
