@@ -105,6 +105,15 @@ test('HEAD /api/version stays a 200 probe', { skip: skipReason || undefined }, a
 });
 
 test('GET /api/fallback-models returns per-route chainDetails', { skip: skipReason || undefined }, async () => {
+  // Empty by default (2026-08-24): author the system chain on demand first.
+  const catalog = await (await fetch(`${baseUrl}/api/model-curation`)).json();
+  const catalogIds = (catalog.data || []).flatMap((group) => (group.models || []).map((model) => model.id).filter(Boolean));
+  assert.ok(catalogIds.length >= 2, 'expected catalog models to author a chain from');
+  await fetch(`${baseUrl}/api/fallback-models`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id: 'fallback-models', models: catalogIds.slice(0, 2) })
+  });
   const response = await fetch(`${baseUrl}/api/fallback-models`);
   assert.equal(response.status, 200);
   const body = await response.json();
@@ -122,8 +131,19 @@ test('GET /api/fallback-models returns per-route chainDetails', { skip: skipReas
 });
 
 test('POST /api/show for a local-router route exposes local_router_chain', { skip: skipReason || undefined }, async () => {
+  // Empty by default (2026-08-24): author a chain from the catalog first.
+  const catalog = await (await fetch(`${baseUrl}/api/model-curation`)).json();
+  const catalogIds = (catalog.data || []).flatMap((group) => (group.models || []).map((model) => model.id).filter(Boolean));
+  assert.ok(catalogIds.length >= 2, 'expected catalog models to author a chain from');
+  const chainModels = catalogIds.slice(0, 2);
+  const created = await fetch(`${baseUrl}/api/fallback-models`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id: 'show-chain-smoke', models: chainModels })
+  });
+  assert.equal(created.status, 200);
   const routes = await (await fetch(`${baseUrl}/api/fallback-models`)).json();
-  const routeId = routes.data[0].id;
+  const routeId = `local-router/${routes.data[0].routeId}`;
   const response = await fetch(`${baseUrl}/api/show`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -133,7 +153,7 @@ test('POST /api/show for a local-router route exposes local_router_chain', { ski
   const body = await response.json();
   assert.ok(body.local_router_chain, 'local_router_chain present');
   assert.ok(Array.isArray(body.local_router_chain.members));
-  assert.equal(body.local_router_chain.members.length, routes.data[0].models.length);
+  assert.equal(body.local_router_chain.members.length, chainModels.length);
   assert.equal(body.local_router_chain.members[0].order, 1);
   assert.ok(typeof body.model_info['local-router.chain'] === 'string');
 });

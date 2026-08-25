@@ -1430,7 +1430,7 @@ export function renderLayout(
               var inChain = fallbackCandidateStore.some(function(c) { return c.model === m; });
               var chainMark = inChain ? '<span class="in-chain-badge" title="Already in this chain">✓ in chain</span>' : '';
               var spec = modelConfigSummaryHtml(m);
-              return '<div class="dropdown-search-item" data-model="' + escapeHtml(m) + '" onmousedown="addFallbackCandidate(&apos;' + escapeHtml(m).replace(/'/g, '&apos;') + '&apos;)">' +
+              return '<div class="dropdown-search-item" data-model="' + escapeHtml(m) + '" onmousedown="addFallbackCandidateFromDropdown(&apos;' + escapeHtml(m).replace(/'/g, '&apos;') + '&apos;)">' +
                 '<span>' + escapeHtml(m) + '</span>' + badge + spec + chainMark +
               '</div>';
             }).join('');
@@ -1442,6 +1442,30 @@ export function renderLayout(
           filterFallbackModelDropdown();
         }
 
+        function closeFallbackModelDropdown() {
+          var dd = document.getElementById('fallbackModelDropdown');
+          if (dd) dd.style.display = 'none';
+        }
+
+        function addFallbackCandidateFromDropdown(model) {
+          addFallbackCandidate(model);
+          var searchEl = document.getElementById('fallbackModelSearch');
+          if (searchEl) searchEl.value = '';
+          closeFallbackModelDropdown();
+        }
+
+        // Close the chain-model dropdown on outside click / Escape (it stayed
+        // open after selection and clicks elsewhere before the 2026-08-24 fix).
+        document.addEventListener('mousedown', function(e) {
+          var dd = document.getElementById('fallbackModelDropdown');
+          if (!dd || dd.style.display === 'none') return;
+          var container = dd.closest('.dropdown-search-container');
+          if (container && !container.contains(e.target)) closeFallbackModelDropdown();
+        });
+        document.addEventListener('keydown', function(e) {
+          if (e.key === 'Escape') closeFallbackModelDropdown();
+        });
+
         function addSelectedFallbackCandidate() {
           var searchEl = document.getElementById('fallbackModelSearch');
           var model = (searchEl && searchEl.value || '').trim();
@@ -1451,6 +1475,7 @@ export function renderLayout(
             searchEl.value = '';
             searchEl.focus();
           }
+          closeFallbackModelDropdown();
         }
 
         function liveUpdateFallbackRouteItem() {

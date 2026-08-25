@@ -64,7 +64,7 @@ function usage() {
     'Local Router CLI',
     '',
     'Usage:',
-    '  local-router start [--port 11434] [--host 127.0.0.1] [--foreground]',
+    '  local-router start [--port 11434] [--host 127.0.0.1] [--foreground] [--config <file>]',
     '  local-router stop [--port 11434] [--host 127.0.0.1]',
     '  local-router status [--port 11434] [--host 127.0.0.1]',
     '  local-router route set',
@@ -74,6 +74,9 @@ function usage() {
     '',
     'Behavior:',
     '  - start: launches proxy only when nothing else is listening on the target port.',
+    '    --config <file>: apply a declarative routes/curation config at boot (chains are otherwise',
+    '    empty by default — author them in /config/fallback, or export them from that page).',
+    '    Same as LOCAL_ROUTER_ROUTES_CONFIG=<file>. Template: config/routes.example.json.',
     '  - route set: installs drop-in shims (ollama, llama-server, unsloth) in ~/.local/bin so',
     '    service starts go through Local Router (preferred + provider model catalog).',
     '  - route custom: ollama shim only, but `ollama serve` starts Local Router on a custom localhost port.',
@@ -93,7 +96,8 @@ function parseOptions(args) {
   const options = {
     port: DEFAULT_PORT,
     host: DEFAULT_HOST,
-    foreground: false
+    foreground: false,
+    config: ''
   };
   for (let i = 0; i < args.length; i += 1) {
     const token = args[i];
@@ -107,6 +111,12 @@ function parseOptions(args) {
       i += 1;
       continue;
     }
+    if (token === '--config' || token.startsWith('--config=')) {
+      options.config = token === '--config' ? String(args[i + 1] || '').trim() : token.slice('--config='.length).trim();
+      if (token === '--config') i += 1;
+      if (!options.config) throw new Error('--config requires a file path.');
+      continue;
+    }
     if (token === '--foreground') {
       options.foreground = true;
       continue;
@@ -115,6 +125,12 @@ function parseOptions(args) {
   }
   if (!Number.isInteger(options.port) || options.port < 1 || options.port > 65535) {
     throw new Error(`Invalid port: ${options.port}`);
+  }
+  if (options.config) {
+    options.config = path.resolve(options.config);
+    if (!fs.existsSync(options.config)) {
+      throw new Error(`Config file not found: ${options.config}`);
+    }
   }
   return options;
 }
@@ -290,6 +306,9 @@ async function cmdStart(options) {
     ...process.env,
     PORT: String(options.port)
   };
+  if (options.config) {
+    env.LOCAL_ROUTER_ROUTES_CONFIG = options.config;
+  }
 
   if (options.foreground) {
     const child = spawn(entry.command, entry.args, {
