@@ -3631,73 +3631,121 @@ if (headroomEnabled) {
 }
 migratePersistedRoutingConfig();
 
-function ensureDefaultFallback() {
-  if (fallbackModelStore[SYSTEM_FALLBACK_ROUTE_ID]) return;
+// Empty-by-default (2026-08-24): no curated chains are seeded at boot. Users
+// author their own chains in /config/fallback, or declare the complete route
+// set (plus optional curation) in a startup config file: `local-router start
+// --config <file>` or LOCAL_ROUTER_ROUTES_CONFIG (template: config/routes.example.json).
+// Boot only cleans long-deprecated route ids from pre-existing stores.
 
-  const hasAnyFallback = Object.keys(fallbackModelStore).length > 0;
-  if (hasAnyFallback) return;
-
-  const resolvedModels = resolvedDefaultFallbackModels();
-  if (resolvedModels.length < 2) {
-    console.error('Default fallback bootstrap skipped: fewer than 2 resolved models in catalog.');
-    return;
-  }
-
-  const parsed = parseFallbackModel({
-    id: SYSTEM_FALLBACK_ROUTE_ID,
-    models: resolvedModels
-  });
-
-  if (!parsed.ok) {
-    console.error('Failed to bootstrap default fallback route:', parsed.error);
-    return;
-  }
-
-  fallbackModelStore[parsed.model.id] = {
-    id: parsed.model.id,
-    models: [...parsed.model.models]
-  };
-
-  try {
-    persistFallbackModels();
-    console.log(`[router] Bootstrapped default fallback route "${SYSTEM_FALLBACK_ROUTE_ID}" with ${parsed.model.models.length} models.`);
-  } catch (error: any) {
-    console.error('Failed to persist default fallback route:', sanitizeDiagnosticText(String(error?.message || error)));
-    delete fallbackModelStore[parsed.model.id];
-  }
-}
-
-ensureDefaultFallback();
-ensurePresetRoutes();
-
-function ensurePresetRoutes() {
-  let fallbackChanged = false;
+function cleanupObsoletePresetRoutes() {
+  let changed = false;
   for (const obsoleteId of OBSOLETE_PRESET_ROUTE_IDS) {
     if (fallbackModelStore[obsoleteId]) {
       delete fallbackModelStore[obsoleteId];
-      fallbackChanged = true;
+      changed = true;
       console.log(`[router] Removed obsolete preset fallback "${obsoleteId}".`);
     }
   }
-
-  for (const preset of PRESET_FALLBACK_ROUTES) {
-    if (fallbackModelStore[preset.id]) continue;
-    const parsed = parseFallbackModel({ id: preset.id, models: [...preset.models] });
-    if (!parsed.ok) {
-      console.error(`[router] Failed to bootstrap preset fallback "${preset.id}":`, parsed.error);
-      continue;
-    }
-    fallbackModelStore[parsed.model.id] = { id: parsed.model.id, models: [...parsed.model.models] };
-    fallbackChanged = true;
-    console.log(`[router] Bootstrapped preset fallback route "${preset.id}" with ${parsed.model.models.length} models.`);
-  }
-
-  if (fallbackChanged) {
+  if (changed) {
     try { persistFallbackModels(); } catch (e: any) {
-      console.error('[router] Failed to persist preset fallback routes:', sanitizeDiagnosticText(String(e?.message || e)));
+      console.error('[router] Failed to persist obsolete preset cleanup:', sanitizeDiagnosticText(String(e?.message || e)));
     }
   }
+}
+
+type RoutesConfigFile = {
+  fallbackModels?: Record<string, string[] | { models?: string[]; disabledModels?: string[] }>;
+  curation?: { enabled?: boolean; selectedKeys?: string[] };
+  filterConfigured?: boolean;
+};
+
+function routesConfigFatal(message: string): never {
+  console.error(`[config] ${message}`);
+  process.exit(1);
+}
+
+function applyRoutesConfigFileIfSet() {
+  const rawPath = String(process.env.LOCAL_ROUTER_ROUTES_CONFIG || '').trim();
+  if (!rawPath) return;
+
+  const configPath = path.resolve(rawPath);
+  if (!fs.existsSync(configPath)) {
+    routesConfigFatal(`Routes config file not found: ${configPath}`);
   }
+
+  let parsed: RoutesConfigFile;
+  try {
+    const raw = fs.readFileSync(configPath, 'utf8');
+    parsed = JSON.parse(raw) as RoutesConfigFile;
+  } catch (error: any) {
+    routesConfigFatal(`Routes config is not valid JSON (${configPath}): ${sanitizeDiagnosticText(String(error?.message || error), 220)}`);
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    routesConfigFatal(`Routes config must be a JSON object (${configPath}).`);
+  }
+
+  if (parsed.fallbackModels !== undefined) {
+    if (!parsed.fallbackModels || typeof parsed.fallbackModels !== 'object' || Array.isArray(parsed.fallbackModels)) {
+      routesConfigFatal(`"fallbackModels" must be an object mapping route ids to model lists (${configPath}).`);
+    }
+    const nextStore: Record<string, FallbackModel> = {};
+    for (const [rawId, rawRoute] of Object.entries(parsed.fallbackModels)) {
+      const routeId = normalizeFallbackRouteId(String(rawId || ''));
+      if (!routeId) {
+        routesConfigFatal(`Route with empty id in ${configPath}.`);
+      }
+      const modelsRaw = Array.isArray(rawRoute) ? rawRoute : (rawRoute && typeof rawRoute === 'object' ? rawRoute.models : undefined);
+      const disabledRaw = Array.isArray(rawRoute) ? [] : (rawRoute && typeof rawRoute === 'object' && Array.isArray(rawRoute.disabledModels) ? rawRoute.disabledModels : []);
+      if (!Array.isArray(modelsRaw)) {
+        routesConfigFatal(`Route "${rawId}" must be an array of model ids or { models, disabledModels } (${configPath}).`);
+      }
+      const parsedRoute = parseFallbackModel({
+        id: routeId,
+        models: modelsRaw,
+        disabledModels: disabledRaw
+      });
+      if (!parsedRoute.ok) {
+        routesConfigFatal(`Route "${rawId}" invalid (${configPath}): ${parsedRoute.error}`);
+      }
+      const referenceCheck = validateFallbackReferences(parsedRoute.model);
+      if (!referenceCheck.ok) {
+        routesConfigFatal(`Route "${rawId}" references unknown models (${configPath}): ${referenceCheck.error}`);
+      }
+      nextStore[parsedRoute.model.id] = cloneFallbackModel(parsedRoute.model);
+    }
+    for (const key of Object.keys(fallbackModelStore)) {
+      delete fallbackModelStore[key];
+    }
+    Object.assign(fallbackModelStore, nextStore);
+    persistFallbackModels();
+    console.log(`[config] Applied ${Object.keys(nextStore).length} fallback route(s) from ${configPath} (replaces local chains).`);
+  }
+
+  if (parsed.curation !== undefined) {
+    if (!parsed.curation || typeof parsed.curation !== 'object' || Array.isArray(parsed.curation)) {
+      routesConfigFatal(`"curation" must be an object (${configPath}).`);
+    }
+    if (Array.isArray(parsed.curation.selectedKeys)) {
+      const keys = parsed.curation.selectedKeys.map((key) => String(key || '').trim()).filter(Boolean);
+      modelSourceConfig.curatedEndpointModelKeys = Array.from(new Set(keys)).slice(0, MAX_CURATED_ENDPOINT_MODEL_KEYS);
+      modelSourceConfig.curationEnabled = parsed.curation.enabled !== false;
+    }
+    if (typeof parsed.curation.enabled === 'boolean') {
+      modelSourceConfig.curationEnabled = parsed.curation.enabled;
+    }
+    persistModelSourceConfig();
+    console.log(`[config] Applied curation selection (${modelSourceConfig.curatedEndpointModelKeys.length} models, curation ${modelSourceConfig.curationEnabled ? 'on' : 'off'}) from ${configPath}.`);
+  }
+
+  if (typeof parsed.filterConfigured === 'boolean') {
+    modelSourceConfig.filterConfigured = parsed.filterConfigured;
+    persistModelSourceConfig();
+    console.log(`[config] Applied filterConfigured=${parsed.filterConfigured} from ${configPath}.`);
+  }
+}
+
+cleanupObsoletePresetRoutes();
+applyRoutesConfigFileIfSet();
 
 
 function ollamaImageToOpenAIUrl(image: unknown) {

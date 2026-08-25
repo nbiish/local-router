@@ -305,60 +305,13 @@ test('provider key save/reset lifecycle exposes configured source', async (t) =>
 
   const bootstrappedFallbackRoutes = await requestJson('/api/fallback-models');
   assert.equal(bootstrappedFallbackRoutes.response.status, 200);
-  assert.ok(
-    bootstrappedFallbackRoutes.body?.data?.some((route) => route.routeId === 'fallback-models'),
-    'Expected bootstrapped fallback-models system route on first run'
-  );
-
-  const systemFallback = bootstrappedFallbackRoutes.body?.data?.find((route) => route.routeId === 'fallback-models');
-  const fallbackChain = systemFallback?.models || [];
-  // The fallback chain is bootstrapped from DEFAULT_FALLBACK_ORDERED_IDS.
-  // This assertion is a *membership* check that the chain contains all
-  // expected anchors (no orphans, no extras).
-  const expectedFallbackAnchors = [
-    // Original 20 anchors (pre-Nous-Portal)
-    'ollama-nemotron-3-ultra-cloud',
-    'nvidia-nim-minimax-m3',
-    'cline-minimax-minimax-m3-free',
-    'kilo-stepfun-step-3.7-flash-free',
-    'opencode-zen-minimax-m3-free',
-    'modal-glm-5.1-fp8',
-    'antigravity-gemini-3.5-flash',
-    'github-copilot-gemini-3.1-pro',
-    'zai-code-pass-glm-5.1',
-    'xiaomi-mimo-mimo-v2.5-pro',
-    'pioneer-minimax-m3',
-    'opencode-go-deepseek-v4-pro',
-    'nebius-nemotron-3-ultra-550b-a55b',
-    'commandcode-deepseek-v4-pro',
-    'wafer-ai-deepseek-v4-flash',
-    'kilo-minimax-minimax-m3-paid',
-    'cline-deepseek-deepseek-v4-pro-paid',
-    'zenmux-mimo-v2.5-pro',
-    'openrouter-chain-of-draft',
-    'openrouter-free',
-    // Nous Portal: curated 2-model set (Step 3.7 Flash free + MiniMax M3)
-    // MiniMax M3 sits in the paid tail just after Cline DeepSeek V4 Pro paid
-    // Step 3.7 Flash free sits above the subscription band (above Antigravity)
-    'nous-portal-step-3.7-flash-free',
-    'nous-portal-minimax-m3',
-    // OpenRouter paid kimi-k2.7-code (added 2026-06-12)
-    'openrouter-kimi-k2.7-code',
-    // Modal Nbiish Kimi-K3 own deployment (added 2026-08-17)
-    'modal-proxy-kimi-k3'
-  ];
-  const chainSet = new Set(fallbackChain);
-  const missingAnchors = expectedFallbackAnchors.filter((id) => !chainSet.has(id));
-  const extraEntries = fallbackChain.filter((id) => !expectedFallbackAnchors.includes(id));
+  // Empty by default (2026-08-24): fresh boots seed no chains — users author
+  // their own or boot with LOCAL_ROUTER_ROUTES_CONFIG. The former curated
+  // anchor set stays available on demand via Reset Fallback Defaults.
   assert.deepEqual(
-    missingAnchors,
+    bootstrappedFallbackRoutes.body?.data,
     [],
-    `fallback-models is missing expected anchors: ${missingAnchors.join(', ')}; full chain: ${fallbackChain.join(', ')}`
-  );
-  assert.deepEqual(
-    extraEntries,
-    [],
-    `fallback-models contains unexpected entries not in the expected anchor set: ${extraEntries.join(', ')}; full chain: ${fallbackChain.join(', ')}`
+    'Expected zero fallback routes on first run (empty by default)'
   );
 
   const providerPricing = await requestJson('/api/provider-pricing');
