@@ -305,13 +305,13 @@ test('provider key save/reset lifecycle exposes configured source', async (t) =>
 
   const bootstrappedFallbackRoutes = await requestJson('/api/fallback-models');
   assert.equal(bootstrappedFallbackRoutes.response.status, 200);
-  // Empty by default (2026-08-24): fresh boots seed no chains — users author
-  // their own or boot with LOCAL_ROUTER_ROUTES_CONFIG. The former curated
-  // anchor set stays available on demand via Reset Fallback Defaults.
+  // Empty by default (2026-08-24): fresh boots ship exactly the always-present
+  // empty system chain (`fallback-models`, zero steps) — every chain step is
+  // user-authored or comes from LOCAL_ROUTER_ROUTES_CONFIG.
   assert.deepEqual(
-    bootstrappedFallbackRoutes.body?.data,
-    [],
-    'Expected zero fallback routes on first run (empty by default)'
+    (bootstrappedFallbackRoutes.body?.data || []).map((route) => [route.routeId, route.models]),
+    [['fallback-models', []]],
+    'Expected exactly the empty system chain on first run'
   );
 
   const providerPricing = await requestJson('/api/provider-pricing');

@@ -1356,7 +1356,28 @@ function loadPersistedFallbackModels() {
         : [];
 
     for (const entry of entries) {
-      const parsedRoute = parseFallbackModel(entry);
+      let parsedRoute = parseFallbackModel(entry);
+      if (!parsedRoute.ok && entry && typeof entry === 'object' && !Array.isArray(entry) && typeof entry.id === 'string' && Array.isArray(entry.models)) {
+        // Lenient path (2026-08-24): the live toggle API legitimately creates
+        // 0/1-step chains (first "＋ Fallback" add, or an emptied chain kept as
+        // the always-present system route). parseFallbackModel only accepts
+        // ≥2, so persisted short chains silently vanished on restart. Accept
+        // structurally valid short chains here; the API write path keeps the
+        // ≥2 rule for freshly authored chains.
+        const routeId = normalizeFallbackRouteId(entry.id);
+        const shortModels = entry.models
+          .filter((model: unknown): model is string => typeof model === 'string')
+          .map((model: string) => model.trim())
+          .filter(Boolean);
+        const shortDisabled = Array.isArray(entry.disabledModels)
+          ? entry.disabledModels.filter((model: unknown): model is string => typeof model === 'string').map((model: string) => model.trim()).filter(Boolean)
+          : [];
+        if (routeId && shortModels.length <= 1) {
+          const candidate: FallbackModel = { id: routeId, models: Array.from(new Set(shortModels)) };
+          if (shortDisabled.length > 0) candidate.disabledModels = shortDisabled.filter((m: string) => candidate.models.includes(m));
+          parsedRoute = { ok: true, model: candidate };
+        }
+      }
       if (!parsedRoute.ok) continue;
 
       const referenceCheck = validateFallbackReferences(parsedRoute.model);
@@ -2552,13 +2573,13 @@ function pruneDisallowedOllamaCloudRouting(): void {
 }
 
 function normalizeRoutingTierOrder(): void {
-  const routerSettingsForFallback = loadRouterSettings();
-  const hasUserCustomizedFallback = typeof routerSettingsForFallback.fallbackModelsText === 'string' && routerSettingsForFallback.fallbackModelsText.trim().length > 0;
-
-
+  // Empty-by-default world (2026-08-24): every chain in the store is
+  // user-authored (or the always-present empty system chain). The old branch
+  // that re-injected the curated DEFAULT_FALLBACK_ORDERED_IDS into the system
+  // chain whenever the user "hadn't customized" is gone — it would stomp
+  // staged single-model additions on every restart.
   let systemFallbackChanged = false;
   let otherFallbackChanged = false;
-  const defaultFallbackIds = resolvedDefaultFallbackModels();
   for (const route of Object.values(fallbackModelStore)) {
     const isSystemFallback = (
       route.id === SYSTEM_FALLBACK_ROUTE_ID
@@ -2567,22 +2588,7 @@ function normalizeRoutingTierOrder(): void {
     );
 
     let nextModels: string[];
-    if (isSystemFallback && !hasUserCustomizedFallback) {
-      const catalogValid = (modelId: string) => Boolean(findCatalogModel(modelId));
-      const preferred = DEFAULT_FALLBACK_ORDERED_IDS.filter(catalogValid);
-      const preferredSet = new Set(preferred);
-      const extras: string[] = [];
-      const seenExtras = new Set<string>();
-      for (const modelId of [...defaultFallbackIds, ...route.models]) {
-        const trimmed = String(modelId || '').trim();
-        if (!trimmed || preferredSet.has(trimmed) || seenExtras.has(trimmed) || !catalogValid(trimmed)) {
-          continue;
-        }
-        seenExtras.add(trimmed);
-        extras.push(trimmed);
-      }
-      nextModels = [...preferred, ...extras];
-    } else if (isSystemFallback && hasUserCustomizedFallback) {
+    if (isSystemFallback) {
       const deduped: string[] = [];
       const seen = new Set<string>();
       for (const modelId of route.models) {
@@ -3747,6 +3753,24 @@ function applyRoutesConfigFileIfSet() {
 cleanupObsoletePresetRoutes();
 applyRoutesConfigFileIfSet();
 
+// The system chain ALWAYS exists — empty by default (2026-08-24 follow-up):
+// it is the permanent landing pad for "＋ Fallback" staging and the cascade
+// target for failed direct models. Zero curated steps are seeded; users add
+// their own. A config file may populate it; an explicit { fallbackModels: {} }
+// still leaves this one empty route present (by operator request).
+function ensureSystemFallbackRouteExists() {
+  if (fallbackModelStore[SYSTEM_FALLBACK_ROUTE_ID]) return;
+  fallbackModelStore[SYSTEM_FALLBACK_ROUTE_ID] = { id: SYSTEM_FALLBACK_ROUTE_ID, models: [], disabledModels: [] };
+  try {
+    persistFallbackModels();
+    console.log(`[router] Created empty system fallback chain "${SYSTEM_FALLBACK_ROUTE_ID}" (no curated steps — add your own).`);
+  } catch (error: any) {
+    console.error('[router] Failed to persist empty system fallback chain:', sanitizeDiagnosticText(String(error?.message || error)));
+    delete fallbackModelStore[SYSTEM_FALLBACK_ROUTE_ID];
+  }
+}
+ensureSystemFallbackRouteExists();
+
 
 function ollamaImageToOpenAIUrl(image: unknown) {
   if (typeof image !== 'string' || !image.trim()) return null;
@@ -4010,11 +4034,6 @@ function candidateAvailability(modelName: string) {
     keyConfigured,
     status
   };
-}
-
-function resolvedDefaultFallbackModels(): string[] {
-  return buildDefaultFallbackModelIds()
-    .filter((id) => Boolean(findCatalogModel(id)));
 }
 
 function fallbackStagePreflight(modelName: string): AttemptFailure | null {
