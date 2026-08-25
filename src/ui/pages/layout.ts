@@ -1202,22 +1202,25 @@ export function renderLayout(
         }
 
         // ── Visual Builder Dropdown ──
-        // Source: the full toggle catalog (/api/model-curation) — the same
-        // inventory /api/fallback-chain/toggle and save validation accept —
-        // NOT the curated /api/tags serving subset. Otherwise models the
-        // operator flagged for the fallback chain (but did not also check for
-        // direct serving) silently vanish from "Add Model to Chain".
+        // Source (2026-08-25 operator preference): ONLY toggled-on models —
+        // the curated serving selection (plus always-served local ollama
+        // models; when the master curation switch is off everything counts).
+        // Spec info still maps over the full catalog so chain-member chips
+        // stay rich; the selectable list itself stays short and actionable.
+        // Refreshed at every open (openFallbackModelDropdown) so the list is
+        // never stale against the Providers & Models toggles.
         async function buildModelDropdown() {
           try {
             const res = await fetch('/api/model-curation');
             const payload = await res.json();
             const groups = Array.isArray(payload?.data) ? payload.data : [];
+            const curationOn = Boolean(payload?.curationEnabled);
+            const selected = new Set(Array.isArray(payload?.selectedKeys) ? payload.selectedKeys : []);
             const ids = [];
             const infoMap = {};
             for (const group of groups) {
               for (const model of (group && Array.isArray(group.models) ? group.models : [])) {
                 if (!model || !model.id) continue;
-                ids.push(model.id);
                 infoMap[model.id] = {
                   provider: group.provider || model.provider || '',
                   contextLength: typeof model.contextLength === 'number' ? model.contextLength : null,
@@ -1225,9 +1228,12 @@ export function renderLayout(
                   supportsTools: typeof model.supportsTools === 'boolean' ? model.supportsTools : null,
                   supportsVision: typeof model.supportsImages === 'boolean' ? model.supportsImages : null
                 };
+                const isOllamaLocal = (group.provider || model.provider) === 'ollama';
+                const isToggledOn = !curationOn || isOllamaLocal || selected.has(catalogRowKey(group.provider, model.model));
+                if (isToggledOn) ids.push(model.id);
               }
             }
-            if (ids.length === 0) throw new Error('empty catalog');
+            if (ids.length === 0 && !curationOn) throw new Error('empty catalog');
             catalogInfoById = infoMap;
             allModelsCache = ids.sort();
           } catch (e) {
@@ -1421,7 +1427,9 @@ export function renderLayout(
             filtered = allModelsCache.filter(function(m) { return m.toLowerCase().indexOf(search) !== -1; });
           }
           if (filtered.length === 0) {
-            dd.innerHTML = '<div class="dropdown-search-item muted">No models match "' + escapeHtml(search) + '"</div>';
+            dd.innerHTML = allModelsCache.length === 0
+              ? '<div class="dropdown-search-item muted">No toggled-on models yet — check models on the Providers &amp; Models page first.</div>'
+              : '<div class="dropdown-search-item muted">No models match "' + escapeHtml(search) + '"</div>';
           } else {
             dd.innerHTML = filtered.slice(0, 50).map(function(m) {
               var parts = m.split('-');
@@ -1439,7 +1447,12 @@ export function renderLayout(
         }
 
         function openFallbackModelDropdown() {
-          filterFallbackModelDropdown();
+          // Always fresh (2026-08-25): re-read the toggled-on set from the
+          // server at every open so Providers & Models changes are visible
+          // immediately without a page reload.
+          buildModelDropdown().then(function() {
+            filterFallbackModelDropdown();
+          });
         }
 
         function closeFallbackModelDropdown() {

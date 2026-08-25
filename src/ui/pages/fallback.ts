@@ -23,10 +23,10 @@ export function renderFallbackPage(params: {
           <div class="form-group">
             <label>Add Model to Chain</label>
             <div class="dropdown-search-container">
-              <input id="fallbackModelSearch" type="text" placeholder="Search the full model catalog..." autocomplete="off" oninput="filterFallbackModelDropdown()" onfocus="openFallbackModelDropdown()">
+              <input id="fallbackModelSearch" type="text" placeholder="Search your toggled-on models..." autocomplete="off" oninput="filterFallbackModelDropdown()" onfocus="openFallbackModelDropdown()">
               <div id="fallbackModelDropdown" class="dropdown-search-menu"></div>
             </div>
-            <p class="muted" style="margin:4px 0 0;">Searches every catalog model chain validation accepts — not just the curated serving subset. ✓ marks models already in this chain; chips show context/output/tools/vision.</p>
+            <p class="muted" style="margin:4px 0 0;">Lists only your toggled-on models (checked on Providers &amp; Models; local ollama always included), re-fetched at every open. ✓ marks models already in this chain; chips show context/output/tools/vision.</p>
             <button style="margin-top:8px;" onclick="addSelectedFallbackCandidate()">Add to Chain</button>
           </div>
           <div class="form-group">
