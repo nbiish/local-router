@@ -2081,6 +2081,26 @@ export function renderLayout(
           const addModel = String(params.get('add') || '').trim();
           if (!addModel) return;
 
+          // Race fix (2026-08-25): page initializers fire concurrently
+          // (safeInit is fire-and-forget), so the route list below would read
+          // an empty fallbackRoutes[] while the first loadFallbackRoutes() is
+          // still in flight — the model then detoured into the throwaway
+          // new-chain editor and was wiped by the late hydration. Load
+          // (idempotent GET) before touching any route state; retry transient
+          // fetch failures once so navigation-time server restarts still land.
+          try {
+            await loadFallbackRoutes();
+          } catch (loadErr) {
+            await new Promise(function(resolve) { setTimeout(resolve, 600); });
+            try {
+              await loadFallbackRoutes();
+            } catch (retryErr) {
+              setMessage('Could not load fallback chains yet — refresh the page to add ' + addModel + '.', 'error');
+              window.history.replaceState({}, '', '/config/fallback');
+              return;
+            }
+          }
+
           const rawChain = String(params.get('chain') || '').trim();
           const chainId = rawChain
             ? (rawChain.indexOf('local-router/') === 0 ? rawChain.substring('local-router/'.length) : rawChain)
@@ -2698,12 +2718,16 @@ export function renderLayout(
         initializeThemeScale();
         safeInit('hydrateOllamaVersionBadge', hydrateOllamaVersionBadge);
         safeInit('loadProviderConfigs', loadProviderConfigs);
-        safeInit('loadFallbackRoutes', loadFallbackRoutes);
+        // Routes load first, staging second (2026-08-25 race fix): the query
+        // staging handler must never read route state while the first load is
+        // airborne — hydrated state is authoritative for the editor.
+        safeInit('loadFallbackRoutes', loadFallbackRoutes).then(function() {
+          // Fallback Routes page only: absorb a model staged from the catalog.
+          return safeInit('stageModelFromQuery', stageModelFromQuery);
+        });
         safeInit('loadCurationConfigsList', loadCurationConfigsList);
         try { buildModelDropdown(); } catch (err) { showUiError('buildModelDropdown', err); }
         safeInit('loadCatalog', loadCatalog);
-        // Fallback Routes page only: absorb a model staged from the catalog.
-        safeInit('stageModelFromQuery', stageModelFromQuery);
         safeInit('loadProviderPricingPanel', loadProviderPricingPanel);
         loadSessionsPanel();
         loadSystemPrompt();
