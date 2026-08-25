@@ -2069,27 +2069,55 @@ export function renderLayout(
           window.location.href = '/config/fallback?add=' + encodeURIComponent(modelId);
         }
 
-        // On the Fallback Routes page: pre-stage a model handed over from the
-        // Providers & Models catalog (existing chains auto-save the add).
-        function stageModelFromQuery() {
+        // On the Fallback Routes page: accept a model handed over from the
+        // Providers & Models catalog ("＋ Fallback"). The system chain always
+        // exists (empty by default), so a plain ?add= param persists immediately
+        // via the same toggle API the old per-row checkbox used — no ≥2
+        // gate, works from the very first model.
+        async function stageModelFromQuery() {
           const selectEl = document.getElementById('fallbackRouteSelect');
           if (!selectEl) return;
           const params = new URLSearchParams(window.location.search);
           const addModel = String(params.get('add') || '').trim();
           if (!addModel) return;
-          const chainParam = String(params.get('chain') || '').trim();
-          if (chainParam && (Array.isArray(fallbackRoutes) ? fallbackRoutes : []).some(function(r) { return r.id === chainParam; })) {
-            selectEl.value = chainParam;
-            selectFallbackRouteToEdit(chainParam);
+
+          const rawChain = String(params.get('chain') || '').trim();
+          const chainId = rawChain
+            ? (rawChain.indexOf('local-router/') === 0 ? rawChain.substring('local-router/'.length) : rawChain)
+            : 'fallback-models';
+          const routes = Array.isArray(fallbackRoutes) ? fallbackRoutes : [];
+          const ROUTE_PREFIX = 'local-router/';
+          const routeOf = function(r) {
+            const raw = String((r && (r.routeId || r.id)) || '');
+            return raw.indexOf(ROUTE_PREFIX) === 0 ? raw.substring(ROUTE_PREFIX.length) : raw;
+          };
+          const targetRoute = routes.find(function(r) { return routeOf(r) === chainId; });
+
+          if (targetRoute) {
+            try {
+              const res = await fetch('/api/fallback-chain/toggle', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ modelId: addModel, enabled: true, routeId: chainId })
+              });
+              const payload = await res.json().catch(() => ({}));
+              if (!res.ok || !payload.success) throw new Error((payload && payload.error) || ('HTTP ' + res.status));
+              await loadFallbackRoutes();
+              selectEl.value = 'local-router/' + chainId;
+              selectFallbackRouteToEdit(selectEl.value);
+              setMessage('Added ' + addModel + ' to local-router/' + chainId + ' (saved). Reorder or disable steps below.', 'success');
+            } catch (err) {
+              setMessage('Failed to add ' + addModel + ' to local-router/' + chainId + ': ' + (err && err.message ? err.message : err), 'error');
+            }
+            window.history.replaceState({}, '', '/config/fallback');
+            return;
           }
-          const already = fallbackCandidateStore.some(function(c) { return c.model === addModel; });
-          if (!already) addFallbackCandidate(addModel);
-          const target = currentFallbackEditTarget();
-          if (!already && target.mode === 'existing') autoSaveFallbackRoute();
-          setMessage(already
-            ? addModel + ' is already in ' + (target.id || 'this chain') + '.'
-            : 'Staged ' + addModel + ' into ' + (target.id || 'the chain') + (target.mode === 'existing' ? ' (saved)' : ' — name and save the new chain to persist') + '.',
-            'success');
+
+          // Chain not found → open the new-chain editor with the model
+          // staged; non-system chains keep their existing 404 semantics.
+          selectFallbackRouteToEdit(NEW_FALLBACK_CHAIN_VALUE);
+          addFallbackCandidate(addModel);
+          setMessage('Chain "local-router/' + chainId + '" does not exist — staged ' + addModel + ' in a new chain instead. Name it and add a second model to save.', 'error');
           const listEl = document.getElementById('fallbackCandidateList');
           if (listEl) listEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
           window.history.replaceState({}, '', '/config/fallback');
@@ -2675,7 +2703,7 @@ export function renderLayout(
         try { buildModelDropdown(); } catch (err) { showUiError('buildModelDropdown', err); }
         safeInit('loadCatalog', loadCatalog);
         // Fallback Routes page only: absorb a model staged from the catalog.
-        try { stageModelFromQuery(); } catch (err) { showUiError('stageModelFromQuery', err); }
+        safeInit('stageModelFromQuery', stageModelFromQuery);
         safeInit('loadProviderPricingPanel', loadProviderPricingPanel);
         loadSessionsPanel();
         loadSystemPrompt();
