@@ -1184,6 +1184,152 @@ export async function cancelCopilotLogin(): Promise<void> {
  * provider isn't configured, the function returns an empty list — callers
  * fall back to the registry model list in `src/provider-model-registries.ts`.
  */
+/**
+ * Decodes the ConnectRPC binary protobuf payload from Cursor's AvailableModels endpoint.
+ */
+export function parseCursorAvailableModelsProtobuf(buffer: Buffer): Array<{
+  id: string;
+  object: string;
+  owned_by: string;
+  contextLength?: number;
+  supportsReasoning?: boolean;
+}> {
+  let payload = buffer;
+  if (buffer.length > 5 && buffer[0] === 0x00) {
+    const len = buffer.readUInt32BE(1);
+    if (len <= buffer.length - 5) {
+      payload = buffer.subarray(5, 5 + len);
+    }
+  }
+
+  function parseFields(buf: Buffer) {
+    const fields: Array<{ fieldNum: number; wireType: number; val?: number; bytes?: Buffer; str?: string }> = [];
+    let offset = 0;
+    while (offset < buf.length) {
+      let key = 0;
+      let shift = 0;
+      while (offset < buf.length) {
+        const b = buf[offset++];
+        key |= (b & 0x7f) << shift;
+        if (!(b & 0x80)) break;
+        shift += 7;
+      }
+      const wireType = key & 0x07;
+      const fieldNum = key >> 3;
+      if (fieldNum === 0) break;
+
+      if (wireType === 0) {
+        let val = 0;
+        let vShift = 0;
+        while (offset < buf.length) {
+          const b = buf[offset++];
+          val |= (b & 0x7f) << vShift;
+          if (!(b & 0x80)) break;
+          vShift += 7;
+        }
+        fields.push({ fieldNum, wireType, val });
+      } else if (wireType === 1) {
+        offset += 8;
+      } else if (wireType === 2) {
+        let len = 0;
+        let sShift = 0;
+        while (offset < buf.length) {
+          const b = buf[offset++];
+          len |= (b & 0x7f) << sShift;
+          if (!(b & 0x80)) break;
+          sShift += 7;
+        }
+        if (offset + len <= buf.length) {
+          const sub = buf.subarray(offset, offset + len);
+          fields.push({ fieldNum, wireType, bytes: sub, str: sub.toString('utf8') });
+          offset += len;
+        } else {
+          break;
+        }
+      } else if (wireType === 5) {
+        offset += 4;
+      } else {
+        break;
+      }
+    }
+    return fields;
+  }
+
+  const rootFields = parseFields(payload);
+  const models: Array<{
+    id: string;
+    object: string;
+    owned_by: string;
+    contextLength?: number;
+    supportsReasoning?: boolean;
+  }> = [];
+  const seen = new Set<string>();
+
+  for (const rootField of rootFields) {
+    if (rootField.fieldNum === 2 && rootField.bytes) {
+      const sub = parseFields(rootField.bytes);
+      const idField = sub.find((f) => f.fieldNum === 1 && f.wireType === 2);
+      const descField = sub.find((f) => (f.fieldNum === 8 || f.fieldNum === 20) && f.wireType === 2);
+      const reasoningField = sub.find((f) => f.fieldNum === 38 || f.fieldNum === 9);
+
+      const id = idField?.str?.trim();
+      if (id && !seen.has(id)) {
+        seen.add(id);
+        const desc = descField?.str || '';
+        let contextLength = 200000;
+        if (/1M\s+context/i.test(desc)) contextLength = 1000000;
+        else if (/272k\s+context/i.test(desc)) contextLength = 272000;
+        else if (/262k\s+context/i.test(desc)) contextLength = 262144;
+        else if (/128k\s+context/i.test(desc)) contextLength = 128000;
+        else if (/(\d+)k\s+context/i.test(desc)) {
+          const m = desc.match(/(\d+)k\s+context/i);
+          if (m) contextLength = parseInt(m[1], 10) * 1000;
+        }
+
+        models.push({
+          id,
+          object: 'model',
+          owned_by: 'cursor',
+          contextLength,
+          supportsReasoning: Boolean(reasoningField?.val || id.includes('thinking') || id.includes('high') || id.includes('low') || id.includes('medium'))
+        });
+      }
+    }
+  }
+
+  return models;
+}
+
+export async function fetchCursorLiveModels(accessToken: string): Promise<Array<{
+  id: string;
+  object: string;
+  owned_by: string;
+  contextLength?: number;
+  supportsReasoning?: boolean;
+}>> {
+  try {
+    const res = await fetch('https://api2.cursor.sh/aiserver.v1.AiService/AvailableModels', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/proto',
+        'Connect-Protocol-Version': '1',
+        'User-Agent': 'Cursor/0.46.11'
+      },
+      body: Buffer.from([]),
+      signal: AbortSignal.timeout(8_000)
+    });
+    if (res.ok) {
+      const buf = Buffer.from(await res.arrayBuffer());
+      const parsed = parseCursorAvailableModelsProtobuf(buf);
+      if (parsed.length > 0) return parsed;
+    }
+  } catch (err) {
+    console.error('[oauth] failed to fetch live models for cursor', err);
+  }
+  return [];
+}
+
 export async function fetchOAuthProviderModels(provider: OAuthProviderId): Promise<Array<{ id: string; object: string; owned_by: string }>> {
   const registryFallback = (PROVIDER_MODEL_REGISTRY[provider] || []).map((m) => ({
     id: m.id.replace(/^models\//, ''),
@@ -1202,6 +1348,14 @@ export async function fetchOAuthProviderModels(provider: OAuthProviderId): Promi
     }
     const accessToken = await getOAuthAccessToken(provider).catch(() => state.accessToken);
     if (!accessToken) return registryFallback;
+
+    if (provider === 'cursor') {
+      const cursorModels = await fetchCursorLiveModels(accessToken);
+      if (cursorModels.length > 0) {
+        return cursorModels;
+      }
+      return registryFallback;
+    }
 
     const headers: Record<string, string> = {
       Authorization: `Bearer ${accessToken}`,
