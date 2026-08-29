@@ -293,7 +293,24 @@ async function cmdStart(options) {
   const current = await probeServer(options.host, options.port);
   if (current.running) {
     if (current.kind === 'local-router') {
-      console.log(`Local Router already running at ${current.baseUrl}`);
+      const pids = findPidsOnPort(options.port);
+      const pidStr = pids.length > 0 ? ` (PID: ${pids.join(', ')})` : '';
+      console.log(`\n✓ Local Router is already running at ${current.baseUrl}${pidStr}\n`);
+      console.log('  Web Dashboard & Management:');
+      console.log(`    ► Open Dashboard:   ${current.baseUrl}/config`);
+      console.log(`    ► Manage Providers: ${current.baseUrl}/config/providers`);
+      console.log(`    ► Fallback Routes:  ${current.baseUrl}/config/fallback`);
+      console.log('');
+      console.log('  Universal API Endpoints (Ollama & OpenAI Compatible):');
+      console.log(`    ► Ollama Tags API:  ${current.baseUrl}/api/tags`);
+      console.log(`    ► OpenAI V1 Models: ${current.baseUrl}/v1/models`);
+      console.log(`    ► Completions API:  ${current.baseUrl}/v1/chat/completions`);
+      console.log('');
+      console.log('  CLI Commands:');
+      console.log('    ► List Models:      local-router list  (or ollama list)');
+      console.log('    ► Stop Server:      local-router stop');
+      console.log('    ► View Status:      local-router status');
+      console.log('');
       return 0;
     }
     console.error(`Port ${options.port} already in use by ${current.kind}.`);
@@ -834,6 +851,34 @@ function cmdRouteUnset() {
   return refused ? 1 : 0;
 }
 
+async function cmdList(options) {
+  const current = await probeServer(options.host, options.port);
+  if (!current.running) {
+    console.error(`Local Router is not running on http://${options.host}:${options.port}. Start it with 'local-router start'.`);
+    return 1;
+  }
+  const res = await fetchWithTimeout(`${current.baseUrl}/api/tags`);
+  if (!res || !res.ok) {
+    console.error(`Failed to fetch model tags from ${current.baseUrl}`);
+    return 1;
+  }
+  const data = await res.json().catch(() => ({}));
+  const models = Array.isArray(data.models) ? data.models : [];
+  if (models.length === 0) {
+    console.log('No models currently configured. Open http://127.0.0.1:11434/config/providers to toggle on models.');
+    return 0;
+  }
+  console.log(`NAME					ID			SIZE	MODIFIED`);
+  for (const m of models) {
+    const name = m.name || m.model || '';
+    const id = (m.digest || m.id || name).slice(0, 12);
+    const size = m.size ? `${(m.size / (1024 * 1024)).toFixed(1)} MB` : 'N/A';
+    const mod = m.modified_at ? new Date(m.modified_at).toLocaleDateString() : 'N/A';
+    console.log(`${name.padEnd(40)}	${id}	${size}	${mod}`);
+  }
+  return 0;
+}
+
 async function main() {
   const argv = process.argv.slice(2);
   const command = argv[0] || 'start';
@@ -866,8 +911,12 @@ async function main() {
 
   const options = parseOptions(argv.slice(1));
 
-  if (command === 'start') {
+  if (command === 'start' || command === 'serve') {
     process.exitCode = await cmdStart(options);
+    return;
+  }
+  if (command === 'list' || command === 'tags' || command === 'models' || command === 'ps') {
+    process.exitCode = await cmdList(options);
     return;
   }
   if (command === 'stop') {
