@@ -121,6 +121,7 @@ async function startProxyProcess() {
   const pEnv = {
     ...process.env,
     HOME: testHome,
+    USERPROFILE: testHome,
     PORT: port,
     LOCAL_ROUTER_SKIP_OLLAMA_ENSURE: 'true',
     LOCAL_ROUTER_SKIP_PQC_LOAD: 'true',
