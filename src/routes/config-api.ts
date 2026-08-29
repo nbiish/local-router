@@ -1613,6 +1613,18 @@ const DEFAULT_OLLAMA_VERSION = '0.6.4';
 const OLLAMA_VERSION_CACHE_MS = 30_000;
 let mirroredOllamaVersion: { value: string; fetchedAt: number } | null = null;
 
+function compareSemver(a: string, b: string): number {
+  const pa = a.split('.').map((x) => parseInt(x.replace(/[^0-9]/g, ''), 10) || 0);
+  const pb = b.split('.').map((x) => parseInt(x.replace(/[^0-9]/g, ''), 10) || 0);
+  for (let i = 0; i < Math.max(pa.length, pb.length, 3); i++) {
+    const na = pa[i] || 0;
+    const nb = pb[i] || 0;
+    if (na > nb) return 1;
+    if (na < nb) return -1;
+  }
+  return 0;
+}
+
 async function currentOllamaVersion(): Promise<string> {
   const envOverride = String(process.env.OLLAMA_VERSION || '').trim();
   if (envOverride) return envOverride;
@@ -1624,8 +1636,9 @@ async function currentOllamaVersion(): Promise<string> {
     const parsed = await probe.json().catch(() => ({})) as { version?: unknown };
     const version = typeof parsed?.version === 'string' ? parsed.version.trim() : '';
     if (version) {
-      mirroredOllamaVersion = { value: version, fetchedAt: Date.now() };
-      return version;
+      const effectiveVersion = compareSemver(version, DEFAULT_OLLAMA_VERSION) >= 0 ? version : DEFAULT_OLLAMA_VERSION;
+      mirroredOllamaVersion = { value: effectiveVersion, fetchedAt: Date.now() };
+      return effectiveVersion;
     }
   } catch {
     // Backend offline or slow — fall through to the minimum floor.

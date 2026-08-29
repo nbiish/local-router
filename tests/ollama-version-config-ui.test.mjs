@@ -100,6 +100,15 @@ test('GET /api/version mirrors the backend ollama version', { skip: skipReason |
   assert.equal(body.version, '7.8.9');
 });
 
+
+test("GET /api/version guarantees >= 0.6.4 floor even if backend reports legacy version", { skip: skipReason || undefined }, async () => {
+  const response = await fetch(`${baseUrl}/api/version`);
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  const parts = String(body.version || "").split(".").map(x => parseInt(x, 10) || 0);
+  assert.ok(parts[0] > 0 || (parts[0] === 0 && parts[1] >= 6), "Version must be at least 0.6.0");
+});
+
 test('HEAD /api/version stays a 200 probe', { skip: skipReason || undefined }, async () => {
   const response = await fetch(`${baseUrl}/api/version`, { method: 'HEAD' });
   assert.equal(response.status, 200);
