@@ -3222,15 +3222,15 @@ function syncKeysFromPqcBundle(options: { force?: boolean } = {}): PqcBundleSync
 
   const loaded: string[] = [];
   const skipped: string[] = [];
-  for (const line of output.split('\n')) {
-    // Strict namespace (2026-08-22): only LOCALROUTER_* bundle entries map
-    // onto providers. Plainly-named entries are reported as skipped with a
-    // rename hint — they belong to other tools and stay untouched.
+  for (const rawLine of output.split(/\r?\n/)) {
+    const line = rawLine.trim();
     const match = line.match(/^export\s+([A-Z0-9_]+)=(.+)$/);
     if (!match) continue;
     const fullName = match[1];
-    const rawVal = match[2];
-    const value = rawVal.replace(/^["']|["']$/g, '');
+    let value = match[2].trim().replace(/^["']|["']$/g, '').trim();
+    if (value.startsWith('Authorization: Bearer ')) {
+      value = value.slice('Authorization: Bearer '.length).trim();
+    }
     const envVar = fullName.startsWith('LOCALROUTER_') ? fullName.slice('LOCALROUTER_'.length) : fullName;
     process.env[localRouterEnvVarName(envVar)] = value;
     process.env[envVar] = value;
@@ -3400,11 +3400,12 @@ function persistPqcSecrets(): void {
         console.error('[PQC] Cannot persist safely: existing bundle export failed — not overwriting. Error:', sanitizeDiagnosticText(String((err as Error).message)));
         return;
       }
-      for (const line of (existingOutput || '').split('\n')) {
+      for (const rawLine of (existingOutput || '').split(/\r?\n/)) {
+        const line = rawLine.trim();
         const match = line.match(/^export\s+([A-Z0-9_]+)=(.+)$/);
         if (!match) continue;
         if (managedEnvVars.has(match[1])) continue;
-        preservedLines.push(`${match[1]}=${match[2]}`);
+        preservedLines.push(`${match[1]}=${match[2].trim()}`);
       }
     }
 
