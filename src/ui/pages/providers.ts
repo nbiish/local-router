@@ -1,4 +1,36 @@
-import { renderLayout } from './layout';
+function renderOAuthProviderCards(): string {
+  const providers = listOAuthProviders();
+  return providers.map((id) => {
+    const status = getOAuthStatus(id);
+    const configured = status.configured;
+    const pending = status.pendingDeviceCode;
+    const accountLabel = status.accountLabel || "not signed in";
+    let html = `<section class="provider-card${configured ? " active" : ""}">` +
+      `<h4>${escapeHtml(status.displayName || id)}</h4>` +
+      `<div class="muted">Account: ${escapeHtml(accountLabel)}</div>` +
+      `<div class="muted">Auth: ${escapeHtml(status.authType || "")}</div>`;
+    if (pending) {
+      html += `<div class="pill status-pill pending">Pending device code: ${escapeHtml(pending.userCode)}</div>` +
+        `<div class="muted">Enter this code at ${escapeHtml(pending.verificationUri)}</div>`;
+    }
+    if (configured) {
+      html += `<div class="pill status-pill configured">Logged in</div>` +
+        `<div class="row row-actions">` +
+          `<button data-oauth-logout="${escapeHtml(id)}">Log out</button>` +
+        `</div>`;
+    } else {
+      html += `<div class="pill status-pill pending">Not logged in</div>` +
+        `<div class="row row-actions">` +
+          `<button data-oauth-login="${escapeHtml(id)}">Log in with ${escapeHtml(status.displayName || id)}</button>` +
+        `</div>`;
+    }
+    html += `</section>`;
+    return html;
+  }).join("");
+}
+
+import { renderLayout, escapeHtml } from './layout';
+import { listOAuthProviders, getOAuthStatus } from '../../oauth-providers';
 
 export function renderProvidersPage(params: {
   defaultFallbackModelsText: string;
@@ -189,7 +221,7 @@ export function renderProvidersPage(params: {
       <div class="card">
         <h2>OAuth Provider Logins</h2>
         <p class="muted">Some providers authenticate via OAuth instead of a static API key. Use the controls below to sign in. Tokens are stored locally at <code>~/.config/local-router/oauth-credentials.json</code> and refreshed automatically.</p>
-        <div id="oauthProviderList" class="provider-grid"></div>
+        <div id="oauthProviderList" class="provider-grid">${renderOAuthProviderCards()}</div>
       </div>
 `;
   return renderLayout('Providers & Models', body, params);
