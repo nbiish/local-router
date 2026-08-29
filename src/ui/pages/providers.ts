@@ -13,7 +13,7 @@ function renderOAuthProviderCards(): string {
       html += `<div class="pill status-pill pending" style="font-size:13px;font-weight:bold;margin:4px 0;">Code: ${escapeHtml(pending.userCode)}</div>` +
         `<div class="muted" style="margin:4px 0 8px;">Enter code at <a href="${escapeHtml(pending.verificationUri)}" target="_blank" rel="noopener noreferrer" style="color:var(--link);font-weight:bold;text-decoration:underline;">${escapeHtml(pending.verificationUri)}</a></div>` +
         `<div class="row row-actions" style="gap:6px;">` +
-          `<button type="button" onclick="navigator.clipboard.writeText('${escapeHtml(pending.userCode)}'); setMessage('Copied ${escapeHtml(pending.userCode)} to clipboard', 'success');">📋 Copy Code</button>` +
+          `<button type="button" data-copy-code="${escapeHtml(pending.userCode)}">📋 Copy Code</button>` +
           `<a href="${escapeHtml(pending.verificationUri)}" target="_blank" rel="noopener noreferrer" class="button button-secondary" style="display:inline-flex;align-items:center;padding:4px 8px;font-size:12px;text-decoration:none;">Open GitHub ↗</a>` +
         `</div>`;
     }

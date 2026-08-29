@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import vm from "node:vm";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -166,4 +167,20 @@ test("detectLocalCopilotSession handles env variable tokens", () => {
     if (oldEnv === undefined) delete process.env.GITHUB_COPILOT_TOKEN;
     else process.env.GITHUB_COPILOT_TOKEN = oldEnv;
   }
+});
+
+test("renderProvidersPage HTML contains 100% valid executable client JavaScript", async () => {
+  const { renderProvidersPage } = await import("../build/ui/pages/providers.js");
+  const html = renderProvidersPage({ defaultFallbackModelsText: "test" });
+  const scriptRegex = /<script\b[^>]*>([\s\S]*?)<\/script>/gi;
+  let match;
+  let count = 0;
+  while ((match = scriptRegex.exec(html)) !== null) {
+    count++;
+    const code = match[1];
+    assert.doesNotThrow(() => {
+      new vm.Script(code);
+    }, "Script #" + count + " should parse as valid JavaScript");
+  }
+  assert.ok(count >= 2, "Must contain at least 2 script tags");
 });
