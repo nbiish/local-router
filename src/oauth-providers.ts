@@ -101,7 +101,7 @@ const ANTIGRAVITY_SCOPES = [
   'https://www.googleapis.com/auth/experimentsandconfigs'
 ];
 const ANTIGRAVITY_USERINFO_URL = 'https://www.googleapis.com/oauth2/v3/userinfo';
-const ANTIGRAVITY_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta';
+const ANTIGRAVITY_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta/openai';
 const ANTIGRAVITY_DISPLAY_NAME = 'Google Antigravity';
 
 const GITHUB_COPILOT_CLIENT_ID = 'Iv1.b507a08c87ecfe98';
@@ -499,7 +499,7 @@ export function detectLocalCursorSession(): OAuthProviderState | null {
       authType: "oauth-pkce",
       accessToken: envToken,
       refreshToken: "",
-      expiresAt: Date.now() + 30 * 24 * 3600_000,
+      expiresAt: 0,
       accountId: "cursor-env",
       accountLabel: "Cursor (Environment Variable)",
       lastRefreshedAt: Date.now()
@@ -1453,6 +1453,13 @@ export async function getOAuthUpstreamHeaders(
   if (extra) Object.assign(headers, extra);
   // Copilot-specific dynamic headers (oh-my-pi pattern from
   // packages/ai/src/providers/github-copilot-headers.ts).
+  if (provider === 'antigravity') {
+    const apiKey = process.env.ANTIGRAVITY_API_KEY || process.env.GEMINI_API_KEY;
+    if (apiKey) {
+      headers['x-goog-api-key'] = apiKey;
+      headers['Authorization'] = `Bearer ${apiKey}`;
+    }
+  }
   if (provider === 'github-copilot') {
     headers['X-Initiator'] = inferCopilotInitiator(opts?.messages);
     if (hasCopilotVisionInput(opts?.messages)) {
