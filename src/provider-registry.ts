@@ -31,9 +31,9 @@ export const PROVIDER_REGISTRY: readonly ProviderRegistryEntry[] = [
   { name: 'modal', endpoint: 'https://api.us-west-2.modal.direct/v1', keyEnvVar: 'MODAL_API_KEY' },
   {
     name: 'modal-proxy',
-    endpoint: 'https://nbiish--ep-kimi-k3-nbiish-server.us-west.modal.direct/v1',
+    endpoint: 'https://nbiish--ep-glm-5-3-flash-server.us-west.modal.direct/v1',
     keyEnvVar: 'MODAL_PROXY_API_KEY',
-    note: 'Nbiish Kimi-K3 own deployment'
+    note: 'Nbiish GLM-5.3-Flash / Kimi-K3 own deployment'
   },
   { name: 'openrouter', endpoint: 'https://openrouter.ai/api/v1', keyEnvVar: 'OPENROUTER_API_KEY' },
   { name: 'xiaomi-mimo', endpoint: 'https://token-plan-sgp.xiaomimimo.com/v1', keyEnvVar: 'XIAOMI_MIMO_API_KEY' },

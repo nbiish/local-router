@@ -574,7 +574,10 @@ export const PROVIDER_MODEL_REGISTRY: Record<string, RegistryModelEntry[]> = {
     { id: 'zai-org/GLM-5.1-FP8', contextLength: 200000, outputTokens: 128000, supportsTools: true, tier: 'paid', note: 'Chat-proven; ~$0.5/$1 per 1M' },
   ],
   'modal-proxy': [
-    { id: 'moonshotai/Kimi-K3', contextLength: 1048576, outputTokens: 131072, supportsTools: true, tier: 'paid', note: 'Nbiish own deployment (ep-kimi-k3)' },
+    { id: 'zai-org/GLM-5.3-Flash', contextLength: 1048576, outputTokens: 131072, supportsTools: true, tier: 'paid', note: 'Nbiish GLM-5.3-Flash own deployment' },
+    { id: 'GLM-5.3-Flash', contextLength: 1048576, outputTokens: 131072, supportsTools: true, tier: 'paid', note: 'Nbiish GLM-5.3-Flash own deployment' },
+    { id: 'glm-5.3-flash', contextLength: 1048576, outputTokens: 131072, supportsTools: true, tier: 'paid', note: 'Nbiish GLM-5.3-Flash own deployment' },
+    { id: 'moonshotai/Kimi-K3', contextLength: 1048576, outputTokens: 131072, supportsTools: true, tier: 'paid', note: 'Nbiish Kimi-K3 own deployment' },
   ],
   'moonshot': [
     { id: 'kimi-k3', contextLength: 1048576, outputTokens: 131072, supportsTools: true, supportsImages: true, tier: 'paid', note: '$0.30 cache-hit / $3 cache-miss / $15 out per 1M' },
