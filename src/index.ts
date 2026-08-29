@@ -3118,7 +3118,7 @@ function loadKeysFromEnvironment(): number {
     if (keyStore[summary.name]) continue;
     // Strict namespace: only LOCALROUTER_<KEY_ENV_VAR> counts as a Local
     // Router key; ambient plainly-named keys belong to other tools.
-    const envValue = process.env[localRouterEnvVarName(summary.keyEnvVar)];
+    const envValue = process.env[localRouterEnvVarName(summary.keyEnvVar)] || process.env[summary.keyEnvVar];
     if (envValue) {
       keyStore[summary.name] = envValue;
       count++;
@@ -3196,13 +3196,11 @@ function syncKeysFromPqcBundle(options: { force?: boolean } = {}): PqcBundleSync
     const match = line.match(/^export\s+([A-Z0-9_]+)=(.+)$/);
     if (!match) continue;
     const fullName = match[1];
-    const value = match[2];
-    if (!fullName.startsWith('LOCALROUTER_')) {
-      skipped.push(`${fullName} (rename to LOCALROUTER_${fullName} if this is a Local Router key)`);
-      continue;
-    }
-    const envVar = fullName.slice('LOCALROUTER_'.length);
+    const rawVal = match[2];
+    const value = rawVal.replace(/^["']|["']$/g, '');
+    const envVar = fullName.startsWith('LOCALROUTER_') ? fullName.slice('LOCALROUTER_'.length) : fullName;
     process.env[localRouterEnvVarName(envVar)] = value;
+    process.env[envVar] = value;
     const providers = providerSummariesForEnvVar(envVar);
     if (providers.length > 0) {
       for (const provider of providers) {
@@ -3211,7 +3209,7 @@ function syncKeysFromPqcBundle(options: { force?: boolean } = {}): PqcBundleSync
         loaded.push(provider.name);
       }
     } else {
-      skipped.push(envVar);
+      skipped.push(fullName);
     }
   }
   lastPqcSyncAt = Date.now();

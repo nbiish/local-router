@@ -81,6 +81,12 @@ export async function fetchLiveOllamaModels(): Promise<RawModel[]> {
     console.error('[ollama] Failed to fetch OpenAI-compat model list:', error);
   }
 
+  if (discovered.size === 0) {
+    discovered.add('deepseek-v4-flash:cloud');
+    discovered.add('minimax-m3:cloud');
+    discovered.add('nemotron-3-ultra:cloud');
+  }
+
   return Array.from(discovered)
     .sort((a, b) => a.localeCompare(b))
     .map((id) => ({
