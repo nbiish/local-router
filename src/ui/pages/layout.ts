@@ -168,25 +168,7 @@ export function renderLayout(
         .theme-value { color: var(--muted); font-size: 13px; font-weight: 700; }
         .theme-slider { display: grid; gap: 7px; }
         .theme-slider input[type="range"] { padding: 0; border: 0; accent-color: var(--primary); background: transparent; }
-        .theme-scale-labels { display: flex; justify-content: space-between; color: var(--muted); font-size: 12px; }
-        .diagnostics-controls { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 10px; }
-        .diagnostics-log {
-          margin-top: 12px;
-          border-radius: 8px;
-          border: 1px solid var(--border-strong);
-          background: var(--log-bg);
-          color: var(--log-text);
-          padding: 12px;
-          min-height: 120px;
-          max-height: 320px;
-          overflow: auto;
-          white-space: pre-wrap;
-          word-break: break-word;
-          font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
-          font-size: 12px;
-          line-height: 1.45;
-        }
-        .model-flag-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 8px; margin-top: 10px; }
+        .theme-scale-labels { display: flex; justify-content: space-between; color: var(--muted); font-size: 12px; }        .model-flag-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 8px; margin-top: 10px; }
         .flag-toggle { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; color: var(--text); }
         .flag-toggle input { width: auto; margin: 0; }
         .provider-group.active { border-color: var(--primary); box-shadow: 0 0 0 1px var(--primary-soft); }
@@ -514,7 +496,6 @@ export function renderLayout(
         <a href="/config/providers" class="nav-link">Providers &amp; Models</a>
         <a href="/config/fallback" class="nav-link">Fallback Routes</a>
         <a href="/config/thinking" class="nav-link">Prompt &amp; Thinking</a>
-        <a href="/config/diagnostics" class="nav-link">Diagnostics &amp; Sessions</a>
       </nav>
       <div class="sidebar-footer">
         <div class="theme-panel-compact">
@@ -545,7 +526,6 @@ export function renderLayout(
       <script>
         let providerConfigs = [];
         let fallbackRoutes = [];
-        let diagnosticsEnabled = false;
         let activeModelEditId = '';
         let activeFallbackRouteId = '';
         const DEFAULT_FALLBACK_MODELS_TEXT = ${JSON.stringify(params.defaultFallbackModelsText)};
@@ -1544,78 +1524,6 @@ export function renderLayout(
               div.innerHTML = 'Displayed as: ' + escapeHtml(displayString);
             }
           });
-        }
-        function formatDiagnosticsEntry(entry) {
-          const timestamp = entry?.timestamp || '';
-          const event = entry?.event || 'event';
-          const route = entry?.route || '';
-          const provider = entry?.provider ? ' provider=' + entry.provider : '';
-          const model = entry?.presentedModel ? ' model=' + entry.presentedModel : '';
-          const actual = entry?.actualModel ? ' upstream=' + entry.actualModel : '';
-          const stream = entry?.stream !== undefined ? ' stream=' + Boolean(entry.stream) : '';
-          const status = entry?.status !== undefined ? ' status=' + entry.status : '';
-          const duration = entry?.durationMs !== undefined ? ' durationMs=' + entry.durationMs : '';
-          const summary = JSON.stringify(entry?.data || {}, null, 2);
-          return '[' + timestamp + '] ' + event + ' route=' + route + provider + model + actual + stream + status + duration + '\\n' + summary;
-        }
-
-        async function refreshDiagnostics() {
-          const statusEl = document.getElementById('diagnosticsStatus');
-          const toggleEl = document.getElementById('diagnosticsToggle');
-          const logEl = document.getElementById('diagnosticsLog');
-
-          try {
-            const res = await fetch('/api/diagnostics?limit=120');
-            const payload = await res.json().catch(() => ({}));
-            if (!res.ok) {
-              statusEl.innerText = payload?.error || 'Diagnostics unavailable';
-              logEl.textContent = 'Failed to load diagnostics.';
-              return;
-            }
-
-            diagnosticsEnabled = Boolean(payload?.enabled);
-            const entryCount = Number(payload?.entryCount || 0);
-            const maxEntries = Number(payload?.maxEntries || 0);
-            statusEl.innerText = (diagnosticsEnabled ? 'Enabled' : 'Disabled') + ' | ' + entryCount + '/' + maxEntries + ' entries';
-            toggleEl.innerText = diagnosticsEnabled ? 'Disable Diagnostics' : 'Enable Diagnostics';
-
-            const entries = Array.isArray(payload?.entries) ? payload.entries : [];
-            const rendered = entries.map((entry) => formatDiagnosticsEntry(entry)).join('\\n\\n');
-            logEl.textContent = rendered || 'No diagnostics captured yet.';
-          } catch (error) {
-            statusEl.innerText = 'Diagnostics unavailable';
-            logEl.textContent = 'Failed to load diagnostics.';
-          }
-        }
-
-        async function toggleDiagnostics() {
-          const nextState = !diagnosticsEnabled;
-          const res = await fetch('/api/diagnostics', {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ enabled: nextState })
-          });
-          const payload = await res.json().catch(() => ({}));
-          if (!res.ok) {
-            setMessage(payload?.error || 'Failed to update diagnostics setting.', 'error');
-            return;
-          }
-
-          diagnosticsEnabled = Boolean(payload?.enabled);
-          setMessage('Diagnostics ' + (diagnosticsEnabled ? 'enabled' : 'disabled') + '.', 'success');
-          await refreshDiagnostics();
-        }
-
-        async function clearDiagnostics() {
-          const res = await fetch('/api/diagnostics', { method: 'DELETE' });
-          const payload = await res.json().catch(() => ({}));
-          if (!res.ok) {
-            setMessage(payload?.error || 'Failed to clear diagnostics.', 'error');
-            return;
-          }
-
-          setMessage('Diagnostics cleared.', 'success');
-          await refreshDiagnostics();
         }
         let systemPromptDefault = '';
         let thinkingConfig = { global: 'none', default: 'none', providers: [] };
@@ -2769,67 +2677,11 @@ export function renderLayout(
         safeInit('loadCurationConfigsList', loadCurationConfigsList);
         try { buildModelDropdown(); } catch (err) { showUiError('buildModelDropdown', err); }
         safeInit('loadCatalog', loadCatalog);
-        loadSessionsPanel();
         loadSystemPrompt();
         loadThinkingConfig();
         loadWaferZdrConfig();
         loadHeadroomConfig();
         loadModelSource();
-
-        // ── Sessions & Feedback ──
-        async function loadSessionsPanel() {
-          var countEl = document.getElementById('sessionCount');
-          var listEl = document.getElementById('sessionList');
-          try {
-            var res = await fetch('/api/sessions');
-            var data = await res.json();
-            var sessions = Array.isArray(data.sessions) ? data.sessions : [];
-            countEl.innerText = sessions.length + ' session' + (sessions.length === 1 ? '' : 's');
-            if (!sessions.length) {
-              listEl.innerHTML = '<div class="fallback-route-empty">No recent sessions. CLI agents will appear here when they connect with X-Local-Router-Client header.</div>';
-              return;
-            }
-            listEl.innerHTML = sessions.map(function(s) {
-              var models = Object.keys(s.modelUsage || {}).map(function(m) {
-                return m + ' (' + s.modelUsage[m] + ')';
-              }).join(', ');
-              var started = new Date(s.startedAt).toLocaleString();
-              var last = new Date(s.lastActivity).toLocaleString();
-              return '<div class="fallback-route-item">' +
-                '<h4>' + escapeHtml(s.clientName) + ' <span class="provider-badge">session</span></h4>' +
-                '<div class="meta">Started: ' + escapeHtml(started) + ' | Last activity: ' + escapeHtml(last) + '</div>' +
-                '<div class="meta">Requests: ' + s.totalRequests + ' | Models: ' + escapeHtml(models || 'none') + '</div>' +
-                '<div class="meta">ID: ' + escapeHtml(s.sessionId) + '</div>' +
-                '<div class="actions">' +
-                  '<button class="button-secondary" onclick="rateSession(\\'' + escapeHtml(s.sessionId).replace(/'/g, "\\\\'") + '\\', \\'up\\')" style="background:var(--success-bg);color:var(--success-text);">👍 Helpful</button>' +
-                  '<button class="button-secondary" onclick="rateSession(\\'' + escapeHtml(s.sessionId).replace(/'/g, "\\\\'") + '\\', \\'down\\')" style="background:var(--danger-bg, #fde8e8);color:var(--danger-text);">👎 Not Helpful</button>' +
-                '</div>' +
-              '</div>';
-            }).join('');
-          } catch (e) {
-            countEl.innerText = 'Error';
-            listEl.innerHTML = '<div class="fallback-route-empty">Failed to load sessions: ' + escapeHtml(String(e.message || e)) + '</div>';
-          }
-        }
-
-        async function rateSession(sessionId, rating) {
-          try {
-            var res = await fetch('/api/sessions/' + encodeURIComponent(sessionId) + '/feedback', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ rating: rating })
-            });
-            var data = await res.json();
-            if (res.ok) {
-              setMessage('Session rated ' + (rating === 'up' ? '👍 helpful' : '👎 not helpful') + '. Thanks for the feedback!', 'success');
-            } else {
-              setMessage(data.error || 'Failed to rate session.', 'error');
-            }
-          } catch (e) {
-            setMessage('Failed to rate session: ' + String(e.message || e), 'error');
-          }
-        }
-        refreshDiagnostics();
 
         function bindOAuthProviderButtons(listEl) {
           listEl.querySelectorAll('button[data-copy-code]').forEach((button) => {

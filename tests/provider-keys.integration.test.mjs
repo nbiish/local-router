@@ -385,18 +385,6 @@ test('provider key save/reset lifecycle exposes configured source', async (t) =>
   assert.equal(provider.modelSource, 'baseline');
   assert.ok(provider.modelCount > 0);
 
-  const diagnosticsInitial = await requestJson('/api/diagnostics');
-  assert.equal(diagnosticsInitial.response.status, 200);
-  assert.equal(diagnosticsInitial.body?.enabled, false);
-
-  const diagnosticsEnable = await requestJson('/api/diagnostics', {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ enabled: true })
-  });
-  assert.equal(diagnosticsEnable.response.status, 200);
-  assert.equal(diagnosticsEnable.body?.enabled, true);
-
   const modelSave = await requestJson(`/api/provider-models/${encodeURIComponent(provider.name)}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
@@ -802,19 +790,6 @@ test('provider key save/reset lifecycle exposes configured source', async (t) =>
     false
   );
 
-  const diagnosticsAfterChat = await requestJson('/api/diagnostics');
-  assert.equal(diagnosticsAfterChat.response.status, 200);
-  assert.equal(diagnosticsAfterChat.body?.enabled, true);
-  const diagnosticRequestEntry = diagnosticsAfterChat.body?.entries?.find((entry) => (
-    entry?.event === 'proxy_request' && entry?.presentedModel === presentedModel
-  ));
-  assert.ok(diagnosticRequestEntry, 'Expected proxy_request diagnostic entry');
-  assert.equal(typeof diagnosticRequestEntry?.data?.request?.messageSummary?.count, 'number');
-  const diagnosticsSerialized = JSON.stringify(diagnosticsAfterChat.body);
-  assert.equal(diagnosticsSerialized.includes('must not be replayed'), false);
-  assert.equal(diagnosticsSerialized.includes('integration-test-key'), false);
-  assert.equal(diagnosticsSerialized.includes('hidden-response'), false);
-
   const streamResponse = await fetch(`${baseUrl}/v1/chat/completions`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -1103,13 +1078,6 @@ test('provider key save/reset lifecycle exposes configured source', async (t) =>
   });
   assert.equal(unknown.response.status, 404);
 
-  const diagnosticsDisable = await requestJson('/api/diagnostics', {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ enabled: false })
-  });
-  assert.equal(diagnosticsDisable.response.status, 200);
-  assert.equal(diagnosticsDisable.body?.enabled, false);
 });
 
 test('provider-models catalog query supports custom and all modes', async (t) => {

@@ -74,7 +74,7 @@ All asset files should be non-secret project artifacts. Do not embed prompts con
 
 - The first screen of `/config` remains the usable Local Router configuration tool, not a landing page.
 - Character art can appear as a compact header/avatar, empty state, or docs hero, but never as a full-screen blocker.
-- Tool controls, provider lists, route tables, diagnostics, and model metadata stay information-dense and readable.
+- Tool controls, provider lists, route tables, and model metadata stay information-dense and readable.
 - Any generated bitmap assets must be checked in only after review and should include source notes in this file or a sibling asset README.
 - Accessibility stays mandatory: sufficient contrast, no text embedded only in images, and no animation that blocks work.
 

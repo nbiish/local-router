@@ -60,7 +60,7 @@ Ensure-preset deletes persisted chains whose id is in `OBSOLETE_PRESET_ROUTE_IDS
 ## Improvement Loop
 
 1. Edit chains in `/config` or via the API (toggles, reorder, or full-route POST).
-2. Inspect behavior in the diagnostics page and expert logs (`/config` → Diagnostics & Sessions).
+2. Inspect behavior in expert logs (GET /api/expert-logs) and console output.
 3. Run the fallback tests: `tests/fallback-*.test.mjs`, `tests/fallback-chain-toggle.test.mjs`, `tests/execution-plan.test.mjs`.
 4. Update `llms.txt` and this document when default chains or the API shape changes.
 

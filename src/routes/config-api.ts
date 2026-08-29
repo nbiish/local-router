@@ -17,7 +17,6 @@ import { ollamaBackendVersionUrl } from '../ollama-backend';
 import { renderProvidersPage } from '../ui/pages/providers';
 import { renderFallbackPage } from '../ui/pages/fallback';
 import { renderThinkingPage } from '../ui/pages/thinking';
-import { renderDiagnosticsPage } from '../ui/pages/diagnostics';
 import {
   ProviderSummary,
   CustomProviderRecord,
@@ -96,12 +95,8 @@ export interface ConfigApiDeps {
   candidateAvailability: (modelName: string) => any;
   parseFallbackModel: (payload: any, options?: { allowShort?: boolean }) => FallbackModelParseResult;
   normalizeFallbackRouteId: (id: string) => string;
-  getSessions: () => any[];
-  recordFeedback: (sessionId: string, rating: 'up' | 'down') => { ok: boolean; error?: string };
   PORT: number;
   configureVSCodeModelPicker: (baseUrl: string) => any;
-  diagnosticsStore: { enabled: boolean; maxEntries: number; entries: any[] };
-  pushDiagnostic: (diag: any) => void;
   systemPromptConfig: { enabled: boolean; prompt: string; thinkingLevel: ThinkingLevel };
   persistSystemPrompt: () => void;
   thinkingLevelApiPayload: () => any;
@@ -115,7 +110,6 @@ export interface ConfigApiDeps {
   DEFAULT_THINKING_LEVEL: ThinkingLevel;
   activeProviderModelList: () => ProviderModel[];
   cloneProviderModel: (model: ProviderModel) => ProviderModel;
-  diagnosticsSnapshot: (limit?: number) => any;
   editableProviderModels: (providerName: string) => ProviderModel[];
   ensureCuratedOverrideSelection: (providerName: string) => void;
   fallbackModelPresentation: (model: FallbackModel) => ProviderModel;
@@ -178,12 +172,8 @@ export function registerConfigApiRoutes(app: express.Express, deps: ConfigApiDep
     candidateAvailability,
     parseFallbackModel,
     normalizeFallbackRouteId,
-    getSessions,
-    recordFeedback,
     PORT,
     configureVSCodeModelPicker,
-    diagnosticsStore,
-    pushDiagnostic,
     systemPromptConfig,
     persistSystemPrompt,
     thinkingLevelApiPayload,
@@ -198,7 +188,6 @@ export function registerConfigApiRoutes(app: express.Express, deps: ConfigApiDep
     DEFAULT_THINKING_LEVEL,
     activeProviderModelList,
     cloneProviderModel,
-    diagnosticsSnapshot,
     editableProviderModels,
     ensureCuratedOverrideSelection,
     fallbackModelPresentation,
@@ -241,15 +230,6 @@ export function registerConfigApiRoutes(app: express.Express, deps: ConfigApiDep
 
   app.get('/config/thinking', (req: Request, res: Response) => {
     const html = renderThinkingPage({
-      defaultFallbackModelsText: DEFAULT_FALLBACK_MODELS_TEXT
-    });
-    // Config pages are live state (keys, catalog, routes) — never cacheable.
-    res.setHeader('Cache-Control', 'no-store');
-    res.send(html);
-  });
-
-  app.get('/config/diagnostics', (req: Request, res: Response) => {
-    const html = renderDiagnosticsPage({
       defaultFallbackModelsText: DEFAULT_FALLBACK_MODELS_TEXT
     });
     // Config pages are live state (keys, catalog, routes) — never cacheable.
@@ -1425,75 +1405,6 @@ app.get('/api/logs/analyze', (req: Request, res: Response) => {
   return res.json(analyzeLogs());
 });
 
-// ── Session Tracking ──
-app.get('/api/sessions', (req: Request, res: Response) => {
-  return res.json({ sessions: getSessions() });
-});
-
-app.post('/api/sessions/:id/feedback', (req: Request, res: Response) => {
-  const rawSid = req.params.id;
-  const sessionId = typeof rawSid === 'string' ? rawSid : Array.isArray(rawSid) ? rawSid[0] : '';
-  const rawRating: unknown = req.body?.rating;
-  if (typeof rawRating !== 'string' || (rawRating !== 'up' && rawRating !== 'down')) {
-    return res.status(400).json({ error: 'Rating must be "up" or "down".' });
-  }
-  const rating = rawRating as 'up' | 'down';
-  const result = recordFeedback(sessionId, rating);
-  if (!result.ok) {
-    return res.status(404).json({ error: result.error });
-  }
-  return res.json({ success: true });
-});
-
-app.post('/api/vscode/configure', (req: Request, res: Response) => {
-  try {
-    const host = req.get('host') || `localhost:${PORT}`;
-    const protocol = req.protocol || 'http';
-    const configured = configureVSCodeModelPicker(`${protocol}://${host}`);
-    return res.json({ success: true, ...configured });
-  } catch (error: any) {
-    return res.status(500).json({
-      error: 'Failed to configure VS Code model picker.',
-      details: error?.message || String(error)
-    });
-  }
-});
-
-app.get('/api/diagnostics', (req: Request, res: Response) => {
-  const limitRaw = Number.parseInt(String(req.query.limit || ''), 10);
-  const limit = Number.isInteger(limitRaw) && limitRaw > 0
-    ? Math.min(limitRaw, diagnosticsStore.maxEntries)
-    : 120;
-
-  return res.json(diagnosticsSnapshot(limit));
-});
-
-app.put('/api/diagnostics', (req: Request, res: Response) => {
-  if (typeof req.body?.enabled !== 'boolean') {
-    return res.status(400).json({ error: 'enabled must be a boolean.' });
-  }
-
-  diagnosticsStore.enabled = req.body.enabled;
-  pushDiagnostic({
-    event: 'diagnostics_toggle',
-    route: '/api/diagnostics',
-    data: { enabled: diagnosticsStore.enabled }
-  });
-
-  return res.json(diagnosticsSnapshot(40));
-});
-
-app.delete('/api/diagnostics', (req: Request, res: Response) => {
-  const cleared = diagnosticsStore.entries.length;
-  diagnosticsStore.entries = [];
-  pushDiagnostic({
-    event: 'diagnostics_clear',
-    route: '/api/diagnostics',
-    data: { cleared }
-  });
-
-  return res.json({ success: true, cleared });
-});
 // ── System Prompt ──
 app.get('/api/system-prompt', (req: Request, res: Response) => {
   return res.json({

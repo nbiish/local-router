@@ -35,7 +35,7 @@ Clients (VS Code, Claude Code, Codex, Cline, scripts)
 ### Product North Star
 Local Router should become an easy local drop-in replacement for Ollama-compatible tooling: one localhost server, one familiar Ollama/OpenAI-compatible surface, and many provider-backed or locally routed models behind it.
 
-The end-state product should feel like an approachable open-source Ollama-compatible proxy with extra routing intelligence, not a closed provider gateway. Users should be able to point VS Code, Copilot Chat, Continue, Cline, Roo Code, scripts, or Ollama-native clients at `http://127.0.0.1:11434` and keep working while Local Router handles provider keys, model aliases, fallback chains, diagnostics, and explicit routing policy.
+The end-state product should feel like an approachable open-source Ollama-compatible proxy with extra routing intelligence, not a closed provider gateway. Users should be able to point VS Code, Copilot Chat, Continue, Cline, Roo Code, scripts, or Ollama-native clients at `http://127.0.0.1:11434` and keep working while Local Router handles provider keys, model aliases, fallback chains, and explicit routing policy.
 
 The project may take product inspiration from Ollama's local-first ergonomics and API shape, but it must remain its own implementation and brand. Do not copy Ollama source, trademarks, mascot assets, or visual identity unless a future license review explicitly permits it. Compatibility is the goal: same easy local mental model, same drop-in endpoint expectations, and clear behavior under open-source Local Router logic.
 
@@ -393,7 +393,7 @@ Local Router integrates [Headroom](https://github.com/chopratejas/headroom) (`he
 - **Implementation guidance for Local Router:**
   - When routing through OpenRouter, do not override `provider.order` unless explicitly requested by the user — doing so breaks sticky routing.
   - Preserve message ordering and content across fallback hops. Even a single character change in the first 1,024 tokens causes a cache miss.
-  - Surface `cached_tokens` in diagnostics/expert logs to track cache hit rates per model.
+  - Surface cached_tokens in expert logs to track cache hit rates per model.
 
 ##### Moonshot / Kimi (`moonshot`, plus any Kimi route via OpenRouter or Groq)
 - **Mode:** Two mechanisms depending on model series:

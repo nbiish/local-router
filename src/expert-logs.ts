@@ -375,7 +375,7 @@ export class LogEntryTracker {
       }
     }
 
-    // Cache diagnostics calculation
+    // Cache metrics calculation
     let systemPrompt = '';
     let fullPrompt = '';
     if (body && typeof body === 'object') {

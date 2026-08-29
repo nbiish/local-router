@@ -8,7 +8,7 @@ TypeScript implementation of the local-router proxy.
 - Provider implementations (Ollama, OpenRouter, Groq).
 - Routing decision logic: auto-router, fallback chains, router candidates.
 - Config UI HTML renderers and API route registration.
-- Streaming, reasoning, sessions, diagnostics, pricing, and PQC secrets loading.
+- Streaming, reasoning, pricing, and PQC secrets loading.
 
 ## Ownership
 

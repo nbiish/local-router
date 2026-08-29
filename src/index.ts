@@ -42,7 +42,6 @@ function getOAuthStateSafe(name: string): OAuthProviderState | undefined {
   return getOAuthState(name as OAuthProviderId);
 }
 import { sanitizeProviderRequestBody, stripReasoningMetadata, ThinkingLevel, DEFAULT_THINKING_LEVEL } from './reasoning';
-import { loadSessions, loadFeedback, recordRequest, getSessions, getSessionById, recordFeedback, saveSessions } from './sessions';
 import { loadExpertLogs, LogEntryTracker, createUsageSpyStream } from './expert-logs';
 import { buildWraparoundExecutionPlan } from './execution-plan';
 import {
@@ -167,27 +166,6 @@ type AttemptResult =
   | { ok: false; error: AttemptFailure };
 
 type CompletionOutputFormat = 'openai' | 'ollama_chat' | 'ollama_generate' | 'openai_responses';
-
-type DiagnosticEventName =
-  | 'proxy_request'
-  | 'proxy_response'
-  | 'proxy_error'
-  | 'diagnostics_toggle'
-  | 'diagnostics_clear';
-
-type DiagnosticEntry = {
-  id: number;
-  timestamp: string;
-  event: DiagnosticEventName;
-  route: string;
-  provider?: string;
-  presentedModel?: string;
-  actualModel?: string;
-  stream?: boolean;
-  status?: number;
-  durationMs?: number;
-  data: Record<string, unknown>;
-};
 
 dotenv.config();
 
@@ -396,13 +374,6 @@ const systemPromptConfig: { enabled: boolean; prompt: string; thinkingLevel: Thi
   thinkingLevel: DEFAULT_THINKING_LEVEL
 };
 const SECRET_FIELD_PATTERN = /(authorization|api[_-]?key|token|secret|password|cookie|set-cookie)/i;
-const diagnosticsStore = {
-  enabled: false,
-  entries: [] as DiagnosticEntry[],
-  nextId: 1,
-  maxEntries: 200
-};
-
 function sanitizeDiagnosticText(value: string, maxLength = 180) {
   const redacted = value
     .replace(/(Bearer\s+)[A-Za-z0-9._~+/=-]+/gi, '$1[REDACTED]')
@@ -411,136 +382,6 @@ function sanitizeDiagnosticText(value: string, maxLength = 180) {
 
   if (redacted.length <= maxLength) return redacted;
   return `${redacted.slice(0, maxLength)}…`;
-}
-
-function summarizeMessagesForDiagnostics(messages: unknown[]) {
-  const roles = new Set<string>();
-  let contentCharacters = 0;
-  let imageMessageCount = 0;
-  let toolCallMessageCount = 0;
-
-  for (const item of messages) {
-    if (!item || typeof item !== 'object') continue;
-    const message = item as Record<string, unknown>;
-    if (typeof message.role === 'string' && message.role.trim()) {
-      roles.add(message.role.trim());
-    }
-
-    const content = message.content;
-    if (typeof content === 'string') {
-      contentCharacters += content.length;
-    } else if (Array.isArray(content)) {
-      for (const part of content) {
-        if (!part || typeof part !== 'object') continue;
-        const contentPart = part as Record<string, unknown>;
-        if (typeof contentPart.text === 'string') {
-          contentCharacters += contentPart.text.length;
-        }
-        if (contentPart.type === 'image_url' || contentPart.type === 'image') {
-          imageMessageCount += 1;
-        }
-      }
-    }
-
-    if (Array.isArray(message.images) && message.images.length > 0) {
-      imageMessageCount += 1;
-    }
-    if (Array.isArray(message.tool_calls) && message.tool_calls.length > 0) {
-      toolCallMessageCount += message.tool_calls.length;
-    }
-  }
-
-  return {
-    count: messages.length,
-    roles: Array.from(roles).slice(0, 8),
-    approxContentCharacters: contentCharacters,
-    imageMessageCount,
-    toolCallMessageCount
-  };
-}
-
-function summarizeRequestForDiagnostics(body: any) {
-  const rawKeys = body && typeof body === 'object' ? Object.keys(body) : [];
-  const toolNames = Array.isArray(body?.tools)
-    ? body.tools
-      .slice(0, 8)
-      .map((tool: any) => sanitizeDiagnosticText(String(tool?.function?.name || tool?.name || 'tool')))
-    : [];
-
-  return {
-    model: typeof body?.model === 'string' ? body.model : null,
-    stream: Boolean(body?.stream),
-    messageSummary: summarizeMessagesForDiagnostics(Array.isArray(body?.messages) ? body.messages : []),
-    promptCharacters: typeof body?.prompt === 'string' ? body.prompt.length : 0,
-    hasTools: Array.isArray(body?.tools) && body.tools.length > 0,
-    toolCount: Array.isArray(body?.tools) ? body.tools.length : 0,
-    toolNames,
-    maxTokens: typeof body?.max_tokens === 'number' ? body.max_tokens : null,
-    temperature: typeof body?.temperature === 'number' ? body.temperature : null,
-    responseFormat: typeof body?.response_format?.type === 'string' ? body.response_format.type : null,
-    keyCount: rawKeys.length,
-    containsSensitiveFields: rawKeys.some((key) => SECRET_FIELD_PATTERN.test(key))
-  };
-}
-
-function summarizeResponseForDiagnostics(body: any) {
-  const choices = Array.isArray(body?.choices) ? body.choices : [];
-  const finishReasons = new Set<string>();
-  let contentCharacters = 0;
-  let toolCallCount = 0;
-
-  for (const choice of choices) {
-    if (typeof choice?.finish_reason === 'string' && choice.finish_reason) {
-      finishReasons.add(choice.finish_reason);
-    }
-    const content = choice?.message?.content ?? choice?.delta?.content;
-    if (typeof content === 'string') {
-      contentCharacters += content.length;
-    }
-    const toolCalls = choice?.message?.tool_calls ?? choice?.delta?.tool_calls;
-    if (Array.isArray(toolCalls)) {
-      toolCallCount += toolCalls.length;
-    }
-  }
-
-  return {
-    choiceCount: choices.length,
-    finishReasons: Array.from(finishReasons).slice(0, 8),
-    contentCharacters,
-    toolCallCount,
-    hasError: Boolean(body?.error)
-  };
-}
-
-function pushDiagnostic(entry: Omit<DiagnosticEntry, 'id' | 'timestamp'>) {
-  if (!diagnosticsStore.enabled && entry.event !== 'diagnostics_toggle' && entry.event !== 'diagnostics_clear') {
-    return;
-  }
-
-  const record: DiagnosticEntry = {
-    ...entry,
-    id: diagnosticsStore.nextId,
-    timestamp: new Date().toISOString()
-  };
-  diagnosticsStore.nextId += 1;
-  diagnosticsStore.entries.push(record);
-
-  if (diagnosticsStore.entries.length > diagnosticsStore.maxEntries) {
-    diagnosticsStore.entries.splice(0, diagnosticsStore.entries.length - diagnosticsStore.maxEntries);
-  }
-}
-
-function diagnosticsSnapshot(limit = 120) {
-  const safeLimit = Number.isInteger(limit) && limit > 0
-    ? Math.min(limit, diagnosticsStore.maxEntries)
-    : 120;
-
-  return {
-    enabled: diagnosticsStore.enabled,
-    entryCount: diagnosticsStore.entries.length,
-    maxEntries: diagnosticsStore.maxEntries,
-    entries: diagnosticsStore.entries.slice(-safeLimit)
-  };
 }
 
 let catalogProviderSummariesCache: ProviderSummary[] | null = null;
@@ -3519,12 +3360,8 @@ const configApiDeps = {
   candidateAvailability,
   parseFallbackModel,
   normalizeFallbackRouteId,
-  getSessions,
-  recordFeedback,
   PORT,
   configureVSCodeModelPicker,
-  diagnosticsStore,
-  pushDiagnostic,
   systemPromptConfig,
   persistSystemPrompt,
   thinkingLevelApiPayload,
@@ -3539,7 +3376,6 @@ const configApiDeps = {
   DEFAULT_THINKING_LEVEL,
   activeProviderModelList,
   cloneProviderModel,
-  diagnosticsSnapshot,
   editableProviderModels,
   ensureCuratedOverrideSelection,
   fallbackModelPresentation,
@@ -4235,19 +4071,6 @@ function classifyStreamChunkAsError(chunk: string): boolean {
   return false;
 }
 
-async function failoverPreserveSessionContext(presentedModel: string, targetModel: string): Promise<void> {
-  try {
-    const session = getSessionById(presentedModel);
-    if (!session) return;
-    session.modelUsage[targetModel] = (session.modelUsage[targetModel] || 0) + 1;
-    session.lastActivity = new Date().toISOString();
-    session.totalRequests += 1;
-    saveSessions();
-  } catch {
-    // best-effort continuity
-  }
-}
-
 export function buildFailoverPreservedBody(body: any, preservedModel: string): any {
   const messages = Array.isArray(body?.messages) ? [...body.messages] : [];
   const systemEvent = {
@@ -4494,21 +4317,6 @@ async function proxyModelAttempt(
   const cachedRequestBody = injectPromptCaching(compressedRequestBody, target.providerName);
   const finalBody = provider.formatBody ? provider.formatBody(cachedRequestBody) : cachedRequestBody;
 
-  pushDiagnostic({
-    event: 'proxy_request',
-    route: requestRoute,
-    provider: target.providerName,
-    presentedModel: presentedModelName,
-    actualModel: target.actualModel,
-    stream,
-    data: {
-      outputFormat,
-      targetModel: targetModelName,
-      fallback: fallbackData || null,
-      request: summarizeRequestForDiagnostics(finalBody)
-    }
-  });
-
   const attemptStartedAt = Date.now();
   try {
     const chatUrl = `${provider.baseUrl}/chat/completions`;
@@ -4525,23 +4333,6 @@ async function proxyModelAttempt(
 
     if (!response.ok) {
       const responseText = await response.text();
-      pushDiagnostic({
-        event: 'proxy_response',
-        route: requestRoute,
-        provider: target.providerName,
-        presentedModel: presentedModelName,
-        actualModel: target.actualModel,
-        stream,
-        status: response.status,
-        durationMs: Date.now() - attemptStartedAt,
-        data: {
-          ok: false,
-          targetModel: targetModelName,
-          fallback: fallbackData || null,
-          upstreamErrorBytes: responseText.length,
-          upstreamErrorPreview: sanitizeDiagnosticText(responseText, 260)
-        }
-      });
       const rawError: AttemptFailure = {
         errorType: 'upstream_http',
         providerName: target.providerName,
@@ -4564,23 +4355,6 @@ async function proxyModelAttempt(
         const responseBodyText = await responseClone.text();
         const contentClass = classifyResponseContent(responseBodyText, false, response.status);
         if (isContentFailoverTrigger(contentClass)) {
-          pushDiagnostic({
-            event: 'proxy_response',
-            route: requestRoute,
-            provider: target.providerName,
-            presentedModel: presentedModelName,
-            actualModel: target.actualModel,
-            stream,
-            status: response.status,
-            durationMs: Date.now() - attemptStartedAt,
-            data: {
-              ok: false,
-              targetModel: targetModelName,
-              fallback: fallbackData || null,
-              contentClassification: contentClass,
-              upstreamErrorPreview: sanitizeDiagnosticText(responseBodyText, 260)
-            }
-          });
           const bodyError: AttemptFailure = {
             errorType: 'upstream_http',
             providerName: target.providerName,
@@ -4606,23 +4380,6 @@ async function proxyModelAttempt(
       }
     };
   } catch (error: any) {
-    pushDiagnostic({
-      event: 'proxy_error',
-      route: requestRoute,
-      provider: target.providerName,
-      presentedModel: presentedModelName,
-      actualModel: target.actualModel,
-      stream,
-      status: 500,
-      durationMs: Date.now() - attemptStartedAt,
-      data: {
-        targetModel: targetModelName,
-        fallback: fallbackData || null,
-        errorName: sanitizeDiagnosticText(String(error?.name || 'Error')),
-        errorMessage: sanitizeDiagnosticText(String(error?.message || 'Proxy runtime failure'))
-      }
-    });
-
     return {
       ok: false,
       error: {
@@ -4643,28 +4400,11 @@ async function sendSuccessfulProxyResponse(
   requestStartedAt: number,
   outputFormat: CompletionOutputFormat,
   success: AttemptSuccess,
-  diagnosticsExtra?: Record<string, unknown>,
   logTracker?: LogEntryTracker
 ) {
   const fetchResponse = success.response;
 
   if (stream) {
-    pushDiagnostic({
-      event: 'proxy_response',
-      route: requestRoute,
-      provider: success.providerName,
-      presentedModel: model,
-      actualModel: success.actualModel,
-      stream: true,
-      status: fetchResponse.status,
-      durationMs: Date.now() - requestStartedAt,
-      data: {
-        ok: true,
-        responseContentType: fetchResponse.headers.get('content-type') || 'unknown',
-        ...(diagnosticsExtra || {})
-      }
-    });
-
     if (outputFormat.startsWith('ollama')) {
       res.setHeader('Content-Type', 'application/x-ndjson');
     } else {
@@ -4728,22 +4468,6 @@ async function sendSuccessfulProxyResponse(
   const normalizedUpstream = normalizeGatewayChatCompletionBody(success.providerName, upstreamData);
   const data = stripReasoningMetadata(normalizedUpstream) as Record<string, unknown>;
 
-  pushDiagnostic({
-    event: 'proxy_response',
-    route: requestRoute,
-    provider: success.providerName,
-    presentedModel: model,
-    actualModel: success.actualModel,
-    stream: false,
-    status: fetchResponse.status,
-    durationMs: Date.now() - requestStartedAt,
-    data: {
-      ok: true,
-      response: summarizeResponseForDiagnostics(data),
-      ...(diagnosticsExtra || {})
-    }
-  });
-
   if (logTracker) {
     logTracker.onUsage(data);
     logTracker.onFinish(Date.now() - requestStartedAt);
@@ -4806,7 +4530,6 @@ async function handleChatCompletion(req: Request, res: Response, bodyOverrides?:
   }
   const rawClient = req.headers['x-local-router-client'];
   const clientName = typeof rawClient === 'string' ? rawClient : Array.isArray(rawClient) ? rawClient[0] : 'unknown';
-  recordRequest(clientName, String(model));
   const fallbackRoute = findFallbackModel(model);
   const logTracker = new LogEntryTracker(
     clientName,
@@ -4840,7 +4563,6 @@ async function handleChatCompletion(req: Request, res: Response, bodyOverrides?:
       requestStartedAt,
       outputFormat,
       directModelResult.value,
-      undefined,
       logTracker
     );
   }
@@ -4853,24 +4575,6 @@ async function handleChatCompletion(req: Request, res: Response, bodyOverrides?:
       `[proxy] Direct model "${model}" failed on provider "${directModelResult.error.providerName}" — ` +
       `${cascadeDetail} — cascading to system fallback "${sysFallback.id}".`
     );
-    pushDiagnostic({
-      event: 'proxy_error',
-      route: requestRoute,
-      provider: directModelResult.error.providerName,
-      presentedModel: model,
-      actualModel: directModelResult.error.actualModel,
-      stream: Boolean(stream),
-      status: directModelResult.error.status || 500,
-      durationMs: Date.now() - requestStartedAt,
-      data: {
-        directModelFailure: {
-          model,
-          errorType: directModelResult.error.errorType,
-          errorMessage: sanitizeDiagnosticText(directModelResult.error.message, 220)
-        },
-        cascadingToSystemFallback: sysFallback.id
-      }
-    });
     return executeFallbackRoute(sysFallback, body, model, stream, requestRoute, outputFormat, requestStartedAt, res, logTracker);
   }
   if (directModelResult.error.errorType === 'upstream_http') {
@@ -4935,7 +4639,6 @@ async function executeFallbackRoute(
       continue;
     }
 
-    await failoverPreserveSessionContext(presentedModel, stage.model);
     const preservedBody = buildFailoverPreservedBody(body, stage.model);
 
     for (let attempt = 1; attempt <= stage.attempts; attempt += 1) {
@@ -4974,16 +4677,6 @@ async function executeFallbackRoute(
           requestStartedAt,
           outputFormat,
           result.value,
-          {
-            fallback: {
-              route: fallbackRoute.id,
-              usedTargetModel: stage.model,
-              stage: stage.stage,
-              attempt,
-              stageAttempts: stage.attempts,
-              totalFailedAttemptsBeforeSuccess: attemptLog.length
-            }
-          },
           logTracker
         );
       }
@@ -5006,23 +4699,6 @@ async function executeFallbackRoute(
       if (attempt < stage.attempts) {
         const waitSeconds = fallbackRetryDelaySeconds(attempt);
         entry.waitBeforeRetrySeconds = waitSeconds;
-        pushDiagnostic({
-          event: 'proxy_error',
-          route: requestRoute,
-          provider: result.error.providerName,
-          presentedModel,
-          actualModel: result.error.actualModel,
-          stream: Boolean(stream),
-          status: result.error.status || 500,
-          durationMs: Date.now() - requestStartedAt,
-          data: {
-            fallback: fallbackData,
-            waitBeforeRetrySeconds: waitSeconds,
-            errorType: result.error.errorType,
-            errorMessage: sanitizeDiagnosticText(result.error.message, 220),
-            providerErrorPreview: sanitizeDiagnosticText(result.error.responseText || '', 180)
-          }
-        });
         attemptLog.push(entry);
         await waitMs(waitSeconds * 1000);
       } else {
@@ -5032,22 +4708,6 @@ async function executeFallbackRoute(
   }
 
   const terminalFailure = lastFailure as AttemptFailure | null;
-
-  pushDiagnostic({
-    event: 'proxy_error',
-    route: requestRoute,
-    provider: terminalFailure?.providerName,
-    presentedModel,
-    actualModel: terminalFailure?.actualModel,
-    stream: Boolean(stream),
-    status: terminalFailure?.status || 502,
-    durationMs: Date.now() - requestStartedAt,
-    data: {
-      fallbackRoute: fallbackRoute.id,
-      exhausted: true,
-      attempts: attemptLog.length
-    }
-  });
 
   const status = terminalFailure?.status || 502;
   if (logTracker) {
@@ -5790,8 +5450,6 @@ app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
 });
 
 loadExpertLogs();
-loadSessions();
-loadFeedback();
 loadPqcSecrets();
 
 function isMainModule(): boolean {
