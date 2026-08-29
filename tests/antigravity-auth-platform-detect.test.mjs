@@ -14,6 +14,7 @@ import {
   getCopilotHostsPaths,
   detectLocalCopilotSession,
   fetchOAuthProviderModels,
+  parseCursorAvailableModelsProtobuf,
   listOAuthProviders,
   isOAuthProvider,
   getOAuthStatus,
@@ -200,4 +201,28 @@ test("fetchOAuthProviderModels returns non-empty models for all 3 OAuth provider
   assert.ok(Array.isArray(cursor));
   assert.ok(cursor.length >= 3);
   assert.ok(cursor.some((m) => m.id.includes("claude")));
+});
+
+test("parseCursorAvailableModelsProtobuf extracts model definitions from binary payload", () => {
+  // Construct a minimal synthetic protobuf submessage
+  // Root: field 2 (len delimited) -> submessage: field 1 (string: "cursor-custom-test-model"), field 8 (string: "1M context window")
+  const idStr = Buffer.from("cursor-custom-test-model", "utf8");
+  const descStr = Buffer.from("1M context window", "utf8");
+
+  const subBuf = Buffer.concat([
+    Buffer.from([(1 << 3) | 2, idStr.length]),
+    idStr,
+    Buffer.from([(8 << 3) | 2, descStr.length]),
+    descStr
+  ]);
+
+  const rootBuf = Buffer.concat([
+    Buffer.from([(2 << 3) | 2, subBuf.length]),
+    subBuf
+  ]);
+
+  const parsed = parseCursorAvailableModelsProtobuf(rootBuf);
+  assert.equal(parsed.length, 1);
+  assert.equal(parsed[0].id, "cursor-custom-test-model");
+  assert.equal(parsed[0].contextLength, 1000000);
 });
