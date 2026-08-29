@@ -67,6 +67,7 @@ function spawnServer(extraEnv) {
     env: {
       ...process.env,
       HOME: testHome,
+      USERPROFILE: testHome,
       PORT: port,
       LOCAL_ROUTER_SKIP_PQC_LOAD: 'true',
       LOCAL_ROUTER_SKIP_OLLAMA_ENSURE: 'true',
@@ -213,6 +214,7 @@ test('missing config file fails closed (non-zero boot exit)', async () => {
     env: {
       ...process.env,
       HOME: testHome,
+      USERPROFILE: testHome,
       PORT: String(Number(port) + 7),
       LOCAL_ROUTER_SKIP_PQC_LOAD: 'true',
       LOCAL_ROUTER_SKIP_OLLAMA_ENSURE: 'true',
