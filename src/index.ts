@@ -356,7 +356,7 @@ const oauthLoginLimiter = rateLimit({
 });
 const configMutationLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 50,
+  max: 5000,
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'Too many config mutation requests, please try again later.' }
@@ -3065,7 +3065,7 @@ function getPqcPubkeyPath(): string {
  */
 function getPqcBinPath(): string {
   const isWindows = process.platform === 'win32';
-  const baseNames = isWindows ? ['pqc-secrets.exe', 'pqc-secrets'] : ['pqc-secrets'];
+  const baseNames = isWindows ? ['pqc-secrets.cmd', 'pqc-secrets.bat', 'pqc-secrets.exe', 'pqc-secrets'] : ['pqc-secrets'];
   const roots = [
     path.resolve(__dirname, '..', 'bin'),
     path.resolve(process.cwd(), 'bin')

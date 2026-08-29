@@ -6,7 +6,7 @@ import {
 
 const provider: ProxyProvider = {
   name: 'antigravity',
-  baseUrl: 'https://generativelanguage.googleapis.com/v1beta',
+  baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai',
   getHeaders: () => {
     // Synchronous fallback used by /config UI; never call this on the
     // hot path — the proxy uses getHeadersAsync instead.
