@@ -1304,6 +1304,9 @@ export const PROVIDER_MODEL_REGISTRY: Record<string, RegistryModelEntry[]> = {
     { id: 'nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-BF16', contextLength: 8192, outputTokens: 4096, tier: 'paid', note: '$0.5/$0.5 per 1M' },
   ],
   'wafer-serverless': [
+    { id: 'GLM-5.3-Flash', contextLength: 1048576, supportsTools: true, tier: 'paid' },
+    { id: 'glm-5.3-flash', contextLength: 1048576, supportsTools: true, tier: 'paid' },
+    { id: 'glm-5.3', contextLength: 1048576, supportsTools: true, tier: 'paid' },
     { id: 'GLM-5.2', contextLength: 1048576, supportsTools: true, tier: 'paid' },
     { id: 'Kimi-K3', contextLength: 1048576, supportsTools: true, supportsImages: true, tier: 'paid' },
     { id: 'Kimi-K2.6', contextLength: 262144, supportsTools: true, supportsImages: true, tier: 'paid', note: 'Excluded from standard Wafer Pass; non-ZDR' },
