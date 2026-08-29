@@ -22,7 +22,9 @@
     "cli": "node bin/local-router.js",
     "cli:operator": "node bin/localrouter.js",
     "verify:cli": "node bin/localrouter.js verify",
-    "audit": "npm audit --audit-level=high"
+    "audit": "npm audit --audit-level=high",
+    "setup": "node scripts/setup-platform.mjs",
+    "install-cli": "node scripts/setup-platform.mjs"
   },
   "keywords": [
     "ollama",

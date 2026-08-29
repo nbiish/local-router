@@ -80,7 +80,8 @@ feature worktree → develop (integrate + verify) → main (release)
 
 | Commit | Summary |
 |--------|---------|
-| `pending` | **Release 2026-08-29c** — Permanent PQC secrets persistence & boot synchronization on Windows (direct uv execution, ML-KEM-768 key encapsulation, CRLF parsing fix); Modal proxy provider for GLM-5.3-Flash custom deployment with token/session header support; Ollama default cloud live-seeding for fcc-server |
+| `pending` | **Release 2026-08-29d** — Universal cross-platform setup & installer (Windows, macOS, Linux, WSL), install scripts (`install.sh`, `install.cmd`, `install.ps1`, `scripts/setup-platform.mjs`), Ollama drop-in CLI interception (`bin/ollama.cmd`, `bin/ollama`), friendly startup dashboard banner, and Corner/System Tray desktop application blueprint |
+| `2d431f8` | **Release 2026-08-29c** — Permanent PQC secrets persistence & boot synchronization on Windows (direct uv execution, ML-KEM-768 key encapsulation, CRLF parsing fix); Modal proxy provider for GLM-5.3-Flash custom deployment with token/session header support; Ollama default cloud live-seeding for fcc-server |
 | `f9f6181` | **Release 2026-08-29b** — Live model refresh across all provider endpoints: per-provider and global refresh buttons on /config/providers; Cursor ConnectRPC binary protobuf discovery (207 models); Google Antigravity & Copilot token exchange fix; Ollama version floor (≥ 0.6.4); Windows PQC batch wrapper; rate limit elevation to 5,000 reqs |
 | `pending` | **Release 2026-08-29** — Pricing Overrides removal: remove /config/pricing UI, /api/provider-pricing endpoints, and provider-pricing.json persistence; auto-detect free tier and baseline rates |
 | `pending` | **Release 2026-08-25b** — Add-Model dropdown scoped to the toggled-on serving set (ollama locals always included), re-fetched at every open |
@@ -190,6 +191,28 @@ Clients format model names using the patterns:
 - `local-router/fallback-id` (e.g. `local-router/fallback-models`) — fallback ordered retry chain.
 
 Slashes after the first segment are passed through as part of the upstream ID (e.g. OpenRouter preset paths).
+
+### Cross-Platform Setup, CLI Interception & Desktop App Blueprint
+
+#### 1. Universal Setup & Installers (Windows, macOS, Linux, WSL)
+Local Router provides one-command bootstrap scripts for all operating systems and architectures (Windows x64/arm64, macOS Apple Silicon/Intel, Linux x64/aarch64, and WSL2):
+- **macOS / Linux / WSL**: Run `./install.sh` (or `npm run setup`) — builds TypeScript, creates `~/.config/local-router` and `~/.config/pqc-secrets`, generates the ML-KEM-768 keypair, and creates CLI symlinks in `~/.local/bin` for `local-router`, `localrouter`, `ollama`, and `pqc-secrets`.
+- **Windows (PowerShell / Command Prompt)**: Run `install.cmd` or `.\install.ps1` (or `npm run setup`) — builds TypeScript, creates config directories, initializes PQC keys, and provides native `.cmd` wrappers in `bin/`.
+- **Dual-Stack & WSL Interop**: Binds `127.0.0.1` and `::1` simultaneously so tooling inside WSL or on Windows connects seamlessly across loopback.
+
+#### 2. Ollama Drop-In CLI Interception & Terminal Dashboard
+Whenever a tool or operator runs `local-router start` or `ollama serve` when the proxy is already active on port 11434, Local Router returns a formatted, friendly dashboard banner with URLs:
+- **Web Dashboard**: `http://127.0.0.1:11434/config`
+- **Provider & Key Management**: `http://127.0.0.1:11434/config/providers`
+- **Fallback Chains**: `http://127.0.0.1:11434/config/fallback`
+- **Universal APIs**: `/v1/models`, `/api/tags`, `/v1/chat/completions`
+- **CLI Commands**: `local-router list` (or `ollama list`) to view formatted model tables, `local-router stop`, and `local-router status`.
+
+#### 3. Cross-Architecture Desktop Application & Corner System Tray Blueprint
+To match the native experience of desktop services (e.g. the Ollama desktop agent):
+- **Windows (x64 / arm64)**: Native notification area icon in the **bottom-right corner** taskbar system tray. Right-click context menu provides quick links to Open Dashboard, Manage Providers, Toggle Models, Restart Server, and Quit.
+- **macOS (Apple Silicon & Intel)**: Native Menu Bar extra icon in the **top-right corner** menu bar with dark/light mode template icons and instant status dropdown.
+- **Linux (x64 / aarch64)**: AppIndicator / StatusNotifierItem tray icon compatible with GNOME, KDE, and XFCE desktop environments.
 
 ### Configuration Directories & Settings Map
 Setting files reside at `~/.config/local-router/` (or legacy `~/.config/fvs-code/` as fallback):
