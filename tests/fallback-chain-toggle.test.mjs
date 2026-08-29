@@ -120,6 +120,7 @@ test.before(async () => {
   const proxyEnv = {
     ...stripForeignProviderKeys(process.env, [`LOCALROUTER_${selectedProvider.keyEnvVar}`]),
     HOME: testHome,
+    USERPROFILE: testHome,
     PORT: port,
     LOCAL_ROUTER_SKIP_PQC_LOAD: 'true',
     LOCAL_ROUTER_SKIP_OLLAMA_ENSURE: 'true',

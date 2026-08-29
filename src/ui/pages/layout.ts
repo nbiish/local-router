@@ -939,7 +939,7 @@ export function renderLayout(
         function selectFallbackRouteToEdit(value) {
           var nameEl = document.getElementById('fallbackRouteNewName');
           if (value === NEW_FALLBACK_CHAIN_VALUE) {
-            activeFallbackRouteId = '';
+            activeFallbackRouteId = NEW_FALLBACK_CHAIN_VALUE;
             if (nameEl) {
               nameEl.style.display = '';
               nameEl.value = '';
@@ -970,11 +970,13 @@ export function renderLayout(
           sel.innerHTML = orderedIds.map(function(id) {
             return '<option value="' + escapeHtml(id) + '">' + escapeHtml(id) + '</option>';
           }).join('') + '<option value="' + NEW_FALLBACK_CHAIN_VALUE + '">— New chain…</option>';
-          var wanted = (activeFallbackRouteId && orderedIds.indexOf(activeFallbackRouteId) !== -1)
+          var wanted = (activeFallbackRouteId && (orderedIds.indexOf(activeFallbackRouteId) !== -1 || activeFallbackRouteId === NEW_FALLBACK_CHAIN_VALUE))
             ? activeFallbackRouteId
             : (orderedIds[0] || NEW_FALLBACK_CHAIN_VALUE);
           sel.value = wanted;
-          selectFallbackRouteToEdit(wanted);
+          if (wanted !== NEW_FALLBACK_CHAIN_VALUE) {
+            selectFallbackRouteToEdit(wanted);
+          }
         }
 
         function clearFallbackRouteForm() {
@@ -1097,19 +1099,23 @@ export function renderLayout(
           const target = currentFallbackEditTarget();
           const id = target.id;
           syncFallbackCandidatesToTextarea();
-          const modelsText = document.getElementById('fallbackModelsText').value.trim();
+          const modelsText = (document.getElementById('fallbackModelsText')?.value || '').trim();
 
-          if (!id || !modelsText) {
+          if (!id) {
             setMessage(target.mode === 'new'
               ? 'Enter a name for the new chain and at least two model entries.'
-              : 'Add at least two model entries to the selected chain.', 'error');
+              : 'Select a fallback route to edit.', 'error');
+            return;
+          }
+          if (target.mode === 'new' && (!modelsText || parseFallbackTextareaToStore(modelsText).length < 2)) {
+            setMessage('Enter a name for the new chain and at least two model entries.', 'error');
             return;
           }
 
           const res = await fetch('/api/fallback-models', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ id, modelsText })
+            body: JSON.stringify({ id, modelsText, allowShort: target.mode === 'existing' })
           });
           const payload = await res.json().catch(() => ({}));
           if (!res.ok) {
@@ -1127,13 +1133,13 @@ export function renderLayout(
           syncFallbackCandidatesToTextarea();
           const target = currentFallbackEditTarget();
           const id = target.mode === 'existing' ? target.id : '';
-          const modelsText = document.getElementById('fallbackModelsText').value.trim();
-          if (!id || !modelsText) return;
+          if (!id) return;
+          const modelsText = (document.getElementById('fallbackModelsText')?.value || '').trim();
           try {
             const res = await fetch('/api/fallback-models', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ id, modelsText })
+              body: JSON.stringify({ id, modelsText, allowShort: true })
             });
             if (res.ok) await loadFallbackRoutes();
           } catch {
@@ -1181,24 +1187,29 @@ export function renderLayout(
           try {
             const text = await file.text();
             const settings = JSON.parse(text);
-            await fetch('/api/router-settings', {
+            const res = await fetch('/api/router-settings', {
               method: 'PUT',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify(settings)
             });
-            setMessage('Router settings imported.', 'success');
+            if (!res.ok) throw new Error('HTTP ' + res.status);
+            setMessage('Router settings imported and saved.', 'success');
             await loadFallbackRoutes();
           } catch (e) {
-            setMessage('Failed to import router settings.', 'error');
+            setMessage('Failed to import router settings: ' + (e?.message || e), 'error');
           }
           event.target.value = '';
         }
 
         async function resetFallbackSettings() {
           if (!window.confirm('Reset router settings to defaults?')) return;
-          await fetch('/api/router-settings', { method: 'DELETE' });
-          setMessage('Router settings reset to defaults.', 'success');
-          await loadFallbackRoutes();
+          const res = await fetch('/api/router-settings', { method: 'DELETE' });
+          if (res.ok) {
+            setMessage('Router settings reset to defaults.', 'success');
+            await loadFallbackRoutes();
+          } else {
+            setMessage('Failed to reset router settings.', 'error');
+          }
         }
 
         // ── Visual Builder Dropdown ──
@@ -1353,10 +1364,15 @@ export function renderLayout(
           }).filter(function(entry) { return entry && entry.model; });
         }
 
+        var fallbackTextareaDebounceTimer = null;
         function applyFallbackTextareaToStore() {
           var text = document.getElementById('fallbackModelsText').value;
           fallbackCandidateStore = parseFallbackTextareaToStore(text);
           renderFallbackCandidateList();
+          if (fallbackTextareaDebounceTimer) clearTimeout(fallbackTextareaDebounceTimer);
+          fallbackTextareaDebounceTimer = setTimeout(function() {
+            autoSaveFallbackRoute();
+          }, 400);
         }
 
         function addFallbackCandidate(model) {
@@ -1366,6 +1382,7 @@ export function renderLayout(
           fallbackCandidateStore.push({ model: trimmed, enabled: true });
           renderFallbackCandidateList();
           syncFallbackCandidatesToTextarea();
+          autoSaveFallbackRoute();
         }
 
         function removeFallbackCandidate(index) {
@@ -1373,6 +1390,7 @@ export function renderLayout(
           fallbackCandidateStore.splice(index, 1);
           renderFallbackCandidateList();
           syncFallbackCandidatesToTextarea();
+          autoSaveFallbackRoute();
         }
 
         function toggleFallbackCandidate(index, enabled) {
@@ -1380,6 +1398,7 @@ export function renderLayout(
           fallbackCandidateStore[index].enabled = Boolean(enabled);
           renderFallbackCandidateList();
           syncFallbackCandidatesToTextarea();
+          autoSaveFallbackRoute();
         }
 
         function renderFallbackCandidateList() {

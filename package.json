@@ -10,7 +10,7 @@
   },
   "scripts": {
     "test": "npm run test:integration",
-    "test:integration": "npm run build && node --test --test-concurrency=1 tests/ssrf-guard.test.mjs tests/ollama-cloud.test.mjs tests/ollama-cloud-catalog.test.mjs tests/gateway-provider-catalog.test.mjs tests/gateway-response.test.mjs tests/cline-kilo-catalog-validation.test.mjs tests/execution-plan.test.mjs tests/fallback-disabled-models.test.mjs tests/fallback-disabled-execution-plan.test.mjs tests/fallback-content-classifier.test.mjs tests/fallback-chain-toggle.test.mjs tests/fallback-default-bootstrap.test.mjs tests/curation-configs.test.mjs tests/ollama-version-config-ui.test.mjs tests/*.integration.test.mjs",
+    "test:integration": "npm run build && node --test --test-concurrency=1 tests/ssrf-guard.test.mjs tests/ollama-cloud.test.mjs tests/ollama-cloud-catalog.test.mjs tests/gateway-provider-catalog.test.mjs tests/gateway-response.test.mjs tests/cline-kilo-catalog-validation.test.mjs tests/execution-plan.test.mjs tests/fallback-disabled-models.test.mjs tests/fallback-disabled-execution-plan.test.mjs tests/fallback-content-classifier.test.mjs tests/fallback-chain-toggle.test.mjs tests/fallback-default-bootstrap.test.mjs tests/fallback-persist-edits.test.mjs tests/curation-configs.test.mjs tests/ollama-version-config-ui.test.mjs tests/*.integration.test.mjs",
     "validate:cline-kilo": "node scripts/validate-cline-kilo-catalog.mjs",
     "validate:model-specs": "node --import tsx scripts/validate-model-specs.mts",
     "start": "node build/index.js",

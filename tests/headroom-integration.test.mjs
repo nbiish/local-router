@@ -87,6 +87,7 @@ test('Headroom Context Compression + Wafer ZDR Integration', async (t) => {
   const env = {
     ...process.env,
     HOME: testHome,
+    USERPROFILE: testHome,
     PORT: routerPort,
     LOCAL_ROUTER_SKIP_PQC_LOAD: 'true',
     LOCAL_ROUTER_SKIP_OLLAMA_ENSURE: 'true',

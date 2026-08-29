@@ -148,6 +148,7 @@ test.before(async () => {
   proxyEnv = {
     ...process.env,
     HOME: testHome,
+    USERPROFILE: testHome,
     PORT: port,
     LOCAL_ROUTER_SKIP_OLLAMA_ENSURE: 'true',
     LOCAL_ROUTER_FALLBACK_BASE_RETRY_SECONDS: '0',

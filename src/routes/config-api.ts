@@ -94,7 +94,7 @@ export interface ConfigApiDeps {
   getProviderPricingSnapshot: () => any;
   upsertProviderPricingEntry: (modelId: string, entry: any) => any;
   deleteProviderPricingEntry: (modelId: string) => void;
-  parseFallbackModel: (payload: any) => FallbackModelParseResult;
+  parseFallbackModel: (payload: any, options?: { allowShort?: boolean }) => FallbackModelParseResult;
   normalizeFallbackRouteId: (id: string) => string;
   getSessions: () => any[];
   recordFeedback: (sessionId: string, rating: 'up' | 'down') => { ok: boolean; error?: string };
@@ -1131,7 +1131,10 @@ app.delete('/api/provider-pricing/:modelId', (req: Request, res: Response) => {
 });
 
 app.post('/api/fallback-models', (req: Request, res: Response) => {
-  const parsed = parseFallbackModel(req.body);
+  const rawId = typeof req.body?.id === 'string' ? req.body.id.trim() : '';
+  const id = normalizeFallbackRouteId(rawId);
+  const isExistingRoute = Boolean(id && fallbackModelStore[id]);
+  const parsed = parseFallbackModel(req.body, { allowShort: isExistingRoute || req.body?.allowShort === true });
   if (!parsed.ok) {
     return res.status(400).json({ error: parsed.error });
   }
@@ -1321,8 +1324,16 @@ app.post('/api/fallback-chain/reorder', (req: Request, res: Response) => {
 
 app.get('/api/router-settings', (req: Request, res: Response) => {
   const settings = loadRouterSettings();
+  let fallbackText = settings.fallbackModelsText || '';
+  const sysRoute = fallbackModelStore['fallback-models'];
+  if (sysRoute && Array.isArray(sysRoute.models)) {
+    const disabled = new Set(Array.isArray(sysRoute.disabledModels) ? sysRoute.disabledModels : []);
+    fallbackText = sysRoute.models.map((m) => (disabled.has(m) ? `${m} disabled` : m)).join('\n');
+  }
+  const routes = Object.values(fallbackModelStore).map((model) => cloneFallbackModel(model));
   return res.json({
-    fallbackModelsText: settings.fallbackModelsText || ''
+    fallbackModelsText: fallbackText,
+    routes
   });
 });
 
@@ -1330,11 +1341,25 @@ app.put('/api/router-settings', (req: Request, res: Response) => {
   const body = req.body || {};
   const settings: RouterSettings = {};
 
+  if (Array.isArray(body.routes)) {
+    for (const routeEntry of body.routes) {
+      const parsed = parseFallbackModel(routeEntry, { allowShort: true });
+      if (parsed.ok) {
+        fallbackModelStore[parsed.model.id] = cloneFallbackModel(parsed.model);
+      }
+    }
+  }
+
   if (typeof body.fallbackModelsText === 'string') {
     settings.fallbackModelsText = body.fallbackModelsText;
+    const parsed = parseFallbackModel({ id: 'fallback-models', modelsText: body.fallbackModelsText }, { allowShort: true });
+    if (parsed.ok) {
+      fallbackModelStore['fallback-models'] = cloneFallbackModel(parsed.model);
+    }
   }
 
   try {
+    persistFallbackModels();
     saveRouterSettings(settings);
   } catch (error: any) {
     return res.status(500).json({
@@ -1347,7 +1372,12 @@ app.put('/api/router-settings', (req: Request, res: Response) => {
 });
 
 app.delete('/api/router-settings', (req: Request, res: Response) => {
+  fallbackModelStore['fallback-models'] = {
+    id: 'fallback-models',
+    models: []
+  };
   try {
+    persistFallbackModels();
     saveRouterSettings({});
   } catch (error: any) {
     return res.status(500).json({

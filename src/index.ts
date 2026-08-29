@@ -74,7 +74,7 @@ import {
   providerHasNoLiveModelList
 } from './provider-model-registries';
 import { catalogProviderSummaries } from './provider-registry';
-import { loadCurationConfigs, loadRouterSettings } from './config-persistence';
+import { loadCurationConfigs, loadRouterSettings, saveRouterSettings } from './config-persistence';
 import { normalizeGatewayChatCompletionBody } from './gateway-response';
 import {
   DEFAULT_FALLBACK_ORDERED_IDS,
@@ -1149,7 +1149,7 @@ function parseSingleProviderModel(providerName: string, payload: any): ProviderM
   return parseProviderModels(providerName, { models: [payload] });
 }
 
-export function parseFallbackModel(payload: any): FallbackModelParseResult {
+export function parseFallbackModel(payload: any, options?: { allowShort?: boolean }): FallbackModelParseResult {
   const rawId = typeof payload?.id === 'string' ? payload.id.trim() : '';
   const id = normalizeFallbackRouteId(rawId);
   if (!id) {
@@ -1172,7 +1172,7 @@ export function parseFallbackModel(payload: any): FallbackModelParseResult {
       ? rawModels.split(/[\n,;]+/).map((line) => line.trim()).filter((line) => line.length > 0)
       : [];
 
-  if (entries.length === 0) {
+  if (entries.length === 0 && !options?.allowShort) {
     return { ok: false, error: 'Fallback models must be a non-empty array or comma/newline-delimited string.' };
   }
 
@@ -1222,7 +1222,7 @@ export function parseFallbackModel(payload: any): FallbackModelParseResult {
     }
   }
 
-  if (models.length < 2) {
+  if (models.length < 2 && !options?.allowShort) {
     return { ok: false, error: 'Fallback route requires at least two unique model entries.' };
   }
 
@@ -1341,6 +1341,19 @@ function persistFallbackModels() {
   });
   fs.renameSync(temporaryPath, FALLBACK_MODELS_PATH);
   fs.chmodSync(FALLBACK_MODELS_PATH, 0o600);
+
+  try {
+    const sysRoute = fallbackModelStore[SYSTEM_FALLBACK_ROUTE_ID];
+    if (sysRoute) {
+      const disabled = new Set(Array.isArray(sysRoute.disabledModels) ? sysRoute.disabledModels : []);
+      const text = (Array.isArray(sysRoute.models) ? sysRoute.models : [])
+        .map((m) => (disabled.has(m) ? `${m} disabled` : m))
+        .join('\n');
+      saveRouterSettings({ fallbackModelsText: text });
+    }
+  } catch (error) {
+    // Non-fatal sync
+  }
 }
 
 function loadPersistedFallbackModels() {
@@ -1395,13 +1408,16 @@ function loadPersistedRouterSettings() {
     const settings = loadRouterSettings();
     if (!settings || typeof settings !== 'object') return;
     if (typeof settings.fallbackModelsText === 'string' && settings.fallbackModelsText.trim()) {
-      const text = settings.fallbackModelsText.trim();
-      const entries = text.split(/\r?\n|;/).map((line) => line.trim()).filter(Boolean);
-      if (entries.length >= 2) {
-        fallbackModelStore[SYSTEM_FALLBACK_ROUTE_ID] = {
-          id: SYSTEM_FALLBACK_ROUTE_ID,
-          models: entries
-        };
+      const existing = fallbackModelStore[SYSTEM_FALLBACK_ROUTE_ID];
+      if (!existing || (!Array.isArray(existing.models) || existing.models.length === 0)) {
+        const text = settings.fallbackModelsText.trim();
+        const entries = text.split(/\r?\n|;/).map((line) => line.trim()).filter(Boolean);
+        if (entries.length >= 1) {
+          const parsed = parseFallbackModel({ id: SYSTEM_FALLBACK_ROUTE_ID, modelsText: text }, { allowShort: true });
+          if (parsed.ok) {
+            fallbackModelStore[SYSTEM_FALLBACK_ROUTE_ID] = cloneFallbackModel(parsed.model);
+          }
+        }
       }
     }
   } catch (error: any) {
