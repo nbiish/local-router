@@ -21,6 +21,7 @@ import {
   getOAuthUpstreamHeaders,
   initAntigravityLogin,
   detectLocalAntigravitySession,
+  detectLocalCursorSession,
   isOAuthProvider,
   listOAuthProviders,
   refreshOAuthToken,
@@ -2766,18 +2767,21 @@ function vscodeUserDir() {
     candidates.push(
       path.join(appData, 'Antigravity IDE', 'User'),
       path.join(appData, 'Antigravity', 'User'),
+      path.join(appData, 'Cursor', 'User'),
       path.join(appData, 'Code', 'User')
     );
   } else if (isMac) {
     candidates.push(
       path.join(home, 'Library', 'Application Support', 'Antigravity IDE', 'User'),
       path.join(home, 'Library', 'Application Support', 'Antigravity', 'User'),
+      path.join(home, 'Library', 'Application Support', 'Cursor', 'User'),
       path.join(home, 'Library', 'Application Support', 'Code', 'User')
     );
   } else {
     candidates.push(
       path.join(home, '.config', 'Antigravity IDE', 'User'),
       path.join(home, '.config', 'Antigravity', 'User'),
+      path.join(home, '.config', 'Cursor', 'User'),
       path.join(home, '.config', 'Code', 'User')
     );
   }
@@ -3208,6 +3212,10 @@ function loadPqcSecrets(): void {
     const antigravitySession = detectLocalAntigravitySession();
   if (antigravitySession) {
     console.log('[oauth] Detected active Antigravity session on host system (' + (antigravitySession.accountLabel || 'authenticated') + ').');
+  }
+  const cursorSession = detectLocalCursorSession();
+  if (cursorSession) {
+    console.log('[oauth] Detected active Cursor session on host system (' + (cursorSession.accountLabel || 'authenticated') + ').');
   }
   ensureDefaultOllamaApiKey(keyStore);
     pruneDisallowedOllamaCloudRouting();

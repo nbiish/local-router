@@ -29,7 +29,7 @@ import { AddressInfo } from 'node:net';
  * redacted from all logs and telemetry.
  */
 
-export type OAuthProviderId = 'antigravity' | 'github-copilot';
+export type OAuthProviderId = 'antigravity' | 'github-copilot' | 'cursor';
 
 export type OAuthProviderState = {
   provider: OAuthProviderId;
@@ -136,6 +136,15 @@ const PROVIDER_CONFIG: Record<OAuthProviderId, {
       'User-Agent': 'GitHubCopilotChat/0.26.7',
       'openai-intent': 'conversation-panel',
       'x-github-api-version': '2025-04-01'
+    })
+  },
+  cursor: {
+    authType: 'oauth-pkce',
+    displayName: 'Cursor',
+    baseUrl: 'https://api2.cursor.sh/v1',
+    headers: () => ({
+      'User-Agent': 'Cursor/0.46.0',
+      'X-Cursor-Client-Version': '0.46.0'
     })
   }
 };
@@ -450,6 +459,100 @@ export function detectLocalAntigravitySession(): OAuthProviderState | null {
   return null;
 }
 
+/**
+ * Cross-platform detection paths for Cursor state database and CLI credentials.
+ * Supports Windows, macOS, and Linux installations.
+ */
+export function getCursorStateDbPaths(): string[] {
+  const isWin = process.platform === "win32";
+  const isMac = process.platform === "darwin";
+  const home = os.homedir();
+  const appData = process.env.APPDATA || (isWin ? path.join(home, "AppData", "Roaming") : "");
+
+  const candidates: string[] = [];
+  if (isWin && appData) {
+    candidates.push(
+      path.join(appData, "Cursor", "User", "globalStorage", "state.vscdb")
+    );
+  } else if (isMac) {
+    candidates.push(
+      path.join(home, "Library", "Application Support", "Cursor", "User", "globalStorage", "state.vscdb")
+    );
+  } else {
+    candidates.push(
+      path.join(home, ".config", "Cursor", "User", "globalStorage", "state.vscdb")
+    );
+  }
+  return candidates;
+}
+
+/**
+ * Detects an active Cursor session on the current system (Windows/macOS/Linux).
+ * If found and valid, returns the hydrated OAuthProviderState and updates the persisted store.
+ */
+export function detectLocalCursorSession(): OAuthProviderState | null {
+  const envToken = process.env.CURSOR_API_KEY || process.env.CURSOR_TOKEN;
+  if (envToken && typeof envToken === "string") {
+    const state: OAuthProviderState = {
+      provider: "cursor",
+      authType: "oauth-pkce",
+      accessToken: envToken,
+      refreshToken: "",
+      expiresAt: Date.now() + 30 * 24 * 3600_000,
+      accountId: "cursor-env",
+      accountLabel: "Cursor (Environment Variable)",
+      lastRefreshedAt: Date.now()
+    };
+    return state;
+  }
+
+  const dbPaths = getCursorStateDbPaths();
+  for (const dbPath of dbPaths) {
+    const tokenVal = readSqliteKey(dbPath, "cursorAuth/accessToken");
+    if (!tokenVal || typeof tokenVal !== "string") continue;
+
+    const refreshTokenVal = readSqliteKey(dbPath, "cursorAuth/refreshToken") || "";
+    const emailVal = readSqliteKey(dbPath, "cursorAuth/cachedEmail") || "user";
+    const membershipVal = readSqliteKey(dbPath, "cursorAuth/stripeMembershipType") || "";
+
+    let expiresAt = Date.now() + 30 * 24 * 3600_000;
+    try {
+      const parts = tokenVal.split(".");
+      if (parts.length === 3) {
+        const payload = JSON.parse(Buffer.from(parts[1], "base64").toString("utf8"));
+        if (payload.exp) {
+          expiresAt = Number(payload.exp) * 1000;
+        }
+      }
+    } catch {}
+
+    const accountLabel = membershipVal ? `${emailVal} (${membershipVal})` : emailVal;
+    const state: OAuthProviderState = {
+      provider: "cursor",
+      authType: "oauth-pkce",
+      accessToken: tokenVal,
+      refreshToken: refreshTokenVal,
+      expiresAt,
+      accountId: emailVal,
+      accountLabel,
+      lastRefreshedAt: Date.now()
+    };
+
+    try {
+      const store = loadStore();
+      const existing = store.cursor;
+      if (!existing || !existing.accessToken || (existing.expiresAt < expiresAt)) {
+        store.cursor = state;
+        saveStore(store);
+      }
+    } catch {}
+
+    return state;
+  }
+
+  return null;
+}
+
 function loadStore(): OAuthStore {
   try {
     if (!fs.existsSync(OAUTH_STORE_PATH)) return {};
@@ -474,18 +577,18 @@ function saveStore(store: OAuthStore): void {
 
 function sanitizeProviderId(input: string): OAuthProviderId {
   const trimmed = String(input || '').trim().toLowerCase();
-  if (trimmed === 'antigravity' || trimmed === 'github-copilot') {
+  if (trimmed === 'antigravity' || trimmed === 'github-copilot' || trimmed === 'cursor') {
     return trimmed;
   }
   throw new Error(`Unknown OAuth provider: ${input}`);
 }
 
 export function isOAuthProvider(name: string): boolean {
-  return name === 'antigravity' || name === 'github-copilot';
+  return name === 'antigravity' || name === 'github-copilot' || name === 'cursor';
 }
 
 export function listOAuthProviders(): OAuthProviderId[] {
-  return ['antigravity', 'github-copilot'];
+  return ['antigravity', 'github-copilot', 'cursor'];
 }
 
 export function getOAuthProviderConfig(provider: OAuthProviderId) {
@@ -500,6 +603,10 @@ export function getOAuthState(provider: OAuthProviderId): OAuthProviderState | u
   }
   if (provider === "antigravity") {
     const detected = detectLocalAntigravitySession();
+    if (detected) return detected;
+  }
+  if (provider === "cursor") {
+    const detected = detectLocalCursorSession();
     if (detected) return detected;
   }
   return undefined;
