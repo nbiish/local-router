@@ -1,5 +1,5 @@
 ---
-description: PQC secrets for all API keys. Worktree per task. All development commits/merges happen strictly on develop branch for validation. main is strictly a public-facing release-only branch. Polyglot ecosystem (Rust, TS, Py, etc). Chain-of-Draft (CoD) reasoning: strictly ≤5 words per step. Mimic human shorthand: pure logic/state transformations. Separate final output via ####. Ask before merging. Output full production code. llms.txt is the PRD anchor. Read it. No secrets in tasks or PRD. FIPS 203/204/205 for secrets ops. Standard crypto for transport. Audit for banned algorithms and secrets every cycle. Never work on main. Create a worktree for every task. Branch naming: `<type>/<scope>-<slug>`. Pre-merge checklist: gates, diff, user confirmation. Fail closed on any conflict or unconfirmed merge.
+description: PQC secrets for all API keys. Worktree per task. Worktrees branch from main, merge back to main after verification. Polyglot ecosystem (Rust, TS, Py, etc). Chain-of-Draft (CoD) reasoning: strictly ≤5 words per step. Mimic human shorthand: pure logic/state transformations. Separate final output via ####. Ask before merging. Output full production code. llms.txt is the PRD anchor. Read it. No secrets in tasks or PRD. FIPS 203/204/205 for secrets ops. Standard crypto for transport. Audit for banned algorithms and secrets every cycle. Never work directly on main. Create a worktree for every task. Branch naming: `<type>/<scope>-<slug>`. Pre-merge checklist: gates, diff, user confirmation. Fail closed on any conflict or unconfirmed merge.
 ---
 
 # 🚧 WORKTREE GATE — MANDATORY CHECKPOINT
@@ -12,7 +12,7 @@ description: PQC secrets for all API keys. Worktree per task. All development co
 □ 2. Am I in a worktree?   → git worktree list
    If the cwd is the main worktree (no separate path): STOP. Create a worktree.
 
-□ 3. Create worktree:       → git worktree add -b <type>/<scope>-<slug> ../<slug> develop
+□ 3. Create worktree:       → git worktree add -b <type>/<scope>-<slug> ../<slug> main
    Then: cd ../<slug> and resume work there.
 
 **Branch naming:** `<type>/<scope>-<slug>` — kebab-case, lowercase, descriptive.
@@ -26,9 +26,9 @@ description: PQC secrets for all API keys. Worktree per task. All development co
 **Rules:**
 - **NEVER** read, edit, or commit files while on `main`.
 - One task = one branch = one worktree. No exceptions.
-- If you discover you're on `main` after already making changes: stash, check out develop, create worktree, pop stash, then continue.
+- If you discover you're on `main` after already making changes: stash, create worktree from `main`, pop stash, then continue.
 
-**Why:** `main` is strictly the public-facing release branch. `develop` is the active development and integration branch — all changes land here (either directly or via feature worktrees merged here) for verification before release.
+**Why:** `main` is the release branch. Every task gets its own worktree branched from `main`. After verification, the worktree merges back into `main`. This keeps `main` clean and every change isolated.
 
 ---
 
@@ -70,14 +70,16 @@ This is the core of the system. Every API key for every application — CLI tool
 
 **Infrastructure (live at `~/.config/pqc-secrets/`):**
 
-OS Keystore                        ~/.config/pqc-secrets/
-┌──────────────────────┐          ┌────────────────────────────┐
-│ service: pqc-secrets │          │ recipient.pub              │
-│ ML-KEM-768 secret key│          │ ML-KEM-768 public key      │
-└──────────┬───────────┘          │ (safe to commit)           │
-│                      └────────────┬───────────────┘
-│ decaps (ML-KEM-768)               │ encaps
-▼                                   ▼
+Key wrapping (machine-agnostic)    ~/.config/pqc-secrets/
+┌──────────────────────────┐       ┌────────────────────────────┐
+│ machine.kek (0600)       │       │ recipient.pub              │
+│ stable per-machine KEK   │       │ ML-KEM-768 public key      │
+│ (OS keychain opt-in via  │       │ (safe to commit)           │
+│ PQC_USE_KEYCHAIN=true)   │       └────────────┬───────────────┘
+│ wraps private.key.enc    │                    │ encaps
+└──────────┬───────────────┘                    ▼
+│ decaps (ML-KEM-768)                                 
+▼
 ┌──────────────────────────────────────────────────────────────┐
 │                    secrets.bundle.json                        │
 │  ┌─────────────────┐  ┌──────────────────────────────────┐   │
@@ -96,7 +98,7 @@ OS Keystore                        ~/.config/pqc-secrets/
 **Rules:**
 - No hardcoded secrets. No `.env` files with API keys. No plaintext on disk. Ever.
 - All API keys live encrypted in `~/.config/pqc-secrets/secrets.bundle.json`. This file is safe to commit — every value is AES-256-GCM ciphertext wrapped by ML-KEM-768.
-- The ML-KEM-768 private key lives exclusively in the OS keystore (macOS Keychain, GNOME Keyring, Windows Credential Manager). On T2/M-series hardware, this is hardware-backed.
+- The ML-KEM-768 private key is encrypted at rest in `private.key.enc` under a stable per-machine KEK persisted to `~/.config/pqc-secrets/machine.kek` (0600) — machine-agnostic, survives reboots/kernel updates/distro re-creation. Native OS keystore storage (macOS Keychain, Linux Secret Service) is available by opting in via `PQC_USE_KEYCHAIN=true`. Since 2026-08-20 new keygens store the key in FIPS 203 seed form (64 bytes `d‖z`) via native `cryptography>=45` ML-KEM-768; legacy 2400-byte expanded-form stores remain readable (kyber-py fallback) and rotate on the next `keygen`.
 - Load secrets on-demand into shell environment: `secrets-load` (shell function) or `pqc-secrets export`. Never persist them.
 - Application integration: Apps read `os.environ` (or `std::env::var`, `process.env`) populated in-memory. They never interact with the PQC bundle directly.
   - **CLI / TUI**: Must inherit environment variables loaded via `secrets-load` from the terminal session in which they are launched.
@@ -124,60 +126,40 @@ Validate types and paths (CWE-22). Parameterize SQL. `shell=False` for subproces
 
 **Pass the WORKTREE GATE above first.** Git worktrees are the fundamental mechanism for iteration. They ensure a pristine `git reflog` and untangled history, allowing us to safely experiment, bisect, and roll back without polluting stable branches.
 
-### Branching Strategy — Develop Verifies, Main Releases
+### Branching Strategy — Worktrees Isolate, Main Releases
 
 | Branch | Purpose | Writes allowed? |
 |--------|---------|----------------|
-| `main` | **Release branch.** Public-facing release-only state. | **NO** — merge-only from `develop` during release windows |
-| `develop` | **Active development & integration branch.** All changes land here for verification. | **YES** — direct commits/merges allowed |
-| `feature/<slug>` | **Active task development.** Isolated worktree branched from `develop`. | **YES** |
+| `main` | **Release branch.** Public-facing release state. | **NO** — merge-only from verified worktrees |
+| `<type>/<scope>-<slug>` | **Task worktree.** Isolated work branched from `main`. | **YES** — commits allowed in worktree only |
 
-**Invariant:** No feature work ships to `main` without passing through `develop`. `develop` is not optional — it is the required integration and verification gate.
+**Invariant:** Every task lives in its own worktree. Worktrees branch from `main`, are verified in isolation, then merge directly back into `main`. No direct commits to `main` ever.
 
-### Develop-Complete Gate — Hard Rule Before `main`
-
-`develop` is the **only** integration surface. Promotion to `main` is the **finalized release step** — never a shortcut for one landed feature while siblings wait.
-
-**Policy (evaluate in order; fail closed on any miss):**
-
-1. **Merge completeness** — Every active `feat/*`, `fix/*`, `chore/*`, `docs/*` branch is either **merged into `develop`** or **retired** (operator explicitly abandons; branch deleted).
-2. **Audit command** — `git branch --no-merged develop` must return **empty** (no pending feature work).
-3. **Integrated verification** — Native gates + smoke tests run **on `develop` after the last merge**, not only in an isolated worktree.
-4. **Operator intent** — User confirms `develop` is the intended release snapshot.
-5. **Release hop** — Only then: merge `develop` → `main`.
-
-```text
-∀ branch B ∈ {feat,fix,chore,docs}/* :
-  merged(B, develop) ∨ abandoned(B, user-confirmed)
-∧ verify(develop) = PASS
-⟹ ALLOW develop → main
-```
-
-**STOP** if any feature branch is unmerged: do **not** promote to `main`. Merge or retire it, re-run verification on `develop`, then request release confirmation.
-
-**Why:** Partial promotion hides cross-branch conflicts, stale APIs, and split-brain config until production. `develop` must always represent the full intended product state before `main` moves.
+**Single-branch policy:** `main` is the only permanent branch. Never create, use, or preserve `develop` or another integration branch. All task branches are temporary worktree branches created from `main` and merged directly into `main`.
 
 ### Development & Iteration Loop
 
-1. **Isolate:** Create branch + worktree from `develop`. Read `llms.txt` → write `.agents/tasks/TASK.$(date).md`.
+1. **Isolate:** Create branch + worktree from `main`. Read `llms.txt` → write `.agents/tasks/TASK.$(date).md`.
 2. **Iterate & Track:** Commit atomically and frequently within the worktree. Write descriptive commit messages. Excellent git history is required so we can step backward through logical iterations if an approach fails.
 3. **Audit:** Scan code, task file, and `llms.txt` for banned crypto or secrets every cycle.
 4. **Pre-Commit:** Pass native ecosystem gates (e.g., `cargo clippy`, `tsc`, `ruff`), plus security gates (`gitleaks`, `detect-secrets`).
 5. **Verify (worktree):** Smoke-test the change in the worktree before merge. See [Verification Procedure](#verification-procedure) below.
-6. **Integrate → `develop`:** Merge each `feature/*` → `develop` when that worktree’s gates pass. Repeat until **no** feature branches remain outside `develop` (see Develop-Complete Gate). Ask per merge: *"Ready to merge `<branch>` → `develop`? [diff summary]. Confirm?"*
-7. **Verify (`develop`):** After **all** intended feature merges, re-run gates and smoke tests **on `develop`**. Confirm the **integrated** tree — not an isolated worktree — is correct. Run `git branch --no-merged develop` and resolve any rows before step 8.
-8. **Release → `main` (finalized step only):** Promote `develop` → `main` only when the Develop-Complete Gate passes and integrated verification is green. Ask: *"Develop is complete (`git branch --no-merged develop` empty, verify PASS). Ready to promote `develop` → `main`? [diff summary]. Confirm?"*
-9. **Cleanup:** Fail closed on ambiguity. Remove merged worktrees and feature branches. See [Post-Merge Cleanup](#post-merge-cleanup) below.
+6. **Merge → `main`:** When the worktree's gates pass, ask: *"Ready to merge `<branch>` → `main`? [diff summary]. Confirm?"* Only merge after user confirms.
+7. **Cleanup (mandatory):** Immediately after merge: remove the worktree, delete the feature branch, verify clean state. See [Post-Merge Cleanup](#post-merge-cleanup) below. **Do not skip cleanup.**
 
-**Promotion path (mandatory two-hop; no skips):**
+**Completion gate:** A task is incomplete until `main` contains the verified merge, every temporary task worktree is removed, every merged task branch is deleted locally and remotely, and the operator is back on a clean `main` worktree.
+
+**Promotion path (direct — no intermediate branches):**
 
 ```text
-∀ feature worktrees → develop (integrate + verify together) → main (finalized release only)
+worktree (verify) → main (merge after user confirm) → cleanup
 ```
+
+**Forbidden flow:** Never use `develop`, a staging branch, or any other persistent integration branch between a task worktree and `main`.
 
 ### Verification Procedure
 
-**Read-only, safe to run on any branch including `develop`.** Run after step 4 (Pre-Commit) and before step 6 (Merge) to confirm the change is observable in a live environment.
+**Read-only, safe to run on any branch.** Run after step 4 (Pre-Commit) and before step 6 (Merge) to confirm the change is observable in a live environment.
 
 ```bash
 # 1. Kill any stray processes on the verification port
@@ -209,7 +191,7 @@ git checkout main
 
 ### Post-Merge Cleanup
 
-**Run after the user confirms both merge hops are complete** (`feature/*` → `develop`, then `develop` → `main`).
+**Run immediately after user confirms the merge into `main`. Cleanup is mandatory — never skip it. Do not begin another task until cleanup passes.**
 
 ```bash
 # 1. Remove the merged worktree (path: sibling of main repo)
@@ -218,25 +200,24 @@ git worktree remove <worktree-path>
 # 2. Delete the feature branch from the main repo
 cd <main-repo-path>
 git branch -d <type>/<scope>-<slug>
+
+# 3. Delete the remote feature branch, if it was pushed
+git push origin --delete <type>/<scope>-<slug>
 ```
 
-**`-d` vs `-D`:** `git branch -d` refuses to delete a branch whose tip is not reachable from the current branch. If `develop` holds the merge but you are on `main`, `-d` will fail with *"the branch 'X' is not fully merged"*. This is correct git behavior — the branch is fully merged into `develop`, just not into your current branch. Use `-D` (capital) to force-delete:
+**`-d` vs `-D`:** `git branch -d` refuses to delete a branch whose tip is not reachable from the current branch. If you are on `main` and the merge just landed, `-d` should work. Use `-D` (capital) to force-delete only if `-d` fails after confirming the merge commit exists in `main`:
 
 ```bash
-# Safe to force-delete when the merge IS in develop
-git log --oneline develop | grep -q "<commit-hash>" && git branch -D <type>/<scope>-<slug>
+# Verify merge landed before force-delete
+git log --oneline main | grep -q "<commit-hash>" && git branch -D <type>/<scope>-<slug>
 ```
 
-The shorthand: **`-d` is safe from `develop` after a feature→develop merge; from `main`, use `-D` only after confirming the merge commit exists in `develop`.**
-
 ```bash
-# 3. Verify cleanup
+# 4. Verify cleanup — all four must be clean
 git worktree list                         # expect: only the main repo
 git branch | grep -v "^\*"                # expect: no <type>/<scope>-<slug> rows
 git status                                # expect: clean
-
-# 4. (Recommended) Switch to develop for safety until the next task
-git checkout develop
+git branch --show-current                 # expect: main
 ```
 
 **Why:** Orphaned worktrees and merged branches accumulate fast and confuse future tasks. Cleaning up after every merge keeps the worktree list and branch namespace small and auditable. The task file (`.agents/tasks/TASK.$(date).md`) survives worktree deletion because it lives in the merged branch, not the worktree's working copy.
@@ -259,7 +240,7 @@ git checkout develop
 
 ### Commands
 
-- `pqc-secrets keygen` — Generate ML-KEM-768 keypair. Private key → OS keystore, public key → `~/.config/pqc-secrets/recipient.pub`. The private key is encrypted at rest under a stable per-machine KEK persisted to `~/.config/pqc-secrets/machine.kek` (0600) so it survives reboots, kernel updates, and distro re-creation. See `.agents/skills/pqc-secrets/references/kek-persistence.md`.
+- `pqc-secrets keygen` — Generate ML-KEM-768 keypair. Private key → OS keystore, public key → `~/.config/pqc-secrets/recipient.pub`.
 - `pqc-secrets pack` — Encrypt stdin `KEY=VAL` lines via AES-256-GCM, wrap data key via ML-KEM-768, and write `~/.config/pqc-secrets/secrets.bundle.json`.
 - `pqc-secrets export` — Decrypt bundle via keystore and output shell `export KEY=VALUE` lines.
 - `secrets-load` — Shell function evaluating `pqc-secrets export` to inject secrets into current shell memory.
@@ -278,10 +259,9 @@ Run before any code that touches cryptography, secrets storage, or network commu
 - Secrets — platform keystore used, AES-256-GCM + ML-KEM-768 wrapping, no plaintext, no `.env`
 - History — frequent, atomic commits made within the worktree to preserve iteration history
 - **Verification** — change smoke-tested via verification procedure; new entries visible; PQC bundle loaded; no unexpected errors in the log
-- **Develop-complete** — `git branch --no-merged develop` is empty; every feature branch merged or user-retired; no `main` promotion while stragglers exist
-- Merge readiness — worktree gates pass; all features integrated on `develop`; integrated verification pass on `develop`; user confirmed `develop` → `main` **finalized** promotion
-- **Post-merge cleanup** — merged worktree removed (`git worktree list` shows only main), feature branch deleted (`git branch` shows no merged-feature rows), working tree clean, on `main` for safety
-- Worktree hygiene — Pass the WORKTREE GATE first. Not stale, not dirty, not on `main` or `develop`.
+- Merge readiness — worktree gates pass; user confirmed merge into `main`
+- **Post-merge cleanup** — merged worktree removed (`git worktree list` shows only main), feature branch deleted (`git branch` shows no merged-feature rows), working tree clean
+- Worktree hygiene — Pass the WORKTREE GATE first. Not stale, not dirty, not on `main`.
 
 **Incident response:** Stop work immediately. Preserve state (redacted — no secrets in logs). Notify user. Mitigate root cause.
 </AUDIT>
@@ -289,5 +269,5 @@ Run before any code that touches cryptography, secrets storage, or network commu
 ---
 
 <REINFORCEMENT>
-PQC for every API key. Respect the target codebase language (Rust, TS, Python). Isolate every task in its own git worktree. **Merge every feature branch into `develop`; verify the integrated `develop` tree; only then promote to `main` as the finalized release step.** Never ship `main` ahead of a complete, verified `develop`. Never self-approve merges — ask the user at every hop. Chain-of-Draft task files: strictly ≤5 words per reasoning step, transition with ####. Output full production code.
+PQC for every API key. Respect the target codebase language (Rust, TS, Python). Isolate every task in its own git worktree. Worktrees branch from `main`, merge back to `main` after verification. **Always clean up worktrees and branches immediately after merge.** Never self-approve merges — ask the user at every hop. Chain-of-Draft task files: strictly ≤5 words per reasoning step, transition with ####. Output full production code.
 </REINFORCEMENT>
