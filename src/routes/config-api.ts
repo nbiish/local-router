@@ -1,4 +1,6 @@
+import path from "node:path";
 import express, { Request, Response } from 'express';
+import { checkUpdateStatus, applyUpdate } from "../update-checker";
 import { ThinkingLevel } from '../reasoning';
 import { ProxyProvider } from '../types';
 import {
@@ -789,6 +791,24 @@ app.post('/api/pqc-resync', (req: Request, res: Response) => {
     return res.json({ success: true, resynced: false, reason: 'cooldown' });
   }
   return res.status(502).json({ success: false, error: result.error });
+});
+
+app.get('/api/update-status', async (req: Request, res: Response) => {
+  const projectRoot = path.resolve(__dirname, '..', '..');
+  const status = await checkUpdateStatus(projectRoot, false);
+  res.json({ success: true, ...status });
+});
+
+app.post('/api/check-updates', async (req: Request, res: Response) => {
+  const projectRoot = path.resolve(__dirname, '..', '..');
+  const status = await checkUpdateStatus(projectRoot, true);
+  res.json({ success: true, ...status });
+});
+
+app.post('/api/apply-update', (req: Request, res: Response) => {
+  const projectRoot = path.resolve(__dirname, '..', '..');
+  const result = applyUpdate(projectRoot);
+  res.json(result);
 });
 
 app.get('/api/provider-configs', (req: Request, res: Response) => {

@@ -80,7 +80,8 @@ feature worktree → develop (integrate + verify) → main (release)
 
 | Commit | Summary |
 |--------|---------|
-| `pending` | **Release 2026-08-29d** — Universal cross-platform setup & installer (Windows, macOS, Linux, WSL), install scripts (`install.sh`, `install.cmd`, `install.ps1`, `scripts/setup-platform.mjs`), Ollama drop-in CLI interception (`bin/ollama.cmd`, `bin/ollama`), friendly startup dashboard banner, and Corner/System Tray desktop application blueprint |
+| `pending` | **Release 2026-08-29e** — Continuous Integration & Continuous Development (CI/CD) update system (`src/update-checker.ts`, `GET /api/update-status`, `POST /api/check-updates`, `POST /api/apply-update`), multi-OS GitHub Actions workflow (`.github/workflows/ci.yml`), and `local-router update` CLI self-update command |
+| `9b87b0b` | **Release 2026-08-29d** — Universal cross-platform setup & installer (Windows, macOS, Linux, WSL), install scripts (`install.sh`, `install.cmd`, `install.ps1`, `scripts/setup-platform.mjs`), Ollama drop-in CLI interception (`bin/ollama.cmd`, `bin/ollama`), friendly startup dashboard banner, and Corner/System Tray desktop application blueprint |
 | `2d431f8` | **Release 2026-08-29c** — Permanent PQC secrets persistence & boot synchronization on Windows (direct uv execution, ML-KEM-768 key encapsulation, CRLF parsing fix); Modal proxy provider for GLM-5.3-Flash custom deployment with token/session header support; Ollama default cloud live-seeding for fcc-server |
 | `f9f6181` | **Release 2026-08-29b** — Live model refresh across all provider endpoints: per-provider and global refresh buttons on /config/providers; Cursor ConnectRPC binary protobuf discovery (207 models); Google Antigravity & Copilot token exchange fix; Ollama version floor (≥ 0.6.4); Windows PQC batch wrapper; rate limit elevation to 5,000 reqs |
 | `pending` | **Release 2026-08-29** — Pricing Overrides removal: remove /config/pricing UI, /api/provider-pricing endpoints, and provider-pricing.json persistence; auto-detect free tier and baseline rates |
@@ -191,6 +192,21 @@ Clients format model names using the patterns:
 - `local-router/fallback-id` (e.g. `local-router/fallback-models`) — fallback ordered retry chain.
 
 Slashes after the first segment are passed through as part of the upstream ID (e.g. OpenRouter preset paths).
+
+### Continuous Integration & Self-Updating System (CI/CD)
+
+#### 1. Automated Upstream Update Checker & Self-Update Engine
+Local Router includes an in-process update checker and self-updating subsystem (`src/update-checker.ts`) that monitors the upstream release repository:
+- **Status API (`GET /api/update-status`)**: Returns current version, commit hash, latest upstream commit, and boolean `hasUpdate`. Cached for 15 minutes to respect GitHub rate limits.
+- **On-Demand Check (`POST /api/check-updates`)**: Forces an immediate query against upstream git remotes and the GitHub API.
+- **One-Click Update (`POST /api/apply-update` & `local-router update`)**: Pulls the latest release from `main`, updates dependencies, recompiles TypeScript, preserves all PQC secret bundles (`~/.config/pqc-secrets/secrets.bundle.json`) and user settings (`~/.config/local-router/`), and seamlessly restarts the daemon without losing configurations.
+- **CLI Commands**:
+  - `local-router check-update`: Checks if a newer release or commit is available.
+  - `local-router update`: Applies the update and restarts the server.
+
+#### 2. Cross-Platform GitHub Actions Matrix
+- **`.github/workflows/ci.yml`**: Automated CI/CD pipeline triggered on every push and pull request to `main`.
+- Matrix tests across **Ubuntu**, **macOS**, and **Windows** on **Node.js 20.x & 22.x**, verifying TypeScript builds, the 112+ test suite, PQC key generation, and CLI shim integrity.
 
 ### Cross-Platform Setup, CLI Interception & Desktop App Blueprint
 
