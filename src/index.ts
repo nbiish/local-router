@@ -3087,22 +3087,56 @@ function getPqcBinPath(): string {
   return '';
 }
 
-function ensurePqcKeypair(bin: string): boolean {
+function execPqcBin(args: string[], options: { input?: string; env?: NodeJS.ProcessEnv; timeout?: number } = {}): string {
+  const bin = getPqcBinPath();
+  if (!bin) throw new Error('pqc-secrets binary not found');
+
+  const spawnEnv = {
+    ...process.env,
+    PQC_CONFIG_DIR: getPqcConfigDir(),
+    PQC_USE_KEYCHAIN: process.env.PQC_USE_KEYCHAIN || 'false',
+    PATH: defaultChildPathEnv(),
+    ...options.env
+  };
+
+  const timeout = options.timeout || 120000;
+
+  if (process.platform === 'win32' && (bin.endsWith('.cmd') || bin.endsWith('.bat'))) {
+    const scriptPath = path.resolve(__dirname, '..', '.agents', 'skills', 'pqc-secrets', 'scripts', 'pqc_secrets.py');
+    if (fs.existsSync(scriptPath)) {
+      try {
+        return execFileSync('uv', ['run', scriptPath, ...args], {
+          input: options.input,
+          encoding: 'utf8',
+          timeout,
+          env: spawnEnv
+        });
+      } catch (err: any) {
+        // Fall back to shell invocation if direct uv spawn fails
+      }
+    }
+    return execFileSync(bin, args, {
+      input: options.input,
+      encoding: 'utf8',
+      timeout,
+      env: spawnEnv,
+      shell: true
+    });
+  }
+
+  return execFileSync(bin, args, {
+    input: options.input,
+    encoding: 'utf8',
+    timeout,
+    env: spawnEnv
+  });
+}
+
+function ensurePqcKeypair(bin?: string): boolean {
   const pubkeyPath = getPqcPubkeyPath();
   if (fs.existsSync(pubkeyPath)) return true;
   try {
-    execFileSync(bin, ['keygen'], {
-      encoding: 'utf8',
-      // uv-based pqc-secrets engine cold start can exceed 10s on first dependency resolution
-      timeout: 30000,
-      stdio: 'pipe',
-      env: {
-        ...process.env,
-        PQC_CONFIG_DIR: getPqcConfigDir(),
-        PQC_USE_KEYCHAIN: process.env.PQC_USE_KEYCHAIN || 'false',
-        PATH: defaultChildPathEnv()
-      }
-    });
+    execPqcBin(['keygen'], { timeout: 30000 });
     console.log(`[PQC] Generated new ML-KEM-768 keypair at ${getPqcConfigDir()}/`);
     return true;
   } catch (err) {
@@ -3159,24 +3193,19 @@ function syncKeysFromPqcBundle(options: { force?: boolean } = {}): PqcBundleSync
   const bin = getPqcBinPath();
   if (!bin) return { ok: false, error: 'pqc-secrets binary not found' };
   const bundlePath = getPqcBundlePath();
-  if (!fs.existsSync(bundlePath)) return { ok: false, error: `no bundle at ${bundlePath}` };
+  if (!fs.existsSync(bundlePath)) {
+    if (Object.keys(keyStore).some((k) => k !== 'ollama' && keyStore[k])) {
+      persistPqcSecrets();
+    }
+    if (!fs.existsSync(bundlePath)) {
+      return { ok: false, error: `no bundle at ${bundlePath}` };
+    }
+  }
 
-  const spawnEnv = {
-    ...process.env,
-    PQC_CONFIG_DIR: getPqcConfigDir(),
-    PQC_USE_KEYCHAIN: process.env.PQC_USE_KEYCHAIN || 'false',
-    PATH: defaultChildPathEnv()
-  };
   let output: string | null = null;
   let lastError: unknown = null;
   try {
-    // 120s: the uv/python engine cold-bootstraps its dependency cache
-    // (cryptography wheels) on first use and far exceeds 30s downloads.
-    output = execFileSync(bin, ['export'], {
-      encoding: 'utf8',
-      timeout: 120000,
-      env: spawnEnv
-    });
+    output = execPqcBin(['export'], { timeout: 120000 });
   } catch (err) {
     lastError = err;
   }
@@ -3357,35 +3386,21 @@ function persistPqcSecrets(): void {
     return;
   }
   try {
-    // Namespaced pack (2026-08-22): Local Router-owned keys are stored in the
-    // bundle under LOCALROUTER_<KEY_ENV_VAR> names, and ONLY those names are
-    // managed here. Plainly-named entries — including provider-named ones
-    // like KILO_API_KEY used by other tools — are Local-Router-invisible and
-    // always preserved. If the current bundle cannot be read we abort rather
-    // than risk dropping unknown entries.
     const managedEnvVars = new Set<string>();
     for (const summary of allProviderSummaries()) {
       managedEnvVars.add(localRouterEnvVarName(summary.keyEnvVar));
+      managedEnvVars.add(summary.keyEnvVar);
     }
     const preservedLines: string[] = [];
     if (fs.existsSync(getPqcBundlePath())) {
       let existingOutput: string | null = null;
       try {
-        existingOutput = execFileSync(bin, ['export'], {
-          encoding: 'utf8',
-          timeout: 120000,
-          env: {
-            ...process.env,
-            PQC_CONFIG_DIR: getPqcConfigDir(),
-            PQC_USE_KEYCHAIN: process.env.PQC_USE_KEYCHAIN || 'false',
-            PATH: defaultChildPathEnv()
-          }
-        });
+        existingOutput = execPqcBin(['export'], { timeout: 120000 });
       } catch (err) {
         console.error('[PQC] Cannot persist safely: existing bundle export failed — not overwriting. Error:', sanitizeDiagnosticText(String((err as Error).message)));
         return;
       }
-      for (const line of existingOutput.split('\n')) {
+      for (const line of (existingOutput || '').split('\n')) {
         const match = line.match(/^export\s+([A-Z0-9_]+)=(.+)$/);
         if (!match) continue;
         if (managedEnvVars.has(match[1])) continue;
@@ -3407,25 +3422,25 @@ function persistPqcSecrets(): void {
         }
       }
     }
+    if (process.env.MODAL_PROXY_TOKEN_ID) {
+      lines.push(`MODAL_PROXY_TOKEN_ID=${process.env.MODAL_PROXY_TOKEN_ID}`);
+    }
+    if (process.env.MODAL_PROXY_TOKEN_SECRET) {
+      lines.push(`MODAL_PROXY_TOKEN_SECRET=${process.env.MODAL_PROXY_TOKEN_SECRET}`);
+    }
+    if (process.env.MODAL_SESSION_ID) {
+      lines.push(`MODAL_SESSION_ID=${process.env.MODAL_SESSION_ID}`);
+    }
     if (lines.length === 0) return;
     if (!ensurePqcKeypair(bin)) {
       console.error(`[PQC] Cannot persist: no keypair at ${getPqcPubkeyPath()}. Run 'bin/pqc-secrets keygen' manually.`);
       return;
     }
-    execFileSync(bin, ['pack'], {
+    execPqcBin(['pack'], {
       input: lines.join('\n') + '\n',
-      encoding: 'utf8',
-      timeout: 30000,
-      env: {
-        ...process.env,
-        PQC_CONFIG_DIR: getPqcConfigDir(),
-        PQC_USE_KEYCHAIN: process.env.PQC_USE_KEYCHAIN || 'false',
-        PATH: defaultChildPathEnv()
-      }
+      timeout: 30000
     });
-    if (process.env.LOCAL_ROUTER_DEV === 'true') {
-      console.log(`[PQC] Persisted ${lines.length} key(s) to ${getPqcBundlePath()}.`);
-    }
+    console.log(`[PQC] Persisted ${lines.length} key(s) to ${getPqcBundlePath()}.`);
   } catch (err) {
     console.error('[PQC] Failed to persist secrets:', (err as Error).message);
   }
