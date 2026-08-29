@@ -970,8 +970,12 @@ function defaultPresentedModelName(providerName: string, modelName: string) {
   if (providerName === 'kilo' || providerName === 'cline') {
     return gatewayPresentedModelId(providerName, modelName);
   }
+  const prefix = providerPresentationPrefix(providerName);
   const segment = modelAliasSegment(modelName);
-  return `${providerPresentationPrefix(providerName)}-${segment || 'model'}`;
+  if (segment.startsWith(`${prefix}-`)) {
+    return segment;
+  }
+  return `${prefix}-${segment || 'model'}`;
 }
 
 function providerModelDisplay(providerName: string, modelName: string) {
