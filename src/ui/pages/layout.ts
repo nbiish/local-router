@@ -504,7 +504,6 @@ export function renderLayout(
         <a href="/config/providers" class="nav-link">Providers &amp; Models</a>
         <a href="/config/fallback" class="nav-link">Fallback Routes</a>
         <a href="/config/thinking" class="nav-link">Prompt &amp; Thinking</a>
-        <a href="/config/pricing" class="nav-link">Pricing Overrides</a>
         <a href="/config/diagnostics" class="nav-link">Diagnostics &amp; Sessions</a>
       </nav>
       <div class="sidebar-footer">
@@ -2760,90 +2759,12 @@ export function renderLayout(
         safeInit('loadCurationConfigsList', loadCurationConfigsList);
         try { buildModelDropdown(); } catch (err) { showUiError('buildModelDropdown', err); }
         safeInit('loadCatalog', loadCatalog);
-        safeInit('loadProviderPricingPanel', loadProviderPricingPanel);
         loadSessionsPanel();
         loadSystemPrompt();
         loadThinkingConfig();
         loadWaferZdrConfig();
         loadHeadroomConfig();
         loadModelSource();
-
-        async function loadProviderPricingPanel() {
-          var countEl = document.getElementById('pricingCount');
-          var listEl = document.getElementById('pricingList');
-          try {
-            var res = await fetch('/api/provider-pricing');
-            var data = await res.json().catch(function() { return {}; });
-            var models = data.models && typeof data.models === 'object' ? data.models : {};
-            var keys = Object.keys(models).sort();
-            countEl.innerText = keys.length + ' pricing override' + (keys.length === 1 ? '' : 's');
-            if (!keys.length) {
-              listEl.innerHTML = '<div class="fallback-route-empty">No pricing overrides configured.</div>';
-              return;
-            }
-            listEl.innerHTML = keys.map(function(modelId) {
-              var entry = models[modelId] || {};
-              var until = entry.validUntil ? ' until ' + escapeHtml(entry.validUntil) : '';
-              return '<div class="fallback-route-item">' +
-                '<h4>' + escapeHtml(modelId) + '</h4>' +
-                '<div class="meta">Input: $' + escapeHtml(String(entry.inputPricePerM)) + '/M | Output: $' + escapeHtml(String(entry.outputPricePerM)) + '/M' + until + '</div>' +
-                '<div class="meta">' + escapeHtml(entry.label || '') + '</div>' +
-                '<div class="actions">' +
-                  '<button class="button-secondary" data-edit-pricing="' + escapeHtml(modelId) + '">Edit</button>' +
-                '</div>' +
-              '</div>';
-            }).join('');
-            listEl.querySelectorAll('button[data-edit-pricing]').forEach(function(button) {
-              button.addEventListener('click', function() {
-                var modelId = button.getAttribute('data-edit-pricing') || '';
-                var entry = models[modelId] || {};
-                document.getElementById('pricingModelId').value = modelId;
-                document.getElementById('pricingInput').value = entry.inputPricePerM ?? '';
-                document.getElementById('pricingOutput').value = entry.outputPricePerM ?? '';
-                document.getElementById('pricingLabel').value = entry.label || '';
-                document.getElementById('pricingValidUntil').value = entry.validUntil || '';
-              });
-            });
-          } catch (e) {
-            countEl.innerText = 'Error';
-            listEl.innerHTML = '<div class="fallback-route-empty">Failed to load pricing: ' + escapeHtml(String(e.message || e)) + '</div>';
-          }
-        }
-
-        function clearProviderPricingForm() {
-          document.getElementById('pricingModelId').value = '';
-          document.getElementById('pricingInput').value = '';
-          document.getElementById('pricingOutput').value = '';
-          document.getElementById('pricingLabel').value = '';
-          document.getElementById('pricingValidUntil').value = '';
-        }
-
-        async function saveProviderPricingEntry() {
-          var modelId = document.getElementById('pricingModelId').value.trim();
-          var inputPricePerM = Number.parseFloat(document.getElementById('pricingInput').value);
-          var outputPricePerM = Number.parseFloat(document.getElementById('pricingOutput').value);
-          if (!modelId || !Number.isFinite(inputPricePerM) || !Number.isFinite(outputPricePerM)) {
-            setMessage('Enter model ID, input $/M, and output $/M.', 'error');
-            return;
-          }
-          var res = await fetch('/api/provider-pricing/' + encodeURIComponent(modelId), {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              inputPricePerM: inputPricePerM,
-              outputPricePerM: outputPricePerM,
-              label: document.getElementById('pricingLabel').value.trim(),
-              validUntil: document.getElementById('pricingValidUntil').value.trim() || undefined
-            })
-          });
-          var payload = await res.json().catch(function() { return {}; });
-          if (!res.ok) {
-            setMessage(payload.error || 'Failed to save pricing.', 'error');
-            return;
-          }
-          setMessage('Saved pricing for ' + modelId + '.', 'success');
-          await loadProviderPricingPanel();
-        }
 
         // ── Sessions & Feedback ──
         async function loadSessionsPanel() {

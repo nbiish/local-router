@@ -1,6 +1,3 @@
-import fs from 'fs';
-import os from 'os';
-import path from 'path';
 import { resolveGatewayPresentedLegacyId } from './gateway-provider-catalog';
 
 export type ProviderPricingEntry = {
@@ -14,15 +11,7 @@ export type ProviderPricingEntry = {
   updatedAt?: string;
 };
 
-export type ProviderPricingSnapshot = {
-  version: number;
-  models: Record<string, ProviderPricingEntry>;
-};
-
-const LOCAL_ROUTER_CONFIG_DIR = path.join(os.homedir(), '.config', 'local-router');
-export const PROVIDER_PRICING_PATH = path.join(LOCAL_ROUTER_CONFIG_DIR, 'provider-pricing.json');
-
-/** USD per 1M tokens — router scoring + user-editable overrides. */
+/** USD per 1M tokens — router baseline rates. */
 export const BASELINE_PROVIDER_PRICING: Record<string, ProviderPricingEntry> = {
   'openrouter-qwen3.7-max': {
     inputPricePerM: 1.25,
@@ -137,7 +126,6 @@ export const BASELINE_PROVIDER_PRICING: Record<string, ProviderPricingEntry> = {
     outputPricePerM: 3.75,
     label: 'Cline API qwen/qwen3.7-max paid'
   },
-
   'cline-stepfun-step-3.7-flash-paid': {
     inputPricePerM: 0.1,
     outputPricePerM: 0.3,
@@ -241,7 +229,6 @@ export const BASELINE_PROVIDER_PRICING: Record<string, ProviderPricingEntry> = {
     outputPricePerM: 1.2,
     label: 'Kilo Gateway minimax/minimax-m3 paid'
   },
-
   'kilo-stepfun-step-3.7-flash-paid': {
     inputPricePerM: 0.1,
     outputPricePerM: 0.3,
@@ -285,12 +272,6 @@ export const BASELINE_PROVIDER_PRICING: Record<string, ProviderPricingEntry> = {
   }
 };
 
-const providerPricingStore: Record<string, ProviderPricingEntry> = {};
-
-function ensureConfigDir() {
-  fs.mkdirSync(LOCAL_ROUTER_CONFIG_DIR, { recursive: true, mode: 0o700 });
-}
-
 function isPricingEntryExpired(entry: ProviderPricingEntry): boolean {
   if (!entry.validUntil) return false;
   const end = new Date(`${entry.validUntil}T23:59:59.999Z`);
@@ -301,210 +282,29 @@ function cloneEntry(entry: ProviderPricingEntry): ProviderPricingEntry {
   return { ...entry };
 }
 
-export function getProviderPricingStore(): Record<string, ProviderPricingEntry> {
-  return providerPricingStore;
-}
-
-/** Baseline + persisted override (non-expired) for routing tier heuristics. */
+/**
+ * Baseline catalog pricing + automatic free-tier detection.
+ * Returns undefined when pricing cannot be detected so the caller/user can account for it independently.
+ */
 export function getProviderPricingEntry(modelId: string): ProviderPricingEntry | undefined {
   const trimmed = resolveGatewayPresentedLegacyId(String(modelId || '').trim());
   if (!trimmed) return undefined;
 
-  const override = providerPricingStore[trimmed];
-  if (override && !isPricingEntryExpired(override)) {
-    return cloneEntry(override);
-  }
-
   const baseline = BASELINE_PROVIDER_PRICING[trimmed];
-  return baseline ? cloneEntry(baseline) : undefined;
-}
+  if (baseline && !isPricingEntryExpired(baseline)) {
+    return cloneEntry(baseline);
+  }
 
-export function getProviderPricingSnapshot(): ProviderPricingSnapshot {
-  const models = Object.fromEntries(
-    Object.entries(providerPricingStore).map(([modelId, entry]) => [modelId, cloneEntry(entry)])
-  );
-  return { version: 1, models };
-}
-
-export function resolveEffectiveCandidatePricing(
-  modelId: string,
-  fallback?: { inputPrice?: number; outputPrice?: number }
-): { inputPrice?: number; outputPrice?: number; pricingLabel?: string; pricingExpired?: boolean } {
-  const override = providerPricingStore[modelId];
-  if (override && !isPricingEntryExpired(override)) {
+  // Automatic free-tier detection
+  const lower = trimmed.toLowerCase();
+  if (lower.endsWith('-free') || lower.includes(':free') || lower.endsWith('/free') || lower === 'openrouter-free') {
     return {
-      inputPrice: override.inputPricePerM,
-      outputPrice: override.outputPricePerM,
-      pricingLabel: override.label
+      inputPricePerM: 0,
+      outputPricePerM: 0,
+      cacheReadPricePerM: 0,
+      label: 'Free tier'
     };
   }
 
-  if (override && isPricingEntryExpired(override)) {
-    return {
-      inputPrice: fallback?.inputPrice,
-      outputPrice: fallback?.outputPrice,
-      pricingLabel: override.label,
-      pricingExpired: true
-    };
-  }
-
-  return {
-    inputPrice: fallback?.inputPrice,
-    outputPrice: fallback?.outputPrice
-  };
-}
-
-export function loadProviderPricingStore(): void {
-  ensureConfigDir();
-  Object.keys(providerPricingStore).forEach((key) => delete providerPricingStore[key]);
-
-  for (const [modelId, entry] of Object.entries(BASELINE_PROVIDER_PRICING)) {
-    providerPricingStore[modelId] = cloneEntry({
-      ...entry,
-      updatedAt: entry.updatedAt || new Date().toISOString()
-    });
-  }
-
-  if (!fs.existsSync(PROVIDER_PRICING_PATH)) {
-    persistProviderPricingStore();
-    return;
-  }
-
-  try {
-    const parsed = JSON.parse(fs.readFileSync(PROVIDER_PRICING_PATH, 'utf8')) as ProviderPricingSnapshot;
-    const models = parsed?.models && typeof parsed.models === 'object' ? parsed.models : {};
-    for (const [modelId, entry] of Object.entries(models)) {
-      if (!entry || typeof entry !== 'object') continue;
-      const inputPricePerM = Number(entry.inputPricePerM);
-      const outputPricePerM = Number(entry.outputPricePerM);
-      const cacheReadPricePerM =
-        entry.cacheReadPricePerM === undefined || entry.cacheReadPricePerM === null
-          ? undefined
-          : Number(entry.cacheReadPricePerM);
-      if (!Number.isFinite(inputPricePerM) || !Number.isFinite(outputPricePerM)) continue;
-      providerPricingStore[modelId] = {
-        inputPricePerM,
-        outputPricePerM,
-        cacheReadPricePerM:
-          cacheReadPricePerM !== undefined && Number.isFinite(cacheReadPricePerM) && cacheReadPricePerM >= 0
-            ? cacheReadPricePerM
-            : undefined,
-        label: typeof entry.label === 'string' ? entry.label : undefined,
-        validUntil: typeof entry.validUntil === 'string' ? entry.validUntil : undefined,
-        sourceUrl: typeof entry.sourceUrl === 'string' ? entry.sourceUrl : undefined,
-        updatedAt: typeof entry.updatedAt === 'string' ? entry.updatedAt : new Date().toISOString()
-      };
-    }
-  } catch (error) {
-    console.error('Failed to load provider pricing overrides:', error);
-  }
-
-  migrateLegacyQwen37MaxPricing();
-}
-
-const LEGACY_QWEN37_MAX_PRICING = { inputPricePerM: 2.5, outputPricePerM: 7.5 };
-const QWEN37_MAX_PRESENTED_IDS = ['openrouter-qwen3.7-max', 'zenmux-qwen3.7-max'] as const;
-
-function migrateLegacyQwen37MaxPricing(): void {
-  let changed = false;
-  for (const modelId of QWEN37_MAX_PRESENTED_IDS) {
-    const entry = providerPricingStore[modelId];
-    if (
-      !entry
-      || entry.inputPricePerM !== LEGACY_QWEN37_MAX_PRICING.inputPricePerM
-      || entry.outputPricePerM !== LEGACY_QWEN37_MAX_PRICING.outputPricePerM
-    ) {
-      continue;
-    }
-    providerPricingStore[modelId] = {
-      ...entry,
-      inputPricePerM: BASELINE_PROVIDER_PRICING[modelId].inputPricePerM,
-      outputPricePerM: BASELINE_PROVIDER_PRICING[modelId].outputPricePerM,
-      label: BASELINE_PROVIDER_PRICING[modelId].label,
-      updatedAt: new Date().toISOString()
-    };
-    changed = true;
-  }
-  if (changed) {
-    persistProviderPricingStore();
-  }
-}
-
-export function persistProviderPricingStore(): void {
-  ensureConfigDir();
-  const temporaryPath = `${PROVIDER_PRICING_PATH}.${process.pid}.tmp`;
-  const payload: ProviderPricingSnapshot = getProviderPricingSnapshot();
-  fs.writeFileSync(temporaryPath, `${JSON.stringify(payload, null, 2)}\n`, {
-    encoding: 'utf8',
-    mode: 0o600
-  });
-  fs.renameSync(temporaryPath, PROVIDER_PRICING_PATH);
-  fs.chmodSync(PROVIDER_PRICING_PATH, 0o600);
-}
-
-export function upsertProviderPricingEntry(
-  modelId: string,
-  entry: Partial<ProviderPricingEntry>
-): ProviderPricingEntry {
-  const trimmed = modelId.trim();
-  if (!trimmed) {
-    throw new Error('modelId is required.');
-  }
-  const inputPricePerM = Number(entry.inputPricePerM);
-  const outputPricePerM = Number(entry.outputPricePerM);
-  if (!Number.isFinite(inputPricePerM) || inputPricePerM < 0) {
-    throw new Error('inputPricePerM must be a non-negative number.');
-  }
-  if (!Number.isFinite(outputPricePerM) || outputPricePerM < 0) {
-    throw new Error('outputPricePerM must be a non-negative number.');
-  }
-
-  const next: ProviderPricingEntry = {
-    inputPricePerM,
-    outputPricePerM,
-    cacheReadPricePerM:
-      entry.cacheReadPricePerM === undefined || entry.cacheReadPricePerM === null
-        ? undefined
-        : (() => {
-            const n = Number(entry.cacheReadPricePerM);
-            return Number.isFinite(n) && n >= 0 ? n : undefined;
-          })(),
-    label: typeof entry.label === 'string' ? entry.label.trim() : undefined,
-    validUntil: typeof entry.validUntil === 'string' ? entry.validUntil.trim() : undefined,
-    sourceUrl: typeof entry.sourceUrl === 'string' ? entry.sourceUrl.trim() : undefined,
-    updatedAt: new Date().toISOString()
-  };
-  providerPricingStore[trimmed] = next;
-  persistProviderPricingStore();
-  return cloneEntry(next);
-}
-
-export function deleteProviderPricingEntry(modelId: string): boolean {
-  const trimmed = modelId.trim();
-  if (!trimmed || !providerPricingStore[trimmed]) return false;
-  delete providerPricingStore[trimmed];
-  if (BASELINE_PROVIDER_PRICING[trimmed]) {
-    providerPricingStore[trimmed] = cloneEntry({
-      ...BASELINE_PROVIDER_PRICING[trimmed],
-      updatedAt: new Date().toISOString()
-    });
-  }
-  persistProviderPricingStore();
-  return true;
-}
-
-export function applyPricingToRouterCandidates<
-  T extends { model: string; inputPrice?: number; outputPrice?: number }
->(candidates: T[]): T[] {
-  return candidates.map((candidate) => {
-    const resolved = resolveEffectiveCandidatePricing(candidate.model, {
-      inputPrice: candidate.inputPrice,
-      outputPrice: candidate.outputPrice
-    });
-    return {
-      ...candidate,
-      inputPrice: resolved.inputPrice,
-      outputPrice: resolved.outputPrice
-    };
-  });
+  return undefined;
 }
