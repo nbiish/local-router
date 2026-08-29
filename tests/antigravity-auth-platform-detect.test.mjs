@@ -13,6 +13,7 @@ import {
   detectLocalCursorSession,
   getCopilotHostsPaths,
   detectLocalCopilotSession,
+  fetchOAuthProviderModels,
   listOAuthProviders,
   isOAuthProvider,
   getOAuthStatus,
@@ -183,4 +184,20 @@ test("renderProvidersPage HTML contains 100% valid executable client JavaScript"
     }, "Script #" + count + " should parse as valid JavaScript");
   }
   assert.ok(count >= 2, "Must contain at least 2 script tags");
+});
+
+test("fetchOAuthProviderModels returns non-empty models for all 3 OAuth providers", async () => {
+  const anti = await fetchOAuthProviderModels("antigravity");
+  assert.ok(Array.isArray(anti));
+  assert.ok(anti.length >= 10);
+  assert.ok(anti.some((m) => m.id.includes("gemini-3.5-flash") || m.id.includes("gemini-2.5-flash")));
+
+  const copilot = await fetchOAuthProviderModels("github-copilot");
+  assert.ok(Array.isArray(copilot));
+  assert.ok(copilot.length >= 20);
+
+  const cursor = await fetchOAuthProviderModels("cursor");
+  assert.ok(Array.isArray(cursor));
+  assert.ok(cursor.length >= 3);
+  assert.ok(cursor.some((m) => m.id.includes("claude")));
 });

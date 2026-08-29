@@ -1,3 +1,4 @@
+import { PROVIDER_MODEL_REGISTRY } from './provider-model-registries';
 import { createHash, randomBytes } from 'node:crypto';
 import fs from 'node:fs';
 import http from 'node:http';
@@ -1184,35 +1185,50 @@ export async function cancelCopilotLogin(): Promise<void> {
  * fall back to the registry model list in `src/provider-model-registries.ts`.
  */
 export async function fetchOAuthProviderModels(provider: OAuthProviderId): Promise<Array<{ id: string; object: string; owned_by: string }>> {
-  const state = getOAuthState(provider);
-  if (!state) return [];
-  const config = PROVIDER_CONFIG[provider];
+  const registryFallback = (PROVIDER_MODEL_REGISTRY[provider] || []).map((m) => ({
+    id: m.id.replace(/^models\//, ''),
+    object: 'model',
+    owned_by: provider
+  }));
+
   try {
+    const state = getOAuthState(provider);
+    if (!state) return registryFallback;
+    const config = PROVIDER_CONFIG[provider];
+    if (!config) return registryFallback;
+
     if (isTokenExpiringSoon(state, 60_000)) {
-      await refreshOAuthToken(provider);
+      await refreshOAuthToken(provider).catch(() => {});
     }
-    const accessToken = await getOAuthAccessToken(provider);
+    const accessToken = await getOAuthAccessToken(provider).catch(() => state.accessToken);
+    if (!accessToken) return registryFallback;
+
     const headers: Record<string, string> = {
       Authorization: `Bearer ${accessToken}`,
       Accept: 'application/json'
     };
-    const extra = config.headers?.();
+    const extra = config.headers ? config.headers() : undefined;
     if (extra) Object.assign(headers, extra);
     const url = `${config.baseUrl.replace(/\/+$/, '')}/models`;
     const res = await fetch(url, { headers, signal: AbortSignal.timeout(8_000) });
-    if (!res.ok) {
-      console.error(`[oauth] ${provider} /models returned ${res.status}`);
-      return [];
+    if (res.ok) {
+      const data = await res.json().catch(() => ({})) as any;
+      const list = Array.isArray(data?.data) ? data.data : Array.isArray(data?.models) ? data.models : [];
+      const models = list
+        .map((m: any) => ({
+          id: String(m.id || m.name || '').replace(/^models\//, ''),
+          object: 'model',
+          owned_by: provider
+        }))
+        .filter((m: { id: string }) => m.id);
+      if (models.length > 0) {
+        return models;
+      }
     }
-    const data = await res.json() as any;
-    const list = Array.isArray(data?.data) ? data.data : Array.isArray(data?.models) ? data.models : [];
-    return list
-      .map((m: any) => ({ id: String(m.id || m.name || ''), object: 'model', owned_by: provider }))
-      .filter((m: { id: string }) => m.id);
   } catch (err) {
-    console.error(`[oauth] failed to fetch live models for ${provider}`, err);
-    return [];
+    // Non-fatal, fallback to curated registry
   }
+  return registryFallback;
 }
 
 // ---------------------------------------------------------------------------
