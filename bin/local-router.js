@@ -879,6 +879,72 @@ async function cmdList(options) {
   return 0;
 }
 
+async function cmdCheckUpdate(options) {
+  const current = await probeServer(options.host, options.port);
+  if (current.running) {
+    const res = await fetchWithTimeout(`${current.baseUrl}/api/check-updates`, 6000);
+    if (res && res.ok) {
+      const data = await res.json().catch(() => ({}));
+      console.log(`Current Version: v${data.currentVersion} (${data.currentCommit})`);
+      console.log(`Latest Version:  ${data.latestCommit ? `(${data.latestCommit})` : "Up to date"}`);
+      if (data.hasUpdate) {
+        console.log("\n✨ New update available! Run 'local-router update' to apply.");
+      } else {
+        console.log("\n✓ Local Router is up to date.");
+      }
+      return 0;
+    }
+  }
+
+  // Offline / standalone check
+  const projectRoot = path.resolve(__dirname, "..");
+  const gitRes = spawnSync("git", ["rev-parse", "--short", "HEAD"], { cwd: projectRoot, encoding: "utf8" });
+  const currentCommit = gitRes.stdout ? gitRes.stdout.trim() : "unknown";
+  console.log(`Current Version: (${currentCommit})`);
+  console.log("Run 'local-router update' to fetch and apply latest changes from main.");
+  return 0;
+}
+
+async function cmdUpdate(options) {
+  console.log("Checking for Local Router updates...");
+  const current = await probeServer(options.host, options.port);
+  if (current.running) {
+    const res = await fetchWithTimeout(`${current.baseUrl}/api/apply-update`, 60000);
+    if (res && res.ok) {
+      const data = await res.json().catch(() => ({}));
+      if (data.success) {
+        console.log(`✓ ${data.message}`);
+        console.log("Restarting Local Router server...");
+        await cmdStop(options);
+        await cmdStart(options);
+        console.log("✓ Server restarted with updated release.");
+        return 0;
+      }
+      console.error(`✗ Update failed: ${data.message || data.error}`);
+      return 1;
+    }
+  }
+
+  // Standalone update when server is not running
+  const projectRoot = path.resolve(__dirname, "..");
+  const isWin = process.platform === "win32";
+  console.log("[1/3] Pulling latest code from origin/main...");
+  spawnSync("git", ["pull", "origin", "main"], { cwd: projectRoot, encoding: "utf8", stdio: "inherit", shell: isWin });
+
+  console.log("[2/3] Updating dependencies...");
+  spawnSync("npm", ["install", "--prefer-offline"], { cwd: projectRoot, encoding: "utf8", stdio: "inherit", shell: isWin });
+
+  console.log("[3/3] Rebuilding TypeScript...");
+  const buildRes = spawnSync("npm", ["run", "build"], { cwd: projectRoot, encoding: "utf8", stdio: "inherit", shell: isWin });
+
+  if (buildRes.status === 0) {
+    console.log("\n✓ Local Router successfully updated to latest release.");
+    return 0;
+  }
+  console.error("\n✗ Build failed during update.");
+  return 1;
+}
+
 async function main() {
   const argv = process.argv.slice(2);
   const command = argv[0] || 'start';
@@ -925,6 +991,14 @@ async function main() {
   }
   if (command === 'status') {
     process.exitCode = await cmdStatus(options);
+    return;
+  }
+  if (command === 'check-update' || command === 'check-updates') {
+    process.exitCode = await cmdCheckUpdate(options);
+    return;
+  }
+  if (command === 'update' || command === 'upgrade') {
+    process.exitCode = await cmdUpdate(options);
     return;
   }
 
