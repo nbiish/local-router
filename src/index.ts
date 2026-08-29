@@ -3124,6 +3124,10 @@ function loadKeysFromEnvironment(): number {
       count++;
     }
   }
+  if (!keyStore['modal-proxy'] && process.env.MODAL_PROXY_TOKEN_ID && process.env.MODAL_PROXY_TOKEN_SECRET) {
+    keyStore['modal-proxy'] = `${process.env.MODAL_PROXY_TOKEN_ID}.${process.env.MODAL_PROXY_TOKEN_SECRET}`;
+    count++;
+  }
   return count;
 }
 
@@ -3211,6 +3215,12 @@ function syncKeysFromPqcBundle(options: { force?: boolean } = {}): PqcBundleSync
     } else {
       skipped.push(fullName);
     }
+  }
+  if (process.env.MODAL_PROXY_TOKEN_ID && process.env.MODAL_PROXY_TOKEN_SECRET) {
+    const combined = `${process.env.MODAL_PROXY_TOKEN_ID}.${process.env.MODAL_PROXY_TOKEN_SECRET}`;
+    keyStore['modal-proxy'] = combined;
+    pqcBundleProviders.add('modal-proxy');
+    if (!loaded.includes('modal-proxy')) loaded.push('modal-proxy');
   }
   lastPqcSyncAt = Date.now();
   return { ok: true, loaded, skipped };
