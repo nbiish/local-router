@@ -1,3 +1,13 @@
+export function escapeHtml(str: string | number | boolean | null | undefined): string {
+  if (str == null) return "";
+  return String(str)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
 export function renderLayout(
   title: string,
   bodyHtml: string,
@@ -2821,45 +2831,7 @@ export function renderLayout(
         }
         refreshDiagnostics();
 
-        async function loadOAuthProviders() {
-          const listEl = document.getElementById('oauthProviderList');
-          if (!listEl) return;
-          const oauthProviders = ['antigravity', 'github-copilot', 'cursor'];
-          const rows = await Promise.all(oauthProviders.map(async (name) => {
-            try {
-              const res = await fetch('/api/oauth/status/' + encodeURIComponent(name));
-              const status = res.ok ? await res.json() : null;
-              return { name, status };
-            } catch {
-              return { name, status: null };
-            }
-          }));
-          listEl.innerHTML = rows.map(({ name, status }) => {
-            const configured = status?.configured;
-            const pending = status?.pendingDeviceCode;
-            const accountLabel = status?.accountLabel || 'not signed in';
-            let html = '<section class="provider-card' + (configured ? ' active' : '') + '">' +
-              '<h4>' + escapeHtml(status?.displayName || name) + '</h4>' +
-              '<div class="muted">Account: ' + escapeHtml(accountLabel) + '</div>' +
-              '<div class="muted">Auth: ' + escapeHtml(status?.authType || '') + '</div>';
-            if (pending) {
-              html += '<div class="pill status-pill pending">Pending device code: ' + escapeHtml(pending.userCode) + '</div>' +
-                '<div class="muted">Enter this code at ' + escapeHtml(pending.verificationUri) + '</div>';
-            }
-            if (configured) {
-              html += '<div class="pill status-pill configured">Logged in</div>' +
-                '<div class="row row-actions">' +
-                  '<button data-oauth-logout="' + escapeHtml(name) + '">Log out</button>' +
-                '</div>';
-            } else {
-              html += '<div class="pill status-pill pending">Not logged in</div>' +
-                '<div class="row row-actions">' +
-                  '<button data-oauth-login="' + escapeHtml(name) + '">Log in with ' + escapeHtml(status?.displayName || name) + '</button>' +
-                '</div>';
-            }
-            html += '</section>';
-            return html;
-          }).join('');
+        function bindOAuthProviderButtons(listEl) {
           listEl.querySelectorAll('button[data-oauth-login]').forEach((button) => {
             button.addEventListener('click', async () => {
               const provider = button.getAttribute('data-oauth-login') || '';
@@ -2870,7 +2842,6 @@ export function renderLayout(
                 if (payload.authUrl) {
                   const popup = window.open(payload.authUrl, '_blank', 'noopener,noreferrer');
                   if (!popup) {
-                    // Popup blocked - show clickable link in message
                     const messageEl = document.getElementById('message');
                     const linkText = 'Click here to open the login page in a new tab';
                     messageEl.innerHTML = 'Popup blocked. <a href="' + escapeHtml(payload.authUrl) + '" target="_blank" rel="noopener noreferrer">' + linkText + '</a>';
@@ -2881,6 +2852,12 @@ export function renderLayout(
                 }
                 if (payload.userCode) {
                   setMessage('Enter code ' + payload.userCode + ' at ' + payload.verificationUri + '. Waiting for authorization...', 'success');
+                }
+                if (payload.message) {
+                  setMessage(payload.message, payload.configured ? 'success' : 'info');
+                  if (payload.configured) {
+                    loadOAuthProviders();
+                  }
                 }
                 const poll = setInterval(async () => {
                   const statusRes = await fetch('/api/oauth/status/' + encodeURIComponent(provider));
@@ -2910,6 +2887,64 @@ export function renderLayout(
               loadOAuthProviders();
             });
           });
+        }
+
+        async function loadOAuthProviders() {
+          const listEl = document.getElementById('oauthProviderList');
+          if (!listEl) return;
+          let statuses = [];
+          try {
+            const res = await fetch('/api/oauth/providers');
+            if (res.ok) {
+              const data = await res.json();
+              if (Array.isArray(data?.providers)) {
+                statuses = data.providers;
+              }
+            }
+          } catch {}
+
+          if (!statuses.length) {
+            const oauthProviders = ['antigravity', 'github-copilot', 'cursor'];
+            statuses = (await Promise.all(oauthProviders.map(async (name) => {
+              try {
+                const res = await fetch('/api/oauth/status/' + encodeURIComponent(name));
+                return res.ok ? await res.json() : null;
+              } catch {
+                return null;
+              }
+            }))).filter(Boolean);
+          }
+
+          if (statuses.length > 0) {
+            listEl.innerHTML = statuses.map((status) => {
+              const name = status.provider;
+              const configured = status.configured;
+              const pending = status.pendingDeviceCode;
+              const accountLabel = status.accountLabel || 'not signed in';
+              let html = '<section class="provider-card' + (configured ? ' active' : '') + '">' +
+                '<h4>' + escapeHtml(status.displayName || name) + '</h4>' +
+                '<div class="muted">Account: ' + escapeHtml(accountLabel) + '</div>' +
+                '<div class="muted">Auth: ' + escapeHtml(status.authType || '') + '</div>';
+              if (pending) {
+                html += '<div class="pill status-pill pending">Pending device code: ' + escapeHtml(pending.userCode) + '</div>' +
+                  '<div class="muted">Enter this code at ' + escapeHtml(pending.verificationUri) + '</div>';
+              }
+              if (configured) {
+                html += '<div class="pill status-pill configured">Logged in</div>' +
+                  '<div class="row row-actions">' +
+                    '<button data-oauth-logout="' + escapeHtml(name) + '">Log out</button>' +
+                  '</div>';
+              } else {
+                html += '<div class="pill status-pill pending">Not logged in</div>' +
+                  '<div class="row row-actions">' +
+                    '<button data-oauth-login="' + escapeHtml(name) + '">Log in with ' + escapeHtml(status.displayName || name) + '</button>' +
+                  '</div>';
+              }
+              html += '</section>';
+              return html;
+            }).join('');
+          }
+          bindOAuthProviderButtons(listEl);
         }
 
         (async () => { await loadOAuthProviders(); })();

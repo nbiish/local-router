@@ -7,6 +7,7 @@ import {
   initAntigravityLogin,
   detectLocalCursorSession,
   isOAuthProvider,
+  listOAuthProviders,
   startCopilotLogin,
   OAuthProviderId
 } from '../oauth-providers';
@@ -369,6 +370,16 @@ app.delete('/api/keys/:provider', (req: Request, res: Response) => {
 // ---------------------------------------------------------------------------
 // OAuth provider login endpoints
 // ---------------------------------------------------------------------------
+
+app.get('/api/oauth/providers', async (_req: Request, res: Response) => {
+  const providers = listOAuthProviders();
+  const statuses = providers.map((id) => getOAuthStatus(id));
+  res.json({
+    success: true,
+    providers: statuses
+  });
+});
+
 
 app.get('/api/oauth/status/:provider', async (req: Request, res: Response) => {
   const providerName = String(req.params.provider || '').trim().toLowerCase();

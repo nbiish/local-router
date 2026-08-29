@@ -132,3 +132,13 @@ test("detectLocalCursorSession auto-detects host installation if present", () =>
     assert.equal(status.displayName, "Cursor");
   }
 });
+
+test("renderProvidersPage pre-renders SSR cards for all OAuth providers", async () => {
+  const { renderProvidersPage } = await import("../build/ui/pages/providers.js");
+  const html = renderProvidersPage({ defaultFallbackModelsText: "" });
+  assert.ok(html.includes("OAuth Provider Logins"));
+  assert.ok(html.includes("Google Antigravity"));
+  assert.ok(html.includes("GitHub Copilot"));
+  assert.ok(html.includes("Cursor"));
+  assert.ok(html.includes("id=\"oauthProviderList\""));
+});
