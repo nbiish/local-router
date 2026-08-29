@@ -80,6 +80,7 @@ feature worktree → develop (integrate + verify) → main (release)
 
 | Commit | Summary |
 |--------|---------|
+| `pending` | **Release 2026-08-29b** — Live model refresh across all provider endpoints: per-provider and global refresh buttons on /config/providers; Cursor ConnectRPC binary protobuf discovery (207 models); Google Antigravity & Copilot token exchange fix; Ollama version floor (≥ 0.6.4); Windows PQC batch wrapper; rate limit elevation to 5,000 reqs |
 | `pending` | **Release 2026-08-29** — Pricing Overrides removal: remove /config/pricing UI, /api/provider-pricing endpoints, and provider-pricing.json persistence; auto-detect free tier and baseline rates |
 | `pending` | **Release 2026-08-25b** — Add-Model dropdown scoped to the toggled-on serving set (ollama locals always included), re-fetched at every open |
 | `pending` | **Release 2026-08-25a** — ＋ Fallback staging race: staged models detoured into a throwaway editor and were wiped by late hydration (concurrent init reads); staging now awaits the routes load and init is sequenced routes→staging |
@@ -162,7 +163,8 @@ feature worktree → develop (integrate + verify) → main (release)
 - **OpenAI Responses API shim:** `POST /v1/responses` and WebSocket upgrade `ws://localhost:PORT/v1/responses` (Codex compatibility layer).
 - **Anthropic Messages API proxy:** `POST /v1/messages` (Claude Code compatibility layer).
 - **Discovery probes:** `GET /` and `HEAD /` return `Ollama is running`.
-- **Version probe:** `GET /api/version` mirrors the real backend ollama's version (probe `http://{OLLAMA_BACKEND_HOST}/api/version`, 30s cache, ~1s timeout) so IDEs see a true, current version; `OLLAMA_VERSION` env overrides, `0.6.4` is the floor when the backend is unreachable (2026-08-24 — was a static `0.6.4`).
+- **Version probe & compatibility floor (2026-08-29):** `GET /api/version` and `HEAD /api/version` guarantee a version floor of `0.6.4` (or real backend version when >= `0.6.4`) via semver comparison so VS Code Copilot Chat, Continue, Cline, and other IDE plugins never fail server verification.
+- **Live Model Refresh & Discovery (2026-08-29):** Live model discovery is exposed via `POST /api/provider-models/:provider/refresh` (per-provider `🔄 Fetch live` group button) and `POST /api/refresh-endpoint-models` (global `🔄 Refresh Endpoints` button). ConnectRPC binary protobuf stream decoding queries `https://api2.cursor.sh/aiserver.v1.AiService/AvailableModels` discovering 207+ Cursor agent models. GitHub Copilot auto-exchanges host tokens for active Copilot session tokens. Antigravity connects to Gemini OpenAI compatibility endpoint.
 - **Loopback dual-stack (2026-08-24):** the server binds `127.0.0.1:PORT` **and** `::1:PORT` so clients resolving `localhost` to IPv6 first (VS Code Copilot Chat on several platforms) no longer hit ECONNREFUSED, which VS Code mis-reports as "Unable to verify Ollama server version … 0.6.4 or higher". `LOCAL_ROUTER_BIND_ALL=true` keeps the all-interfaces opt-in (IPv4 wildcard) and skips the extra loopback socket.
 - **Upstream custom requirements:** Base URL must end with `/v1`. Vendor must support standard bearer auth and implement `POST .../chat/completions` with streaming. Mapped in `custom-providers.json` without secrets.
 
