@@ -44,13 +44,6 @@ import { loadSessions, loadFeedback, recordRequest, getSessions, getSessionById,
 import { loadExpertLogs, LogEntryTracker, createUsageSpyStream } from './expert-logs';
 import { buildWraparoundExecutionPlan } from './execution-plan';
 import {
-  applyPricingToRouterCandidates,
-  deleteProviderPricingEntry,
-  getProviderPricingSnapshot,
-  loadProviderPricingStore,
-  upsertProviderPricingEntry
-} from './provider-pricing';
-import {
   buildResponseCreatedEvent,
   chatCompletionToResponsesResponse,
   createResponsesFakeResponse,
@@ -3450,9 +3443,6 @@ const configApiDeps = {
   fallbackModelStore,
   cloneFallbackModel,
   candidateAvailability,
-  getProviderPricingSnapshot,
-  upsertProviderPricingEntry,
-  deleteProviderPricingEntry,
   parseFallbackModel,
   normalizeFallbackRouteId,
   getSessions,
@@ -3474,7 +3464,6 @@ const configApiDeps = {
   DEFAULT_CHAIN_OF_DRAFT_PROMPT,
   DEFAULT_THINKING_LEVEL,
   activeProviderModelList,
-  applyPricingToRouterCandidates,
   cloneProviderModel,
   diagnosticsSnapshot,
   editableProviderModels,
@@ -3643,7 +3632,6 @@ if (waferZdrEnabled) {
   console.log('[Wafer] ZDR enabled for GLM-5.1, Kimi-K2.6, deepseek-v4-pro');
 }
 loadPersistedRouterSettings();
-loadProviderPricingStore();
 loadPersistedSystemPrompt();
 loadPersistedThinkingConfig();
 loadWaferConfig();

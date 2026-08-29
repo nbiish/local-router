@@ -80,6 +80,7 @@ feature worktree → develop (integrate + verify) → main (release)
 
 | Commit | Summary |
 |--------|---------|
+| `pending` | **Release 2026-08-29** — Pricing Overrides removal: remove /config/pricing UI, /api/provider-pricing endpoints, and provider-pricing.json persistence; auto-detect free tier and baseline rates |
 | `pending` | **Release 2026-08-25b** — Add-Model dropdown scoped to the toggled-on serving set (ollama locals always included), re-fetched at every open |
 | `pending` | **Release 2026-08-25a** — ＋ Fallback staging race: staged models detoured into a throwaway editor and were wiped by late hydration (concurrent init reads); staging now awaits the routes load and init is sequenced routes→staging |
 | `pending` | **Release 2026-08-24d** — Always-present system chain + staged-add persistence: `fallback-models` seeded EMPTY at boot (permanent ＋ Fallback target); staging persists via toggle API from the first model; 0/1-step chains survive restarts; tier normalization never re-injects curated defaults |
@@ -201,7 +202,6 @@ Setting files reside at `~/.config/local-router/` (or legacy `~/.config/fvs-code
 | `system-prompt.json` | No | local JSON | User system prompt injection configuration |
 | `model-source-config.json` | No | local JSON | Configured source: `custom` vs `endpoints`, plus endpoint model curation (`curationEnabled`, `curatedEndpointModelKeys`, max 5000 `provider::model` keys) |
 | `endpoint-models-cache.json` | No | local JSON | Cached upstream `/models` query data (per-provider refresh replaces only that provider's section) |
-| `provider-pricing.json` | No | local JSON | Cost scoring overrides |
 | `sessions.json` | No | Redacted | client-grouped requests within 2-hour windows |
 | `session-feedback.json` | No | Redacted | Session thumbs up/down user votes |
 | `tool-routing.json` | No | local JSON | Service drop-in shim configuration (ollama, llama-server, unsloth) |
@@ -656,7 +656,7 @@ npm test             # executes all unit and integration tests (90 cases, 17 fil
 - `tests/cline-kilo-catalog-validation.test.mjs`: chat-proven catalog registry matches.
 - `tests/routing-exhaustion-order.test.mjs`: tier bands verification.
 - `tests/execution-plan.test.mjs`: wraparound retry sequence.
-- `tests/provider-keys.integration.test.mjs`: PQC bundle keys, gateway tiers, fallback exhaustion order (3 Ollama + 6 gateway), VS Code picker, pricing overrides, thinking level overrides.
+- `tests/provider-keys.integration.test.mjs`: PQC bundle keys, gateway tiers, fallback exhaustion order (3 Ollama + 6 gateway), VS Code picker, pricing endpoints removal (404), thinking level overrides.
 - `tests/custom-providers.integration.test.mjs`: Custom provider registry CRUD, deletion guards.
 - `tests/responses-http-stream.integration.test.mjs`: Codex Responses API HTTP SSE.
 - `tests/responses-websocket-anthropic.integration.test.mjs`: Responses WS, Anthropic messages.

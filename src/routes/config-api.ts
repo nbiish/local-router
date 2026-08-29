@@ -13,7 +13,6 @@ import { ollamaBackendVersionUrl } from '../ollama-backend';
 import { renderProvidersPage } from '../ui/pages/providers';
 import { renderFallbackPage } from '../ui/pages/fallback';
 import { renderThinkingPage } from '../ui/pages/thinking';
-import { renderPricingPage } from '../ui/pages/pricing';
 import { renderDiagnosticsPage } from '../ui/pages/diagnostics';
 import {
   ProviderSummary,
@@ -91,9 +90,6 @@ export interface ConfigApiDeps {
   providerReferencedInRouting: (id: string) => string[];
   cloneFallbackModel: (model: FallbackModel) => FallbackModel;
   candidateAvailability: (modelName: string) => any;
-  getProviderPricingSnapshot: () => any;
-  upsertProviderPricingEntry: (modelId: string, entry: any) => any;
-  deleteProviderPricingEntry: (modelId: string) => void;
   parseFallbackModel: (payload: any, options?: { allowShort?: boolean }) => FallbackModelParseResult;
   normalizeFallbackRouteId: (id: string) => string;
   getSessions: () => any[];
@@ -114,7 +110,6 @@ export interface ConfigApiDeps {
   DEFAULT_CHAIN_OF_DRAFT_PROMPT: string;
   DEFAULT_THINKING_LEVEL: ThinkingLevel;
   activeProviderModelList: () => ProviderModel[];
-  applyPricingToRouterCandidates: (candidates: any[]) => any[];
   cloneProviderModel: (model: ProviderModel) => ProviderModel;
   diagnosticsSnapshot: (limit?: number) => any;
   editableProviderModels: (providerName: string) => ProviderModel[];
@@ -177,9 +172,6 @@ export function registerConfigApiRoutes(app: express.Express, deps: ConfigApiDep
     fallbackModelStore,
     cloneFallbackModel,
     candidateAvailability,
-    getProviderPricingSnapshot,
-    upsertProviderPricingEntry,
-    deleteProviderPricingEntry,
     parseFallbackModel,
     normalizeFallbackRouteId,
     getSessions,
@@ -201,7 +193,6 @@ export function registerConfigApiRoutes(app: express.Express, deps: ConfigApiDep
     DEFAULT_CHAIN_OF_DRAFT_PROMPT,
     DEFAULT_THINKING_LEVEL,
     activeProviderModelList,
-    applyPricingToRouterCandidates,
     cloneProviderModel,
     diagnosticsSnapshot,
     editableProviderModels,
@@ -246,15 +237,6 @@ export function registerConfigApiRoutes(app: express.Express, deps: ConfigApiDep
 
   app.get('/config/thinking', (req: Request, res: Response) => {
     const html = renderThinkingPage({
-      defaultFallbackModelsText: DEFAULT_FALLBACK_MODELS_TEXT
-    });
-    // Config pages are live state (keys, catalog, routes) — never cacheable.
-    res.setHeader('Cache-Control', 'no-store');
-    res.send(html);
-  });
-
-  app.get('/config/pricing', (req: Request, res: Response) => {
-    const html = renderPricingPage({
       defaultFallbackModelsText: DEFAULT_FALLBACK_MODELS_TEXT
     });
     // Config pages are live state (keys, catalog, routes) — never cacheable.
@@ -1096,38 +1078,6 @@ app.get('/api/routing/availability', (req: Request, res: Response) => {
   const models = raw.split(',').map((entry) => entry.trim()).filter(Boolean);
   const data = models.map((modelName) => candidateAvailability(modelName));
   return res.json({ object: 'list', data });
-});
-
-app.get('/api/provider-pricing', (req: Request, res: Response) => {
-  return res.json(getProviderPricingSnapshot());
-});
-
-app.put('/api/provider-pricing/:modelId', (req: Request, res: Response) => {
-  const modelId = String(req.params.modelId || '').trim();
-  if (!modelId) {
-    return res.status(400).json({ error: 'modelId is required.' });
-  }
-  try {
-    const entry = upsertProviderPricingEntry(modelId, {
-      inputPricePerM: req.body?.inputPricePerM,
-      outputPricePerM: req.body?.outputPricePerM,
-      label: req.body?.label,
-      validUntil: req.body?.validUntil,
-      sourceUrl: req.body?.sourceUrl
-    });
-    return res.json({ success: true, modelId, entry });
-  } catch (error: any) {
-    return res.status(400).json({ error: error?.message || 'Invalid pricing payload.' });
-  }
-});
-
-app.delete('/api/provider-pricing/:modelId', (req: Request, res: Response) => {
-  const modelId = String(req.params.modelId || '').trim();
-  if (!modelId) {
-    return res.status(400).json({ error: 'modelId is required.' });
-  }
-  const removed = deleteProviderPricingEntry(modelId);
-  return res.json({ success: true, modelId, removed });
 });
 
 app.post('/api/fallback-models', (req: Request, res: Response) => {

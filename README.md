@@ -129,8 +129,6 @@ Local Router enforces maximum caching and savings across all providers and model
 - **Sticky Routing Keys:** Automatically injects conversation-specific hashes as `prompt_cache_key` for Kimi/Moonshot and OpenAI models to pin traffic to the same cache servers.
 - **Cache Safeguards:** Automatically strips cache-disabling flags (`cache: false`, `use_cache: false`, etc.) sent by client IDEs, and removes `provider.order` for OpenRouter requests to preserve sticky routing.
 
-Limited-time provider promos (ZenMux matched Qwen pricing, Wafer MiniMax-M3 weekly rates, etc.) are editable under `/config` → **Model Pricing Overrides** and persist to `~/.config/local-router/provider-pricing.json`.
-
 ## Configuration Storage
 
 Local Router writes non-secret route files (chains, catalogs, provider metadata) under your POSIX home directory:
