@@ -4,7 +4,7 @@ This is the project-wide Product Requirements Document (PRD) and root DOX contra
 
 ## Purpose
 
-Point VS Code Copilot Chat, Claude Code, Cline, Roo Code, Continue, Codex, or scripts at `http://127.0.0.1:11434` and route to **19 built-in catalog providers** (17 static-key + 2 OAuth-subscription: Google Antigravity, GitHub Copilot) plus **any custom OpenAI-compatible API** you register—using one model namespace and one configuration UI.
+Point VS Code Copilot Chat, Claude Code, Cline, Roo Code, Continue, Codex, or scripts at `http://127.0.0.1:11434` and route to **20 built-in catalog providers** (17 static-key + 3 OAuth-subscription: Google Antigravity, GitHub Copilot, Cursor) plus **any custom OpenAI-compatible API** you register—using one model namespace and one configuration UI.
 
 ### Capabilities & Topology
 - **Port:** `11434` (Ollama default — drop-in). `develop` verification build uses `11436` (the main server port + 2) to avoid colliding with the running main server. Override with the `PORT` env var.
@@ -97,6 +97,7 @@ feature worktree → develop (integrate + verify) → main (release)
 | `d024ec0` | **Release 2026-06-13** — Nous Portal curation + multimodal expansion; expanded `local-router/multimodal` from 11 → 15 vision-capable entries |
 | `e693f19` | **Merge feat/multimodal-expansion into develop** — expanded multimodal route to 15 entries (zai/xiaomi/commandcode/wafer) |
 | `9e40525` | **docs(llms): update multimodal route to 15 entries + changelog** — bullet list, preset routes table, and session log entry for the multimodal expansion |
+| `e011470` | **feat(oauth): cross-platform Antigravity detection, client_id fix, and Cursor CLI/IDE OAuth** — added SQLite state.vscdb session auto-detection for Windows/macOS/Linux, fixed missing client_id parameter fallback, integrated Cursor OAuth provider with local session detection |
 | `5253f72` | **feat(routing): expand local-router/multimodal to 15 entries** — added 2 new catalog entries (zai, commandcode) and 2 existing entries (xiaomi-mimo-mimo-v2.5, wafer-ai-minimax-m3) |
 | `f4811d6` | **feat(pricing): add zai-glm-4.6v and commandcode-minimax-m3 pricing entries** — subscription-billed, `validUntil 2026-12-31` |
 | `9d852e1` | **feat(specs): add glm-4.6v to model-specs.json** |
@@ -229,10 +230,11 @@ The catalog contains **19 active providers** (17 static-key + 2 OAuth-subscripti
 | `commandcode` | 2 | `https://api.commandcode.ai/alpha/generate` | `COMMANDCODE_API_KEY` | static |
 | `antigravity` | 6 | Google Cloud Code Assist (`https://cloudcode-pa.googleapis.com/v1internal`) | `ANTIGRAVITY_OAUTH_TOKEN` | **oauth-pkce** |
 | `github-copilot` | 5 | `https://api.githubcopilot.com` | `COPILOT_GITHUB_TOKEN` | **oauth-device** |
+| `cursor` | 6 | `https://api2.cursor.sh/v1` | `CURSOR_API_KEY` | **oauth-pkce** |
 | `nous-portal` | 6 | `https://inference-api.nousresearch.com/v1` | `NOUS_API_KEY` | static |
 
 **Auth legend:** `static` = long-lived API key in the PQC bundle. `oauth-pkce` = browser-based OAuth 2.0 authorization-code + PKCE flow. `oauth-device` = OAuth 2.0 device flow (RFC 8628).
-**Note:** `antigravity` and `github-copilot` are **fully implemented** OAuth-subscription providers with active PKCE (Antigravity) and device flow (Copilot) auth, dynamic model discovery, and concurrent-refresh deduplication. Tokens persist to `~/.config/local-router/oauth-credentials.json` (chmod 600). See the "OAuth / Subscription Providers" section below for the full authentication contract, oh-my-pi design references, and integration architecture.
+**Note:** `antigravity`, `github-copilot`, and `cursor` are **fully implemented** OAuth-subscription providers with active PKCE (Antigravity) and device flow (Copilot) auth, dynamic model discovery, and concurrent-refresh deduplication. Tokens persist to `~/.config/local-router/oauth-credentials.json` (chmod 600). See the "OAuth / Subscription Providers" section below for the full authentication contract, oh-my-pi design references, and integration architecture.
 
 #### Key Model Metadata Specifications
 - **1M-Context Models:** wafer-serverless (deepseek-v4-flash/pro, qwen3.7-max), zenmux (qwen3.7-max, deepseek-v4-pro), nebius (DeepSeek-V4-Pro, Nemotron-3-Ultra), openrouter (@preset/chain-of-draft, @preset/1-million-main/chain-of-draft), xiaomi-mimo (mimo-v2.5-pro/v2.5), minimax/minimax-m3 (all providers).
