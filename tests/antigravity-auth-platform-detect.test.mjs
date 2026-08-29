@@ -10,6 +10,8 @@ import {
   detectLocalAntigravitySession,
   getCursorStateDbPaths,
   detectLocalCursorSession,
+  getCopilotHostsPaths,
+  detectLocalCopilotSession,
   listOAuthProviders,
   isOAuthProvider,
   getOAuthStatus,
@@ -141,4 +143,27 @@ test("renderProvidersPage pre-renders SSR cards for all OAuth providers", async 
   assert.ok(html.includes("GitHub Copilot"));
   assert.ok(html.includes("Cursor"));
   assert.ok(html.includes("id=\"oauthProviderList\""));
+});
+
+test("getCopilotHostsPaths returns platform candidate paths", () => {
+  const paths = getCopilotHostsPaths();
+  assert.ok(Array.isArray(paths));
+  assert.ok(paths.length >= 2);
+  for (const p of paths) {
+    assert.ok(p.includes("github-copilot"));
+  }
+});
+
+test("detectLocalCopilotSession handles env variable tokens", () => {
+  const oldEnv = process.env.GITHUB_COPILOT_TOKEN;
+  process.env.GITHUB_COPILOT_TOKEN = "ghu_mock_copilot_token_123";
+  try {
+    const session = detectLocalCopilotSession();
+    assert.ok(session);
+    assert.equal(session.provider, "github-copilot");
+    assert.equal(session.accessToken, "ghu_mock_copilot_token_123");
+  } finally {
+    if (oldEnv === undefined) delete process.env.GITHUB_COPILOT_TOKEN;
+    else process.env.GITHUB_COPILOT_TOKEN = oldEnv;
+  }
 });
