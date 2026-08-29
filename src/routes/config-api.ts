@@ -5,6 +5,7 @@ import {
   clearOAuthCredentials,
   getOAuthStatus,
   initAntigravityLogin,
+  detectLocalCursorSession,
   isOAuthProvider,
   startCopilotLogin,
   OAuthProviderId
@@ -396,6 +397,31 @@ app.post('/api/oauth/login/:provider', async (req: Request, res: Response) => {
       });
     } catch (error: any) {
       return res.status(500).json({ error: error?.message || 'Failed to start Antigravity login.' });
+    }
+  }
+
+  if (providerName === 'cursor') {
+    try {
+      const session = detectLocalCursorSession();
+      if (session) {
+        return res.json({
+          success: true,
+          provider: 'cursor',
+          authType: 'oauth-pkce',
+          configured: true,
+          message: `Detected active Cursor session for ${session.accountLabel || "user"}.`,
+          status: getOAuthStatus('cursor')
+        });
+      }
+      return res.json({
+        success: true,
+        provider: 'cursor',
+        authType: 'oauth-pkce',
+        configured: false,
+        message: "Log in via Cursor IDE or run agent login in terminal. Local Router automatically detects your session."
+      });
+    } catch (error: any) {
+      return res.status(500).json({ error: error?.message || "Failed to check Cursor authentication." });
     }
   }
 

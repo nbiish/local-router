@@ -2824,7 +2824,7 @@ export function renderLayout(
         async function loadOAuthProviders() {
           const listEl = document.getElementById('oauthProviderList');
           if (!listEl) return;
-          const oauthProviders = ['antigravity', 'github-copilot'];
+          const oauthProviders = ['antigravity', 'github-copilot', 'cursor'];
           const rows = await Promise.all(oauthProviders.map(async (name) => {
             try {
               const res = await fetch('/api/oauth/status/' + encodeURIComponent(name));

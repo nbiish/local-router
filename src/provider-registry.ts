@@ -46,6 +46,7 @@ export const PROVIDER_REGISTRY: readonly ProviderRegistryEntry[] = [
   { name: 'commandcode', endpoint: 'https://api.commandcode.ai/provider/v1', keyEnvVar: 'COMMANDCODE_API_KEY', note: 'Provider API base; /alpha/generate retired' },
   { name: 'antigravity', endpoint: 'https://generativelanguage.googleapis.com/v1beta', keyEnvVar: 'ANTIGRAVITY_API_KEY', note: 'Google AI Studio (Gemini API) surface' },
   { name: 'github-copilot', endpoint: 'https://api.githubcopilot.com', keyEnvVar: 'GITHUB_COPILOT_API_KEY' },
+  { name: 'cursor', endpoint: 'https://api2.cursor.sh/v1', keyEnvVar: 'CURSOR_API_KEY', note: 'Cursor subscription / CLI OAuth session' },
   { name: 'pioneer', endpoint: 'https://api.pioneer.ai/v1', keyEnvVar: 'PIONEER_API_KEY' },
   { name: 'nous-portal', endpoint: 'https://inference-api.nousresearch.com/v1', keyEnvVar: 'NOUS_API_KEY' }
 ] as const;
