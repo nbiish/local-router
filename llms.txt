@@ -80,7 +80,8 @@ feature worktree → develop (integrate + verify) → main (release)
 
 | Commit | Summary |
 |--------|---------|
-| `pending` | **Release 2026-08-29b** — Live model refresh across all provider endpoints: per-provider and global refresh buttons on /config/providers; Cursor ConnectRPC binary protobuf discovery (207 models); Google Antigravity & Copilot token exchange fix; Ollama version floor (≥ 0.6.4); Windows PQC batch wrapper; rate limit elevation to 5,000 reqs |
+| `pending` | **Release 2026-08-29c** — Permanent PQC secrets persistence & boot synchronization on Windows (direct uv execution, ML-KEM-768 key encapsulation, CRLF parsing fix); Modal proxy provider for GLM-5.3-Flash custom deployment with token/session header support; Ollama default cloud live-seeding for fcc-server |
+| `f9f6181` | **Release 2026-08-29b** — Live model refresh across all provider endpoints: per-provider and global refresh buttons on /config/providers; Cursor ConnectRPC binary protobuf discovery (207 models); Google Antigravity & Copilot token exchange fix; Ollama version floor (≥ 0.6.4); Windows PQC batch wrapper; rate limit elevation to 5,000 reqs |
 | `pending` | **Release 2026-08-29** — Pricing Overrides removal: remove /config/pricing UI, /api/provider-pricing endpoints, and provider-pricing.json persistence; auto-detect free tier and baseline rates |
 | `pending` | **Release 2026-08-25b** — Add-Model dropdown scoped to the toggled-on serving set (ollama locals always included), re-fetched at every open |
 | `pending` | **Release 2026-08-25a** — ＋ Fallback staging race: staged models detoured into a throwaway editor and were wiped by late hydration (concurrent init reads); staging now awaits the routes load and init is sequenced routes→staging |
@@ -175,6 +176,7 @@ This is the core security system of the project. Every API key for every applica
   - Private key: stored by default in a system-agnostic file `private.key.enc` (encrypted with AES-256-GCM under a stable per-machine KEK persisted to `~/.config/pqc-secrets/machine.kek`, 0600 — generated once and stable across reboots, kernel updates, and distro re-creation; a pre-existing legacy-encrypted store is migrated automatically; see `.agents/skills/pqc-secrets/references/kek-persistence.md`). Optionally stored in the OS Keystore (macOS Keychain, Linux Secret Service) when opted-in via `PQC_USE_KEYCHAIN=true`.
   - Public key: `~/.config/pqc-secrets/recipient.pub` (safe to commit).
   - Encrypted bundle: `~/.config/pqc-secrets/secrets.bundle.json` (AES-256-GCM data key wrapped with ML-KEM-768).
+  - Windows Execution (2026-08-29): Local Router invokes the `uv run pqc_secrets.py` engine directly via `execPqcBin()` to prevent Windows `spawnSync EINVAL` batch issues, parses CRLF-delimited exports, and auto-bootstraps key persistence on every UI save or resync.
 - **Key Resolution Order:** PQC bundle → Environment variables → Memory (saved in `/config` this session).
 - **LOCALROUTER_ key namespace (strict, 2026-08-22):** Local Router reads and writes **only** `LOCALROUTER_<KEY_ENV_VAR>` names for provider keys — in bundle sync, in-process env, UI saves, and every internal lookup. Plainly-named env vars and plainly-named bundle entries are invisible to it (bundle sync logs them as skipped with a rename hint); `keys for other tools are never touched. Bundle-sourced keys render `configuredSource: 'pqc'` in `/api/provider-configs`; `POST /api/pqc-resync` (`{force:boolean}`, 30s throttle without force) re-runs bundle sync on demand so keys packed outside Local Router show up as configured without a restart. Persisted packs are merge-safe: Local Router refreshes only its own LOCALROUTER_ entries and preserves every other name in the bundle.
 - **Fresh-machine bootstrap (2026-08-22):** bundles and keypairs are machine-local — a clone carries neither. `bin/pqc-secrets` gives actionable guidance when `uv` is missing (one-liner install) or no bundle exists (`keygen` → `pack` → `list`); see README § "PQC secrets bootstrap (fresh machine)". Bundle tooling: `pqc-secrets list` (names only) and `pqc-secrets rename OLD NEW` (value kept, bundle backed up, no overwrite).
@@ -220,7 +222,7 @@ The catalog contains **19 active providers** (17 static-key + 2 OAuth-subscripti
 | `moonshot` | 5 | Moonshot/Kimi API | `MOONSHOT_API_KEY` | static |
 | `nvidia-nim` | 6 | NVIDIA NIM API | `NVIDIA_NIM_API_KEY` | static |
 | `modal` | 1 | Modal GLM endpoint | `MODAL_API_KEY` | static |
-| `modal-proxy` | 1 | Nbiish Modal Kimi-K3 deployment (`nbiish--ep-kimi-k3-nbiish-server.us-west.modal.direct/v1`) | `MODAL_PROXY_API_KEY` | static |
+| `modal-proxy` | 5 | Nbiish GLM-5.3-Flash / Kimi-K3 deployment (`nbiish--ep-glm-5-3-flash-server.us-west.modal.direct/v1`) | `MODAL_PROXY_API_KEY` | static |
 | `openrouter` | 9 | `https://openrouter.ai/api/v1` | `OPENROUTER_API_KEY` | static |
 | `xiaomi-mimo` | 2 | `https://token-plan-sgp.xiaomimimo.com/v1` | `XIAOMI_MIMO_API_KEY` | static |
 | `opencode-go` | 9 | `https://opencode.ai/zen/go/v1` | `OPENCODE_API_KEY` | static |
