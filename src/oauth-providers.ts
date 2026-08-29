@@ -553,6 +553,81 @@ export function detectLocalCursorSession(): OAuthProviderState | null {
   return null;
 }
 
+/**
+ * Cross-platform detection paths for GitHub Copilot CLI credentials and hosts configuration.
+ * Supports Windows (%APPDATA%\github-copilot, %LOCALAPPDATA%\github-copilot),
+ * macOS (~/.config/github-copilot), and Linux (~/.config/github-copilot).
+ */
+export function getCopilotHostsPaths(): string[] {
+  const isWin = process.platform === "win32";
+  const home = os.homedir();
+  const appData = process.env.APPDATA || (isWin ? path.join(home, "AppData", "Roaming") : "");
+  const localAppData = process.env.LOCALAPPDATA || (isWin ? path.join(home, "AppData", "Local") : "");
+
+  const candidates: string[] = [];
+  if (isWin) {
+    if (appData) {
+      candidates.push(path.join(appData, "github-copilot", "hosts.json"));
+      candidates.push(path.join(appData, "github-copilot", "apps.json"));
+    }
+    if (localAppData) {
+      candidates.push(path.join(localAppData, "github-copilot", "hosts.json"));
+    }
+  }
+  candidates.push(path.join(home, ".config", "github-copilot", "hosts.json"));
+  candidates.push(path.join(home, ".config", "github-copilot", "apps.json"));
+  return candidates;
+}
+
+/**
+ * Checks for locally stored GitHub Copilot CLI session tokens (e.g. hosts.json)
+ * or explicit environment variables (GITHUB_COPILOT_TOKEN, COPILOT_GITHUB_TOKEN).
+ */
+export function detectLocalCopilotSession(): OAuthProviderState | null {
+  const envToken = process.env.GITHUB_COPILOT_TOKEN || process.env.COPILOT_GITHUB_TOKEN || process.env.GITHUB_COPILOT_API_KEY;
+  if (envToken && typeof envToken === "string") {
+    return {
+      provider: "github-copilot",
+      authType: "oauth-device",
+      accessToken: envToken,
+      refreshToken: envToken,
+      expiresAt: Date.now() + 30 * 24 * 3600_000,
+      accountId: "copilot-env",
+      accountLabel: "GitHub Copilot (Environment Variable)",
+      lastRefreshedAt: Date.now()
+    };
+  }
+
+  const hostsPaths = getCopilotHostsPaths();
+  for (const filePath of hostsPaths) {
+    try {
+      if (!fs.existsSync(filePath)) continue;
+      const raw = fs.readFileSync(filePath, "utf8");
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === "object") {
+        const gh = parsed["github.com"] || parsed;
+        const oauthToken = gh.oauth_token || gh.token || gh.access_token;
+        const user = gh.user || gh.username || gh.login || "user";
+        if (oauthToken && typeof oauthToken === "string") {
+          const state: OAuthProviderState = {
+            provider: "github-copilot",
+            authType: "oauth-device",
+            accessToken: oauthToken,
+            refreshToken: oauthToken,
+            expiresAt: Date.now() + 30 * 24 * 3600_000,
+            accountId: user,
+            accountLabel: `${user} (hosts.json)`,
+            lastRefreshedAt: Date.now()
+          };
+          return state;
+        }
+      }
+    } catch {}
+  }
+
+  return null;
+}
+
 function loadStore(): OAuthStore {
   try {
     if (!fs.existsSync(OAUTH_STORE_PATH)) return {};

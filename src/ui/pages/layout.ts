@@ -2835,30 +2835,48 @@ export function renderLayout(
           listEl.querySelectorAll('button[data-oauth-login]').forEach((button) => {
             button.addEventListener('click', async () => {
               const provider = button.getAttribute('data-oauth-login') || '';
+              const origText = button.textContent;
+              button.disabled = true;
+              button.textContent = 'Connecting...';
               try {
                 const res = await fetch('/api/oauth/login/' + encodeURIComponent(provider), { method: 'POST' });
                 const payload = await res.json();
                 if (!res.ok) throw new Error(payload?.error || 'Login failed');
+
                 if (payload.authUrl) {
                   const popup = window.open(payload.authUrl, '_blank', 'noopener,noreferrer');
                   if (!popup) {
                     const messageEl = document.getElementById('message');
                     const linkText = 'Click here to open the login page in a new tab';
                     messageEl.innerHTML = 'Popup blocked. <a href="' + escapeHtml(payload.authUrl) + '" target="_blank" rel="noopener noreferrer">' + linkText + '</a>';
+                    messageEl.className = 'message info';
                     messageEl.style.display = 'block';
                   } else {
                     setMessage('Opened login page in a new tab. Complete the flow in your browser.', 'success');
                   }
                 }
+
                 if (payload.userCode) {
-                  setMessage('Enter code ' + payload.userCode + ' at ' + payload.verificationUri + '. Waiting for authorization...', 'success');
-                }
-                if (payload.message) {
+                  if (navigator.clipboard && navigator.clipboard.writeText) {
+                    navigator.clipboard.writeText(payload.userCode).catch(() => {});
+                  }
+                  const targetUri = payload.verificationUri || 'https://github.com/login/device';
+                  window.open(targetUri, '_blank', 'noopener,noreferrer');
+                  const messageEl = document.getElementById('message');
+                  const linkHtml = '<a href="' + escapeHtml(targetUri) + '" target="_blank" rel="noopener noreferrer" style="font-weight:bold;text-decoration:underline;">' + escapeHtml(targetUri) + '</a>';
+                  const codeHtml = '<code style="font-size:1.15em;font-weight:bold;padding:2px 6px;background:var(--bg-card);border:1px solid var(--border);border-radius:4px;margin:0 4px;">' + escapeHtml(payload.userCode) + '</code>';
+                  messageEl.innerHTML = 'Device code ' + codeHtml + ' copied to clipboard! Enter the code at ' + linkHtml + ' to authorize.';
+                  messageEl.className = 'message success';
+                  messageEl.style.display = 'block';
+
+                  await loadOAuthProviders();
+                } else if (payload.message) {
                   setMessage(payload.message, payload.configured ? 'success' : 'info');
                   if (payload.configured) {
-                    loadOAuthProviders();
+                    await loadOAuthProviders();
                   }
                 }
+
                 const poll = setInterval(async () => {
                   const statusRes = await fetch('/api/oauth/status/' + encodeURIComponent(provider));
                   const statusPayload = await statusRes.json();
@@ -2871,6 +2889,9 @@ export function renderLayout(
                 setTimeout(() => clearInterval(poll), 5 * 60_000);
               } catch (err) {
                 setMessage(err?.message || 'Login failed.', 'error');
+              } finally {
+                button.disabled = false;
+                button.textContent = origText;
               }
             });
           });
@@ -2926,8 +2947,12 @@ export function renderLayout(
                 '<div class="muted">Account: ' + escapeHtml(accountLabel) + '</div>' +
                 '<div class="muted">Auth: ' + escapeHtml(status.authType || '') + '</div>';
               if (pending) {
-                html += '<div class="pill status-pill pending">Pending device code: ' + escapeHtml(pending.userCode) + '</div>' +
-                  '<div class="muted">Enter this code at ' + escapeHtml(pending.verificationUri) + '</div>';
+                html += '<div class="pill status-pill pending" style="font-size:13px;font-weight:bold;margin:4px 0;">Code: ' + escapeHtml(pending.userCode) + '</div>' +
+                  '<div class="muted" style="margin:4px 0 8px;">Enter code at <a href="' + escapeHtml(pending.verificationUri) + '" target="_blank" rel="noopener noreferrer" style="color:var(--link);font-weight:bold;text-decoration:underline;">' + escapeHtml(pending.verificationUri) + '</a></div>' +
+                  '<div class="row row-actions" style="gap:6px;">' +
+                    '<button type="button" onclick="navigator.clipboard.writeText('' + escapeHtml(pending.userCode) + ''); setMessage(''Copied ' + escapeHtml(pending.userCode) + ' to clipboard'', ''success'');">📋 Copy Code</button>' +
+                    '<a href="' + escapeHtml(pending.verificationUri) + '" target="_blank" rel="noopener noreferrer" class="button button-secondary" style="display:inline-flex;align-items:center;padding:4px 8px;font-size:12px;text-decoration:none;">Open GitHub ↗</a>' +
+                  '</div>';
               }
               if (configured) {
                 html += '<div class="pill status-pill configured">Logged in</div>' +
