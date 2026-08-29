@@ -60,12 +60,12 @@ Remote: `https://github.com/nbiish/local-router.git` (`local-router` remote).
 Maintained by the local-router team. Operators use the local-router agent workflow to interact with the repository.
 
 ### Branch & Integration Policy
-The repository uses two long-lived branches with a mandatory two-hop promotion path:
-- **`develop` — integration & verification branch.** All worktree work lands here first. This is where features integrate, build gates run, smoke tests execute, and cross-branch behavior is verified before any release promotion. `develop` is the required pre-release assembly line — not a shortcut around verification.
-- **`main` — release branch.** GitHub default and production-facing canonical state. Receives only verified, fully integrated work promoted from `develop`. Full feature integration updates ship here after `develop` verification passes.
+The repository follows a clean, isolated git worktree workflow with direct merge to `main`:
+- **`main` — release branch.** Canonical production-facing branch.
+- **`<type>/<scope>-<slug>` — task worktrees.** Isolated task worktrees branch directly from `main`, pass native pre-commit gates and smoke-test verification in isolation, request operator confirmation, and merge directly back into `main`.
 
 ```text
-feature worktree → develop (integrate + verify) → main (release)
+task worktree (verify) → main (merge after user confirm) → cleanup
 ```
 
 #### Rules:

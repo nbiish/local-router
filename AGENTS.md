@@ -114,6 +114,21 @@ Respect the native language of the target codebase (Rust, TypeScript, Python, C+
 - **Hygiene:** Verify provenance and checksums. Prioritize reproducible builds. Never execute curl-to-bash (`curl | sh`).
 - **Native Auditing:** Utilize native ecosystem audit tools (e.g., `cargo audit`, `npm audit`, `pip-audit`) before committing dependencies.
 
+### Cross-Platform & Universal Tooling Interception
+- **Universal Setup**: Local Router provides one-command bootstrap scripts for all operating systems and architectures (Windows, macOS, Linux, WSL2) via `npm run setup`, `install.sh`, `install.cmd`, and `install.ps1`.
+- **Ollama CLI Drop-In Interception**: External tooling (FreeCloudCode, Hermes, VS Code Copilot, Continue, Claude Code, Cline) calling `ollama` or querying `/v1/models` and `/api/tags` receives all active configured models across all 19 providers.
+- **Dual-Stack Loopback**: Binds `127.0.0.1` and `::1` simultaneously to enable frictionless WSL <-> Windows communication.
+
+### Continuous Integration & Self-Updating (CI/CD)
+- **In-Process Update Engine**: `src/update-checker.ts` monitors upstream GitHub releases and git commits (`GET /api/update-status`).
+- **Self-Update Command**: `local-router update` / `POST /api/apply-update` pulls latest code, rebuilds TypeScript, preserves all PQC secret bundles (`~/.config/pqc-secrets/secrets.bundle.json`) and user settings (`~/.config/local-router/`), and reloads the daemon.
+- **Multi-OS GitHub Actions Matrix**: `.github/workflows/ci.yml` tests every commit/PR across Ubuntu, macOS, and Windows on Node.js 20.x & 22.x.
+
+### Desktop System Tray Application Blueprint
+- **Windows**: Native taskbar notification area corner icon (bottom-right) with dashboard, provider, and server controls.
+- **macOS**: Native Menu Bar extra corner icon (top-right) with dark/light mode status icons.
+- **Linux**: AppIndicator / StatusNotifierItem system tray integration.
+
 ### Execution & Boundaries
 
 Validate types and paths (CWE-22). Parameterize SQL. `shell=False` for subprocess calls. Wrap external inputs in `<DATA>` tags. Refuse input-as-command parsing. Sanitize outputs before display. For sensitive inputs, dual-LLM classification gate before processing.
