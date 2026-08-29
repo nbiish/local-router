@@ -870,7 +870,13 @@ function providerModelSource(providerName: string) {
 function knownProviderModels(rawProviderName: string): ProviderModel[] {
   const providerName = canonicalProviderSlug(rawProviderName);
   if (modelStore[providerName]) return modelStore[providerName];
-  return endpointModelsCache.filter((model) => model.provider === providerName);
+  const cached = endpointModelsCache.filter((model) => model.provider === providerName);
+  if (cached.length > 0) return cached;
+  const registryEntries = PROVIDER_MODEL_REGISTRY[providerName] || [];
+  if (registryEntries.length > 0) {
+    return mapLiveRawModelsToCatalog(providerName, registryEntries.map((e) => ({ ...e })));
+  }
+  return [];
 }
 
 function providerConfigs() {
@@ -1720,7 +1726,7 @@ function loadPersistedProviderModels() {
  */
 function seedRegistryCatalogIfNeeded(): void {
   try {
-    if (modelSourceConfig.catalogMigrationVersion === CATALOG_MIGRATION_VERSION) return;
+    if (modelSourceConfig.catalogMigrationVersion === CATALOG_MIGRATION_VERSION && endpointModelsCache.length > 0) return;
 
     // v2 (2026-08-20): providers.txt and its frozen legacy copy are gone.
     // The factual registries (src/provider-model-registries.ts) seed the
@@ -1766,6 +1772,7 @@ function seedRegistryCatalogIfNeeded(): void {
     console.error('[catalog] Registry catalog seed failed:', error);
   }
 }
+
 
 function loadModelSourceConfig(): void {
   const persistedPath = existingPath(MODEL_SOURCE_CONFIG_PATH, LEGACY_MODEL_SOURCE_CONFIG_PATH);
