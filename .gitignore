@@ -155,3 +155,6 @@ src/**/*.d.ts.map
 src/**/*.js
 src/**/*.js.map
 
+
+src-tauri/target/
+src-tauri/gen/

@@ -124,10 +124,10 @@ Respect the native language of the target codebase (Rust, TypeScript, Python, C+
 - **Self-Update Command**: `local-router update` / `POST /api/apply-update` pulls latest code, rebuilds TypeScript, preserves all PQC secret bundles (`~/.config/pqc-secrets/secrets.bundle.json`) and user settings (`~/.config/local-router/`), and reloads the daemon.
 - **Multi-OS GitHub Actions Matrix**: `.github/workflows/ci.yml` tests every commit/PR across Ubuntu, macOS, and Windows on Node.js 20.x & 22.x.
 
-### Desktop System Tray Application Blueprint
-- **Windows**: Native taskbar notification area corner icon (bottom-right) with dashboard, provider, and server controls.
-- **macOS**: Native Menu Bar extra corner icon (top-right) with dark/light mode status icons.
-- **Linux**: AppIndicator / StatusNotifierItem system tray integration.
+### Standalone Desktop Application (Tauri v2)
+- **Native GUI Window**: Launches a centered 1200x820 desktop window hosting the Local Router configuration interface with zero latency.
+- **System Tray Integration**: Native taskbar notification area corner icon (bottom-right on Windows, top-right Menu Bar on macOS, AppIndicator on Linux) with server controls.
+- **Universal Auto-Export**: local-router env, GET /api/env, and Windows Registry / WSL ~/.bashrc auto-export ensure all agents (Claude Code, Copilot, Continue, Cline, fcc-server, omp) immediately intercept localhost:11434.
 
 ### Execution & Boundaries
 

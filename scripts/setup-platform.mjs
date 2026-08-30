@@ -5,7 +5,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
-import { execFileSync, spawnSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -19,7 +19,7 @@ console.log(" Local Router — Cross-Platform Environment Setup");
 console.log(" Platform: " + process.platform + (isWSL ? " (WSL)" : "") + " | Arch: " + process.arch);
 console.log("==================================================\n");
 
-// 1. Build TypeScript code
+// 1. Build TypeScript source
 console.log("[1/6] Building TypeScript source...");
 try {
   execFileSync("npm", ["run", "build"], { cwd: root, stdio: "inherit", shell: isWin });
@@ -42,7 +42,7 @@ console.log("✓ Config directories initialized at ~/.config/local-router and ~/
 console.log("[3/6] Checking Post-Quantum (ML-KEM-768) keypair...");
 const pubkeyPath = path.join(pqcConfigDir, "recipient.pub");
 if (fs.existsSync(pubkeyPath)) {
-  console.log("✓ Existing ML-KEM-768 public key verified at " + pubkeyPath);
+  console.log("✓ Existing ML-KEM-768 public key verified at " + pubkeyPath + "\n");
 } else {
   try {
     const scriptPath = path.join(root, ".agents", "skills", "pqc-secrets", "scripts", "pqc_secrets.py");
@@ -71,6 +71,48 @@ try {
 console.log("[5/6] Configuring CLI entry points (local-router, localrouter, ollama, pqc-secrets)...");
 const binDir = path.join(root, "bin");
 
+if (isWin) {
+  const ollamaCmd = path.join(binDir, "ollama.cmd");
+  const localRouterCmd = path.join(binDir, "local-router.cmd");
+
+  if (!fs.existsSync(localRouterCmd)) {
+    fs.writeFileSync(localRouterCmd, `@echo off\r\nnode "%~dp0local-router.js" %*\r\n`, "utf8");
+  }
+  if (!fs.existsSync(ollamaCmd)) {
+    fs.writeFileSync(ollamaCmd, `@echo off\r\nnode "%~dp0local-router.js" %*\r\n`, "utf8");
+  }
+
+  console.log("✓ Windows batch wrappers ready in " + binDir);
+  try {
+    const cargoBin = path.join(homeDir, ".cargo", "bin");
+    const currentPath = execFileSync("powershell", ["-NoProfile", "-Command", `[Environment]::GetEnvironmentVariable("Path", "User")`], { encoding: "utf8" }).trim();
+    let newPath = currentPath;
+    if (!newPath.includes(binDir)) newPath = newPath + ";" + binDir;
+    if (fs.existsSync(cargoBin) && !newPath.includes(cargoBin)) newPath = newPath + ";" + cargoBin;
+    if (newPath !== currentPath) {
+      execFileSync("powershell", ["-NoProfile", "-Command", `[Environment]::SetEnvironmentVariable("Path", "${newPath}", "User")`], { stdio: "ignore" });
+      console.log("✓ Added Local Router and Cargo to Windows User PATH.\n");
+    } else {
+      console.log("✓ Windows User PATH already contains Local Router.\n");
+    }
+  } catch {}
+} else {
+  const userBin = path.join(homeDir, ".local", "bin");
+  fs.mkdirSync(userBin, { recursive: true });
+
+  for (const b of ["local-router", "localrouter", "ollama", "pqc-secrets"]) {
+    const targetLink = path.join(userBin, b);
+    const sourceBin = b === "local-router" || b === "localrouter" ? path.join(binDir, "local-router.js") : path.join(binDir, b);
+    try {
+      if (fs.existsSync(targetLink)) fs.unlinkSync(targetLink);
+      fs.symlinkSync(sourceBin, targetLink);
+      fs.chmodSync(sourceBin, 0o755);
+      console.log("✓ Linked " + b + " -> " + targetLink);
+    } catch {}
+  }
+  console.log("");
+}
+
 // 6. Auto-export environment variables for external AI tools
 console.log("[6/6] Configuring environment variables (OLLAMA_HOST, OPENAI_BASE_URL, ANTHROPIC_BASE_URL)...");
 
@@ -96,50 +138,42 @@ if (isWin) {
     } catch {}
   }
   console.log("✓ Windows User environment variables registered (OPENAI_BASE_URL, ANTHROPIC_BASE_URL, OLLAMA_HOST).\n");
+
+  // Auto-sync into WSL if WSL is present
+  try {
+    const wslCheck = execFileSync("wsl", ["-e", "sh", "-c", "echo wsl_ok"], { encoding: "utf8" }).trim();
+    if (wslCheck === "wsl_ok") {
+      const b64Env = Buffer.from(envScriptContent).toString("base64");
+      execFileSync("wsl", ["-e", "sh", "-c", `
+        mkdir -p ~/.config/local-router
+        echo "${b64Env}" | base64 -d > ~/.config/local-router/env.sh
+        for rc in ~/.bashrc ~/.zshrc; do
+          if [ -f "$rc" ] && ! grep -q "local-router/env.sh" "$rc"; then
+            echo '[ -f "$HOME/.config/local-router/env.sh" ] && source "$HOME/.config/local-router/env.sh"' >> "$rc"
+          fi
+        done
+      `], { stdio: "ignore" });
+      console.log("✓ WSL environment synchronized (~/.config/local-router/env.sh and ~/.bashrc).\n");
+    }
+  } catch {}
 } else {
-  console.log("✓ Environment file created at " + envScriptPath);
-  console.log("  To auto-load in zsh/bash, add to ~/.zshrc or ~/.bashrc:");
-  console.log("    source " + envScriptPath + "\n");
-}
-if (isWin) {
-  // On Windows: Ensure .cmd wrappers exist in bin/
-  const ollamaCmd = path.join(binDir, "ollama.cmd");
-  const localRouterCmd = path.join(binDir, "local-router.cmd");
-  const pqcSecretsCmd = path.join(binDir, "pqc-secrets.cmd");
-
-  if (!fs.existsSync(localRouterCmd)) {
-    fs.writeFileSync(localRouterCmd, `@echo off\r\nnode "%~dp0local-router.js" %*\r\n`, "utf8");
-  }
-  if (!fs.existsSync(ollamaCmd)) {
-    fs.writeFileSync(ollamaCmd, `@echo off\r\nnode "%~dp0local-router.js" %*\r\n`, "utf8");
-  }
-
-  console.log("✓ Windows batch wrappers ready in " + binDir);
-  console.log("  To add to PATH in PowerShell, run:");
-  console.log(`    [Environment]::SetEnvironmentVariable("Path", [Environment]::GetEnvironmentVariable("Path", "User") + ";${binDir}", "User")`);
-} else {
-  // On macOS / Linux / WSL: Install symlinks into ~/.local/bin if available
-  const userBin = path.join(homeDir, ".local", "bin");
-  fs.mkdirSync(userBin, { recursive: true });
-
-  const binaries = ["local-router.js", "ollama", "pqc-secrets"];
-  for (const b of ["local-router", "localrouter", "ollama", "pqc-secrets"]) {
-    const targetLink = path.join(userBin, b);
-    const sourceBin = b === "local-router" || b === "localrouter" ? path.join(binDir, "local-router.js") : path.join(binDir, b);
-    try {
-      if (fs.existsSync(targetLink)) fs.unlinkSync(targetLink);
-      fs.symlinkSync(sourceBin, targetLink);
-      fs.chmodSync(sourceBin, 0o755);
-      console.log("✓ Linked " + b + " -> " + targetLink);
-    } catch {
-      // Fallback
+  // On macOS / Linux / WSL: Auto-source in ~/.bashrc and ~/.zshrc if present
+  for (const rcName of [".bashrc", ".zshrc", ".profile"]) {
+    const rcPath = path.join(homeDir, rcName);
+    if (fs.existsSync(rcPath)) {
+      const existing = fs.readFileSync(rcPath, "utf8");
+      if (!existing.includes("local-router/env.sh")) {
+        fs.appendFileSync(rcPath, '\n# Local Router environment variables\n[ -f "$HOME/.config/local-router/env.sh" ] && source "$HOME/.config/local-router/env.sh"\n');
+        console.log("✓ Injected auto-source into ~/" + rcName);
+      }
     }
   }
+  console.log("✓ Environment file created at " + envScriptPath + "\n");
 }
 
-console.log("\n==================================================");
+console.log("==================================================");
 console.log(" Setup Complete! Local Router is ready to run.");
 console.log(" Start server:   node bin/local-router.js start");
 console.log(" Web Dashboard:  http://127.0.0.1:11434/config");
-console.log(" Desktop Tray:   npm run tauri:dev (or native release binary)");
+console.log(" Desktop App:    npm run tauri:dev (or native release binary)");
 console.log("==================================================\n");
