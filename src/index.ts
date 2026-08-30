@@ -4730,7 +4730,7 @@ async function executeFallbackRoute(
   });
 }
 
-app.post('/v1/chat/completions', async (req: Request, res: Response) => {
+app.post(['/v1/chat/completions', '/chat/completions'], async (req: Request, res: Response) => {
   await handleChatCompletion(req, res);
 });
 
@@ -4785,7 +4785,7 @@ function chatCompletionToAnthropicResponse(chatData: any): any {
   };
 }
 
-app.post('/v1/messages', async (req: Request, res: Response) => {
+app.post(['/v1/messages', '/messages'], async (req: Request, res: Response) => {
   const body = req.body || {};
 
   if (!body.model) {
@@ -4891,8 +4891,8 @@ app.post('/v1/messages', async (req: Request, res: Response) => {
               type: 'message_delta',
               delta: { stop_reason: 'end_turn', stop_sequence: null },
               usage: { output_tokens: 0 }
-            })}`);
-            res.write(`event: message_stop\ndata: ${JSON.stringify({ type: 'message_stop' })}`);
+            })}\n\n`);
+            res.write(`event: message_stop\ndata: ${JSON.stringify({ type: 'message_stop' })}\n\n`);
             continue;
           }
 
@@ -4914,7 +4914,7 @@ app.post('/v1/messages', async (req: Request, res: Response) => {
                   stop_sequence: null,
                   usage: { input_tokens: data.usage?.prompt_tokens || 0, output_tokens: 0 }
                 }
-              })}`);
+              })}\n\n`);
               messageStarted = true;
             }
 
@@ -4924,14 +4924,14 @@ app.post('/v1/messages', async (req: Request, res: Response) => {
                   type: 'content_block_start',
                   index: textIndex,
                   content_block: { type: 'text', text: '' }
-                })}`);
+                })}\n\n`);
                 contentBlockStarted = true;
               }
               res.write(`event: content_block_delta\ndata: ${JSON.stringify({
                 type: 'content_block_delta',
                 index: textIndex,
                 delta: { type: 'text_delta', text: delta.content }
-              })}`);
+              })}\n\n`);
             }
 
             if (Array.isArray(delta.tool_calls) && delta.tool_calls.length > 0) {
@@ -4939,7 +4939,7 @@ app.post('/v1/messages', async (req: Request, res: Response) => {
                 res.write(`event: content_block_stop\ndata: ${JSON.stringify({
                   type: 'content_block_stop',
                   index: textIndex
-                })}`);
+                })}\n\n`);
                 contentBlockStarted = false;
                 textIndex++;
               }
@@ -4993,7 +4993,7 @@ app.post('/v1/messages', async (req: Request, res: Response) => {
                 type: 'message_delta',
                 delta: { stop_reason: stopReason, stop_sequence: null },
                 usage: { output_tokens: data.usage?.completion_tokens || 0 }
-              })}`);
+              })}\n\n`);
             }
           } catch (err) {
             // ignore
@@ -5169,7 +5169,7 @@ function translateResponsesRequestToChatBody(body: any): any {
   return translated;
 }
 
-app.post('/v1/responses', async (req: Request, res: Response) => {
+app.post(['/v1/responses', '/responses'], async (req: Request, res: Response) => {
   const requestStartedAt = Date.now();
   const body = req.body || {};
 
@@ -5297,7 +5297,7 @@ app.post('/v1/responses', async (req: Request, res: Response) => {
   return originalJson(wrapped);
 });
 
-app.get('/v1/models', async (req: Request, res: Response) => {
+app.get(['/v1/models', '/models'], async (req: Request, res: Response) => {
   const requestedProvider = typeof req.query.provider === 'string'
     ? req.query.provider.trim()
     : '';
