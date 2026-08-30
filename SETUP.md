@@ -2,7 +2,8 @@
 
 Date: 2026-08-26
 Repo: `local-router`
-Branch (doc source of truth): `develop` @ `961b1a1`
+Branch at capture: `develop` @ `961b1a1` (2026-08-26; `develop` has since been
+retired — `main` is the single permanent release branch)
 Daemon: running on `http://localhost:11434` (Ollama backend `:11435`, dual-stack loopback)
 
 This document records the machine-local configuration required to run Local
@@ -18,7 +19,7 @@ encrypted in the PQC bundle.
 
 ## 1. Runtime state (verified)
 
-- Branch: `develop`, commit `961b1a1`
+- Branch at capture: `develop`, commit `961b1a1` (historical; now `main`-only)
 - Build: `npm install && npm run build` (`tsc`) — clean
 - Daemon PID `29826` via `local-router start`
 - PQC load (server log): `[PQC] Loaded 16 provider key(s) from bundle`
