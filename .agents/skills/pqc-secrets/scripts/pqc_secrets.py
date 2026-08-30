@@ -14,6 +14,9 @@ PQC Secrets Management — ML-KEM-768 + AES-256-GCM.
 Post-quantum encryption for API keys and private data.
 
   keygen   Generate ML-KEM-768 keypair; private -> encrypted local store (keychain if opted-in), public -> ~/.config/pqc-secrets/recipient.pub
+  gen      Generate high-entropy secrets (OS CSPRNG via stdlib 'secrets'); 512-bit default,
+           hex/base64url/base85 formats, EFF-large-list diceware passphrases, entropy
+           reported on stderr, secret ONLY on stdout (pipe-safe, never logged)
   pack     Read KEY=VALUE lines from stdin, encrypt, write ~/.config/pqc-secrets/secrets.bundle.json
   export   Decrypt bundle, output shell 'export KEY=VALUE' lines to stdout
   verify   Check bundle integrity, list key names (no values)
@@ -32,11 +35,14 @@ import base64
 import getpass
 import hashlib
 import json
+import math
 import os
 import platform
 import re
+import secrets
 import subprocess
 import sys
+import time
 import uuid
 from pathlib import Path
 
@@ -390,9 +396,36 @@ def _delete_private_key_from_account(account: str) -> None:
             PRIVATE_KEY_ENC_PATH.unlink()
         except Exception:
             pass
-def cmd_keygen() -> None:
-    """Generate ML-KEM-768 keypair. Private -> Encrypted File/Keystore. Public -> disk."""
+
+
+def cmd_keygen(argv: list[str] | None = None) -> None:
+    """Generate ML-KEM-768 keypair. Private -> Encrypted File/Keystore. Public -> disk.
+
+    An existing keypair is NEVER silently overwritten: pass --force to rotate
+    (the previous private key + public key are backed up beside the live files
+    with a UTC timestamp suffix first). Rotating without re-packing makes every
+    existing bundle undecryptable — that is why this guard exists.
+    """
+    argv = argv or []
+    force = "--force" in argv or "-f" in argv
     _ensure_config_dir()
+
+    if PRIVATE_KEY_ENC_PATH.exists() or PUBKEY_PATH.exists():
+        if not force:
+            print(
+                "ERROR: a keypair already exists in this config dir; refusing to overwrite.\n"
+                "  Rotating the keypair makes all existing bundles undecryptable.\n"
+                "  To rotate deliberately: pqc_secrets.py keygen --force\n"
+                "  (previous key material is backed up with a timestamp suffix).",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        stamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
+        for src in (PRIVATE_KEY_ENC_PATH, PUBKEY_PATH):
+            if src.exists():
+                dst = src.with_name(f"{src.name}.rotated-{stamp}")
+                src.rename(dst)
+                print(f"Backed up previous key material: {dst}")
 
     pk, sk = _kem_keygen()
 
@@ -407,6 +440,233 @@ def cmd_keygen() -> None:
     print("ML-KEM-768 keypair generated.")
     print(f"  Private key: Securely stored (account={KEYCHAIN_ACCOUNT})")
     print(f"  Public key:  {PUBKEY_PATH}")
+
+# ---------------------------------------------------------------------------
+# gen — SOTA secret generation (Aug 2026)
+#
+# Design basis (see SKILL.md "Secret generation policy"):
+# - Randomness: stdlib `secrets` module -> OS CSPRNG (getrandom(2) on Linux,
+#   BCryptGenRandom on Windows, SecRandomCopyBytes on macOS). Never `random`.
+# - Entropy floor: 256 bits (NIST SP 800-63B-4 tolerates far less for online
+#   secrets; we target 512-bit default for long-term machine secrets).
+# - Uniformity: secrets.choice / token_* use rejection sampling internally —
+#   no modulo bias. Wordlist mode never assumes a power-of-two list size.
+# - Passphrases: EFF large wordlist (7,776 words, 12.925 bits/word), pinned
+#   by SHA-256 and verified at load; refuse to generate from a tampered list.
+# - Hygiene: secret bytes go to stdout ONLY; all metadata to stderr. The
+#   value is never echoed, logged, or written to disk by this command.
+# ---------------------------------------------------------------------------
+GEN_WORDLIST_NAME = "eff_large_wordlist.txt"
+GEN_WORDLIST_SHA256 = "addd35536511597a02fa0a9ff1e5284677b8883b83e986e43f15a3db996b903e"
+GEN_WORDLIST_WORDS = 7776  # 6^5; log2 = 12.924812503605781 bits/word
+GEN_DEFAULT_BITS = 512
+GEN_MIN_BITS = 256
+GEN_MAX_BITS = 8192
+GEN_DEFAULT_WORDS = 8
+GEN_MIN_WORDS = 6
+GEN_MAX_WORDS = 64
+
+_GEN_WORDLIST_CACHE: list[str] | None = None
+
+
+def _gen_load_wordlist() -> list[str]:
+    """Load the EFF large wordlist next to this script, verifying integrity.
+
+    The list is pinned by SHA-256. Any mismatch, wrong length, duplicate
+    word, or malformed TSV is a hard error — never generate from a wordlist
+    whose contents cannot be proven authentic.
+    """
+    global _GEN_WORDLIST_CACHE
+    if _GEN_WORDLIST_CACHE is not None:
+        return _GEN_WORDLIST_CACHE
+    path = Path(__file__).resolve().parent / GEN_WORDLIST_NAME
+    if not path.exists():
+        print(f"ERROR: wordlist missing: {path}", file=sys.stderr)
+        sys.exit(1)
+    raw = path.read_bytes()
+    digest = hashlib.sha256(raw).hexdigest()
+    if digest != GEN_WORDLIST_SHA256:
+        print(
+            f"ERROR: wordlist integrity check failed ({path})\n"
+            f"  expected sha256 {GEN_WORDLIST_SHA256}\n"
+            f"  actual   sha256 {digest}\n"
+            "Refusing to generate secrets from an unverified wordlist.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    words = []
+    for line in raw.decode("utf-8").splitlines():
+        parts = line.split("\t")
+        if len(parts) != 2 or not parts[1]:
+            print(f"ERROR: malformed wordlist line: {line!r}", file=sys.stderr)
+            sys.exit(1)
+        words.append(parts[1])
+    if len(words) != GEN_WORDLIST_WORDS or len(set(words)) != len(words):
+        print(
+            f"ERROR: wordlist shape invalid ({len(words)} entries, "
+            f"{len(words) - len(set(words))} duplicates)",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    _GEN_WORDLIST_CACHE = words
+    return words
+
+
+def _gen_usage() -> str:
+    return (
+        "Usage: pqc_secrets.py gen [--bits N | --bytes N] [--format b64|hex|b85]\n"
+        "                          [--words N] [--sep S] [--count N] [--env NAME]\n"
+        "                          [--quiet] [--allow-weak]\n"
+        "  default: 512-bit, base64url, 1 secret; secret to stdout, metadata to stderr\n"
+        "  --bits N    target entropy in bits (256..8192); rounded up to whole bytes\n"
+        "  --bytes N   raw random bytes (implies 8*N bits)\n"
+        "  --format    b64 = base64url (default, shell/URL/JSON-safe), hex, b85 (RFC1924)\n"
+        "  --words N   diceware mode: N words from pinned EFF large list (~12.925 bits/word)\n"
+        "  --sep S     word separator (default '-')\n"
+        "  --count N   emit N independent secrets, one per line (1..64)\n"
+        "  --env NAME  emit 'NAME=<secret>' lines (KEY naming: WTF_*, AINISHCODER_*, ...)\n"
+        "  --allow-weak accept below-floor entropy (<256 bits or <6 words); avoid"
+    )
+
+
+def cmd_gen(argv: list[str]) -> None:
+    """Generate high-entropy secrets from the OS CSPRNG; stdout = secrets only."""
+    bits: int | None = None
+    nbytes: int | None = None
+    fmt = "b64"
+    words: int | None = None
+    sep = "-"
+    count = 1
+    env_name: str | None = None
+    quiet = False
+    allow_weak = False
+
+    i = 0
+    while i < len(argv):
+        a = argv[i]
+        if a in ("-h", "--help"):
+            print(_gen_usage())
+            return
+        def _int_flag(flag: str, cur: int | None) -> int:
+            nonlocal i
+            i += 1
+            if i >= len(argv):
+                print(f"ERROR: {flag} requires an integer", file=sys.stderr)
+                sys.exit(1)
+            try:
+                return int(argv[i])
+            except ValueError:
+                print(f"ERROR: {flag} requires an integer, got {argv[i]!r}", file=sys.stderr)
+                sys.exit(1)
+        if a == "--bits":
+            bits = _int_flag(a, bits)
+        elif a == "--bytes":
+            nbytes = _int_flag(a, nbytes)
+        elif a == "--words":
+            words = _int_flag(a, words)
+        elif a == "--count":
+            count = _int_flag(a, count)
+        elif a == "--sep":
+            i += 1
+            if i >= len(argv):
+                print("ERROR: --sep requires a value", file=sys.stderr)
+                sys.exit(1)
+            sep = argv[i]
+        elif a == "--format":
+            i += 1
+            if i >= len(argv) or argv[i] not in ("b64", "hex", "b85"):
+                print("ERROR: --format must be b64, hex, or b85", file=sys.stderr)
+                sys.exit(1)
+            fmt = argv[i]
+        elif a == "--env":
+            i += 1
+            if i >= len(argv):
+                print("ERROR: --env requires a NAME", file=sys.stderr)
+                sys.exit(1)
+            env_name = argv[i]
+        elif a == "--quiet":
+            quiet = True
+        elif a == "--allow-weak":
+            allow_weak = True
+        else:
+            print(f"ERROR: unknown gen flag: {a}", file=sys.stderr)
+            print(_gen_usage(), file=sys.stderr)
+            sys.exit(1)
+        i += 1
+
+    if count < 1 or count > 64:
+        print("ERROR: --count must be 1..64", file=sys.stderr)
+        sys.exit(1)
+    if env_name is not None and not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", env_name):
+        print(f"ERROR: --env NAME must be a valid identifier: {env_name!r}", file=sys.stderr)
+        sys.exit(1)
+
+    if words is not None:
+        # Diceware mode
+        if not (1 <= words <= GEN_MAX_WORDS):
+            print(f"ERROR: --words must be 1..{GEN_MAX_WORDS}", file=sys.stderr)
+            sys.exit(1)
+        wl = _gen_load_wordlist()
+        per_word = math.log2(len(wl))
+        total_bits = words * per_word
+        if words < GEN_MIN_WORDS and not allow_weak:
+            print(
+                f"ERROR: {words} words = {total_bits:.1f} bits, below the "
+                f"{GEN_MIN_WORDS}-word floor; pass --allow-weak to override",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        secrets_out = [
+            sep.join(secrets.choice(wl) for _ in range(words)) for _ in range(count)
+        ]
+        mode_desc = f"diceware {words}x EFF-large ({total_bits:.1f} bits; {per_word:.3f} bits/word)"
+        secret_bits = total_bits
+    else:
+        # Byte-string mode (default)
+        if nbytes is not None:
+            if nbytes < 1 or nbytes > GEN_MAX_BITS // 8:
+                print(f"ERROR: --bytes must be 1..{GEN_MAX_BITS // 8}", file=sys.stderr)
+                sys.exit(1)
+            n = nbytes
+        elif bits is not None:
+            if bits < 1 or bits > GEN_MAX_BITS:
+                print(f"ERROR: --bits must be 1..{GEN_MAX_BITS}", file=sys.stderr)
+                sys.exit(1)
+            n = (bits + 7) // 8
+        else:
+            n = GEN_DEFAULT_BITS // 8
+        secret_bits = 8 * n
+        if secret_bits < GEN_MIN_BITS and not allow_weak:
+            print(
+                f"ERROR: {secret_bits} bits below {GEN_MIN_BITS}-bit floor; "
+                "pass --allow-weak to override",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        raws = [secrets.token_bytes(n) for _ in range(count)]
+        if fmt == "hex":
+            secrets_out = [r.hex() for r in raws]
+        elif fmt == "b85":
+            secrets_out = [base64.b85encode(r).decode("ascii") for r in raws]
+        else:
+            secrets_out = [base64.urlsafe_b64encode(r).rstrip(b"=").decode("ascii") for r in raws]
+        mode_desc = f"{n} random bytes ({secret_bits} bits), format {fmt}"
+
+    if not quiet:
+        wl_note = "; wordlist sha256 pinned+verified" if words is not None else ""
+        print(
+            f"gen: {mode_desc}{wl_note}; chars="
+            + ",".join(str(len(s)) for s in secrets_out)
+            + "; source=OS CSPRNG (stdlib secrets)",
+            file=sys.stderr,
+        )
+        print(
+            "gen: value printed to stdout ONLY — do not log, screenshot, or echo it",
+            file=sys.stderr,
+        )
+    for s in secrets_out:
+        print(f"{env_name}={s}" if env_name else s)
+
 
 def _load_public_key() -> bytes:
     """Load ML-KEM-768 public key from disk.
@@ -650,8 +910,8 @@ def cmd_rename(old_name: str, new_name: str) -> None:
 
 
 ENGINE_NAME = "py-native-mlkem"
-ENGINE_BUILD_DATE = "2026-08-22"
-ENGINE_COMMANDS = "keygen pack export verify list rename migrate setup version"
+ENGINE_BUILD_DATE = "2026-08-29"
+ENGINE_COMMANDS = "keygen gen pack export verify list rename migrate setup version"
 BUNDLE_SCHEMA = "v1 (ML-KEM-768 keywrap + AES-256-GCM data, aad)"
 
 
@@ -697,14 +957,21 @@ def cmd_migrate() -> None:
     print(f"Migrated keychain entry: service={KEYCHAIN_SERVICE}, account={old_account} -> {new_account}")
 
 
+USAGE_LINE = "Usage: pqc_secrets.py <keygen|gen|pack|export|verify|list|rename|migrate|version>"
+NAMING_LINE = "Naming:  always prefix keys with the consuming tool's name - LOCALROUTER_*_API_KEY, AINISHCODER_*_API_KEY, ..."
+
+
 def main() -> None:
     if len(sys.argv) < 2:
-        print("Usage: pqc_secrets.py <keygen|pack|export|verify|list|rename|migrate|version>", file=sys.stderr)
+        print(USAGE_LINE, file=sys.stderr)
+        print(NAMING_LINE, file=sys.stderr)
         sys.exit(1)
 
     cmd = sys.argv[1]
     if cmd == "keygen":
-        cmd_keygen()
+        cmd_keygen(sys.argv[2:])
+    elif cmd == "gen":
+        cmd_gen(sys.argv[2:])
     elif cmd == "pack":
         cmd_pack()
     elif cmd == "export":
@@ -724,7 +991,8 @@ def main() -> None:
         cmd_version()
     else:
         print(f"Unknown command: {cmd}", file=sys.stderr)
-        print("Usage: pqc_secrets.py <keygen|pack|export|verify|list|rename|migrate|version>", file=sys.stderr)
+        print(USAGE_LINE, file=sys.stderr)
+        print(NAMING_LINE, file=sys.stderr)
         sys.exit(1)
 
 

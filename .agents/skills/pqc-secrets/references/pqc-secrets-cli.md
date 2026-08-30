@@ -10,7 +10,7 @@ for the PQC secrets management system.
 
 **Bundle path:** `~/.config/pqc-secrets/secrets.bundle.json`
 **Public key:** `~/.config/pqc-secrets/recipient.pub` (safe to commit)
-**Private key:** OS keychain, service `pqc-secrets`, account `ml-kem-768`
+**Private key:** OS keychain, service `pqc-secrets`, account `pqc-secrets-key` (legacy v1 binary used `default`)
 **Audit log:** `~/.config/pqc-secrets/audit.log` (mode 0o600)
 
 ## Global flags
@@ -100,6 +100,45 @@ sk-live-AbCd...
 
 **Stderr format:** silent on success; bundle corruption produces a
 one-line error to stderr.
+
+### `pqc-secrets list`
+
+List secret **names** only — never values. Dispatched by the bin wrapper to
+the Python engine on every platform.
+
+| | |
+|---|---|
+| Args | none |
+| Exit codes | 0 success, 1 bundle missing |
+| Stdout | `N secret name(s) in <bundle path>:` followed by one indented, alphabetically sorted name per line |
+| Notes | On darwin the wrapper exports `PQC_USE_KEYCHAIN=true` so the keychain-resident key is readable; falls back to the encrypted file store automatically. |
+
+**Example:**
+```bash
+$ pqc-secrets list
+19 secret name(s) in /Users/nbiish/.config/pqc-secrets/secrets.bundle.json:
+  CLINE_API_KEY
+  MODAL_API_KEY
+  ...
+```
+
+### `pqc-secrets rename`
+
+Rename one secret **name**, preserving its value.
+
+| | |
+|---|---|
+| Args | `<OLD_NAME> <NEW_NAME>` — both must match `^[A-Z0-9_]+$` |
+| Exit codes | 0 success (or no-op when OLD == NEW), 1 bundle missing / OLD absent / NEW already exists / invalid name |
+| Writes | Fresh bundle from the decrypted entries; the previous bundle is backed up alongside as `secrets.bundle.json.bak.<YYYYMMDDTHHMMSSZ>` (mode 0600) |
+| Stdout | `Renamed OLD -> NEW (backup: <path>)` |
+| Safety | Refuses to overwrite an existing NEW name; values are never printed |
+
+**Example:**
+```bash
+$ pqc-secrets rename KILO_API_KEY LOCALROUTER_KILO_API_KEY
+Renamed KILO_API_KEY -> LOCALROUTER_KILO_API_KEY (backup: ~/.config/pqc-secrets/secrets.bundle.json.bak.20260822T185530Z)
+```
 
 ### `pqc-secrets rotate`
 
