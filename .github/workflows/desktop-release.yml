@@ -6,6 +6,9 @@ on:
       - 'v*'
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: true
@@ -37,6 +40,10 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Refresh preinstalled Rust (macOS rustup target conflict workaround)
+        if: runner.os == 'macOS'
+        run: rustup update stable --no-self-update
+
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -46,8 +53,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libayatana-appindicator3-dev
-
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
