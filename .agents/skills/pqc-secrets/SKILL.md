@@ -1,6 +1,6 @@
 ---
 name: pqc-secrets
-description: Post-quantum cryptography secrets management system for protecting API keys, tokens, and private data. Includes the 10 browser_secrets_* MCP tools (betterbrowsermcp v0.7.0+ rotates v0.8.0+), the append-only audit log at ~/.config/pqc-secrets/audit.log, and the PQC Rust binary (ML-KEM-768 + AES-256-GCM).
+description: Post-quantum cryptography secrets management system for protecting API keys, tokens, and private data. Includes the passphrase-wrapped vault.pqc identity root (v1.2.0: ML-KEM-768 + ML-DSA-65 seeds under Argon2id, signed audit chain, TTL session holder), the 10 browser_secrets_* MCP tools (betterbrowsermcp v0.7.0+ rotates v0.8.0+), the append-only audit log at ~/.config/pqc-secrets/audit.log, and the PQC Rust binary (device-key issuance + signed cross-machine envelopes).
 ---
 
 # PQC Secrets Management Agent Skill
@@ -111,7 +111,7 @@ The PQC secrets system consists of a dual-implementation architecture to ensure 
 |---|---|---|---|
 | Linux / WSL / generic (Windows: Ubuntu/WSL terminal) | **Python** (`pyca/cryptography>=45`, native ML-KEM-768, FIPS 203 seed form) via `uv run` | keygen, pack, export, verify, **list**, **rename**, migrate, setup, version | **Canonical** — resolves to the newest `cryptography` on first run |
 | darwin/arm64 | **Python** (same engine, same path) | all commands | Canonical |
-| darwin/arm64 | Rust `bin/pqc-secrets.darwin-arm64` | keygen, pack, export only | **Legacy fast-path**, frozen v1.0.0 (2026-06 command set) |
+| darwin/arm64 | Rust `bin/pqc-secrets.darwin-arm64` | keygen, pack, export only | **Fast-path**, v1.1.0 (2026-08-30) — seed-form + legacy expanded stores both supported |
 
 The dispatcher (`bin/pqc-secrets`) routes `keygen|pack|export` to the Rust binary on darwin
 when present (speed); **every other command — `list`, `rename`, `migrate`, `verify`,
@@ -128,22 +128,34 @@ OS keystore opt-ins: macOS Keychain, Linux Secret Service.
 
 2. **Python Fallback (Secondary):** A script at `.agents/skills/pqc-secrets/scripts/pqc_secrets.py` uses the **native ML-KEM-768** from `pyca/cryptography>=45` (`cryptography.hazmat.primitives.asymmetric.mlkem`) and writes the same **double-envelope** bundle JSON as the Rust engine (keywrap layer + AAD). Since 2026-08-20 new keygens store the private key in FIPS 203 **seed form** (64 bytes `d‖z`); older stores holding the 2400-byte expanded form remain readable via the retained `kyber-py` decapsulation fallback, which prints a rotation hint.
 
+> [!NOTE] Engine parity (verified 2026-08-30)
+> Since 2026-08-20 the Python engine writes the **identical double-envelope**
+> bundle JSON as the Rust engine (keywrap layer + AAD), so bundles are
+> interoperable across engines on the same machine — pack with either, export
+> with either. The historical incompatibility (`Error: missing field aad …`)
+> only affects bundles packed by **pre-parity** engine versions; if you still
+> hold one, migrate once: export plaintext with the Python engine, `keygen`,
+> then re-`pack` (values never touch disk at rest — keep them in shell
+> memory for the duration of the migration).
+
 > [!WARNING]
-> **Format Incompatibility & Mismatch Errors:**
-> Because the Rust binary and Python script use different envelope structures, their serialized bundles are incompatible. Running the Rust binary on a Python-packed bundle results in:
-> `Error: missing field aad at line X column Y`
->
-> If this occurs, you must perform a one-time migration:
-> ```bash
-> # 1. Export plaintext secrets using the Python fallback
-> SECRETS_TXT=$(uv run .agents/skills/pqc-secrets/scripts/pqc_secrets.py export)
-> 
-> # 2. Generate a new keypair using the Rust binary
-> ./bin/pqc-secrets keygen
-> 
-> # 3. Pack the secrets back into the Rust-compatible bundle
-> echo "$SECRETS_TXT" | ./bin/pqc-secrets pack
-> ```
+> **`rust-fips203`-tagged bundles are NOT final-FIPS-203 interoperable (fips203
+> 0.4.3 bug):** bundles whose `engine` field reads `rust-fips203` (packed by the
+> v1.0.0 Rust binary) use fips203 0.4.3 KEM outputs that decapsulate only under
+> that same crate — not under final-FIPS-203 implementations, including the
+> canonical Python engine and v1.1.x Rust engines (RustCrypto `ml-kem`).
+> Migrate BEFORE use with v1.1.x engines: export with the **v1.0.0 binary**, then
+> **re-pack with the Python engine** (which writes `py-native-mlkem` bundles).
+
+**Export/pack quoting contract (hardened 2026-08-30, both engines byte-identical):**
+`export` emits `export KEY='value'` lines — POSIX single-quote wrap, embedded `'`
+escaped as `'\''` — so `eval "$(pqc-secrets export)"` is safe for ANY value
+(quotes, spaces, `$`, backticks, embedded newlines). `pack` **refuses**
+shell-quoted input lines (`KEY='value'`) with a named-key error — wrapping quotes
+caused the 2026-08-30 incident where stored values literally contained quote
+characters — and warns non-fatally when values contain `$` or `` ` `` (stored
+literally, never expanded). Verified byte-identical across engines by
+`.agents/skills/pqc-secrets/tests/test_export_quoting.py`.
 
 The local secrets infrastructure lives at `~/.config/pqc-secrets/`:
 
@@ -171,6 +183,91 @@ System Keychain / File                 ~/.config/pqc-secrets/
 │  ANTHROPIC_AUTH_TOKEN  ZENMUX_API_KEY  NEBIUS_API_KEY        │
 │  OPENROUTER_API_KEY    WAFER_API_KEY    ... (in-memory only) │
 └──────────────────────────────────────────────────────────────┘
+
+### 2.1 `vault.pqc` — OS-independent vault (canonical identity root, v1.2.0)
+
+The vault is a self-contained, passphrase-wrapped identity store with **no reliance
+on any OS security machinery** (Keychain, Secure Enclave, DPAPI, Secret Service).
+All encryption at rest is post-quantum + standard symmetric:
+
+```text
+passphrase ──Argon2id(salt, m/t/p)──▶ 32-byte vault KEK (memory-only, zeroized)
+                                         │ AES-256-GCM wrap (AAD-pinned)
+       ┌─────────────────────────────────┴─────────────────────────┐
+       ▼                                                            ▼
+ML-KEM-768 seed (64 B d‖z, FIPS 203)              ML-DSA-65 seed (32 B ξ, FIPS 204)
+```
+
+Store: `~/.config/pqc-secrets/vault.pqc` (0600 JSON, honors `PQC_CONFIG_DIR`).
+Clear header carries public material only (expanded-EK fingerprint, ML-DSA-65
+verification key + fingerprint), so `verify` / `audit-verify` never need the
+passphrase. Default KDF: argon2id `m=64 MiB, t=3, p=4` (repo §4 row; stricter
+than the OWASP 2025 minimum). Every blob is AAD-pinned (e.g.
+`pqc-secrets:vault:v1:kem-seed`) and fails closed on mismatch.
+
+**Commands** (write-side is Rust-only; all errors fail closed):
+
+| Command | Purpose |
+|---|---|
+| `vault init` | One-time vault creation: fresh ML-KEM-768 + ML-DSA-65 seeds, wrapped under a passphrase. Refuses if a vault exists. |
+| `vault migrate` | One-time keychain → vault adoption. Rollback gates: unwrap → re-wrap → byte-roundtrip fingerprint check (before == after) before success; NEVER deletes/edits keychain material (you delete it manually after confirming). `--dry-run` prints the plan and writes nothing. |
+| `vault unlock [--ttl Ns/Nm/Nh] [--no-cache]` | Verify passphrase; default TTL 15 min. With a session, the KEK lives ONLY in a hidden `_vault-holder` child's memory (passed via stdin pipe, never argv/env/disk) serving a 0700 Unix-socket. `--no-cache` verifies statelessly. POSIX-only; `--no-cache` is the portable path. |
+| `vault lock` / `vault status` | Lock = zeroize holder + signed audit record; status = vault/KDF/fingerprints + session remaining. |
+| `vault export-identity [--pub-out PATH]` | Unwrap + verify header fingerprint; writes a pack-compatible `recipient.pub`-format JSON file. |
+| `vault sign` / `vault verify <FILE> [SIG]` | ML-DSA-65 detached signatures (`<FILE>.sig` JSON); verify is passphrase-free and pins the vault's verification key (fail closed on alg/digest/key/progressive mismatch). |
+| `vault audit-verify` | Replays the hash-chained, ML-DSA-65-signed audit log (every record signed; `CHAIN1\t{json}` lines extend the existing `audit.log`, legacy lines preserved). Detects reorder, edits, and signature forgery. |
+
+**Keychain demotion:** when a vault exists it is the canonical identity root —
+`keygen` refuses and `export` routes through the vault (both overridable with
+`--use-keychain`). No-vault behavior is unchanged (keychain / `machine.kek`
+file store keeps working).
+
+**Python parity (documented decision):** `pqc_secrets.py` READS the vault
+identity only (`_vault_load_kem_seed`: pinned `argon2-cffi==25.1.0` raw-hash
+Argon2id + `cryptography` AESGCM) so `export`/`verify`/`list`/`rename`
+decapsulate bundles keychain-free. The ML-DSA signing identity and the signed
+audit chain are Rust-side (`vault audit-verify`) — there is no mature pinned
+Python ML-DSA. Verified by `.agents/skills/pqc-secrets/tests/test_vault_parity.py`
+(rust vault init → export-identity → py pack → py export roundtrip, no keychain
+access).
+
+**Identity-source matrix (who unwraps what — live-verified 2026-08-30):**
+in vault mode each surface gets the identity from a different channel.
+Agents automating vault-gated commands must know which channel works, or
+they hit an interactive passphrase prompt in a context with no TTY:
+
+| Surface | Engine | Identity source (in order) | Non-interactive path |
+|---|---|---|---|
+| `export` | Rust native | `_vault-holder` session → env → prompt | live session, or `PQC_VAULT_PASSPHRASE` |
+| `vault unlock` / `migrate` | Rust native | env → prompt | `PQC_VAULT_PASSPHRASE` |
+| `vault status` / `audit-verify` / `verify <FILE>` | Rust native | header only (fingerprints / verification key) | passphrase-free, always |
+| `vault sign` / `export-identity` | Rust native | session → env → prompt | live session, or `PQC_VAULT_PASSPHRASE` |
+| Python identity reads: `verify`, `list`, `rename` (+ `export` when the Python engine is invoked directly) | Python | `PQC_VAULT_PASSPHRASE` env → `getpass` prompt | `PQC_VAULT_PASSPHRASE` — **session holder is NOT consulted** |
+
+The Python engine deliberately does not speak the session-holder protocol,
+so a live unlocked session does NOT satisfy it. This asymmetry bites in
+mixed command chains: `PQC_VAULT_PASSPHRASE="$P" cmd1 && cmd2` scopes the
+var to `cmd1` only — the Rust `export` succeeds off the session while the
+Python `verify` prompts, reads an empty passphrase, and fails closed with
+`vault unwrap failed`. Export the var once for the whole chain
+(`export PQC_VAULT_PASSPHRASE="$P"`), or prefix each vault-gated command.
+
+**Wrapper bootstrap (2026-08-30):** the `bin/pqc-secrets` wrapper removes
+the prompt from this matrix after one-time setup (§5.12): with the vault
+locked it decaps the bundle via the OS keychain (same identity seed), reads
+the in-bundle `VAULT_PASSPHRASE` mirror, and either unlocks the session
+holder (Rust surfaces) or injects `PQC_VAULT_PASSPHRASE` (Python reads).
+The table still describes the engines themselves; the wrapper sits in
+front and falls through to it on any bootstrap miss.
+
+**Session lifecycle (`_vault-holder`):** `vault unlock --ttl 15m` spawns a
+hidden holder child that keeps the derived KEK in memory (received via
+stdin pipe — never argv/env/disk) and serves unwraps on a 0700 Unix socket
+under `$TMPDIR/pqc-vault-sess-<hash>/`. `vault status` shows remaining TTL;
+expiry removes the socket and subsequent Rust unwraps re-derive from the
+passphrase. `vault lock` zeroizes the holder and writes a signed audit
+record. Daemons and long-lived agents must treat TTL expiry as an expected
+failure mode — see §10.4 (post-migration operational reality) and §7.1.
 
 ---
 
@@ -250,6 +347,9 @@ PQC_KEYCHAIN_ACCOUNT_OLD=default PQC_KEYCHAIN_ACCOUNT_NEW=pqc-secrets-key bin/pq
 || `PQC_KEYCHAIN_ACCOUNT` | `pqc-secrets-key` | System keychain account name for the ML-KEM-768 private key |
 || `PQC_CONFIG_DIR` | `~/.config/pqc-secrets` | Directory for bundle and public key files |
 | `PQC_USE_KEYCHAIN` | `false` | Enable native platform keychain storage (defaults to the `machine.kek` file store) |
+| `PQC_VAULT_PASSPHRASE` | — (prompt) | Vault passphrase for non-interactive use; env only, never persisted or logged |
+| `PQC_UNLOCK_TTL` | `8h` | Wrapper bootstrap (§5.12) session-holder TTL for auto-unlock |
+| `PQC_VAULT_TEST_KDF_LIGHT` | unset | **Test-only** Argon2id lightener (m=8 MiB, t=1, p=1) for fast sandboxed tests; production defaults unchanged; params are recorded per-vault in the header |
 
 **Private-key wrapping key (KEK):** the ML-KEM-768 private key is encrypted under a stable per-machine KEK persisted to `~/.config/pqc-secrets/machine.kek` (0600). It is generated once and survives reboots, kernel upgrades, and distro re-creation; a pre-existing legacy-encrypted store is migrated automatically. See `references/kek-persistence.md` for the full strategy.
 
@@ -257,8 +357,9 @@ One PQC bundle at `~/.config/pqc-secrets/secrets.bundle.json` is the single sour
 
 ### Implementation Details
 
-- **Rust Primary Engine:** `fips203` crate v0.4.x (pure Rust, no `unsafe`, no C FFI; implements final FIPS 203 ML-KEM-768 with ACVP KATs). Alternatives verified 2026-08: RustCrypto `ml-kem` crate (type-safe param sets, no FFI), Cryspen/libcrux `libcrux-ml-kem` (formally verified).
+- **Rust Primary Engine:** `fips203` crate v0.4.x (pure Rust, no `unsafe`, no C FFI; implements final FIPS 203 ML-KEM-768 with ACVP KATs). Since v1.1.0 (2026-08-30) seed-form (FIPS 203 `d‖z`) keygen and expansion use RustCrypto `ml-kem` 0.3 (`FromSeed`/`Decapsulate`): `keygen` stores hex seeds (Python-readable), `export` accepts hex-or-base64 keychain material and engine-JSON-or-hex public-key files, and a cross-impl interop test (fips203 encaps ↔ ml-kem decaps) runs in `cargo test`. Alternatives verified 2026-08: RustCrypto `ml-kem` crate (type-safe param sets, no FFI), Cryspen/libcrux `libcrux-ml-kem` (formally verified).
 - **Rust Primary Dependencies:** `security-framework` (macOS Keychain), `aes-gcm`, `serde`, `serde_json`, `sha3`.
+- **Vault (v1.2.0, 2026-08-30):** `argon2` 0.6 (Argon2id KEK), `ml-dsa` 0.1 (FIPS 204 ML-DSA-65 signatures + signed audit chain), `rpassword` 7.5 (passphrase prompt); `zeroize` on all seed/KEK intermediates. Private-key seeds are held only in `Zeroizing` memory and never printed — fingerprints (`sha3:<16 hex>`) only.
 - **Python Fallback Engine (migrated 2026-08-20):** native `cryptography>=45` ML-KEM-768 (`MLKEM768PrivateKey.generate()` / `from_seed_bytes()` / `MLKEM768PublicKey.encapsulate()`) for all keygen, encapsulation, and seed-form decapsulation. `kyber-py` is imported lazily and used **only** to decapsulate legacy 2400-byte expanded-form private-key stores (written by older keygens or the Rust engine); those prints advise rotating via `keygen` + re-pack. Bundle JSON layout is unchanged and interoperable with the Rust engine.
 - **Python Fallback Dependencies:** Managed inline via UV script metadata — `cryptography>=45.0` (primary engine) and `kyber-py>=0.2.0` (legacy expanded-key reads only), auto-resolved by `uv run`.
 
@@ -267,6 +368,12 @@ One PQC bundle at `~/.config/pqc-secrets/secrets.bundle.json` is the single sour
 ## 5. Application Integration Guidelines
 
 Applications must read secrets exclusively from environment variables populated dynamically in memory. Do not store or read plaintext files inside the application context.
+
+> **Adopting this system in a new repo/tool?** Start with
+> [references/implementation-guide.md](references/implementation-guide.md) —
+> the six-step adoption checklist, engine selection, consumption patterns in
+> shell/Node/Python/Rust, namespace discipline, invariants, and verification
+> receipts.
 
 > **Full application-embedding reference:** [references/application-orchestration.md](references/application-orchestration.md) — for when the application itself owns the key lifecycle: boot-time bundle load, UI-driven set/unset with repack, in-memory reads for per-request use, cross-platform binary dispatch, and new-machine ceremonies. Production reference: local-router (2026-08-17).
 
@@ -418,7 +525,12 @@ Encrypt `KEY=VAL` lines and write a fresh bundle.
 **Synopsis:** `pqc-secrets pack [--in PATH] [--bundle PATH]`
 
 **Behavior:**
-- Reads `KEY=VAL` lines from stdin (or `--in PATH`).
+- Reads `KEY=VAL` lines from stdin (or `--in PATH`). Pipe plain
+  `KEY=value` lines — **shell-quoted input (`KEY='value'`) is refused**
+  with an error naming the offending keys (wrapping quotes would be
+  stored literally; 2026-08-30 incident).
+- Values containing `$` or `` ` `` are stored literally with a
+  non-fatal warning (they are never expanded at eval time).
 - Generates a fresh 256-bit AES data key, encrypts the plaintext via
   AES-256-GCM.
 - Encapsulates the data key against `recipient.pub` using ML-KEM-768.
@@ -445,9 +557,15 @@ Decrypt the bundle and emit shell `export` lines to stdout.
 **Behavior:**
 - Reads the bundle, decapsulates the data key using the keychain
   private key, decrypts the data via AES-256-GCM.
-- Emits `export KEY=VALUE` lines to stdout. Values are quoted with
-  double-quote escaping; multiline values are base64-encoded and
-  prefixed with a warning comment.
+- Emits `export KEY='value'` lines to stdout. Values are POSIX
+  single-quoted (embedded `'` → `'\''`) — Rust-engine byte parity —
+  so `eval "$(pqc-secrets export)"` is correct for ANY value,
+  including quotes, spaces, `$`, backticks, and embedded newlines.
+- **Wrapper bootstrap (§5.12):** with a vault present and locked, the
+  `bin/pqc-secrets` wrapper first unlocks the session holder from the
+  in-bundle `VAULT_PASSPHRASE` mirror via OS-keychain decap — no prompt.
+  `export --use-keychain [BUNDLE]` skips bootstrap and decaps via the
+  keychain directly.
 
 **Exit codes:**
 - `0` — success
@@ -620,6 +738,213 @@ $ pqc-secrets gen --format hex --bits 384 --count 5 --quiet
 `WTF_*`, `AINISHCODER_*`, `<TOOLNAME>_<WHAT>_API_KEY` — when using
 `--env`; `gen` accepts any valid identifier but the bundle audit
 (`pqc-secrets list`) should always make the owning tool obvious.
+
+### 5.9 `pqc-secrets issue` — device-key issuance (Rust engine, vault-first 2026-08-30)
+
+Mint a high-entropy device key from the OS CSPRNG and seal it into the PQC
+bundle in one step. `wtf` is the first built-in template: it emits exactly
+what the wtf-agent-hub skill §2 flow needs — a ready-to-eval env line
+(`export WTF_<NAME>_SECRET='…'`, POSIX single-quote wrapped) plus the
+enrollment JSON `{"hub_url":…,"device":…,"key":…}` (JSON-quoted, printed
+once, like `wtf key issue --json`).
+
+**Synopsis:**
+```
+pqc-secrets issue <template> <name> [PUB_PATH] [BUNDLE_PATH]
+                   [--hub-url URL] [--json] [--force] [--use-keychain]
+```
+
+**Behavior — vault-first (default when a vault exists):**
+- With a `vault.pqc` present, no explicit `PUB_PATH`, and no `--use-keychain`,
+  issuance merges the minted key into the existing bundle **in memory** under
+  the vault's ML-KEM-768 identity — no passphrase prompts beyond the vault
+  itself, no keychain, no plaintext on disk. If no bundle exists yet, it
+  seals a fresh one for the vault identity.
+- The rewritten bundle is written atomically (tmp + fsync + rename, mode
+  0600) and **signed**: an ML-DSA-65 sidecar `<bundle>.sig` covers the exact
+  on-disk bytes (see §5.11).
+- A **fail-closed recipient gate** runs before anything else: a bundle sealed
+  for a different recipient (fingerprint mismatch vs the vault header pin) is
+  refused untouched.
+- **Key-collision guard:** re-issuing an env name that already exists in the
+  bundle is refused unless `--force`.
+- The operation appends a hash-chained, signed audit record (`issue-wtf`:
+  key name, mode, bundle SHA3-256 prefix, recipient fingerprint prefix).
+
+**Behavior — legacy / foreign-recipient (explicit `PUB_PATH`, no vault, or
+`--use-keychain`):**
+- Fresh single-key bundle through the pack path (same double-envelope, AADs,
+  KDF — output is engine-compatible). Refuses to overwrite an existing bundle
+  without `--force`. Unsigned — no vault identity is involved.
+
+**Common:** the value appears only shell-quoted (eval line) or JSON-quoted
+(enrollment JSON); it is never logged. Metadata goes to stderr. `<name>`:
+`[A-Za-z0-9_-]+`, no leading digit; uppercased into the env name with `-`
+folded to `_`. `--hub-url` fills the `hub_url` field (default placeholder
+`http://HUB:7800`); `--json` prints the enrollment JSON only.
+
+**Exit codes:** `0` success; `1` error (unknown template, invalid name,
+recipient mismatch, key collision without `--force`, existing bundle without
+`--force` on the legacy path, missing recipient.pub).
+
+**Example:** (values below are shape placeholders, never real keys)
+```bash
+$ pqc-secrets issue wtf windows-agent
+export WTF_WINDOWS_AGENT_SECRET='<64-hex-device-key>'
+{"hub_url":"http://HUB:7800","device":"windows-agent","key":"<64-hex-device-key>"}
+$ eval "$(pqc-secrets issue wtf windows-agent | head -1)"   # eval-safe scripting
+```
+
+### 5.9a Application-level key sealing pattern (from wtf session channels)
+
+The `envelope` command moves files between machines. For **live services**
+that need inline sealing of small working keys (session channels, chat
+rooms, temporary collaboration), use this canonical blueprint — implemented
+and live-verified in the wtf hub's encrypted agent sessions (wtf
+`src/session_crypto.rs`):
+
+1. **Service generates a random 256-bit working key** (OS CSPRNG —
+   `pqc-secrets gen --bits 256 --quiet` shape) per channel/session.
+2. **Seal to each member**: ML-KEM-768 `encapsulate(member_ek)` → shared
+   secret + KEM ciphertext; then AES-256-GCM the working key under
+   `SHA3-256(shared)` with AAD binding the channel id. Package =
+   `KEM ciphertext ‖ GCM(wrapped key)`. The member's private seed never
+   leaves their machine; the relay stores only this package.
+3. **Member opens**: decapsulate with their private seed → recompute
+   `SHA3-256(shared)` → GCM-open with the channel id as AAD (fails closed
+   on any mismatch).
+4. **Messages**: AEAD with per-(channel, sender) subkeys derived from the
+   working key, nonce derived from (subkey, monotonic counter), AAD binding
+   (channel, sender, counter) — replay/cross-sender/cross-channel reuse
+   fails closed.
+5. **Relay trust model**: the hub/relay stores metadata + ciphertext only;
+   a compromised relay cannot read messages. Member revocation = recreate
+   the channel (no forward secrecy in this design; do not reuse channels
+   after member churn).
+
+Pattern validated against pyca/cryptography (OpenSSL) and kyber-py with
+official NIST ACVP KATs — see the wtf repo's `src/mlkem768.rs` tests.
+
+### 5.10 `pqc-secrets envelope export|import` — signed cross-machine transfer (Rust engine, 2026-08-30)
+
+Move secrets between machines as an **ML-KEM-768-wrapped, ML-DSA-65-signed
+envelope**: the sender seals for the recipient's `recipient.pub` and signs
+every wire field with a local ML-DSA-65 key (FIPS 204, RustCrypto `ml-dsa`
+0.1.1); the recipient **verifies the signature before any decapsulation** and
+fails closed on any mismatch.
+
+**Synopsis:**
+```
+pqc-secrets envelope export --recipient <PUB> [--in FILE] [--out FILE]
+pqc-secrets envelope import [--in FILE] [--out FILE]
+```
+
+**Envelope (versioned JSON, v1):**
+```json
+{"version":1,"alg":"ML-KEM-768+ML-DSA-65","recipient_key_sha3_256":"…",
+ "signer_pubkey":"…","sig":"…","kem_ct_b64":"…","nonce_b64":"…","ct_b64":"…"}
+```
+- Payload: AES-256-GCM over the secrets JSON, AAD `pqc-secrets:v1:envelope:data`.
+- Signature covers version, alg, recipient fingerprint, KEM ciphertext,
+  nonce, and ciphertext (domain `pqc-secrets:v1:envelope:sig`).
+- Signing key, vault-first (default when a vault exists): the vault's
+  canonical ML-DSA-65 identity — recipients can tie the envelope to the
+  identity pinned in the vault header, and the export appends a signed
+  `envelope-export` audit record. `--use-keychain` (or no vault) keeps the
+  legacy ad-hoc signer: keychain account `<PQC_KEYCHAIN_ACCOUNT>-mldsa65`,
+  auto-provisioned from the OS CSPRNG on first export. Only a SHA3-256
+  fingerprint (16 hex) is printed — **verify it with the recipient
+  out-of-band** before importing.
+- `import` verifies the signature **before any decapsulation** and fails
+  closed on any mismatch. Local private material, vault-first: the vault seed
+  (session cache or passphrase) — the keychain is never touched;
+  `--use-keychain` (or no vault) reads the legacy keychain seed.
+- `import` emits `export KEY='value'` lines (same quoting contract as
+  `export`); `--out FILE` writes 0600 plaintext — a PQC violation if kept,
+  so delete it immediately after use.
+
+**Exit codes:** `0` success; `1` error (bad signature → fail closed, wrong
+recipient, missing keys, malformed envelope).
+
+**Example:**
+```bash
+pqc-secrets envelope export --recipient ~/pubs/laptop.pub --in keys.env > envelope.json
+pqc-secrets envelope import --in envelope.json | grep '^export '
+```
+
+**Transit guidance:** envelopes are cryptographically sealed, but the
+transport still matters — any hub/relay must sit behind an overlay or TLS
+proxy (wtf non-negotiable: never plain HTTP to the public internet). Future
+networked daemons should target TLS 1.3 with the hybrid group
+`X25519MLKEM768` (draft-ietf-tls-ecdhe-mlkem) so transit inherits PQC key
+establishment too.
+
+### 5.11 Vault audit & tamper evidence — agent review surface (2026-08-30)
+
+Every operation performed under the vault identity (vault-init, export via
+vault, issue-wtf, envelope-export) appends a **hash-chained, ML-DSA-65-signed
+audit record**. Together with the bundle sidecar signature this gives AI
+agents a reviewable, secret-free integrity surface:
+
+- **`pqc-secrets vault verify [BUNDLE]`** — recomputes the bundle digest,
+  checks the recipient fingerprint against the vault header pin, and checks
+  the sidecar signature over the exact on-disk bytes. `verify OK:` on
+  success; fails closed with `FILE CONTENT TAMPERED` / `INVALID` / a
+  fingerprint-mismatch message on any drift.
+- **`pqc-secrets vault audit-verify`** — validates the hash chain and every
+  record's ML-DSA-65 signature: `audit-verify OK: N signed record(s)`.
+- **Sidecar `<bundle>.sig`** (public material, safe to read/share):
+  `{"alg":"ML-DSA-65","file_sha3_256":"…","dsa_pub_sha3_256":"…",
+  "sig_b64":"…","created_utc":"…"}`. A deleted or replaced sidecar fails
+  the next vault-path write/verify; a signature from any other key fails
+  closed.
+- **Agent review contract:** an agent (CLI, TUI, MCP, any harness, any OS)
+  can answer *what happened, when, to which key names, under which identity*
+  from the audit chain, sidecar, and fingerprints alone — **no secret value
+  is ever displayed, logged, or required**. Review tooling should consume:
+  key names, record actions/timestamps, SHA3-256 fingerprints (16-hex
+  prefixes) and digests; nothing else. Values live only in encrypted
+  bundles and process memory.
+- **Platform note:** all of this is engine-level (Rust fast-path and Python
+  canonical engine share the bundle/vault formats), so review works
+  identically on macOS, Linux, WSL, and Windows terminals.
+
+### 5.12 Prompt-free bootstrap — one passphrase at setup (2026-08-30)
+
+**Contract:** enter the vault passphrase once at system setup; every
+vault-gated command after that is prompt-free for agents and tooling. The
+`bin/pqc-secrets` wrapper implements it; the engines are unchanged.
+
+**Setup (once per machine):**
+1. Init the vault and pack secrets as usual, mirroring the passphrase into
+   the bundle under the reserved name `VAULT_PASSPHRASE` (append it to the
+   export-merge flow — Rust `pack` replaces the bundle, so export → append →
+   repack). The mirror lives only inside the AES-256-GCM payload.
+2. Done. The keychain holds the same ML-KEM identity seed as the vault, so
+   the bundle is decappable without the vault.
+
+**Runtime resolution added by the wrapper** (vault locked, no
+`PQC_VAULT_PASSPHRASE`, and — for Rust surfaces — no live session):
+
+- **Rust surfaces** (`export`, `issue`, `envelope`, `vault sign`,
+  `vault export-identity`, `vault migrate`): decap the bundle via the OS
+  keychain → read `VAULT_PASSPHRASE` from the decrypted payload →
+  `vault unlock --ttl ${PQC_UNLOCK_TTL:-8h}` → rerun vault-first. The
+  session holder then serves all later tooling until TTL expiry or
+  `vault lock`.
+- **Python identity reads** (`list`, `verify`, `rename` — they never
+  consult the holder): decap → inject `PQC_VAULT_PASSPHRASE` into the
+  engine process env only.
+- **Any failure** (no keychain entry, identity-seed drift, missing mirror
+  entry) falls through to the engine's own session → env → prompt
+  resolution. Bootstrap only adds convenience; it cannot remove a security
+  property.
+
+**Security notes:** the passphrase transits process memory and the
+environment of a single command — never another process's argv, never disk,
+never logs. `PQC_UNLOCK_TTL` overrides the 8h default session TTL;
+`vault lock` still locks everything immediately; `export --use-keychain`
+skips bootstrap entirely.
 
 ---
 
@@ -803,17 +1128,18 @@ scans for plaintext secret patterns (`sk-live`, `sk-test`,
 
 ### 7.1 Hermes MCP (betterbrowsermcp)
 
-The `@nbiish/betterbrowsermcp` MCP server exposes 9 PQC secrets tools
+The `@nbiish/betterbrowsermcp` MCP server exposes 10 PQC secrets tools
 to any Hermes agent:
 
 | Tool | Purpose |
 |---|---|
-| `browser_secrets_status` | Check keychain + bundle health. Returns JSON. |
+| `browser_secrets_status` | Check binary + bundle + keychain health. Returns JSON. First diagnostic for any server-side secrets failure. |
 | `browser_secrets_list` | List secret **names** (no values). |
 | `browser_secrets_get` | Read one secret value. Optional `mode: 'plain'\|'redact'`. |
 | `browser_secrets_load` | Bulk-export bundle into the agent's process env. |
-| `browser_secrets_add` | Add a new secret. Optional `dry_run: true`. |
-| `browser_secrets_add_from_clipboard` | Pull a value from the page's clipboard write. |
+| `browser_secrets_add` | Add a new secret. Optional `dry_run: true`, `merge: true`. |
+| `browser_secrets_add_from_clipboard` | Pull a value from the page's clipboard write (needs a focused bound tab). |
+| `browser_secrets_rotate` | Atomic data-key rotation: backup → re-encrypt → report (v0.8.0+). |
 | `browser_secrets_unlock_agent` | Cache one secret value in agent memory for fast reads. |
 | `browser_secrets_lock_agent` | Clear a cached secret (or wipe all). |
 | `browser_secrets_copy_to_page` | Paste a secret into a focused form field. |
@@ -834,6 +1160,17 @@ mcp_servers:
 Add `betterbrowsermcp` to `platform_toolsets.cli` and `/reload-mcp`.
 The LLM uses `mcp_betterbrowsermcp_browser_secrets_*` tools directly.
 The audit log at `~/.config/pqc-secrets/audit.log` records every call.
+
+**Vault mode (v1.2.0+):** once `vault.pqc` exists, the server's
+`pqc-secrets export` spawns route vault-first, so the hub process needs a
+live vault session for `secrets_add` / `secrets_get` / `secrets_load` /
+`secrets_rotate`. TTL expiry surfaces as `pqc-secrets export failed` with
+empty stderr (the child falls back to a passphrase prompt it cannot answer
+headless). Recovery, live-verified 2026-08-30: run `browser_secrets_status`
+(binary path, bundle health, keychain reachability), re-unlock on the host
+(`PQC_VAULT_PASSPHRASE='…' pqc-secrets vault unlock --ttl 15m`), retry the
+tool call. Long-lived hubs can hold `PQC_VAULT_PASSPHRASE` in their process
+environment instead of a session — same value, never written to disk.
 
 ### 7.2 Claude Code (settings.json env-block trap)
 
@@ -1233,6 +1570,88 @@ escrowed; this is intentional.
   must export a value for a one-time use, pipe it directly:
   `pqc-secrets export | grep STRIPE_SECRET | cut -d= -f2- | tr -d '"' | my-tool`
   (no intermediate file).
+
+### §10.4 Adopting the vault — keychain → `vault migrate` ceremony (as executed 2026-08-30)
+
+One-time ceremony that makes `vault.pqc` the canonical identity root while
+keeping the keychain entry untouched as a dormant fallback. Every step was
+executed live on 2026-08-30 against the real store.
+
+**Preconditions:** dispatcher v1.2.0+ (`vault` routes to the Rust binary),
+a healthy keychain identity (`pqc-secrets verify` green, no vault yet —
+`vault status` reports `mode: legacy`).
+
+1. **Stage the passphrase into the bundle first** — the bundle becomes the
+   machine-readable recovery copy (see §10.5 for why that is not enough on
+   its own). Generate without ever displaying the value:
+   ```bash
+   SECRET_VALUE="$(pqc-secrets gen --words 8 --quiet)"   # ~103 bits, value on stdout only
+   # then stage via MCP: browser_secrets_add {name: "VAULT_PASSPHRASE", value, merge: true}
+   ```
+   The MCP clipboard lane (`browser_secrets_add_from_clipboard`) needs a
+   focused bound tab — background tabs reject `navigator.clipboard.readText`
+   ("Document is not focused"). In headless/agent contexts, stage through a
+   one-shot script that reads `SECRET_NAME`/`SECRET_VALUE` from its
+   environment and calls `browser_secrets_add` — values stay in process
+   memory end to end. Redact receipts; never echo the value.
+2. **Dry-run first** (writes nothing):
+   `pqc-secrets vault migrate --dry-run` — expect the keychain read →
+   64-byte seed-form gate → Argon2id wrap → byte-roundtrip plan.
+3. **Migrate** (rollback-gated; the keychain entry is NEVER deleted or
+   edited):
+   ```bash
+   eval "$(pqc-secrets export | grep '^export VAULT_PASSPHRASE=')"
+   PQC_VAULT_PASSPHRASE="$VAULT_PASSPHRASE" pqc-secrets vault migrate
+   ```
+   Success prints `seed fingerprint before == after`; any gate failure
+   auto-rolls back the vault write.
+4. **Unlock and verify the whole stack:**
+   ```bash
+   export PQC_VAULT_PASSPHRASE="$VAULT_PASSPHRASE"   # whole chain, not per-command
+   pqc-secrets vault unlock --ttl 15m
+   pqc-secrets vault status && pqc-secrets vault audit-verify
+   pqc-secrets verify && pqc-secrets list
+   ```
+   `verify`/`list` are Python-side and read the env var only (no session —
+   see the §2.1 identity-source matrix). Expect: session TTL, audit chain
+   OK (signed records + head digest), `Bundle valid: N keys`.
+5. **Record the passphrase externally NOW** (password manager). The
+   in-bundle copy is only readable while a session is unlocked — §10.5.
+6. **Keychain cleanup is manual and deferred:** the `pqc-secrets-key`
+   entry stays valid but is no longer consulted (vault-first, fail closed).
+   Delete only after days of trouble-free operation:
+   `security delete-generic-password -s pqc-secrets -a pqc-secrets-key`.
+
+**Post-migration operational reality:** every daemon or agent that spawns
+`pqc-secrets export` now needs a live session (or the env var). TTL expiry
+manifests as export failures with empty stderr — re-unlock on the host and
+retry (§7.1). Tool-prefix naming still applies: `VAULT_PASSPHRASE` itself
+is machine-shared infrastructure, the sanctioned bare name.
+
+### §10.5 Disaster recovery — Lost VAULT passphrase
+
+Once a vault exists it is the ONLY identity root the engines consult
+(vault-first, fail closed — the keychain entry is ignored). Lose the
+passphrase and `secrets.bundle.json` is unrecoverable. No escrow, no
+reset: Argon2id + AES-256-GCM fail closed.
+
+**Recovery layers, in order:**
+1. **Live session** — if `_vault-holder` is still up (`vault status` shows
+   TTL remaining), Rust-side ops work; export the passphrase out
+   immediately into your password manager (never to a file):
+   `pqc-secrets export | grep '^export VAULT_PASSPHRASE='`
+2. **`VAULT_PASSPHRASE` inside the bundle** — readable via an unlocked
+   session, the passphrase itself, or the wrapper's keychain bootstrap
+   (§5.12) when the keychain still holds the same ML-KEM identity seed.
+   **Circular by design** where none of those hold: treat the in-bundle
+   copy as a convenience mirror for agents, never as the primary backup.
+   The external record from §10.4 step 5 is the real recovery path.
+3. **Nothing else.**
+
+**Mitigations:** keep a session alive during migration windows; `vault
+lock` when stepping away; update the external passphrase record whenever
+the vault is re-keyed; rehearse §10.4 step 4 quarterly so a restore is
+never the first time you run it.
 
 ---
 

@@ -1,0 +1,157 @@
+{
+  "benchmark": "B-6 signed-beacon provenance under realistic loss",
+  "run_timestamp": "2026-08-30T03:51:59+00:00",
+  "seed": "11",
+  "all_pass": true,
+  "wall_seconds": 0.177,
+  "engine_params": {
+    "chunk_budget_bytes": {
+      "ble": 26,
+      "lora": 200
+    },
+    "header_len_bytes": 13,
+    "hash_truncation_bytes": 8,
+    "hash": "SHA3-256",
+    "signature": "ML-DSA-65 (full signature verified at durable store only)",
+    "epoch_window": 4,
+    "mldsa_seed_env": "AINISHCODER_SCROLL_SIGN_SEED"
+  },
+  "scenarios": [
+    {
+      "suite": "clean_channel",
+      "rows": [
+        {
+          "mode": "ble",
+          "chunks": 4,
+          "trials": 3,
+          "reassembly_success": 1.0,
+          "store_verify_success": 1.0,
+          "e2e_ms_median": 0.7519170176237822,
+          "e2e_ms_p95": 0.7519170176237822,
+          "pass": true
+        },
+        {
+          "mode": "ble",
+          "chunks": 8,
+          "trials": 3,
+          "reassembly_success": 1.0,
+          "store_verify_success": 1.0,
+          "e2e_ms_median": 0.7814998971298337,
+          "e2e_ms_p95": 0.7814998971298337,
+          "pass": true
+        },
+        {
+          "mode": "ble",
+          "chunks": 16,
+          "trials": 3,
+          "reassembly_success": 1.0,
+          "store_verify_success": 1.0,
+          "e2e_ms_median": 0.754334032535553,
+          "e2e_ms_p95": 0.754334032535553,
+          "pass": true
+        },
+        {
+          "mode": "ble",
+          "chunks": 32,
+          "trials": 3,
+          "reassembly_success": 1.0,
+          "store_verify_success": 1.0,
+          "e2e_ms_median": 0.7662500720471144,
+          "e2e_ms_p95": 0.7662500720471144,
+          "pass": true
+        },
+        {
+          "mode": "lora",
+          "chunks": 4,
+          "trials": 3,
+          "reassembly_success": 1.0,
+          "store_verify_success": 1.0,
+          "e2e_ms_median": 0.7330829976126552,
+          "e2e_ms_p95": 0.7330829976126552,
+          "pass": true
+        },
+        {
+          "mode": "lora",
+          "chunks": 8,
+          "trials": 3,
+          "reassembly_success": 1.0,
+          "store_verify_success": 1.0,
+          "e2e_ms_median": 0.7346660131588578,
+          "e2e_ms_p95": 0.7346660131588578,
+          "pass": true
+        },
+        {
+          "mode": "lora",
+          "chunks": 16,
+          "trials": 3,
+          "reassembly_success": 1.0,
+          "store_verify_success": 1.0,
+          "e2e_ms_median": 0.7630829932168126,
+          "e2e_ms_p95": 0.7630829932168126,
+          "pass": true
+        },
+        {
+          "mode": "lora",
+          "chunks": 32,
+          "trials": 3,
+          "reassembly_success": 1.0,
+          "store_verify_success": 1.0,
+          "e2e_ms_median": 0.7779159350320697,
+          "e2e_ms_p95": 0.7779159350320697,
+          "pass": true
+        }
+      ],
+      "pass": true
+    },
+    {
+      "suite": "uniform_loss",
+      "mode": "ble",
+      "chunks": 8,
+      "trials": 8,
+      "gap_detection_rate": 1.0,
+      "store_fallback_success": 1.0,
+      "pass": true
+    },
+    {
+      "suite": "burst_loss",
+      "rows": [
+        {
+          "mode": "ble",
+          "chunks": 8,
+          "burst_k": 2,
+          "trials": 7,
+          "gap_detection_rate": 1.0,
+          "store_fallback_success": 1.0,
+          "pass": true
+        },
+        {
+          "mode": "ble",
+          "chunks": 8,
+          "burst_k": 4,
+          "trials": 5,
+          "gap_detection_rate": 1.0,
+          "store_fallback_success": 1.0,
+          "pass": true
+        }
+      ],
+      "pass": true
+    },
+    {
+      "suite": "injection_tamper",
+      "mode": "ble",
+      "chunks": 8,
+      "trials": 8,
+      "tamper_detection_rate": 1.0,
+      "false_positive_rate": 0.0,
+      "pass": true
+    },
+    {
+      "suite": "replay",
+      "mode": "ble",
+      "chunks": 8,
+      "trials": 1,
+      "replay_acceptance_rate": 0.0,
+      "pass": true
+    }
+  ]
+}

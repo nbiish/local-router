@@ -3,6 +3,9 @@
 # requires-python = ">=3.12"
 # dependencies = [
 #     "cryptography>=45.0",
+#     # argon2-cffi is pinned for vault.pqc identity unwrapping (vault-first
+#     # export when a vault exists — Phase 1 parity with the Rust vault core).
+#     "argon2-cffi==25.1.0",
 #     # kyber-py is retained ONLY to decapsulate legacy expanded-form (2400-byte)
 #     # private-key stores written by older engines. New keygens use the native
 #     # cryptography ML-KEM-768 implementation exclusively.
@@ -108,6 +111,12 @@ KEK_PATH = CONFIG_DIR / "machine.kek"
 KEYCHAIN_SERVICE = "pqc-secrets"
 KEYCHAIN_ACCOUNT = os.environ.get("PQC_KEYCHAIN_ACCOUNT", "pqc-secrets-key")
 KDF_INFO = b"pqc-secrets:v1:kek"
+
+# Vault (Phase 1): vault.pqc is the canonical, OS-independent identity root
+# when it exists. Python reads it (never writes) — write-side is Rust-only.
+VAULT_PATH = CONFIG_DIR / "vault.pqc"
+VAULT_KEM_SEED_AAD = b"pqc-secrets:vault:v1:kem-seed"
+VAULT_PASSPHRASE_ENV = "PQC_VAULT_PASSPHRASE"
 
 
 def _ensure_config_dir() -> None:
@@ -261,7 +270,80 @@ def _store_private_key(sk: bytes) -> None:
     _save_key_to_file(sk)
 
 
+def _vault_load_kem_seed() -> bytes:
+    """Unwrap the ML-KEM-768 seed from a vault.pqc store (read-only parity).
+
+    Mirrors the Rust vault core (Phase 1) unwrap path without touching the OS
+    keychain: Argon2id(passphrase, header salt/params) -> 32-byte vault KEK,
+    then AES-256-GCM decrypt of the AAD-pinned kem_seed blob (64-byte d‖z).
+    Fail-closed: version/alg/KDF checks, AAD pinning, seed length check.
+    Passphrase: PQC_VAULT_PASSPHRASE env, else interactive prompt (never
+    persisted, never logged).
+
+    Scope note (documented decision): Python parity covers the ML-KEM identity
+    path only — enough to decapsulate bundles keychain-free. The vault ML-DSA
+    signing identity and the signed audit chain are verified by the Rust
+    engine (`vault audit-verify`); there is no mature pinned Python ML-DSA.
+    """
+    from argon2.low_level import Type, hash_secret_raw
+
+    try:
+        header = json.loads(VAULT_PATH.read_text())
+    except Exception as e:
+        print(f"ERROR: vault unreadable at {VAULT_PATH}: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    if header.get("version") != 1:
+        print(f"ERROR: unsupported vault version {header.get('version')!r}", file=sys.stderr)
+        sys.exit(1)
+    if header.get("alg") != "ML-KEM-768" or header.get("sig_alg") != "ML-DSA-65":
+        print("ERROR: unsupported vault algorithms (fail closed).", file=sys.stderr)
+        sys.exit(1)
+    kdf = header.get("kdf", {})
+    if kdf.get("name") != "argon2id" or kdf.get("output_len") != 32:
+        print("ERROR: unsupported vault KDF (fail closed).", file=sys.stderr)
+        sys.exit(1)
+
+    passphrase = os.environ.get(VAULT_PASSPHRASE_ENV)
+    if passphrase is None:
+        passphrase = getpass.getpass("Vault passphrase: ")
+
+    try:
+        salt = base64.b64decode(kdf["salt_b64"])
+        kek = hash_secret_raw(
+            secret=passphrase.encode("utf-8"),
+            salt=salt,
+            time_cost=int(kdf["t_cost"]),
+            memory_cost=int(kdf["m_cost_kib"]),
+            parallelism=int(kdf["p_cost"]),
+            hash_len=32,
+            type=Type.ID,
+        )
+        blob = header["kem_seed"]
+        if blob.get("aad").encode() != VAULT_KEM_SEED_AAD:
+            raise ValueError("vault kem_seed AAD mismatch (fail closed)")
+        nonce = base64.b64decode(blob["nonce_b64"])
+        ciphertext = base64.b64decode(blob["ciphertext_b64"])
+        seed = AESGCM(kek).decrypt(nonce, ciphertext, VAULT_KEM_SEED_AAD)
+    except SystemExit:
+        raise
+    except Exception as e:
+        print(f"ERROR: vault unwrap failed (wrong passphrase or tampered vault): {e}", file=sys.stderr)
+        sys.exit(1)
+
+    if len(seed) != KEM_SEED_LEN:
+        print(f"ERROR: vault seed has wrong length {len(seed)} (expected {KEM_SEED_LEN})", file=sys.stderr)
+        sys.exit(1)
+    return seed
+
+
 def _load_private_key() -> bytes:
+    # Vault-first (Phase 1): when a vault exists it is the canonical identity
+    # root — read the seed from it, never the OS keychain. Existing no-vault
+    # behavior is unchanged.
+    if VAULT_PATH.exists():
+        return _vault_load_kem_seed()
+
     # Check if native keychain is requested; otherwise default to system-agnostic file backend
     if os.environ.get("PQC_USE_KEYCHAIN") != "true":
         return _load_key_from_file()
@@ -743,6 +825,13 @@ def cmd_pack() -> None:
     """Read KEY=VALUE lines from stdin, encrypt via AES-256-GCM + ML-KEM-768.
 
     Produces a Rust-compatible bundle with keywrap layer and AAD.
+
+    Input hygiene (hardened 2026-08-30 after the literal-quote incident):
+    - Values arriving shell-quoted (KEY='value') are REFUSED, not stored —
+      wrapping quotes would otherwise be kept as literal value characters.
+      Pipe plain KEY=value lines.
+    - Values containing '$' or '`' are stored literally; a non-fatal
+      warning is printed because such values never expand at eval time.
     """
     _ensure_config_dir()
 
@@ -753,6 +842,8 @@ def cmd_pack() -> None:
 
     # Parse KEY=VALUE pairs
     entries: dict[str, str] = {}
+    shell_quoted: list[str] = []
+    expansion_chars: list[str] = []
     for line in lines.split("\n"):
         line = line.strip()
         if not line or line.startswith("#"):
@@ -760,11 +851,41 @@ def cmd_pack() -> None:
         if "=" not in line:
             continue
         key, _, value = line.partition("=")
-        entries[key.strip()] = value.strip()
+        key = key.strip()
+        value = value.strip()
+        if len(value) >= 2 and value.startswith("'") and value.endswith("'"):
+            shell_quoted.append(key)
+        elif "$" in value or "`" in value:
+            expansion_chars.append(key)
+        entries[key] = value
 
     if not entries:
         print("ERROR: No valid KEY=VALUE pairs found in input.", file=sys.stderr)
         sys.exit(1)
+
+    if shell_quoted:
+        print(
+            "ERROR: refused to pack shell-quoted value(s) for: "
+            + ", ".join(sorted(shell_quoted))
+            + "\n"
+            "  These values arrived wrapped in single quotes (KEY='value'); packing\n"
+            "  them as-is would store the quote characters literally — this caused\n"
+            "  the 2026-08-30 incident where packed values contained stray quotes.\n"
+            "  Strip the shell quotes first and pipe plain KEY=value lines:\n"
+            "    printf 'KEY=value\\n' | pqc-secrets pack",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    if expansion_chars:
+        print(
+            "WARNING: value(s) for "
+            + ", ".join(sorted(expansion_chars))
+            + " contain '$' or '`'; stored literally. On export they are\n"
+            "  single-quoted, so eval will NOT expand them (that is the safe default) —\n"
+            "  re-check these values if shell expansion was intended.",
+            file=sys.stderr,
+        )
 
     _encrypt_entries_to_bundle(entries)
 
@@ -806,8 +927,19 @@ def _decrypt_bundle(bundle: dict, sk: bytes) -> dict[str, str]:
     return json.loads(plaintext)
 
 
+def _shell_quote(value: str) -> str:
+    """Quote a value for POSIX shell so eval is safe for ANY value.
+
+    Matches the Rust engine's shell_quote(): single-quote the whole value
+    and replace every embedded ' with '\'' (close, escaped quote, reopen).
+    Survives quotes, spaces, $, backticks, and embedded newlines —
+    single-quoted strings in shell may span lines.
+    """
+    return "'" + value.replace("'", "'\\''") + "'"
+
+
 def cmd_export() -> None:
-    """Decrypt bundle and output shell export lines."""
+    """Decrypt bundle and output shell export lines (values shell-quoted)."""
     if not BUNDLE_PATH.exists():
         print(_NO_BUNDLE_MSG, file=sys.stderr)
         sys.exit(1)
@@ -820,7 +952,7 @@ def cmd_export() -> None:
     entries = payload.get("secrets", payload) if isinstance(payload, dict) and "secrets" in payload else payload
 
     for key, value in entries.items():
-        print(f"export {key}={value}")
+        print(f"export {key}={_shell_quote(value)}")
 
 
 def cmd_verify() -> None:
@@ -919,10 +1051,10 @@ def cmd_version() -> None:
     """Print engine identity and coverage — the standalone 'is this current?' probe."""
     print(f"pqc-secrets engine: {ENGINE_NAME} (canonical python)")
     print(f"build date:         {ENGINE_BUILD_DATE}")
-    print(f"crypto:             ML-KEM-768 (FIPS 203, seed-form private key) + AES-256-GCM")
+    print("crypto:             ML-KEM-768 (FIPS 203, seed-form private key) + AES-256-GCM")
     print(f"bundle schema:      {BUNDLE_SCHEMA}")
     print(f"commands:           {ENGINE_COMMANDS}")
-    print(f"darwin rust binary: legacy v1.0.0 fast-path (keygen/pack/export only)")
+    print("darwin rust binary: legacy v1.0.0 fast-path (keygen/pack/export only)")
 
 
 def cmd_migrate() -> None:

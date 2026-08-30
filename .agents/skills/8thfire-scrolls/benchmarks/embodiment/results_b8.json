@@ -1,0 +1,90 @@
+{
+  "benchmark": "B-8 Nanaboozhoo Shapeshifter Conformance Pre-Check",
+  "run_timestamp": "2026-08-30T03:52:00+00:00",
+  "seed": "11",
+  "all_pass": true,
+  "engine_params": {
+    "body_budgets": {
+      "ble": 26,
+      "lora": 200,
+      "mesh": 230
+    },
+    "hash": "SHA3-256",
+    "signature": "ML-DSA-65 full verify at store (detached)",
+    "header_len_bytes": 13,
+    "epoch_window": 4
+  },
+  "matrix": {
+    "ble": {
+      "provenance": true,
+      "cultural_anchors": true,
+      "boundary_field": true,
+      "revocability": true,
+      "round_trip": true
+    },
+    "lora": {
+      "provenance": true,
+      "cultural_anchors": true,
+      "boundary_field": true,
+      "revocability": true,
+      "round_trip": true
+    },
+    "mesh": {
+      "provenance": true,
+      "cultural_anchors": true,
+      "boundary_field": true,
+      "revocability": true,
+      "round_trip": true
+    },
+    "robot_policy": {
+      "provenance": true,
+      "cultural_anchors": true,
+      "boundary_field": true,
+      "revocability": true,
+      "round_trip": true
+    },
+    "agent_persona": {
+      "provenance": true,
+      "cultural_anchors": true,
+      "boundary_field": true,
+      "revocability": true,
+      "round_trip": true
+    }
+  },
+  "revocation": {
+    "suite": "revocation",
+    "rows": [
+      {
+        "body": "ble",
+        "newest_wins": true,
+        "stale_rejected": true,
+        "pass": true
+      },
+      {
+        "body": "lora",
+        "newest_wins": true,
+        "stale_rejected": true,
+        "pass": true
+      },
+      {
+        "body": "mesh",
+        "newest_wins": true,
+        "stale_rejected": true,
+        "pass": true
+      },
+      {
+        "body": "robot_policy",
+        "newest_wins": true,
+        "stale_rejected": true,
+        "pass": true
+      },
+      {
+        "body": "agent_persona",
+        "newest_wins": true,
+        "stale_rejected": true,
+        "pass": true
+      }
+    ],
+    "pass": true
+  }
+}
