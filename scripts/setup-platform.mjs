@@ -101,6 +101,7 @@ if (isWin) {
   console.log("  To auto-load in zsh/bash, add to ~/.zshrc or ~/.bashrc:");
   console.log("    source " + envScriptPath + "\n");
 }
+if (isWin) {
   // On Windows: Ensure .cmd wrappers exist in bin/
   const ollamaCmd = path.join(binDir, "ollama.cmd");
   const localRouterCmd = path.join(binDir, "local-router.cmd");
