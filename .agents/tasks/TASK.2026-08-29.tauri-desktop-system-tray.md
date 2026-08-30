@@ -4,6 +4,7 @@
 Build Tauri Rust desktop app.
 Native system tray for releases.
 Cross-platform Ollama drop-in parity.
+Paired CLI parity across harnesses.
 
 ## Chain of Draft
 Worktree created for Tauri.
@@ -16,7 +17,8 @@ Created daemon.rs supervisor.
 Generated multi-resolution icons.
 Added Tauri scripts to package.json.
 Created desktop-release.yml workflow.
-Updated setup-platform.mjs and README.
-Built TypeScript without errors.
+Enhanced CLI show/ps/pull/version.
 All 112 tests passed.
+Tested localrouter verify.
+Ready to merge main.
 ####
