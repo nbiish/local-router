@@ -17,7 +17,7 @@ pub fn run() {
             }
         }))
         .plugin(tauri_plugin_autostart::init(
-            tauri_plugin_autostart::MacConfig::default(),
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
             Some(vec!["--minimized"]),
         ))
         .plugin(tauri_plugin_shell::init())

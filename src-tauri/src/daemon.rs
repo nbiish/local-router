@@ -68,6 +68,7 @@ impl DaemonManager {
         }
     }
 
+    #[allow(dead_code)]
     pub fn restart(&self) {
         println!("[daemon] Restarting Local Router daemon...");
         self.stop();
@@ -75,6 +76,7 @@ impl DaemonManager {
         self.ensure_started();
     }
 
+    #[allow(dead_code)]
     pub fn stop(&self) {
         let mut lock = self.child.lock().unwrap();
         if let Some(mut child) = lock.take() {
