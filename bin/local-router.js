@@ -122,6 +122,18 @@ function parseOptions(args) {
       options.foreground = true;
       continue;
     }
+    if (token === '--json') {
+      options.json = true;
+      continue;
+    }
+    if (token === '--ps1' || token === '--pwsh') {
+      options.pwsh = true;
+      continue;
+    }
+    if (token === '--cmd') {
+      options.cmd = true;
+      continue;
+    }
     if (!token.startsWith('-')) {
       options.args.push(token);
       continue;
@@ -959,6 +971,63 @@ async function cmdPull(modelName, options) {
   return 0;
 }
 
+
+function cmdEnv(options) {
+  const host = options.host || DEFAULT_HOST;
+  const port = options.port || DEFAULT_PORT;
+  const baseUrl = `http://${host}:${port}`;
+  const v1Url = `${baseUrl}/v1`;
+
+  if (options.json) {
+    console.log(JSON.stringify({
+      OLLAMA_HOST: baseUrl,
+      OLLAMA_API_BASE: baseUrl,
+      OPENAI_BASE_URL: v1Url,
+      OPENAI_API_BASE: v1Url,
+      OPENAI_API_KEY: "local-router",
+      ANTHROPIC_BASE_URL: baseUrl,
+      ANTHROPIC_API_URL: baseUrl,
+      ANTHROPIC_API_KEY: "local-router"
+    }, null, 2));
+    return 0;
+  }
+
+  if (options.pwsh) {
+    console.log(`$env:OLLAMA_HOST = "${baseUrl}"`);
+    console.log(`$env:OLLAMA_API_BASE = "${baseUrl}"`);
+    console.log(`$env:OPENAI_BASE_URL = "${v1Url}"`);
+    console.log(`$env:OPENAI_API_BASE = "${v1Url}"`);
+    console.log(`$env:OPENAI_API_KEY = "local-router"`);
+    console.log(`$env:ANTHROPIC_BASE_URL = "${baseUrl}"`);
+    console.log(`$env:ANTHROPIC_API_URL = "${baseUrl}"`);
+    console.log(`$env:ANTHROPIC_API_KEY = "local-router"`);
+    return 0;
+  }
+
+  if (options.cmd) {
+    console.log(`set OLLAMA_HOST=${baseUrl}`);
+    console.log(`set OLLAMA_API_BASE=${baseUrl}`);
+    console.log(`set OPENAI_BASE_URL=${v1Url}`);
+    console.log(`set OPENAI_API_BASE=${v1Url}`);
+    console.log(`set OPENAI_API_KEY=local-router`);
+    console.log(`set ANTHROPIC_BASE_URL=${baseUrl}`);
+    console.log(`set ANTHROPIC_API_URL=${baseUrl}`);
+    console.log(`set ANTHROPIC_API_KEY=local-router`);
+    return 0;
+  }
+
+  // Default: POSIX export
+  console.log(`export OLLAMA_HOST="${baseUrl}"`);
+  console.log(`export OLLAMA_API_BASE="${baseUrl}"`);
+  console.log(`export OPENAI_BASE_URL="${v1Url}"`);
+  console.log(`export OPENAI_API_BASE="${v1Url}"`);
+  console.log(`export OPENAI_API_KEY="local-router"`);
+  console.log(`export ANTHROPIC_BASE_URL="${baseUrl}"`);
+  console.log(`export ANTHROPIC_API_URL="${baseUrl}"`);
+  console.log(`export ANTHROPIC_API_KEY="local-router"`);
+  return 0;
+}
+
 function cmdVersion() {
   console.log("ollama version is 0.6.4 (local-router 1.0.0)");
   return 0;
@@ -1062,6 +1131,10 @@ async function main() {
 
   const options = parseOptions(argv.slice(1));
 
+  if (command === 'env' || command === 'exports') {
+    process.exitCode = cmdEnv(options);
+    return;
+  }
   if (command === 'start' || command === 'serve') {
     process.exitCode = await cmdStart(options);
     return;

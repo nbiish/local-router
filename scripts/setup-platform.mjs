@@ -20,7 +20,7 @@ console.log(" Platform: " + process.platform + (isWSL ? " (WSL)" : "") + " | Arc
 console.log("==================================================\n");
 
 // 1. Build TypeScript code
-console.log("[1/5] Building TypeScript source...");
+console.log("[1/6] Building TypeScript source...");
 try {
   execFileSync("npm", ["run", "build"], { cwd: root, stdio: "inherit", shell: isWin });
   console.log("✓ Build complete.\n");
@@ -30,7 +30,7 @@ try {
 }
 
 // 2. Ensure config directories
-console.log("[2/5] Ensuring config directories...");
+console.log("[2/6] Ensuring config directories...");
 const homeDir = os.homedir();
 const localRouterConfigDir = path.join(homeDir, ".config", "local-router");
 const pqcConfigDir = path.join(homeDir, ".config", "pqc-secrets");
@@ -39,7 +39,7 @@ fs.mkdirSync(pqcConfigDir, { recursive: true });
 console.log("✓ Config directories initialized at ~/.config/local-router and ~/.config/pqc-secrets.\n");
 
 // 3. Initialize PQC secrets keypair if not present
-console.log("[3/5] Checking Post-Quantum (ML-KEM-768) keypair...");
+console.log("[3/6] Checking Post-Quantum (ML-KEM-768) keypair...");
 const pubkeyPath = path.join(pqcConfigDir, "recipient.pub");
 if (fs.existsSync(pubkeyPath)) {
   console.log("✓ Existing ML-KEM-768 public key verified at " + pubkeyPath);
@@ -59,7 +59,7 @@ if (fs.existsSync(pubkeyPath)) {
 }
 
 // 4. Generate Desktop Application Icon Assets
-console.log("[4/5] Generating Desktop and System Tray multi-resolution icons...");
+console.log("[4/6] Generating Desktop and System Tray multi-resolution icons...");
 try {
   execFileSync("node", [path.join(root, "scripts", "generate-icons.mjs")], { cwd: root, stdio: "inherit", shell: isWin });
   console.log("✓ Desktop icons generated in src-tauri/icons/\n");
@@ -68,10 +68,39 @@ try {
 }
 
 // 5. Install CLI shims and binaries to User PATH
-console.log("[5/5] Configuring CLI entry points (local-router, localrouter, ollama, pqc-secrets)...");
+console.log("[5/6] Configuring CLI entry points (local-router, localrouter, ollama, pqc-secrets)...");
 const binDir = path.join(root, "bin");
 
+// 6. Auto-export environment variables for external AI tools
+console.log("[6/6] Configuring environment variables (OLLAMA_HOST, OPENAI_BASE_URL, ANTHROPIC_BASE_URL)...");
+
+const envVars = {
+  OLLAMA_HOST: "http://127.0.0.1:11434",
+  OLLAMA_API_BASE: "http://127.0.0.1:11434",
+  OPENAI_BASE_URL: "http://127.0.0.1:11434/v1",
+  OPENAI_API_BASE: "http://127.0.0.1:11434/v1",
+  OPENAI_API_KEY: "local-router",
+  ANTHROPIC_BASE_URL: "http://127.0.0.1:11434",
+  ANTHROPIC_API_URL: "http://127.0.0.1:11434",
+  ANTHROPIC_API_KEY: "local-router"
+};
+
+const envScriptContent = Object.entries(envVars).map(([k, v]) => `export ${k}="${v}"`).join("\n") + "\n";
+const envScriptPath = path.join(localRouterConfigDir, "env.sh");
+fs.writeFileSync(envScriptPath, envScriptContent, "utf8");
+
 if (isWin) {
+  for (const [k, v] of Object.entries(envVars)) {
+    try {
+      execFileSync("powershell", ["-NoProfile", "-Command", `[Environment]::SetEnvironmentVariable("${k}", "${v}", "User")`], { stdio: "ignore" });
+    } catch {}
+  }
+  console.log("✓ Windows User environment variables registered (OPENAI_BASE_URL, ANTHROPIC_BASE_URL, OLLAMA_HOST).\n");
+} else {
+  console.log("✓ Environment file created at " + envScriptPath);
+  console.log("  To auto-load in zsh/bash, add to ~/.zshrc or ~/.bashrc:");
+  console.log("    source " + envScriptPath + "\n");
+}
   // On Windows: Ensure .cmd wrappers exist in bin/
   const ollamaCmd = path.join(binDir, "ollama.cmd");
   const localRouterCmd = path.join(binDir, "local-router.cmd");

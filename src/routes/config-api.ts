@@ -1405,6 +1405,42 @@ app.get('/api/logs/analyze', (req: Request, res: Response) => {
   return res.json(analyzeLogs());
 });
 
+
+// ── Environment Variables for External AI Tools ──
+app.get('/api/env', (req: Request, res: Response) => {
+  const host = '127.0.0.1';
+  const port = process.env.PORT || '11434';
+  const baseUrl = `http://${host}:${port}`;
+  const v1Url = `${baseUrl}/v1`;
+
+  const envs = {
+    OLLAMA_HOST: baseUrl,
+    OLLAMA_API_BASE: baseUrl,
+    OPENAI_BASE_URL: v1Url,
+    OPENAI_API_BASE: v1Url,
+    OPENAI_API_KEY: 'local-router',
+    ANTHROPIC_BASE_URL: baseUrl,
+    ANTHROPIC_API_URL: baseUrl,
+    ANTHROPIC_API_KEY: 'local-router'
+  };
+
+  const format = String(req.query.format || 'json').toLowerCase();
+  if (format === 'bash' || format === 'sh' || format === 'zsh') {
+    res.setHeader('Content-Type', 'text/plain');
+    return res.send(Object.entries(envs).map(([k, v]) => `export ${k}="${v}"`).join('\n'));
+  }
+  if (format === 'ps1' || format === 'pwsh') {
+    res.setHeader('Content-Type', 'text/plain');
+    return res.send(Object.entries(envs).map(([k, v]) => `$env:${k} = "${v}"`).join('\n'));
+  }
+  if (format === 'cmd') {
+    res.setHeader('Content-Type', 'text/plain');
+    return res.send(Object.entries(envs).map(([k, v]) => `set ${k}=${v}`).join('\n'));
+  }
+
+  return res.json(envs);
+});
+
 // ── System Prompt ──
 app.get('/api/system-prompt', (req: Request, res: Response) => {
   return res.json({
