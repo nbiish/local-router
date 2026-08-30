@@ -1,6 +1,6 @@
 {
   "name": "local-router",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "A local Ollama-compatible and OpenAI-compatible model router for VS Code and localhost AI tooling.",
   "main": "index.js",
   "bin": {
