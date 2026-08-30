@@ -6,7 +6,7 @@ description: How the local encrypted private-key store derives and persists its 
 # KEK Persistence Strategy
 
 The ML-KEM-768 private key (`private.key.enc`) is encrypted at rest with
-AES-256-GCM under a **Key-Encrypting Key (KEK)** that Local Router persists
+AES-256-GCM under a **Key-Encrypting Key (KEK)** that the host persists
 per machine. This document describes why the KEK must be stable, how it is
 derived and stored, and how a legacy store is migrated.
 
@@ -97,12 +97,14 @@ Keychain or Linux Secret Service instead).
 - Losing `machine.kek` **and** the OS keychain means the private key is
   unrecoverable — the bundle is lost (no-escrow contract). Back up
   `machine.kek` the same way you would back up a keychain entry.
-- Provider keys are re-entered via the config UI or `localrouter keys set`
-  and re-packed. See `rotation-procedure.md` for full recovery flow.
+- Provider keys are re-entered via the consuming app's config UI or
+  `pqc-secrets pack` and re-packed. See `rotation-procedure.md` for the
+  full recovery flow.
 
 ## See also
 
 - `references/rotation-procedure.md` — key rotation & DR runbook
 - `references/bundle-schema.md` — encrypted bundle format
 - `references/pqc-secrets-cli.md` — CLI reference
+- `references/cross-repo-key-sharing.md` — one bundle across many repos
 - `SKILL.md` §2 Infrastructure Architecture

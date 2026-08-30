@@ -109,7 +109,7 @@ The PQC secrets system consists of a dual-implementation architecture to ensure 
 
 | Surface | Engine | Coverage | Status |
 |---|---|---|---|
-| Linux / WSL / generic | **Python** (`pyca/cryptography>=45`, native ML-KEM-768, FIPS 203 seed form) via `uv run` | keygen, pack, export, verify, **list**, **rename**, migrate, setup, version | **Canonical** — resolves to the newest `cryptography` on first run |
+| Linux / WSL / generic (Windows: Ubuntu/WSL terminal) | **Python** (`pyca/cryptography>=45`, native ML-KEM-768, FIPS 203 seed form) via `uv run` | keygen, pack, export, verify, **list**, **rename**, migrate, setup, version | **Canonical** — resolves to the newest `cryptography` on first run |
 | darwin/arm64 | **Python** (same engine, same path) | all commands | Canonical |
 | darwin/arm64 | Rust `bin/pqc-secrets.darwin-arm64` | keygen, pack, export only | **Legacy fast-path**, frozen v1.0.0 (2026-06 command set) |
 
@@ -120,6 +120,11 @@ when present (speed); **every other command — `list`, `rename`, `migrate`, `ve
 prints the exact engine identity, build date, crypto suite, and command coverage. If the
 Rust crate is ever refreshed, it regains its fast-path only for the commands it actually
 implements; the Python engine stays the freshness standard.
+
+**Platform support:** architecture-agnostic — macOS, Linux, and Windows (Ubuntu terminal
+via WSL). Every command is shell-generic POSIX; the canonical Python engine runs on all
+platforms, and the Rust binary is an optional darwin/arm64 fast-path, never required.
+OS keystore opt-ins: macOS Keychain, Linux Secret Service.
 
 2. **Python Fallback (Secondary):** A script at `.agents/skills/pqc-secrets/scripts/pqc_secrets.py` uses the **native ML-KEM-768** from `pyca/cryptography>=45` (`cryptography.hazmat.primitives.asymmetric.mlkem`) and writes the same **double-envelope** bundle JSON as the Rust engine (keywrap layer + AAD). Since 2026-08-20 new keygens store the private key in FIPS 203 **seed form** (64 bytes `d‖z`); older stores holding the 2400-byte expanded form remain readable via the retained `kyber-py` decapsulation fallback, which prints a rotation hint.
 
@@ -211,6 +216,22 @@ Use the primary native Rust binary `bin/pqc-secrets` (or run the Python fallback
 | **Rotate** | `bin/pqc-secrets keygen && bin/pqc-secrets pack` | `keygen && pack` | Generates new keypair and re-packs secrets under new public key. |
 | **Rewrap** | `bin/pqc-secrets rewrap --new-pub <path> --out <path>` | — | Re-encrypts bundle under a different public key without exposing plaintext. |
 | **Migrate** | `bin/pqc-secrets migrate` | `uv run ... pqc_secrets.py migrate` | Migrates keychain entry from old account name to new. |
+
+### Key Naming Convention (tool-relative prefixes)
+
+Every key an agent packs into the bundle **must** be prefixed with the name of the tool that consumes it — never a bare provider name:
+
+| Consuming tool | Key name |
+|---|---|
+| Local Router | `LOCALROUTER_KILO_API_KEY`, `LOCALROUTER_ZAI_API_KEY`, … |
+| ainish-coder | `AINISHCODER_*_API_KEY` |
+| any tool | `<TOOLNAME>_<WHAT>_API_KEY` |
+
+- Prefix = the consuming tool's name, uppercase, `^[A-Z0-9_]+$` (e.g. Local Router → `LOCALROUTER_`).
+- **Always** apply the prefix when wiring a key for a specific tool — even when the provider name differs from the tool name (`KILO_API_KEY` used by Local Router → `LOCALROUTER_KILO_API_KEY`).
+- Plain, unprefixed names are reserved for genuinely machine-shared keys (e.g. `HF_TOKEN`).
+- Bring an existing key into a tool namespace without re-entering its value: `pqc-secrets rename KILO_API_KEY LOCALROUTER_KILO_API_KEY`.
+- Audit ownership with `pqc-secrets list` — every name should make its owning tool obvious.
 
 ### Migration from Legacy `default` Account
 
@@ -374,6 +395,15 @@ Generate an ML-KEM-768 keypair.
 - `2` — recipient.pub already exists (refuses to overwrite; use
   `--force` to overwrite)
 
+> **Keypair-overwrite guard (Python engine, 2026-08-29):** the canonical
+> Python `keygen` now **refuses to run** (exit `1`) when
+> `private.key.enc` or `recipient.pub` already exists. Rotating a
+> keypair without re-packing makes every existing bundle
+> undecryptable. To rotate deliberately: `pqc-secrets keygen --force`
+> — the previous key material is backed up beside the live files as
+> `*.rotated-<UTC>` first. Never bypass this guard on a machine whose
+> bundle you cannot re-pack from originals.
+
 **Example:**
 ```bash
 $ pqc-secrets keygen
@@ -527,6 +557,69 @@ record secret operations.
 $ pqc-secrets audit --event shell_export --key user=$USER --key n_keys=12
 Audit: shell_export user=nbiish n_keys=12
 ```
+
+### 5.8 `pqc-secrets gen` — SOTA secret generation (2026-08-29)
+
+Generate new high-entropy secrets (API keys, device secrets, tokens)
+from the OS CSPRNG. Python engine only (stdlib `secrets` → `getrandom(2)`
+on Linux, `BCryptGenRandom` on Windows, `SecRandomCopyBytes` on macOS).
+Never uses the `random` module.
+
+**Synopsis:**
+```
+pqc-secrets gen [--bits N | --bytes N] [--format b64|hex|b85]
+                [--words N] [--sep S] [--count N] [--env NAME]
+                [--quiet] [--allow-weak]
+```
+
+**Policy (design basis, Aug 2026):**
+- **Entropy floor:** 256 bits minimum (enforced; `--allow-weak`
+  overrides). Default is **512 bits** (64 bytes) — sized for
+  long-term machine secrets, far above the NIST SP 800-63B-4
+  verifier minimums. Max 8192 bits.
+- **Uniformity:** `secrets.choice` / `token_*` use rejection
+  sampling internally — no modulo bias in any mode.
+- **Passphrase mode:** EFF large wordlist (7,776 words ≈ 12.925
+  bits/word), SHA-256-pinned at `scripts/eff_large_wordlist.txt`
+  and verified at load; generation **refuses** a tampered list.
+  Floor: 6 words (~77.5 bits); default 8 words (~103.4 bits).
+- **Hygiene:** the secret goes to **stdout only**; all metadata
+  (bits, format, char count) goes to **stderr**. The value is never
+  logged, echoed, or written to disk by the command. `--quiet`
+  silences stderr.
+
+**Modes:**
+- Byte mode (default): `--bits N` / `--bytes N`, format `b64`
+  (base64url, default — shell/URL/JSON-safe), `hex`, or `b85`
+  (RFC 1924, densest).
+- Word mode: `--words N` (diceware from the pinned EFF list),
+  `--sep S` separator (default `-`).
+- `--count N` — N independent secrets, one per line (1–64).
+- `--env NAME` — emit `NAME=<secret>` lines, pipe-ready for `pack`.
+
+**Examples:**
+```bash
+# Default: 512-bit base64url secret (86 chars), metadata on stderr
+$ pqc-secrets gen
+
+# wtf-hub device secret shape (256-bit hex, 64 chars)
+$ pqc-secrets gen --format hex --bits 256 --quiet | wtf key issue <name>
+
+# Generate + pack into the PQC bundle without the value ever hitting
+# a disk file or the screen:
+$ pqc-secrets gen --env WTF_WINDOWS_AGENT_SECRET --quiet | pqc-secrets pack
+
+# Memorable but strong vault passphrase (~103 bits)
+$ pqc-secrets gen --words 8
+
+# Batch of 5 hex tokens at 384 bits each
+$ pqc-secrets gen --format hex --bits 384 --count 5 --quiet
+```
+
+**Naming:** apply the tool-prefix convention from §4 —
+`WTF_*`, `AINISHCODER_*`, `<TOOLNAME>_<WHAT>_API_KEY` — when using
+`--env`; `gen` accepts any valid identifier but the bundle audit
+(`pqc-secrets list`) should always make the owning tool obvious.
 
 ---
 

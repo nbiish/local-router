@@ -94,8 +94,7 @@ dist/
 tmp/
 
 # Node.js
-# no trailing slash so symlinks are ignored too
-node_modules
+node_modules/
 npm-debug.log
 yarn-error.log
 .pnpm-debug.log
@@ -145,16 +144,20 @@ audit.log.*
 .omo/
 .omp/
 
+# Agent COMMS live board — in-flight coordination, never committed.
+# The dated ledger AGENTS/{date}.COMMS.md IS committed; this sidecar is not.
+AGENTS/*.COMMS.live.md
+
 # ═══════════════════════════════════════════════════════════════════════════
 # Project-specific patterns (preserved from existing .gitignore)
 # ═══════════════════════════════════════════════════════════════════════════
 
 .opencode/
+node_modules
+src-tauri/gen/
+src-tauri/target/
 src/**/*.d.ts
 src/**/*.d.ts.map
 src/**/*.js
 src/**/*.js.map
 
-
-src-tauri/target/
-src-tauri/gen/

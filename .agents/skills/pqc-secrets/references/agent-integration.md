@@ -128,11 +128,9 @@ with file permissions, and persist forever in shell history.
 ```json
 {
   "env": {
-    "ANTHROPIC_BASE_URL": "http://localhost:11436",
+    "ANTHROPIC_BASE_URL": "https://zenmux.ai/api/anthropic",
     "ANTHROPIC_API_KEY": "",
-    "OPENAI_API_BASE": "http://localhost:11436/v1",
-    "OPENAI_API_KEY": "",
-    "MSWEA_MODEL_NAME": "openai/local-router/fallback-models"
+    "OPENAI_API_KEY": ""
   }
 }
 ```
