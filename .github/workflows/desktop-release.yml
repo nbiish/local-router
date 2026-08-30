@@ -40,14 +40,16 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Refresh preinstalled Rust (macOS rustup target conflict workaround)
+      - name: Update preinstalled Rust (macOS)
         if: runner.os == 'macOS'
         run: rustup update stable --no-self-update
 
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.platform.target }}
+          # rustup has no universal-apple-darwin target; Tauri needs BOTH arch
+          # std components installed and merges them with lipo at build time.
+          targets: ${{ matrix.platform.os == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || matrix.platform.target }}
 
       - name: Install Linux system dependencies (GTK / WebKit2GTK / AppIndicator)
         if: runner.os == 'Linux'
