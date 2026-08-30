@@ -57,6 +57,15 @@ impl DaemonManager {
                 eprintln!("[daemon] Failed to spawn Local Router process: {}", e);
             }
         }
+
+        // Wait up to 5 seconds for daemon to become ready
+        for _ in 0..20 {
+            if self.is_running() {
+                println!("[daemon] Local Router daemon is online and responsive on port {}.", self.port);
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(250));
+        }
     }
 
     pub fn restart(&self) {

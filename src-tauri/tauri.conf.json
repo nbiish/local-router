@@ -13,13 +13,16 @@
     "withGlobalTauri": true,
     "windows": [
       {
-        "title": "Local Router — Configuration",
+        "title": "Local Router — AI Model Gateway",
         "label": "main",
         "url": "http://127.0.0.1:11434/config",
-        "width": 1100,
-        "height": 780,
+        "width": 1200,
+        "height": 820,
+        "minWidth": 900,
+        "minHeight": 600,
+        "center": true,
         "resizable": true,
-        "visible": false,
+        "visible": true,
         "fullscreen": false
       }
     ],
@@ -43,8 +46,8 @@
       "icons/icon.ico"
     ],
     "category": "DeveloperTool",
-    "shortDescription": "Local Ollama & OpenAI compatible proxy router with post-quantum secrets",
-    "longDescription": "Local Router connects any Ollama or OpenAI compatible client to 19 AI providers with local fallback chains, parameter-level routing, and native corner system tray controls."
+    "shortDescription": "Local Ollama & OpenAI compatible model gateway and configuration UI",
+    "longDescription": "Local Router is a standalone desktop application and local proxy gateway for 19 AI providers with explicit fallback chains, model curation, and post-quantum secrets protection."
   },
   "plugins": {
     "autostart": {

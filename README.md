@@ -49,20 +49,20 @@ Configuration UI:
 http://127.0.0.1:11434/config
 ```
 
-## Desktop System Tray Application
+## Standalone Desktop GUI & Browser Configuration
 
-Local Router includes a native **Tauri v2 (Rust)** desktop application with corner system tray controls for seamless background operation:
-- **Windows (x64 / arm64)**: Native taskbar notification area corner icon (bottom-right) with quick dashboard and provider controls.
-- **macOS (Apple Silicon & Intel)**: Native Menu Bar extra corner icon (top-right) with dark/light mode template icons.
-- **Linux (x64 / aarch64)**: AppIndicator / StatusNotifierItem system tray integration.
+Local Router can be run either as a **standalone desktop application** or as a **headless background daemon** managed in any web browser:
 
-```bash
-# Run desktop application with system tray in development mode
-npm run tauri:dev
+1. **Native Desktop Application (Tauri v2 / Rust)**:
+   - Full GUI window opening automatically on launch for managing providers, models, fallback chains, prompt/thinking injection, and token telemetry.
+   - Corner system tray controls (bottom-right notification area on Windows, top-right menu bar extra on macOS, AppIndicator on Linux).
+   - Closing the window minimizes to the tray to keep local proxy routing alive for all terminal agents and IDE extensions.
+   - Run in desktop mode: `npm run tauri:dev`
+   - Build native release installers (`.msi`, `.exe`, `.dmg`, `.app`, `.AppImage`, `.deb`): `npm run tauri:build`
 
-# Build native desktop installer (.msi, .exe, .dmg, .AppImage, .deb)
-npm run tauri:build
-```
+2. **Web Browser Management**:
+   - Access `http://127.0.0.1:11434/config` in any web browser (Chrome, Safari, Firefox, Edge).
+   - Full real-time synchronization: changes made in the desktop GUI or browser update the same underlying PQC secret bundles and `~/.config/local-router/` configuration files immediately.
 
 ## Platforms
 
