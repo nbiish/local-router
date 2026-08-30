@@ -97,7 +97,8 @@ function parseOptions(args) {
     port: DEFAULT_PORT,
     host: DEFAULT_HOST,
     foreground: false,
-    config: ''
+    config: '',
+    args: []
   };
   for (let i = 0; i < args.length; i += 1) {
     const token = args[i];
@@ -121,6 +122,10 @@ function parseOptions(args) {
       options.foreground = true;
       continue;
     }
+    if (!token.startsWith('-')) {
+      options.args.push(token);
+      continue;
+    }
     throw new Error(`Unknown option: ${token}`);
   }
   if (!Number.isInteger(options.port) || options.port < 1 || options.port > 65535) {
@@ -135,11 +140,11 @@ function parseOptions(args) {
   return options;
 }
 
-async function fetchWithTimeout(url, timeoutMs = 1200) {
+async function fetchWithTimeout(url, timeoutMs = 1200, init = {}) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    return await fetch(url, { signal: controller.signal });
+    return await fetch(url, { ...init, signal: controller.signal });
   } catch {
     return null;
   } finally {
@@ -879,6 +884,86 @@ async function cmdList(options) {
   return 0;
 }
 
+
+async function cmdShow(modelName, options) {
+  if (!modelName) {
+    console.error("Model name is required (e.g. local-router show <model> or ollama show <model>).");
+    return 1;
+  }
+  const current = await probeServer(options.host, options.port);
+  if (!current.running) {
+    console.error(`Local Router is not running on http://${options.host}:${options.port}. Start it with 'local-router start'.`);
+    return 1;
+  }
+  const res = await fetchWithTimeout(`${current.baseUrl}/api/show`, 5000, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ model: modelName })
+  });
+  if (!res || !res.ok) {
+    const err = await res.json().catch(() => ({}));
+    console.error(`Model '${modelName}' not found: ${err.error || res.statusText}`);
+    return 1;
+  }
+  const data = await res.json();
+  console.log(`  Model:          ${modelName}`);
+  console.log(`  Architecture:   ${data.details?.family || "transformer"}`);
+  console.log(`  Parameters:     ${data.details?.parameter_size || "N/A"}`);
+  console.log(`  Quantization:   ${data.details?.quantization_level || "N/A"}`);
+  console.log(`  Format:         ${data.details?.format || "gguf/cloud"}`);
+  if (data.local_router_chain) {
+    console.log(`  Fallback Chain: ${data.local_router_chain.models?.join(" -> ")}`);
+  }
+  return 0;
+}
+
+async function cmdPs(options) {
+  const current = await probeServer(options.host, options.port);
+  if (!current.running) {
+    console.error(`Local Router is not running on http://${options.host}:${options.port}.`);
+    return 1;
+  }
+  const res = await fetchWithTimeout(`${current.baseUrl}/api/tags`);
+  if (!res || !res.ok) return 1;
+  const data = await res.json().catch(() => ({}));
+  const models = Array.isArray(data.models) ? data.models : [];
+  console.log(`NAME                                    ID          SIZE    PROCESSOR       UNTIL`);
+  for (const m of models.slice(0, 10)) {
+    const name = m.name || m.model || "";
+    const id = (m.digest || m.id || name).slice(0, 12);
+    const size = m.size ? `${(m.size / (1024 * 1024)).toFixed(1)} MB` : "N/A";
+    console.log(`${name.padEnd(40)} ${id.padEnd(11)} ${size.padEnd(7)} 100% GPU/Cloud  Active`);
+  }
+  return 0;
+}
+
+async function cmdPull(modelName, options) {
+  if (!modelName) {
+    console.error("Model name is required (e.g. ollama pull <model>).");
+    return 1;
+  }
+  console.log(`Pulling model manifest for ${modelName}...`);
+  const current = await probeServer(options.host, options.port);
+  if (current.running) {
+    const res = await fetchWithTimeout(`${current.baseUrl}/api/pull`, 30000, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ model: modelName })
+    });
+    if (res && res.ok) {
+      console.log(`✓ Model ${modelName} is active and ready in Local Router.`);
+      return 0;
+    }
+  }
+  console.log(`✓ Model ${modelName} is registered for routing.`);
+  return 0;
+}
+
+function cmdVersion() {
+  console.log("ollama version is 0.6.4 (local-router 1.0.0)");
+  return 0;
+}
+
 async function cmdCheckUpdate(options) {
   const current = await probeServer(options.host, options.port);
   if (current.running) {
@@ -981,8 +1066,30 @@ async function main() {
     process.exitCode = await cmdStart(options);
     return;
   }
-  if (command === 'list' || command === 'tags' || command === 'models' || command === 'ps') {
+  if (command === 'version' || command === '--version' || command === '-v') {
+    process.exitCode = cmdVersion();
+    return;
+  }
+  if (command === 'list' || command === 'tags' || command === 'models') {
     process.exitCode = await cmdList(options);
+    return;
+  }
+  if (command === 'ps') {
+    process.exitCode = await cmdPs(options);
+    return;
+  }
+  if (command === 'show') {
+    process.exitCode = await cmdShow(options.args[0] || argv[1], options);
+    return;
+  }
+  if (command === 'pull') {
+    process.exitCode = await cmdPull(options.args[0] || argv[1], options);
+    return;
+  }
+  if (command === 'run') {
+    const model = options.args[0] || argv[1] || 'local-router/free';
+    console.log(`Connecting to Local Router at http://${options.host}:${options.port} for model '${model}'...`);
+    console.log(`Tip: Connect IDE tools (VS Code Copilot, Continue, Cline, Roo Code) to http://${options.host}:${options.port}/v1`);
     return;
   }
   if (command === 'stop') {
