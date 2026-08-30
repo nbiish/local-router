@@ -20,7 +20,7 @@ console.log(" Platform: " + process.platform + (isWSL ? " (WSL)" : "") + " | Arc
 console.log("==================================================\n");
 
 // 1. Build TypeScript code
-console.log("[1/4] Building TypeScript source...");
+console.log("[1/5] Building TypeScript source...");
 try {
   execFileSync("npm", ["run", "build"], { cwd: root, stdio: "inherit", shell: isWin });
   console.log("✓ Build complete.\n");
@@ -30,7 +30,7 @@ try {
 }
 
 // 2. Ensure config directories
-console.log("[2/4] Ensuring config directories...");
+console.log("[2/5] Ensuring config directories...");
 const homeDir = os.homedir();
 const localRouterConfigDir = path.join(homeDir, ".config", "local-router");
 const pqcConfigDir = path.join(homeDir, ".config", "pqc-secrets");
@@ -39,7 +39,7 @@ fs.mkdirSync(pqcConfigDir, { recursive: true });
 console.log("✓ Config directories initialized at ~/.config/local-router and ~/.config/pqc-secrets.\n");
 
 // 3. Initialize PQC secrets keypair if not present
-console.log("[3/4] Checking Post-Quantum (ML-KEM-768) keypair...");
+console.log("[3/5] Checking Post-Quantum (ML-KEM-768) keypair...");
 const pubkeyPath = path.join(pqcConfigDir, "recipient.pub");
 if (fs.existsSync(pubkeyPath)) {
   console.log("✓ Existing ML-KEM-768 public key verified at " + pubkeyPath);
@@ -58,8 +58,17 @@ if (fs.existsSync(pubkeyPath)) {
   }
 }
 
-// 4. Install CLI shims and binaries to User PATH
-console.log("[4/4] Configuring CLI entry points (local-router, localrouter, ollama, pqc-secrets)...");
+// 4. Generate Desktop Application Icon Assets
+console.log("[4/5] Generating Desktop and System Tray multi-resolution icons...");
+try {
+  execFileSync("node", [path.join(root, "scripts", "generate-icons.mjs")], { cwd: root, stdio: "inherit", shell: isWin });
+  console.log("✓ Desktop icons generated in src-tauri/icons/\n");
+} catch (err) {
+  console.log("ℹ Icon generation skipped: " + err.message);
+}
+
+// 5. Install CLI shims and binaries to User PATH
+console.log("[5/5] Configuring CLI entry points (local-router, localrouter, ollama, pqc-secrets)...");
 const binDir = path.join(root, "bin");
 
 if (isWin) {
@@ -102,4 +111,5 @@ console.log("\n==================================================");
 console.log(" Setup Complete! Local Router is ready to run.");
 console.log(" Start server:   node bin/local-router.js start");
 console.log(" Web Dashboard:  http://127.0.0.1:11434/config");
+console.log(" Desktop Tray:   npm run tauri:dev (or native release binary)");
 console.log("==================================================\n");

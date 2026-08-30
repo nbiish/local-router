@@ -24,7 +24,11 @@
     "verify:cli": "node bin/localrouter.js verify",
     "audit": "npm audit --audit-level=high",
     "setup": "node scripts/setup-platform.mjs",
-    "install-cli": "node scripts/setup-platform.mjs"
+    "install-cli": "node scripts/setup-platform.mjs",
+    "tauri": "tauri",
+    "tauri:dev": "tauri dev",
+    "tauri:build": "tauri build",
+    "tauri:icons": "node scripts/generate-icons.mjs"
   },
   "keywords": [
     "ollama",
@@ -53,7 +57,8 @@
     "@types/ws": "^8.18.1",
     "ts-node": "^10.9.2",
     "tsx": "^4.22.3",
-    "typescript": "^6.0.3"
+    "typescript": "^6.0.3",
+    "@tauri-apps/cli": "^2.0.0"
   },
   "allowScripts": {
     "esbuild@0.28.0": true

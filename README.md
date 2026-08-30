@@ -49,6 +49,21 @@ Configuration UI:
 http://127.0.0.1:11434/config
 ```
 
+## Desktop System Tray Application
+
+Local Router includes a native **Tauri v2 (Rust)** desktop application with corner system tray controls for seamless background operation:
+- **Windows (x64 / arm64)**: Native taskbar notification area corner icon (bottom-right) with quick dashboard and provider controls.
+- **macOS (Apple Silicon & Intel)**: Native Menu Bar extra corner icon (top-right) with dark/light mode template icons.
+- **Linux (x64 / aarch64)**: AppIndicator / StatusNotifierItem system tray integration.
+
+```bash
+# Run desktop application with system tray in development mode
+npm run tauri:dev
+
+# Build native desktop installer (.msi, .exe, .dmg, .AppImage, .deb)
+npm run tauri:build
+```
+
 ## Platforms
 
 Local Router is architecture-agnostic: the same Node.js code runs on **macOS**, **Linux**, and **Windows** (use an **Ubuntu terminal via WSL**). Every command in this README is shell-generic — run it as-is in zsh (macOS default), bash (Linux), or your WSL/Ubuntu shell (Windows). The only requirements are Node.js and npm.

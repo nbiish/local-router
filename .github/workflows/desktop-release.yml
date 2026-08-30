@@ -1,0 +1,76 @@
+name: Desktop App Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-desktop:
+    name: Build Desktop (${{ matrix.platform.name }})
+    runs-on: ${{ matrix.platform.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        platform:
+          - name: Windows (x64 / NSIS / MSI)
+            os: windows-latest
+            target: x86_64-pc-windows-msvc
+            args: ""
+          - name: macOS Universal (Apple Silicon & Intel)
+            os: macos-latest
+            target: universal-apple-darwin
+            args: "--target universal-apple-darwin"
+          - name: Linux (x64 / AppImage / Deb)
+            os: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            args: ""
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.platform.target }}
+
+      - name: Install Linux system dependencies (GTK / WebKit2GTK / AppIndicator)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libayatana-appindicator3-dev
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci || npm install
+
+      - name: Build TypeScript router server
+        run: npm run build
+
+      - name: Generate multi-resolution icons
+        run: npm run tauri:icons
+
+      - name: Build Desktop Application (Tauri v2)
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: v__VERSION__
+          releaseName: "Local Router Desktop v__VERSION__"
+          releaseBody: "Native cross-platform desktop application with corner system tray controls, Ollama drop-in interception, and 19 model providers."
+          releaseDraft: true
+          prerelease: false
+          args: ${{ matrix.platform.args }}
