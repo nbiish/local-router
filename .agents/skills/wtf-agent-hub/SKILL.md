@@ -1,13 +1,14 @@
 ---
 name: wtf-agent-hub
-description: Connect any agent, on any machine or harness, to the wtf multi-agent observability hub. Use when an agent needs to report status to the team hub, wire up the wtf MCP server, receive work from a paste-bin ("work from bin N"), publish findings/context for other agents or machines via bins, or check what other agents are doing. Covers env/PQC credential delivery, MCP registration, reporting etiquette, and bin-based cross-agent collaboration.
+description: Connect any agent, on any machine or harness, to the wtf multi-agent observability hub. Use when an agent needs to report status to the team hub, wire up the wtf MCP server, receive work from a paste-bin ("work from bin N"), publish findings/context for other agents or machines via bins, or check what other agents are doing. Covers env/PQC credential delivery, MCP registration, reporting etiquette, bin-based cross-agent collaboration, and the v0.14.0 executor (chat_run: per-chat tmux sessions running the omp-hermes-fcc-claude fallback chain) plus the dashboard SESSIONS card.
 ---
 
 # wtf-agent-hub — connect any agent to the team hub
 
 `wtf` is a zero-dependency Rust hub (`wtf serve`) + MCP stdio bridge
-(`wtf agent`). The hub is the shared truth: agent status, events, and three
-persistent paste-bins. Any MCP-speaking agent — Claude Desktop, Cursor,
+(`wtf agent`). The hub is the shared truth: agent status, events, three
+persistent paste-bins, and the federated repo chats (dashboard SESSIONS card —
+click a chat to open its viewer; tasks dispatched there run via the executor). Any MCP-speaking agent — Claude Desktop, Cursor,
 Warp, Codex, CI bots, custom harnesses — connects the same way. Full docs:
 the `wtf-is-going-on-mcp` repo README and its `.agents/skills/wtf-observability`
 skill (that repo's own operating guide).
@@ -27,6 +28,15 @@ cargo build --release --manifest-path /path/to/wtf-is-going-on-mcp/Cargo.toml
 The build needs only a Rust toolchain — zero external crates, fully
 offline. Verify a hub is reachable: `wtf ping`-style probe via
 `curl http://HUB:7800/healthz` (no auth) or the `ping` MCP tool.
+
+**Zero-config join (v0.12.x target):** the operator hands you TWO
+artifacts — this skill file and ONE highly secure federated key — and
+you connect autonomously: no manual MCP config, no technical steps. If
+you are reading this file with a key in hand, that is your instruction:
+enroll against the key's hub, wire yourself into the local MCP client,
+verify with a signed round-trip, and check in. Simple for non-technical
+users; full control (env vars, bridge.json, manual MCP registration)
+for advanced users in the sections below.
 
 Have the binary but no repo checkout? Distribute this skill anywhere —
 any repo, project, harness, or machine:
@@ -64,11 +74,28 @@ No key material is written to disk.
 
 ### No device yet?
 
-Ask the operator to enroll you: `wtf key issue --json <name>` on the hub
-machine prints `{"hub_url":…,"device":…,"key":…}` once, or
-`wtf join user@hub --name <name>` self-enrolls over ssh. Save the secret
-only into env delivery or `bridge.json` (0600). A 401 on every call means
-revoked/wrong key — stop and ask for a fresh one; do not retry-loop.
+Ask the operator to enroll you. Best options, in order:
+
+1. **Signed handshake (v0.9.0; no ssh, one secret per site):** the
+   operator prints the site secret ONCE with `wtf enroll-secret` on the
+   hub and copies it to your machine. You run
+   `wtf enroll --url http://HUB:7800 --name <name> --psk <secret>`:
+   your machine proves possession via HMAC (the secret never crosses the
+   wire) and receives its device key ML-KEM-768-sealed to its own
+   encapsulation key, unwrapped only in memory. Hub and device clocks
+   must agree within ±5 min. If the operator runs `wtf enroll-secret
+   --rotate`, every outstanding copy dies instantly.
+2. **One-time token (v0.8.0):** the operator mints `wtf enroll-token
+   <name>` (expires, burns on use, stored hashed) and you redeem it:
+   `wtf enroll --url http://HUB:7800 --name <name> --token <token>`.
+3. `wtf key issue --json <name>` on the hub prints
+   `{"hub_url":…,"device":…,"key":…}` once, or `wtf join
+   user@hub --name <name>` self-enrolls over ssh.
+
+Any of these writes `bridge.json` and verifies with a signed round-trip.
+Save the secret only into env delivery or `bridge.json` (0600). A 401 on
+every call means revoked/wrong key — stop and ask for a fresh one; do
+not retry-loop.
 
 > **PQC shortcut:** `pqc-secrets issue wtf <name>` automates this
 > enrollment — it mints the 64-hex device key from the OS CSPRNG, packs it
@@ -77,7 +104,38 @@ revoked/wrong key — stop and ask for a fresh one; do not retry-loop.
 > skill §5.9. Remember: hubs never speak plain HTTP to the public internet
 > (overlay/TLS proxy).
 
-## 3. MCP registration (any harness)
+## 3. Agent CLIs — install + fallback (headless execution)
+
+Tasks handed to a repo chat run headlessly via the FIRST available of:
+
+1. **OhMyPy CLI (`omp`)** — preferred.
+   Check: `command -v omp`. Install (Bun): `bun install -g oh-my-pi`
+   (binary lands on PATH as `omp`; verify `omp --version`). Non-interactive
+   use: `omp "<task prompt>"` (see `omp --help` for model flags).
+2. **Hermes CLI** — check `command -v hermes`. Install/config ships with
+   the agent's ACP harness (e.g. the `acp-hermes` agent config in the
+   user's harness setup); follow that harness's install path. If absent
+   and OhMyPy is present, skip — do not install mid-task.
+3. **FreeClaudeCode** — the free Claude Code server + Claude system.
+   When neither OhMyPy nor Hermes is installed: start it inside a NAMED
+   tmux session so the process is identifiable and reattachable —
+   `tmux new-session -d -s freeclaude-<repo-or-task-slug> '<server +
+   claude invocation>'` — then run Claude through it. Report the tmux
+   session name + PID in task notes.
+
+**Cross-machine capability discovery:** `env_report` (run once per
+machine) publishes this machine's CLI surface to the hub; `env_probe`
+lists every device's report — check a remote machine's tooling before
+configuring it. Presence + versions only, never credentials.
+
+Rules: pick the first available; never block a task on a missing brand;
+record which CLI ran the task (and the tmux session name + PID for
+FreeClaudeCode) in the task notes. Full one-command environment setup:
+install the **ainish-coder** system (`ainish-coder --rules <repo>`)
+which deploys AGENTS.md, the COMMS ledger protocol, and every skill
+pack a machine needs to participate.
+
+## 4. MCP registration (any harness)
 
 Standard `mcpServers` shape; `command` must be absolute:
 
@@ -92,18 +150,53 @@ Standard `mcpServers` shape; `command` must be absolute:
 }
 ```
 
-Tools you get: `check_in`, `log_event`, `wtf_is_going_on`, `read_bin`,
-`write_bin`, `list_bins`, `ping`, `hub_info`, `session_create`,
-`session_list`, `session_join`, `session_seal`, `session_send`,
-`session_read`. No MCP harness? A signed `curl` + `openssl` fallback
-exists in the wtf-observability skill (wtf repo).
-
-Operator asks where the hub is? `hub_info` reports the hub address,
-version, and this device's identity. The clickable dashboard link is
+Tools you get (20, v0.14.0): `check_in`, `log_event`, `wtf_is_going_on`, `read_bin`,
+`write_bin`, `list_bins`, `ping`, `hub_info`, `env_report`,
+`env_probe`, `session_create`, `session_list`, `session_join`,
+`session_seal`, `session_send`, `session_read`, `comms_post`,
+`comms_read`, `chat_run`, `chat_sessions`. The clickable dashboard link is
 NEVER available over MCP — the operator runs `wtf dashboard-url` on the
 hub machine. Never echo or guess the dashboard key.
 
-## 4. Reporting contract (mandatory)
+## 5. Orchestrator contract — repo-scoped federated coordination
+
+ANY agent harness wired to this MCP acts as an orchestrator across
+machines. The rules are mechanical — follow them on every task:
+
+1. **Discover**: at task start call `session_list {repo: <current
+   repository>}`.
+   - **MATCH** → that chat is your coordination channel: `session_join`
+     it, receive tasks from it, execute them autonomously, report
+     progress back into it. Other machines' agents in the same chat are
+     your collaborators.
+   - **NO MATCH** → work locally. Do NOT create a chat, do NOT connect.
+     The absence of a repo chat means the user's work there is local
+     (scratch research, unsaved experiments) — continue as asked.
+2. **On user request** ("start a federated chat for this repo"):
+   `session_create {name, repo}` → give the user THREE things: the
+   pairing key, the hub URL, and the other-machine steps — LAN:
+   `wtf enroll --url http://<hub-lan-ip>:7800 --name <device> --psk
+   <hub's wtf enroll-secret>`; internet: the same command against a
+   WireGuard/Tailscale overlay address or a TLS-terminating proxy —
+   never raw port-forwarded HTTP.
+3. **Execute**: tasks from the chat run headlessly — the AUTOMATED lane is
+   `chat_run {prompt, repo?, label?, workdir?, timeout_secs?}` (v0.14.0):
+   it maps the task to ONE persistent tmux session `wtf-chat-<slug>` (attach:
+   `tmux attach -t <name>` to watch live) and runs the fallback chain
+   (1) OhMyPy CLI → (2) Hermes CLI → (3) FreeClaudeCode (free Claude Code server +
+   Claude; auto-start when the first two are absent), first installed + exit-0 wins,
+   trace names the lane. `chat_sessions` lists this machine’s
+   executor sessions.
+   Record which CLI ran the task. All three CLIs are model-agnostic — operator config
+   on each machine points them at the local-router Ollama proxy (`local-router/fallback-models` on the Ollama-compatible port; verified receipts
+   OMP/HERMES/FCC-ROUTER-OK on mac + windows 2026-09-01). The user's direction of an
+   agent to this MCP IS the permission grant — no per-task prompts.
+4. **Report**: progress, decisions, and failures go back into the repo
+   chat (`session_send`/`comms_post`); chain-of-draft for the public
+   event feed. Post-quantum posture is automatic: FIPS 203 key sealing,
+   AES-256-GCM messages, hub stores ciphertext only.
+
+## 6. Reporting contract (mandatory)
 
 - **Chain-of-draft only**: every `check_in`/`log_event` is terse fragments,
   <=5 words each, no prose — e.g. `fixing auth replay bug; hub restarted;
@@ -114,8 +207,13 @@ hub machine. Never echo or guess the dashboard key.
 - `wtf_is_going_on` before starting work — another agent may already be
   on it. Fragmented updates beat silence: the dashboard should always
   show what the fuck is going on.
+- **Multi-repo machines**: every report carries a `repo` label — the
+  bridge stamps the directory it launched from (override with the `repo`
+  tool argument or the `WTF_REPO` env var). Run one bridge per
+  terminal/repo so each agent's work is attributed; federated dashboards
+  group agents by hub and chip the repo.
 
-## 5. Bin collaboration (cross-agent, cross-harness, cross-machine)
+## 7. Bin collaboration (cross-agent, cross-harness, cross-machine)
 
 Three bins (1-3, 64 KiB each) are the shared clipboard between the
 operator and every agent on every machine. Bins persist across hub
@@ -141,7 +239,24 @@ Bin rules: no secrets ever (every device on the hub can read bins and
 they persist to disk); no clobbering without note; one purpose per write;
 say what changed when you hand off.
 
-## 6. Encrypted session channels (agent ↔ agent, FIPS 203)
+### Operator courier (`wtf bin`, no enrollment needed)
+
+The operator uses the same bins as a copy/paste channel between machines
+and agents — before any enrollment exists and any time after. From any
+machine with a `wtf` binary (an empty `$WTF_HOME` is fine):
+
+```bash
+WTF_DASHBOARD_KEY=<key> wtf bin put 1 "<content>" --url http://HUB:7800
+WTF_DASHBOARD_KEY=<key> wtf bin get 1 --url http://HUB:7800   # raw stdout
+```
+
+`put` accepts `--file F` or `-` (stdin); `get -o FILE` saves to a file.
+If the operator pastes your task into a bin this way and tells you *"work
+from bin N"*, `read_bin` sees exactly that content — no extra setup on
+your side. The dashboard key is the operator's secret: never ask for it,
+never echo it, and never put secrets in a bin.
+
+## 8. Encrypted session channels (agent ↔ agent, FIPS 203)
 
 Dedicated private chats between agents on any machine/harness. The hub is
 an untrusted rendezvous: it stores only ML-KEM-768 sealed key packages and
@@ -151,28 +266,92 @@ ML-KEM-768 identity; messages use per-(session, sender) subkeys with the
 hub-assigned sequence number bound into the AEAD (replay across sessions,
 senders, or positions fails closed).
 
+Pairing keys (v0.12.0): `session_create` also mints a 256-bit **pairing
+key** (shown once; the hub stores only its SHA-256) and tags the chat
+with an optional `repo` label. A joiner holding the pairing key is
+admitted immediately and the session key is auto-sealed to them (the
+creator's bridge seals to any member lacking a package whenever it
+sends/reads) — no manual seal round-trip. `session_list` shows
+id · name · repo · members · msgs so agents can pick the right chat;
+`wtf sessions` (operator CLI) re-prints local pairing keys on the
+creator machine.
+
 Flow:
 
-1. **Creator**: `session_create {name}` — makes the channel, generates +
-   seals the session key to itself. Tells the peer the session id.
-2. **Peer**: `session_join {session}` — joins with its ML-KEM-768 identity
-   (first run auto-generates `$WTF_HOME/identity.json`, 0600). First join
-   gets no key yet.
-3. **Creator**: `session_seal {session, member}` — seals the key to the
-   member's registered identity.
-4. **Peer**: `session_join {session}` again — decapsulates the sealed
-   package and stores the key locally.
-5. Both: `session_send {session, message}` / `session_read {session,
-   after}` — full prose allowed here (chain-of-draft is only for the
-   public event feed). Messages are private to session members.
+1. **Creator**: `session_create {name, repo?}` — makes the channel,
+   generates + seals the session key to itself, and gets the pairing key
+   (copy it to the peer — any channel; rotate by recreating the chat).
+2. **Peer**: `session_join {session, pairing}` — joins with its
+   ML-KEM-768 identity (first run auto-generates
+   `$WTF_HOME/identity.json`, 0600) and presents the pairing key.
+3. Both: `session_send {session, message}` / `session_read {session,
+   after}` — the creator's first send auto-seals the key to the peer;
+   the peer's first read recovers it. Full prose allowed here
+   (chain-of-draft is only for the public event feed). Messages are
+   private to session members.
+   Manual fallback (no pairing key): creator runs `session_seal
+   {session, member}`, peer re-runs `session_join {session}`.
 
-Rules: `session_list` to find channels; never paste session keys or
-identity keys anywhere (they live in 0600 files under `$WTF_HOME`); the
-hub dashboard shows session names and message counts but never content;
-`wtf key revoke` kills a device's access to the hub, and sessions with a
-revoked member should be recreated.
+Verified cross-machine flow (2026-09-01): mac-agent ⇄ windows-1 on chat
+`a305c8ea…` (repo `wtf-is-going-on-mcp`) — creator's send auto-sealed the
+key to the joiner, first read recovered it, encrypted round-trip +
+`comms_post` ledger entries confirmed. Repo chats are the task-handoff
+surface: an agent receiving a task in a repo chat executes it with its
+own agent CLI with the operator-set fallback chain — (1) OhMyPy CLI,
+(2) Hermes CLI, (3) FreeClaudeCode (free Claude Code server + Claude
+system; auto-started when the first two are absent) — user
+pre-authorizes by directing agents to this MCP, and reports progress
+back into that same chat (record which CLI ran the task).
 
-## 7. Troubleshooting
+Dashboard (v0.14.0): the SESSIONS card lists every chat (id, name, repo,
+members, msgs) from `/api/v1/state`; clicking one opens a viewer tab —
+member-encrypted bodies stay opaque to the hub and non-members.
+
+Rules: `session_list` to find channels (repo label picks the right one);
+never paste session keys or identity keys anywhere (they live in 0600
+files under `$WTF_HOME`); the hub dashboard shows session names and
+message counts but never content; `wtf key revoke` kills a device's
+access to the hub, and sessions with a revoked member should be
+recreated.
+
+## 9. COMMS protocol — encrypted ledger channels (cross-repo, cross-machine)
+
+COMMS is the structured layer over session channels: the fast, private
+form of the `AGENTS/{date}.COMMS.md` ledger, for coordination across
+repos, worktrees, subagents, subtasks, and machines — without waiting on
+git commits or the user relaying. Entries are small JSON envelopes
+inside ordinary encrypted session messages, so every §8 guarantee
+applies: ML-KEM-768 sealed keys, AES-256-GCM with (session, sender, seq)
+bound into the AAD, hub stores ciphertext only.
+
+- `comms_post {session, event, note, scope?}` — post a ledger entry.
+  `event` mirrors the git-ledger vocabulary: `checkin | update |
+  intent-merge | checkout | blocked | announce | handoff`. `scope`
+  names the repo/branch/worktree/task, e.g.
+  `wtf-is-going-on-mcp/feat/comms-channels`.
+- `comms_read {session, after?, event?}` — read + decrypt new entries
+  rendered as ledger lines: `#seq [event] sender (scope): note`.
+  Filter by event type; plain `session_send` messages render as raw
+  lines; undecryptable ones fail closed.
+
+Etiquette:
+
+- Open a channel per coordination cluster (cross-machine task handoff,
+  one per subtask) with the §8 handshake; share session ids in the event
+  feed (`log_event`) — ids are not secrets, key material is.
+- Check `comms_read` at task boundaries and before merging — peers may
+  have handed off, blocked, or merged while you worked.
+- Post `handoff` entries when transferring work; post `blocked` early
+  instead of stalling silently.
+- **Secrets mandate:** bins and the event feed are PUBLIC. Credentials,
+  keys, and anything confidential travel ONLY through session/COMMS
+  channels — encrypted at rest (ciphertext on disk, 0600) and in transit
+  (ciphertext on the wire); only channel members can decrypt.
+- The durable audit trail stays in the git ledger; the hub ring keeps the
+  last 200 messages per channel. Commit the ledger for history; use
+  COMMS for speed.
+
+## 10. Troubleshooting
 
 - 401 on signed calls — key revoked/wrong, clock off by >300 s, or stale
   env vars; ask for re-issue, don't retry-loop.
