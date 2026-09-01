@@ -1,7 +1,7 @@
 {
   "mcpServers": {
     "wtf": {
-      "command": "/Users/nbiish/.local/bin/wtf",
+      "command": "/home/nanoboozhoo/.local/bin/wtf",
       "args": ["agent"]
     }
   }
