@@ -1,6 +1,34 @@
 ---
-description: PQC secrets for all API keys. Worktree per task — branch from main, merge back to main after verification, then clean up. Polyglot (Rust, TS, Py, etc). Chain-of-Draft: ≤5 words per step, output after ####. llms.txt is the PRD anchor — read it. No secrets in tasks or PRD. FIPS 203/204/205 for secrets ops; standard crypto for transport. Audit for banned algorithms and secrets every cycle. Never work directly on main. Branch naming `<type>/<scope>-<slug>`. Ask before merging. Output full production code. Concurrent agents coordinate via AGENTS/{date}.COMMS.md. Cross-machine reporting goes through the wtf hub (mandatory; chain-of-draft; see .agents/skills/wtf-agent-hub/SKILL.md).
+description: Local Router agent contract — goals pointer to llms.txt PRD, worktree-per-task isolation, PQC secrets, COMMS/tasks coordination. Docs-only context here; product truth lives in llms.txt.
 ---
+
+# MISSION & GOALS
+
+**Local Router** is an open-source, Ollama-compatible local proxy for VS Code Copilot Chat, Claude Code, Codex, Cline, Roo Code, Continue, and scripts: one localhost server (`127.0.0.1:11434`), one Ollama/OpenAI-compatible surface, many provider-backed or locally routed models behind it. Easy local drop-in replacement for Ollama-compatible tooling — not a closed provider gateway.
+
+**Goals (product truth and full capability contract live in `llms.txt` — the authoritative PRD; this section only orients agents):**
+1. **Drop-in compatibility** — Ollama default port/route shape, dual-stack loopback, version floor; existing tools repoint with minimal config.
+2. **Explicit, inspectable routing** — user-configured fallback chains (plain ordered lists, editable in `/config` + API); no hidden model pools, no auto-routing.
+3. **PQC-protected keys** — every API key sealed in the ML-KEM-768 + AES-256-GCM bundle; never plaintext on disk or in git.
+4. **Open & community-curated** — plain local JSON state, visible chain steps, shareable curation; original implementation and brand.
+5. **Operational ergonomics** — `/config` UI, CLI shims, installers, desktop tray, self-update.
+
+**Non-goals:** copying Ollama source/trademarks/identity; managed cloud service; hidden telemetry or model selection.
+
+---
+
+# DOCUMENTATION MAP — CO-DOC WITH `llms.txt` (READ BOTH; NO DUPLICATION)
+
+| Doc | Owns | Read when |
+|-----|------|-----------|
+| `llms.txt` (root PRD) | Product requirements, capabilities, provider catalog, port/API contracts, DOX hierarchy, Child DOX Index | Every task, unconditionally; overrides conflicting sources per priority |
+| `AGENTS.md` (this file) | Agent identity/priorities, worktree workflow, security rules, COMMS/tasks/hub protocol, audit checklist | Every task, unconditionally |
+| `AGENTS/{date}.COMMS.md` | Live per-day ledger: checkin → update → intent-merge → checkout for concurrent agents | Start of task, before merges, when blocked |
+| `.agents/tasks/TASK.*.md` | Per-task decisions, conventions, verification receipts | Nearest matching task files at start |
+| Child `llms.txt` in subfolders | Domain-specific contracts owning their subtree | Whenever working in that folder |
+
+**Conflict resolution:** task-specific > nearest `llms.txt` > parent `llms.txt` > `AGENTS.md` (workflow/security always binding) > operator instruction (highest).
+**Anything not covered here** (endpoints, models, providers, UI behavior) → `llms.txt`. **Anything not covered there** (branching, secrets handling, agent coordination) → this file.
 
 # 🚧 WORKTREE GATE — MANDATORY CHECKPOINT
 
@@ -61,7 +89,6 @@ When ≥1 agent or subagent works at once (multiple branches, features, updates,
 - **Bracket every input and output with `start:` / `end:` ISO-8601 timestamps** — one block per input→output unit, never a published `start:` without its `end:`. Stamp `start:` when work begins (input received), `end:` when the output is complete. Abandoned actions still close with `end:` + `status: abandoned`.
 - **Carve-out:** appending to the main repo's `AGENTS/{date}.COMMS.md` working file by absolute path is the *only* permitted edit outside a worktree — it is a live board, never a `git commit` on `main`. Commits land via task branches and merge to `main`.
 - Full entry format, lifecycle events, and merge-conflict rules: see the protocol spec at the top of `AGENTS/{date}.COMMS.md`.
-- Scroll deploy lifecycle events (`intent-deploy` / `deployed` / `deploy-failed`, with manifest digest) are appended by the integrity layer in `src/scroll_integrity.sh` (`scrolls_comms_log`).
 </COMMS>
 
 ---
