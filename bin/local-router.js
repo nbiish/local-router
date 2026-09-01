@@ -535,29 +535,64 @@ function renderOllamaShim(realOllamaPath, routeMode, target) {
   const serveArgs = routeMode === 'custom'
     ? `start --foreground --host ${target.host} --port ${target.port}`
     : 'start --foreground';
+  const routerHost = routeMode === 'custom' ? target.host : '127.0.0.1';
+  const routerPort = routeMode === 'custom' ? target.port : DEFAULT_PORT;
 
+  // Always-route contract (operator directive, 2026-09-01): ANY ollama.cli
+  // invocation from ANY tool must (1) ensure Local Router is up — starting it
+  // in the background if not — and (2) talk to the router on the standard
+  // port, never to a bare ollama. The real binary serves only as the
+  // router's backend (port 11435) when `ollama serve` is requested.
   return [
     '#!/usr/bin/env bash',
     'set -euo pipefail',
     SHIM_MARKER,
     `REAL_OLLAMA=${bashSingleQuote(realOllamaPath)}`,
     'LOCAL_ROUTER_BIN="${LOCAL_ROUTER_BIN:-${FVS_CODE_BIN:-local-router}}"',
+    `ROUTER_PROBE="http://${routerHost}:${routerPort}/api/version"`,
     '',
-    '# Escape hatch: LOCAL_ROUTER_NO_SHIM=1 runs the real binary directly.',
+    '# Escape hatch: LOCAL_ROUTER_NO_SHIM=1 bypasses the router entirely.',
     'if [[ "${LOCAL_ROUTER_NO_SHIM:-0}" == "1" ]]; then',
     '  exec "$REAL_OLLAMA" "$@"',
     'fi',
     '',
+    '# ALWAYS-ROUTE: ensure the router is up before anything else. A stale',
+    '# router from another tool start counts — one router per machine.',
+    'router_up() { curl -sf -m 2 "$ROUTER_PROBE" >/dev/null 2>&1; }',
+    'if ! router_up; then',
+    '  # Not running: start the router detached (its own session, survives',
+    '  # this shell), then wait briefly for the probe to come up.',
+    `  "$LOCAL_ROUTER_BIN" ${serveArgs} >/dev/null 2>&1 &`,
+    '  disown || true',
+    '  for _ in $(seq 1 20); do',
+    '    router_up && break',
+    '    sleep 0.5',
+    '  done',
+    'fi',
+    '',
     'if [[ "${1:-}" == "serve" ]]; then',
-    '  export OLLAMA_HOST="127.0.0.1:11435"',
-    '  "$REAL_OLLAMA" serve &',
-    '  OLLAMA_PID=$!',
-    '  trap "kill $OLLAMA_PID" EXIT',
+    '  # `ollama serve` requested: run the REAL ollama as the router\'s backend',
+    '  # on 11435 (the router on 11434 proxies to it), keep both alive for the',
+    '  # lifetime of this invocation, and exec the router in the foreground.',
+    '  if ! curl -sf -m 2 http://127.0.0.1:11435/api/version >/dev/null 2>&1; then',
+    '    export OLLAMA_HOST="127.0.0.1:11435"',
+    '    "$REAL_OLLAMA" serve >/dev/null 2>&1 &',
+    '    OLLAMA_PID=$!',
+    '    trap "kill $OLLAMA_PID 2>/dev/null || true" EXIT',
+    '  fi',
     '  export LOCAL_ROUTER_PROVIDER_OLLAMA_BASE_URL="http://127.0.0.1:11435/v1"',
     '  export OLLAMA_API_KEY="local-router-ollama"',
     `  exec "$LOCAL_ROUTER_BIN" ${serveArgs}`,
     'fi',
     '',
+    '# Non-serve invocations (list, run, pull, ps, ...) talk to the ROUTER on',
+    '# the standard port: point the real CLI at it. The router serves the',
+    '# Ollama-compatible API, so the real binary behaves as a client of it.',
+    'if [[ -n "${OLLAMA_HOST:-}" ]]; then',
+    '  : # caller already pinned a host — respect it (they may target a remote)',
+    'else',
+    `  export OLLAMA_HOST="${routerHost}:${routerPort}"`,
+    'fi',
     'exec "$REAL_OLLAMA" "$@"',
     ''
   ].join('\n');
