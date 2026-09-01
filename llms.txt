@@ -4,7 +4,7 @@ This is the project-wide Product Requirements Document (PRD) and root DOX contra
 
 ## Purpose
 
-Point VS Code Copilot Chat, Claude Code, Cline, Roo Code, Continue, Codex, or scripts at `http://127.0.0.1:11434` and route to **20 built-in catalog providers** (17 static-key + 3 OAuth-subscription: Google Antigravity, GitHub Copilot, Cursor) plus **any custom OpenAI-compatible API** you register—using one model namespace and one configuration UI.
+Point VS Code Copilot Chat, Claude Code, Cline, Roo Code, Continue, Codex, agent-harness CLIs (OhMyPy `omp`, Hermes, FreeClaudeCode `fcc-claude`, the real `ollama` CLI), or scripts at `http://127.0.0.1:11434` and route to **20 built-in catalog providers** (17 static-key + 3 OAuth-subscription: Google Antigravity, GitHub Copilot, Cursor) plus **any custom OpenAI-compatible API** you register—using one model namespace and one configuration UI.
 
 ### Capabilities & Topology
 - **Port:** `11434` (Ollama default — drop-in). `develop` verification build uses `11436` (the main server port + 2) to avoid colliding with the running main server. Override with the `PORT` env var.
@@ -31,6 +31,14 @@ Clients (VS Code, Claude Code, Codex, Cline, scripts)
         └── ollama provider → 127.0.0.1:11435/v1 (real ollama serve, auto-started)
                  └── :cloud tags via local `ollama signin` session
 ```
+
+### Agent-Harness Integration & Fleet State (2026-09-01)
+
+Local Router is the **singular model system** for the operator's agent fleet: every harness on every machine routes through the fallback chain, so model changes happen in one place (`/config/fallback`) and every lane picks them up.
+
+- **Wired harnesses (all verified end-to-end):** OhMyPy (`omp` — custom provider `local-router` in `models.yml` + all six `modelRoles` → `local-router/local-router/fallback-models`), Hermes (`model.provider local-router`, `base_url http://localhost:11434/v1`, `model.default local-router/fallback-models`), FreeClaudeCode (`MODEL=ollama/local-router/fallback-models`, verified through its Anthropic shim `POST /v1/messages`), and the real `ollama` CLI (NDJSON stream fix on windows). Receipts: OMP/HERMES/FCC-ROUTER-OK (mac), OMP3/HERMES3/FCC3/OLLAMA3-OK (windows). Reasoning-model note: the chain's GLM hops need `max_tokens` ≥ ~500.
+- **Fleet topology (2026-09-01):** mac (hub-799c0c4c, LAN :7800) ⇄ windows machine-2 (hub-2538554f) federated both ways; shared control plane = the encrypted `local-router ops` chat on the mac hub, dashboard-clickable (wtf ≥ v0.14.0: SESSIONS card + `chat_run` tmux executor with the omp → hermes → fcc-claude fallback chain per chat). Keys/configs moved mac → windows via PQC envelope (17 secrets, ML-KEM-768 + ML-DSA-65, recipient fingerprint verified; envelope now cross-platform in this repo's py engine).
+- **Operational rule:** a harness lane failing is a ROUTER troubleshooting item (chain, keys, upstream) — never a reason to repoint a harness at a raw provider.
 
 ### Product North Star
 Local Router should become an easy local drop-in replacement for Ollama-compatible tooling: one localhost server, one familiar Ollama/OpenAI-compatible surface, and many provider-backed or locally routed models behind it.
@@ -75,8 +83,8 @@ task worktree (verify) → main (merge after user confirm) → cleanup
 - Per `AGENTS.md`: create a git worktree for every task. One task = one branch = one worktree.
 - Mandatory worktree removal and feature branch deletion is required after a `feature` -> `develop` merge.
 
-### System Snapshot & Release Lineage (June 2026)
-**`main` @ `e733527`, `develop` @ `4de61f7`** — Per-provider live model curation on the Providers page: saving a provider key auto-discovers that provider's live `/models` (best-effort, OAuth skipped), each provider card gains a fetch → toggle → save control, first-fetch pre-checks catalog matches, and the first selection save atomically activates endpoints-mode curation so `/v1/models` and `/api/tags` serve only the toggled set (local ollama backend always served). Nous Portal curation to 2 free/paid models (Hermes 4 family dropped), `local-router/multimodal` expansion to 15 vision-capable entries (`zai-code-pass-glm-4.6v`, `commandcode-minimax-m3`, `xiaomi-mimo-mimo-v2.5`, `wafer-ai-minimax-m3` added), and catalog parser fix so letter-suffixed row numbers (e.g. `64a`, `72a`) are accepted and the new zai/commandcode anchors now show Ready.
+### System Snapshot & Release Lineage (updated 2026-09-01)
+**`main` @ `9c0a843` (single-branch, no develop) — current: agent-fleet routing live on both machines, PQC envelope cross-platform, wtf-agent-hub skill mirror v0.14.0; see Agent-Harness Integration above. Historical June 2026 snapshot:** — Per-provider live model curation on the Providers page: saving a provider key auto-discovers that provider's live `/models` (best-effort, OAuth skipped), each provider card gains a fetch → toggle → save control, first-fetch pre-checks catalog matches, and the first selection save atomically activates endpoints-mode curation so `/v1/models` and `/api/tags` serve only the toggled set (local ollama backend always served). Nous Portal curation to 2 free/paid models (Hermes 4 family dropped), `local-router/multimodal` expansion to 15 vision-capable entries (`zai-code-pass-glm-4.6v`, `commandcode-minimax-m3`, `xiaomi-mimo-mimo-v2.5`, `wafer-ai-minimax-m3` added), and catalog parser fix so letter-suffixed row numbers (e.g. `64a`, `72a`) are accepted and the new zai/commandcode anchors now show Ready.
 
 | Commit | Summary |
 |--------|---------|
