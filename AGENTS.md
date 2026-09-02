@@ -328,3 +328,36 @@ Run before any code touching crypto, secrets storage, or networking:
 <REINFORCEMENT>
 PQC for every API key. Respect the codebase's native language. One task = one worktree from `main`, merged back to `main` after verification, cleaned up immediately. Never self-approve merges — ask every hop. Concurrent agents coordinate via `AGENTS/{date}.COMMS.md`. Chain-of-Draft: ≤5 words/step, `####` then output. Ship full production code.
 </REINFORCEMENT>
+
+---
+
+<FLEET_TOOLING>
+## FLEET TOOLING — CURRENT INTENT (2026-09-01, operator directive)
+
+local-router is the WTF Federated Fleet's singular model system: every agent
+CLI on every machine (windows + mac) routes through
+`local-router/fallback-models` @ 127.0.0.1:11434. Tooling refinement happens
+in fleet chats (`local-router ops`, 828d3341…), not harness swaps.
+
+**State + open items:**
+- windows: router v0.6.4 live; hardened always-route shim verified (any
+  ollama.cli invocation auto-starts the router, points OLLAMA_HOST at it,
+  `ollama serve` = backend on 11435). Branch fix/shim-always-route
+  (9e65e44) + fix/fallback-graceful (d0fd9a2) pushed — mac to review/merge.
+- NDJSON newline fix (createOllamaStreamTransform) committed to main
+  (abbea72) — real ollama CLI + hardcoded-ollama tools work natively.
+- mac: router reported DOWN / fallback model missing in hermes. The
+  always-route shim fixes the class of failure (any tool that starts
+  ollama.cli brings the router up); mac should merge the branch, re-run
+  `local-router route set`, and post a MAC-ROUTER-OK receipt.
+- Headroom proxy DISABLED (enabled:false in headroom-config.json) on
+  windows — nothing listens on :8787, and the 10s stall per stage attempt
+  degraded cascades. Its failure path is safe; re-enable only when the
+  proxy actually runs.
+- graceful cascade (fix/fallback-graceful): dead stages (unknown model /
+  no provider / no key-credits / allowlist) skip with zero retries and
+  'skipping to next stage' logging — chain fails only on total exhaustion.
+
+**Continuation:** fresh chats resume from `agents.txt` (this repo) +
+`llms.txt` + `AGENTS/{date}.COMMS.md` + the ops chat.
+</FLEET_TOOLING>
