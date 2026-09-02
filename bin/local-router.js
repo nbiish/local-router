@@ -16,6 +16,7 @@ const LEGACY_STATE_PATH = path.join(LEGACY_CONFIG_DIR, 'proxy-state.json');
 const ROUTING_STATE_PATH = path.join(CONFIG_DIR, 'tool-routing.json');
 const LEGACY_ROUTING_STATE_PATH = path.join(LEGACY_CONFIG_DIR, 'tool-routing.json');
 const SHIM_DIR = path.join(os.homedir(), '.local', 'bin');
+const OLLAMA_BACKEND_PORT = 11435;
 const OLLAMA_SHIM_PATH = path.join(SHIM_DIR, 'ollama');
 const SHIM_MARKER = '# local-router ollama shim';
 const LEGACY_SHIM_MARKER = '# fvs-code ollama shim';
@@ -65,6 +66,7 @@ function usage() {
     '',
     'Usage:',
     '  local-router start [--port 11434] [--host 127.0.0.1] [--foreground] [--config <file>]',
+    '  local-router ensure [--port 11434] [--host 127.0.0.1] [--no-evict]',
     '  local-router stop [--port 11434] [--host 127.0.0.1]',
     '  local-router status [--port 11434] [--host 127.0.0.1]',
     '  local-router route set',
@@ -78,6 +80,10 @@ function usage() {
     '    --config <file>: apply a declarative routes/curation config at boot (chains are otherwise',
     '    empty by default — author them in /config/fallback, or export them from that page).',
     '    Same as LOCAL_ROUTER_ROUTES_CONFIG=<file>. Template: config/routes.example.json.',
+    '  - ensure: idempotent contract enforcement — if a foreign ollama server holds the port,',
+    '    its process tree is stopped (supervisor first, so Ollama.app does not respawn it) and',
+    '    Local Router is started in its place; ollama remains available as the router backend on',
+    '    port 11435 (the router spawns it automatically at boot). Pass --no-evict to only report.',
     '  - route set: installs drop-in shims (ollama, llama-server, unsloth) in ~/.local/bin so',
     '    service starts go through Local Router (preferred + provider model catalog).',
     '  - route custom: ollama shim only, but `ollama serve` starts Local Router on a custom localhost port.',
@@ -133,6 +139,10 @@ function parseOptions(args) {
     }
     if (token === '--cmd') {
       options.cmd = true;
+      continue;
+    }
+    if (token === '--no-evict') {
+      options.noEvict = true;
       continue;
     }
     if (!token.startsWith('-')) {
@@ -470,6 +480,195 @@ async function cmdStop(options) {
   return 1;
 }
 
+/**
+ * Cross-platform command line for a PID (best-effort, empty string on failure).
+ * macOS/Linux: `ps -p PID -o command=`; Windows: PowerShell CIM query.
+ */
+function processCommandForPid(pid) {
+  if (IS_WIN) {
+    const result = spawnSync(
+      'powershell',
+      ['-NoProfile', '-Command',
+        `(Get-CimInstance Win32_Process -Filter "ProcessId=${pid}").CommandLine`],
+      { encoding: 'utf8', timeout: 5000 }
+    );
+    return (result.stdout || '').trim();
+  }
+  const result = spawnSync('ps', ['-p', String(pid), '-o', 'command='], { encoding: 'utf8', timeout: 3000 });
+  return (result.stdout || '').trim();
+}
+
+/** True when the command line belongs to a real ollama serve binary (not our shim, not our proxy). */
+function commandLineLooksLikeOllamaServe(commandLine) {
+  const line = String(commandLine || '').toLowerCase();
+  if (!line) return false;
+  if (line.includes('local-router') || line.includes('fvs-code')) return false;
+  if (line.includes('/bin/ollama') || line.includes('\\ollama') || line.includes('ollama.exe')) {
+    return line.includes('serve') || !line.includes('run');
+  }
+  return /(^|\/|\s)ollama(\.exe)?(\s|$)/.test(line) && (line.includes(' serve') || !line.includes(' run'));
+}
+
+/**
+ * Find the supervisor (parent) PID for a process, or null when unknown.
+ * macOS/Linux: `ps -o ppid=`; Windows: PowerShell CIM ParentProcessId.
+ */
+function parentPidForPid(pid) {
+  if (IS_WIN) {
+    const result = spawnSync(
+      'powershell',
+      ['-NoProfile', '-Command',
+        `(Get-CimInstance Win32_Process -Filter "ProcessId=${pid}").ParentProcessId`],
+      { encoding: 'utf8', timeout: 5000 }
+    );
+    const value = Number.parseInt((result.stdout || '').trim(), 10);
+    return Number.isInteger(value) && value > 0 ? value : null;
+  }
+  const result = spawnSync('ps', ['-p', String(pid), '-o', 'ppid='], { encoding: 'utf8', timeout: 3000 });
+  const value = Number.parseInt((result.stdout || '').trim(), 10);
+  return Number.isInteger(value) && value > 0 ? value : null;
+}
+
+/**
+ * Stop an ollama serve tree that is squatting the router port, supervisor
+ * first (Ollama.app respawns its `ollama serve` child every few seconds, so
+ * killing the child alone is futile). Returns a short human-readable note.
+ */
+async function evictOllamaSquatters(port) {
+  const pids = findPidsOnPort(port);
+  if (pids.length === 0) return 'no listener found (already free)';
+  const notes = [];
+  for (const pid of pids) {
+    const commandLine = processCommandForPid(pid);
+    if (!commandLineLooksLikeOllamaServe(commandLine)) {
+      notes.push(`PID ${pid} (${commandLine.split(' ')[0] || 'unknown'}) left alone — not ollama serve`);
+      continue;
+    }
+    // Supervisor first, then the child tree, so the server does not respawn.
+    const parentPid = parentPidForPid(pid);
+    let stoppedSupervisor = false;
+    if (parentPid && parentPid !== 1 && parentPid !== pid) {
+      const parentCommand = processCommandForPid(parentPid);
+      // Never kill launchd/init/init-equivalents; only app supervisors.
+      if (parentCommand && !/^\/sbin\/launchd\b/.test(parentCommand)) {
+        killProcessTree(parentPid, true);
+        notes.push(`stopped supervisor PID ${parentPid} (${parentCommand.split(' ')[0] || 'unknown'})`);
+        stoppedSupervisor = true;
+        await new Promise((resolve) => setTimeout(resolve, 300));
+      }
+    }
+    killProcessTree(pid);
+    notes.push(`stopped ollama serve PID ${pid}`);
+    // Linux systemd services (parent = init) respawn their ollama serve child;
+    // try a best-effort service stop when the child kill alone is not enough.
+    if (!stoppedSupervisor && process.platform === 'linux') {
+      spawnSync('systemctl', ['stop', 'ollama.service'], { encoding: 'utf8', timeout: 5000 });
+      spawnSync('systemctl', ['--user', 'stop', 'ollama.service'], { encoding: 'utf8', timeout: 5000 });
+    }
+  }
+  await new Promise((resolve) => setTimeout(resolve, 500));
+  const after = findPidsOnPort(port);
+  return notes.length > 0
+    ? `${notes.join('; ')}${after.length > 0 ? ' — PORT STILL OCCUPIED' : ' — port free'}`
+    : `port ${port} held by non-ollama process; not evicted`;
+}
+
+/**
+ * Best-effort locate the real ollama binary (skipping our own shims).
+ */
+function findRealOllamaBinary() {
+  const shimPath = path.join(SHIM_DIR, 'ollama');
+  for (const candidate of whichAll('ollama')) {
+    const resolved = path.resolve(candidate);
+    if (resolved === path.resolve(shimPath)) continue;
+    if (shimFileContainsMarker(candidate)) continue;
+    return candidate;
+  }
+  const fallbacks = process.platform === 'darwin'
+    ? ['/Applications/Ollama.app/Contents/Resources/ollama', '/usr/local/bin/ollama']
+    : IS_WIN
+      ? [
+          path.join(process.env.LOCALAPPDATA || '', 'Programs', 'Ollama', 'ollama.exe'),
+          path.join(process.env.ProgramFiles || 'C:\\Program Files', 'Ollama', 'ollama.exe')
+        ]
+      : ['/usr/local/bin/ollama', '/usr/bin/ollama'];
+  for (const fb of fallbacks) {
+    if (fb && fs.existsSync(fb) && !shimFileContainsMarker(fb)) return fb;
+  }
+  return null;
+}
+
+/**
+ * Guarantee real ollama is serving on the backend port (11435): probe, and if
+ * down, start `ollama serve` detached. If the router's own boot-time backend
+ * spawn races us, the loser exits cleanly on EADDRINUSE — one backend wins.
+ */
+async function ensureOllamaBackendOnPort(backendPort) {
+  const backendUrl = `http://127.0.0.1:${backendPort}`;
+  const probe = await fetchWithTimeout(`${backendUrl}/api/version`);
+  if (probe && probe.ok) return true;
+
+  const binary = findRealOllamaBinary();
+  if (!binary) {
+    console.log(`ollama backend not running on ${backendPort} and no real ollama binary found.`);
+    return false;
+  }
+
+  ensureConfigDir();
+  const logPath = path.join(CONFIG_DIR, `ollama-backend-${backendPort}.log`);
+  const logFd = fs.openSync(logPath, 'a');
+  const child = spawn(binary, ['serve'], {
+    detached: true,
+    stdio: ['ignore', logFd, logFd],
+    env: { ...process.env, OLLAMA_HOST: `127.0.0.1:${backendPort}` }
+  });
+  child.unref();
+
+  for (let i = 0; i < 40; i += 1) {
+    const attempt = await fetchWithTimeout(`${backendUrl}/api/version`);
+    if (attempt && attempt.ok) {
+      console.log(`ollama backend ready at ${backendUrl} (PID: ${child.pid}, log: ${logPath})`);
+      return true;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+  console.warn(`ollama backend did not become ready at ${backendUrl}; check ${logPath}`);
+  return false;
+}
+
+/**
+ * Idempotently enforce the port contract on one machine: 11434 = Local Router,
+ * 11435 = real ollama (the router spawns the backend itself at boot). Safe to
+ * call from boot services, shell profiles, and shims on every invocation.
+ * Exit codes: 0 router running, 1 router could not be started.
+ */
+async function cmdEnsure(options) {
+  const current = await probeServer(options.host, options.port);
+  if (current.running && current.kind === 'local-router') {
+    await ensureOllamaBackendOnPort(OLLAMA_BACKEND_PORT);
+    console.log(`Local Router already enforcing ${options.host}:${options.port} (ollama backend on ${OLLAMA_BACKEND_PORT}).`);
+    return 0;
+  }
+  if (current.running) {
+    if (options.noEvict) {
+      console.error(`Port ${options.port} held by ${current.kind}; --no-evict set, not evicting.`);
+      return 1;
+    }
+    if (current.kind !== 'ollama-compatible') {
+      console.error(`Port ${options.port} held by ${current.kind}; refusing to evict a non-ollama server.`);
+      return 1;
+    }
+    console.log(`Foreign ollama server holds ${options.port}; evicting (supervisor first)...`);
+    console.log(await evictOllamaSquatters(options.port));
+  }
+  const started = await cmdStart(options);
+  if (started === 0) {
+    await ensureOllamaBackendOnPort(OLLAMA_BACKEND_PORT);
+    return 0;
+  }
+  return 1;
+}
+
 function bashSingleQuote(value) {
   return `'${String(value).replace(/'/g, `'\"'\"'`)}'`;
 }
@@ -716,19 +915,63 @@ function renderWindowsOllamaPs1(realOllamaPath, routeMode, target) {
 function setupDesktopAndServiceAutostart(routeMode, target) {
   const routerHost = routeMode === 'custom' ? target.host : '127.0.0.1';
   const routerPort = routeMode === 'custom' ? target.port : DEFAULT_PORT;
+  const ensureArgs = routeMode === 'custom'
+    ? ['ensure', '--host', routerHost, '--port', String(routerPort)]
+    : ['ensure'];
+  const ensureArgsStr = ensureArgs.join(' ');
 
   if (process.platform === 'darwin') {
-    // 1. Configure GUI environment variable so Ollama desktop app (Ollama.app) binds to port 11435
+    // 1. launchctl setenv covers the CURRENT GUI session immediately...
     try {
       spawnSync('launchctl', ['setenv', 'OLLAMA_HOST', '127.0.0.1:11435'], { stdio: 'ignore' });
       console.log('✓ macOS GUI environment: launchctl setenv OLLAMA_HOST 127.0.0.1:11435');
     } catch {}
 
-    // 2. Install LaunchAgent to keep Local Router daemon running in background
+    // ...and a per-user LaunchAgent plist makes it PERSISTENT across reboots
+    // (launchctl setenv alone is session-scoped; after a reboot an
+    // autostarting Ollama.app would otherwise re-hijack 11434).
+    try {
+      const launchAgentsDir = path.join(os.homedir(), 'Library', 'LaunchAgents');
+      fs.mkdirSync(launchAgentsDir, { recursive: true });
+      const envPlistPath = path.join(launchAgentsDir, 'com.localrouter.ollama-host.plist');
+      const envPlistContent = [
+        '<?xml version="1.0" encoding="UTF-8"?>',
+        '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">',
+        '<plist version="1.0">',
+        '<dict>',
+        '    <key>Label</key>',
+        '    <string>com.localrouter.ollama-host</string>',
+        '    <key>ProgramArguments</key>',
+        '    <array>',
+        '        <string>/bin/launchctl</string>',
+        '        <string>setenv</string>',
+        '        <string>OLLAMA_HOST</string>',
+        '        <string>127.0.0.1:11435</string>',
+        '    </array>',
+        '    <key>RunAtLoad</key>',
+        '    <true/>',
+        '</dict>',
+        '</plist>'
+      ].join('\n');
+      fs.writeFileSync(envPlistPath, envPlistContent, 'utf8');
+      spawnSync('launchctl', ['load', '-w', envPlistPath], { stdio: 'ignore' });
+      console.log(`✓ macOS persistent OLLAMA_HOST agent installed: ${envPlistPath}`);
+    } catch (err) {
+      console.log(`ℹ Persistent OLLAMA_HOST agent notice: ${err.message}`);
+    }
+
+    // 2. Watchdog LaunchAgent: ensures the router owns 11434 at boot AND
+    //    periodically re-enforces the contract (evicts a hijacking ollama,
+    //    restarts the router if it died).
     try {
       const launchAgentsDir = path.join(os.homedir(), 'Library', 'LaunchAgents');
       fs.mkdirSync(launchAgentsDir, { recursive: true });
       const plistPath = path.join(launchAgentsDir, 'com.localrouter.daemon.plist');
+      const programArgs = [
+        process.execPath,
+        path.join(__dirname, 'local-router.js'),
+        ...ensureArgs
+      ];
       const plistContent = [
         '<?xml version="1.0" encoding="UTF-8"?>',
         '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">',
@@ -738,13 +981,12 @@ function setupDesktopAndServiceAutostart(routeMode, target) {
         '    <string>com.localrouter.daemon</string>',
         '    <key>ProgramArguments</key>',
         '    <array>',
-        `        <string>${process.execPath}</string>`,
-        `        <string>${path.join(__dirname, 'local-router.js')}</string>`,
-        '        <string>start</string>',
-        '        <string>--foreground</string>',
+        ...programArgs.map((arg) => `        <string>${arg}</string>`),
         '    </array>',
         '    <key>RunAtLoad</key>',
         '    <true/>',
+        '    <key>StartInterval</key>',
+        '    <integer>120</integer>',
         '    <key>KeepAlive</key>',
         '    <dict>',
         '        <key>SuccessfulExit</key>',
@@ -759,7 +1001,7 @@ function setupDesktopAndServiceAutostart(routeMode, target) {
       ].join('\n');
       fs.writeFileSync(plistPath, plistContent, 'utf8');
       spawnSync('launchctl', ['load', '-w', plistPath], { stdio: 'ignore' });
-      console.log(`✓ macOS LaunchAgent installed: ${plistPath}`);
+      console.log(`✓ macOS ensure watchdog LaunchAgent installed: ${plistPath}`);
     } catch (err) {
       console.log(`ℹ LaunchAgent registration notice: ${err.message}`);
     }
@@ -770,18 +1012,27 @@ function setupDesktopAndServiceAutostart(routeMode, target) {
       console.log('✓ Windows User environment: OLLAMA_HOST=127.0.0.1:11435 registered.');
     } catch {}
 
-    // 2. Install Startup script in Windows Startup folder for silent background boot
+    // 2. Startup launcher + scheduled-task watchdog: enforce the contract at
+    //    logon and re-enforce it every 5 minutes (evicts hijacking ollama,
+    //    restarts the router if it died).
     try {
       const appData = process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming');
       const startupDir = path.join(appData, 'Microsoft', 'Windows', 'Start Menu', 'Programs', 'Startup');
       if (fs.existsSync(startupDir)) {
         const vbsPath = path.join(startupDir, 'LocalRouter.vbs');
+        const ensureCmd = `cmd /c local-router ${ensureArgsStr}`;
         const vbsContent = [
           'Set WshShell = CreateObject("WScript.Shell")',
-          'WshShell.Run "cmd /c local-router start", 0, False'
+          `WshShell.Run "${ensureCmd}", 0, False`
         ].join('\r\n');
         fs.writeFileSync(vbsPath, vbsContent, 'utf8');
         console.log(`✓ Windows Startup launcher installed: ${vbsPath}`);
+        spawnSync('schtasks', [
+          '/Create', '/F', '/SC', 'MINUTE', '/MO', '5',
+          '/TN', 'LocalRouterEnsure',
+          '/TR', `local-router ${ensureArgsStr}`
+        ], { encoding: 'utf8', timeout: 10000 });
+        console.log('✓ Windows watchdog scheduled task installed: LocalRouterEnsure (every 5 minutes).');
       }
     } catch (err) {
       console.log(`ℹ Windows Startup script notice: ${err.message}`);
@@ -796,14 +1047,51 @@ function setupDesktopAndServiceAutostart(routeMode, target) {
       console.log('✓ Linux user session environment: ~/.config/environment.d/ollama.conf');
     } catch {}
 
-    // 2. Desktop autostart entry
+    // 2. systemd user service + timer: enforce at boot and re-enforce every
+    //    5 minutes. WSL defaults to systemd since 2022 but may still run
+    //    without it — the XDG autostart entry below is the fallback there.
+    try {
+      const systemdDir = path.join(os.homedir(), '.config', 'systemd', 'user');
+      fs.mkdirSync(systemdDir, { recursive: true });
+      const localRouterBin = path.join(__dirname, 'local-router.js');
+      const serviceContent = [
+        '[Unit]',
+        'Description=Local Router port-contract watchdog (11434=router, 11435=ollama)',
+        '',
+        '[Service]',
+        'Type=oneshot',
+        `ExecStart=${process.execPath} ${localRouterBin} ${ensureArgsStr}`,
+        ''
+      ].join('\n');
+      fs.writeFileSync(path.join(systemdDir, 'local-router-ensure.service'), serviceContent, 'utf8');
+      const timerContent = [
+        '[Unit]',
+        'Description=Re-enforce Local Router port contract every 5 minutes',
+        '',
+        '[Timer]',
+        'OnBootSec=30',
+        'OnUnitActiveSec=300',
+        '',
+        '[Install]',
+        'WantedBy=timers.target',
+        ''
+      ].join('\n');
+      fs.writeFileSync(path.join(systemdDir, 'local-router-ensure.timer'), timerContent, 'utf8');
+      spawnSync('systemctl', ['--user', 'daemon-reload'], { stdio: 'ignore' });
+      spawnSync('systemctl', ['--user', 'enable', '--now', 'local-router-ensure.timer'], { stdio: 'ignore' });
+      console.log('✓ Linux systemd user timer installed: local-router-ensure.timer (every 5 minutes).');
+    } catch (err) {
+      console.log(`ℹ systemd user timer notice: ${err.message}`);
+    }
+
+    // 3. Desktop autostart entry (non-systemd fallback: plain Linux and WSL)
     try {
       const autostartDir = path.join(os.homedir(), '.config', 'autostart');
       fs.mkdirSync(autostartDir, { recursive: true });
       const desktopContent = [
         '[Desktop Entry]',
         'Type=Application',
-        'Exec=local-router start',
+        `Exec=${process.execPath} ${path.join(__dirname, 'local-router.js')} ${ensureArgsStr}`,
         'Hidden=false',
         'NoDisplay=true',
         'X-GNOME-Autostart-enabled=true',
@@ -1573,6 +1861,10 @@ async function main() {
   }
   if (command === 'start' || command === 'serve') {
     process.exitCode = await cmdStart(options);
+    return;
+  }
+  if (command === 'ensure') {
+    process.exitCode = await cmdEnsure(options);
     return;
   }
   if (command === 'version' || command === '--version' || command === '-v') {

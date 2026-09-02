@@ -249,6 +249,37 @@ PORT=11435 LOCAL_ROUTER_DEV=true npm run dev
 
 VS Code and other tools can then point at `http://127.0.0.1:11435/v1`.
 
+### Port Contract (11434 = Local Router, 11435 = Ollama)
+
+Local Router owns `11434` and keeps real Ollama available as its backend on `11435`. Enforce the contract anywhere with:
+
+```bash
+local-router ensure
+```
+
+`ensure` is idempotent and safe to call repeatedly (boot services, shell profiles, shims):
+
+- Router already on `11434` → no-op (backend on `11435` is also verified/revived).
+- Foreign **ollama** server squatting `11434` → its process tree is stopped
+  supervisor-first (so Ollama.app cannot instantly respawn it), then Local
+  Router starts and spawns the ollama backend on `11435` automatically.
+- Any other kind of server on `11434` → left untouched (refuses to evict
+  non-ollama processes). Pass `--no-evict` to report without evicting.
+
+`local-router route set` installs the contract machinery for the current
+platform:
+
+| Platform | Enforcement |
+|---|---|
+| macOS | `com.localrouter.daemon` LaunchAgent runs `ensure` at load and every 2 min; `com.localrouter.ollama-host` LaunchAgent re-asserts `OLLAMA_HOST=127.0.0.1:11435` at every GUI login (persistent, survives reboot); `launchctl setenv` covers the live session |
+| Windows | `OLLAMA_HOST=127.0.0.1:11435` User env var (Ollama desktop app binds 11435); Startup-folder VBS runs `ensure` at logon; `LocalRouterEnsure` scheduled task re-enforces every 5 min |
+| Linux / WSL | `~/.config/environment.d/ollama.conf`; systemd user timer `local-router-ensure.timer` (boot + every 5 min); XDG autostart fallback for non-systemd WSL |
+
+Ollama remains fully usable throughout: `ollama list/run/pull` (via the
+installed shim) talk to Local Router on `11434`, `ollama serve` runs the real
+binary as the router's backend on `11435`, and `LOCAL_ROUTER_NO_SHIM=1`
+bypasses the routing entirely.
+
 ## Branch Model
 
 Two long-lived branches with mandatory two-hop promotion:
