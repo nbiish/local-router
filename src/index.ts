@@ -3953,9 +3953,11 @@ function candidateAvailability(modelName: string) {
 function fallbackStagePreflight(modelName: string): AttemptFailure | null {
   const target = resolveModelTarget(modelName);
   if (!target || !target.actualModel || isLocalRouterProviderName(target.providerName)) {
+    // Graceful cascade: an unresolvable stage is a soft skip, not a
+    // chain-killer — wraparound moves to the next stage.
     return {
       errorType: 'unknown_model',
-      message: `Unknown fallback model "${modelName}".`
+      message: `Unknown fallback model "${modelName}" — skipping to next stage.`
     };
   }
 
@@ -3965,16 +3967,18 @@ function fallbackStagePreflight(modelName: string): AttemptFailure | null {
       errorType: 'provider_not_found',
       providerName: target.providerName,
       actualModel: target.actualModel,
-      message: `No suitable provider found for: ${target.providerName}.`
+      message: `No provider for "${target.providerName}" — skipping to next stage.`
     };
   }
 
   if (!providerHasConfiguredKey(target.providerName)) {
+    // Dead provider (no key/credits): skip with zero retries instead of
+    // burning FALLBACK_PRIMARY_ATTEMPTS live upstream calls.
     return {
       errorType: 'provider_config',
       providerName: target.providerName,
       actualModel: target.actualModel,
-      message: `Provider "${target.providerName}" is not configured. Add an API key at /config.`
+      message: `Provider "${target.providerName}" is not configured (no key/credits) — skipping to next stage.`
     };
   }
 
@@ -3987,7 +3991,7 @@ function fallbackStagePreflight(modelName: string): AttemptFailure | null {
       errorType: 'provider_config',
       providerName: target.providerName,
       actualModel: target.actualModel,
-      message: `Ollama Cloud model "${modelName}" is not on the free-tier routing allowlist (Pro-only or not curated).`
+      message: `Ollama Cloud model "${modelName}" is not on the free-tier routing allowlist (Pro-only or not curated) — skipping to next stage.`
     };
   }
 
@@ -4269,7 +4273,7 @@ async function proxyModelAttempt(
         errorType: 'provider_not_found',
         providerName: target.providerName,
         actualModel: target.actualModel,
-        message: `No suitable provider found for: ${target.providerName}.`
+        message: `No provider for "${target.providerName}" — skipping to next stage.`
       }
     };
   }
