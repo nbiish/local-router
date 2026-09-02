@@ -496,6 +496,7 @@ export function renderLayout(
         <a href="/config/providers" class="nav-link">Providers &amp; Models</a>
         <a href="/config/fallback" class="nav-link">Fallback Routes</a>
         <a href="/config/thinking" class="nav-link">Prompt &amp; Thinking</a>
+        <a href="/config/chat" class="nav-link">Agent Chat</a>
       </nav>
       <div class="sidebar-footer">
         <div class="theme-panel-compact">

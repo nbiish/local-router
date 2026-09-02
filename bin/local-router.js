@@ -71,6 +71,7 @@ function usage() {
     '  local-router route custom <localhost:port>',
     '  local-router route unset',
     '  local-router route status',
+    '  local-router chat [prompt] [--agent <choice>] [--fleet|--no-fleet]',
     '',
     'Behavior:',
     '  - start: launches proxy only when nothing else is listening on the target port.',
@@ -1428,12 +1429,118 @@ async function cmdUpdate(options) {
   return 1;
 }
 
+async function cmdChat(argv) {
+  let agent = 'auto';
+  let fleet = true;
+  const promptParts = [];
+
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i];
+    if (arg === '--agent' && i + 1 < argv.length) {
+      agent = argv[++i];
+    } else if (arg.startsWith('--agent=')) {
+      agent = arg.slice(8);
+    } else if (arg === '--fleet') {
+      fleet = true;
+    } else if (arg === '--no-fleet') {
+      fleet = false;
+    } else if (arg === '--help' || arg === '-h') {
+      console.log('Usage: local-router chat [prompt] [options]');
+      console.log('');
+      console.log('Execute a prompt through the headless CLI agent fallback cascade or chat interactively.');
+      console.log('Fallback chain: free-claude-code -> omp -> trae-cli');
+      console.log('Target model: local-router/fallback-models @ 127.0.0.1:11434');
+      console.log('');
+      console.log('Options:');
+      console.log('  --agent <choice>   Agent to use: auto, free-claude-code, omp, trae-cli, mini (default: auto)');
+      console.log('  --fleet            Enable Trae/Mini agent fleet for autonomous subagent tasks (default)');
+      console.log('  --no-fleet         Disable Trae/Mini agent fleet');
+      console.log('  -h, --help         Show this help message');
+      return 0;
+    } else {
+      promptParts.push(arg);
+    }
+  }
+
+  const executorPath = path.join(__dirname, '..', 'build', 'agent-executor.js');
+  if (!fs.existsSync(executorPath)) {
+    console.error('Build artifacts not found. Run `npm run build` in the local-router directory first.');
+    return 1;
+  }
+  const { executeAgentChain } = require(executorPath);
+
+  const prompt = promptParts.join(' ').trim();
+  if (prompt) {
+    console.log(`[local-router chat] Model: local-router/fallback-models | Agent: ${agent} | Fleet: ${fleet ? 'ON' : 'OFF'}`);
+    console.log(`[local-router chat] Executing: "${prompt}"...`);
+    const result = await executeAgentChain({
+      prompt,
+      agentChoice: agent,
+      fleetEnabled: fleet
+    });
+
+    console.log(`\n[Trace] ${result.trace.join(' -> ')}`);
+    console.log(`[Agent Used] ${result.agentUsed} (${result.ok ? 'SUCCESS' : 'FAILED'}) in ${(result.durationMs / 1000).toFixed(1)}s\n`);
+    console.log(result.output);
+    return result.ok ? 0 : 1;
+  }
+
+  // Interactive REPL loop
+  const readline = require('node:readline');
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout
+  });
+
+  console.log('================================================================');
+  console.log('Local Router Interactive Agent Chat');
+  console.log('Model: local-router/fallback-models @ 127.0.0.1:11434');
+  console.log(`Agent Selection: ${agent} | Fleet: ${fleet ? 'ON' : 'OFF'}`);
+  console.log('Type your prompt and press Enter. Type "exit" or "quit" to leave.');
+  console.log('================================================================\n');
+
+  const ask = () => {
+    rl.question('chat> ', async (input) => {
+      const line = input.trim();
+      if (!line || line.toLowerCase() === 'exit' || line.toLowerCase() === 'quit') {
+        rl.close();
+        return;
+      }
+
+      try {
+        const result = await executeAgentChain({
+          prompt: line,
+          agentChoice: agent,
+          fleetEnabled: fleet
+        });
+        console.log(`\n[${result.agentUsed}] (${result.ok ? 'OK' : 'FAIL'}):`);
+        console.log(result.output);
+        console.log(`[Trace: ${result.trace.join(' | ')}]\n`);
+      } catch (err) {
+        console.error(`[Error] ${err.message}`);
+      }
+
+      ask();
+    });
+  };
+
+  ask();
+  return new Promise((resolve) => {
+    rl.on('close', () => resolve(0));
+  });
+}
+
 async function main() {
   const argv = process.argv.slice(2);
   const command = argv[0] || 'start';
 
   if (command === 'help' || command === '--help' || command === '-h') {
     usage();
+    return;
+  }
+
+  if (command === 'chat') {
+    process.exitCode = await cmdChat(argv.slice(1));
     return;
   }
 
