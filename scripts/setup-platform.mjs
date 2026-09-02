@@ -100,7 +100,7 @@ if (isWin) {
   const userBin = path.join(homeDir, ".local", "bin");
   fs.mkdirSync(userBin, { recursive: true });
 
-  for (const b of ["local-router", "localrouter", "ollama", "pqc-secrets"]) {
+  for (const b of ["local-router", "localrouter", "pqc-secrets"]) {
     const targetLink = path.join(userBin, b);
     const sourceBin = b === "local-router" || b === "localrouter" ? path.join(binDir, "local-router.js") : path.join(binDir, b);
     try {
@@ -111,6 +111,13 @@ if (isWin) {
     } catch {}
   }
   console.log("");
+
+  // Activate cross-platform service routing and autostart
+  try {
+    execFileSync("node", [path.join(binDir, "local-router.js"), "route", "set"], { cwd: root, stdio: "inherit" });
+  } catch (err) {
+    console.log("ℹ Note: route set can be run later via local-router route set: " + err.message);
+  }
 }
 
 // 6. Auto-export environment variables for external AI tools

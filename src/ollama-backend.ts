@@ -53,9 +53,32 @@ export function resolveRealOllamaBinary(): string | null {
   for (const candidate of whichAll('ollama')) {
     const resolved = path.resolve(candidate);
     if (resolved === path.resolve(SHIM_PATH)) continue;
+    if (resolved.endsWith('.cmd') || resolved.endsWith('.ps1')) continue;
     if (isShimBinary(candidate)) continue;
     return candidate;
   }
+
+  // Fallback to standard cross-platform install locations if whichAll only found shims
+  const fallbacks: string[] = [];
+  if (process.platform === 'darwin') {
+    fallbacks.push('/Applications/Ollama.app/Contents/Resources/ollama', '/usr/local/bin/ollama');
+  } else if (process.platform === 'win32') {
+    if (process.env.LOCALAPPDATA) {
+      fallbacks.push(path.join(process.env.LOCALAPPDATA, 'Programs', 'Ollama', 'ollama.exe'));
+    }
+    if (process.env.ProgramFiles) {
+      fallbacks.push(path.join(process.env.ProgramFiles, 'Ollama', 'ollama.exe'));
+    }
+  } else {
+    fallbacks.push('/usr/local/bin/ollama', '/usr/bin/ollama');
+  }
+
+  for (const fb of fallbacks) {
+    if (fs.existsSync(fb) && !isShimBinary(fb)) {
+      return fb;
+    }
+  }
+
   return null;
 }
 

@@ -332,31 +332,47 @@ PQC for every API key. Respect the codebase's native language. One task = one wo
 ---
 
 <FLEET_TOOLING>
-## FLEET TOOLING — CURRENT INTENT (2026-09-01, operator directive)
+## FLEET TOOLING — CURRENT INTENT (2026-09-02, operator directive)
 
 local-router is the WTF Federated Fleet's singular model system: every agent
-CLI on every machine (windows + mac) routes through
-`local-router/fallback-models` @ 127.0.0.1:11434. Tooling refinement happens
-in fleet chats (`local-router ops`, 828d3341…), not harness swaps.
+CLI and headless coding subagent on every machine (mac, windows, linux, wsl)
+routes through `local-router/fallback-models` @ `http://127.0.0.1:11434/v1`.
+Tooling refinement happens in fleet chats, not harness swaps.
 
-**State + open items:**
-- windows: router v0.6.4 live; hardened always-route shim verified (any
-  ollama.cli invocation auto-starts the router, points OLLAMA_HOST at it,
-  `ollama serve` = backend on 11435). Branch fix/shim-always-route
-  (9e65e44) + fix/fallback-graceful (d0fd9a2) pushed — mac to review/merge.
-- NDJSON newline fix (createOllamaStreamTransform) committed to main
-  (abbea72) — real ollama CLI + hardcoded-ollama tools work natively.
-- mac: router reported DOWN / fallback model missing in hermes. The
-  always-route shim fixes the class of failure (any tool that starts
-  ollama.cli brings the router up); mac should merge the branch, re-run
-  `local-router route set`, and post a MAC-ROUTER-OK receipt.
-- Headroom proxy DISABLED (enabled:false in headroom-config.json) on
-  windows — nothing listens on :8787, and the 10s stall per stage attempt
-  degraded cascades. Its failure path is safe; re-enable only when the
-  proxy actually runs.
-- graceful cascade (fix/fallback-graceful): dead stages (unknown model /
-  no provider / no key-credits / allowlist) skip with zero retries and
-  'skipping to next stage' logging — chain fails only on total exhaustion.
+**Cross-Platform Auto-Start Contract (mac, windows, linux, wsl):**
+- **Trigger-on-Launch:** The Local Router server automatically starts whenever the
+  Ollama CLI or Desktop application launches on mac, windows, linux, or wsl.
+- **Port Separation:** Local Router binds to the standard port `11434`; the real
+  Ollama backend is managed on port `11435` via `OLLAMA_HOST=127.0.0.1:11435`.
+- **Platform Enforcements (`local-router route set`):**
+  - **macOS:** CLI shim in `~/.local/bin/ollama`; GUI apps inherit `OLLAMA_HOST`
+    via `launchctl setenv OLLAMA_HOST 127.0.0.1:11435`; daemon kept alive via
+    `~/Library/LaunchAgents/com.localrouter.daemon.plist`.
+  - **Windows:** Native `ollama.cmd` and `ollama.ps1` in `%USERPROFILE%\.local\bin`
+    and `bin/`; User environment sets `OLLAMA_HOST=127.0.0.1:11435`; silent background
+    launcher placed in Windows Startup.
+  - **Linux & WSL:** CLI shim in `~/.local/bin/ollama`; session environment set in
+    `~/.config/environment.d/ollama.conf`; desktop autostart entry installed.
+
+**Terminal Coding Fleet (`trae-mini-fleet`):**
+- Master coding agents (`trae-cli` and `mini` / `mini-live`) configure exclusively
+  under `http://localhost:11434/v1` with model `local-router/fallback-models`.
+- Upstream authentication is handled entirely by Local Router via PQC secrets;
+  subagents use dummy bearer tokens (`local-router`) on loopback.
+
+**Action Reflection & TTS.COMMS Guardrails:**
+- Upon each subagent action with `trae-cli` and `mini`, orchestrators reflect on
+  skill instruction improvements in the `.txt` reflection doc, applying TTS.COMMS
+  master directives:
+  1. *Adversarial:* Loopback proxy 11434 confinement; dummy bearer tokens.
+  2. *Privacy:* Trajectory and task files in `/tmp` scrubbed of sensitive data.
+  3. *Supply-chain:* Upstream git commits pinned before deployment.
+  4. *Systems-architecture:* Continuous port 11434 health probes before batch dispatches.
+  5. *Reliability:* Explicit step limits (20-35) + test verification before patches merge.
+  6. *Governance:* Commits, task ledgers, and comms stay cryptographically anchored.
+  7. *Ergonomics:* Single-command task file execution (`-f <file>`).
+  8. *Agentic-orchestration:* Trae AST refactoring first → Live-SWE test verification.
+  9. *Performance:* Immediate worktree cleanup and trajectory pruning.
 
 **Continuation:** fresh chats resume from `agents.txt` (this repo) +
 `llms.txt` + `AGENTS/{date}.COMMS.md` + the ops chat.

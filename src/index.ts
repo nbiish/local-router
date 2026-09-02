@@ -5358,11 +5358,12 @@ app.get('/api/ps', (req: Request, res: Response) => {
 });
 
 app.post('/api/show', (req: Request, res: Response) => {
-  const modelName = typeof req.body?.model === 'string'
-    ? req.body.model.trim()
-    : typeof req.body?.name === 'string'
-      ? req.body.name.trim()
-      : '';
+  // Ollama 0.31.x client sends the model in `name` with `model` as an empty
+  // string. Accept `name` whenever `model` is missing or blank — non-empty
+  // `model` still wins.
+  const rawModel = typeof req.body?.model === 'string' ? req.body.model.trim() : '';
+  const rawName = typeof req.body?.name === 'string' ? req.body.name.trim() : '';
+  const modelName = rawModel || rawName;
 
   if (!modelName) {
     return res.status(400).json({ error: 'model is required.' });

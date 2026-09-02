@@ -598,6 +598,254 @@ function renderOllamaShim(realOllamaPath, routeMode, target) {
   ].join('\n');
 }
 
+function renderWindowsOllamaCmd(realOllamaPath, routeMode, target) {
+  const routerHost = routeMode === 'custom' ? target.host : '127.0.0.1';
+  const routerPort = routeMode === 'custom' ? target.port : DEFAULT_PORT;
+  const serveArgs = routeMode === 'custom'
+    ? `start --foreground --host ${target.host} --port ${target.port}`
+    : 'start --foreground';
+
+  return [
+    '@echo off',
+    'setlocal enabledelayedexpansion',
+    SHIM_MARKER,
+    `set "REAL_OLLAMA=${realOllamaPath}"`,
+    'set "LOCAL_ROUTER_BIN=%LOCAL_ROUTER_BIN%"',
+    'if "%LOCAL_ROUTER_BIN%"=="" set "LOCAL_ROUTER_BIN=local-router"',
+    `set "ROUTER_PROBE=http://${routerHost}:${routerPort}/api/version"`,
+    '',
+    'rem Escape hatch: LOCAL_ROUTER_NO_SHIM=1 bypasses the router entirely.',
+    'if "%LOCAL_ROUTER_NO_SHIM%"=="1" (',
+    '  "%REAL_OLLAMA%" %*',
+    '  exit /b !ERRORLEVEL!',
+    ')',
+    '',
+    'rem ALWAYS-ROUTE: ensure Local Router is running before anything else.',
+    'curl -sf -m 2 "%ROUTER_PROBE%" >nul 2>&1',
+    'if errorlevel 1 (',
+    `  start /B "" "%LOCAL_ROUTER_BIN%" ${serveArgs} >nul 2>&1`,
+    '  for /L %%i in (1,1,20) do (',
+    '    curl -sf -m 2 "%ROUTER_PROBE%" >nul 2>&1 && goto router_up',
+    '    timeout /t 1 /nobreak >nul 2>&1',
+    '  )',
+    ')',
+    ':router_up',
+    '',
+    'if /i "%~1"=="serve" (',
+    '  curl -sf -m 2 "http://127.0.0.1:11435/api/version" >nul 2>&1',
+    '  if errorlevel 1 (',
+    '    set "OLLAMA_HOST=127.0.0.1:11435"',
+    '    start /B "" "%REAL_OLLAMA%" serve >nul 2>&1',
+    '  )',
+    '  set "LOCAL_ROUTER_PROVIDER_OLLAMA_BASE_URL=http://127.0.0.1:11435/v1"',
+    '  set "OLLAMA_API_KEY=local-router-ollama"',
+    `  "%LOCAL_ROUTER_BIN%" ${serveArgs}`,
+    '  exit /b !ERRORLEVEL!',
+    ')',
+    '',
+    'if "%OLLAMA_HOST%"=="" (',
+    `  set "OLLAMA_HOST=${routerHost}:${routerPort}"`,
+    ')',
+    '"%REAL_OLLAMA%" %*',
+    'exit /b !ERRORLEVEL!',
+    ''
+  ].join('\r\n');
+}
+
+function renderWindowsOllamaPs1(realOllamaPath, routeMode, target) {
+  const routerHost = routeMode === 'custom' ? target.host : '127.0.0.1';
+  const routerPort = routeMode === 'custom' ? target.port : DEFAULT_PORT;
+  const serveArgs = routeMode === 'custom'
+    ? `@("start", "--foreground", "--host", "${target.host}", "--port", "${target.port}")`
+    : `@("start", "--foreground")`;
+
+  return [
+    '# local-router ollama shim',
+    `$RealOllama = "${realOllamaPath}"`,
+    '$LocalRouterBin = if ($env:LOCAL_ROUTER_BIN) { $env:LOCAL_ROUTER_BIN } else { "local-router" }',
+    `$RouterProbe = "http://${routerHost}:${routerPort}/api/version"`,
+    '',
+    'if ($env:LOCAL_ROUTER_NO_SHIM -eq "1") {',
+    '    & $RealOllama @args',
+    '    exit $LASTEXITCODE',
+    '}',
+    '',
+    'function Test-RouterUp {',
+    '    try {',
+    '        $null = Invoke-RestMethod -Uri $RouterProbe -TimeoutSec 2 -ErrorAction Stop',
+    '        return $true',
+    '    } catch {',
+    '        return $false',
+    '    }',
+    '}',
+    '',
+    'if (-not (Test-RouterUp)) {',
+    `    Start-Process -FilePath $LocalRouterBin -ArgumentList ${serveArgs} -WindowStyle Hidden`,
+    '    for ($i = 0; $i -lt 20; $i++) {',
+    '        if (Test-RouterUp) { break }',
+    '        Start-Sleep -Milliseconds 500',
+    '    }',
+    '}',
+    '',
+    'if ($args.Count -gt 0 -and $args[0] -eq "serve") {',
+    '    $backendUp = $false',
+    '    try {',
+    '        $null = Invoke-RestMethod -Uri "http://127.0.0.1:11435/api/version" -TimeoutSec 2 -ErrorAction Stop',
+    '        $backendUp = $true',
+    '    } catch {}',
+    '    if (-not $backendUp) {',
+    '        $env:OLLAMA_HOST = "127.0.0.1:11435"',
+    '        Start-Process -FilePath $RealOllama -ArgumentList "serve" -WindowStyle Hidden',
+    '    }',
+    '    $env:LOCAL_ROUTER_PROVIDER_OLLAMA_BASE_URL = "http://127.0.0.1:11435/v1"',
+    '    $env:OLLAMA_API_KEY = "local-router-ollama"',
+    `    & $LocalRouterBin ${serveArgs}`,
+    '    exit $LASTEXITCODE',
+    '}',
+    '',
+    'if (-not $env:OLLAMA_HOST) {',
+    `    $env:OLLAMA_HOST = "${routerHost}:${routerPort}"`,
+    '}',
+    '& $RealOllama @args',
+    'exit $LASTEXITCODE',
+    ''
+  ].join('\r\n');
+}
+
+function setupDesktopAndServiceAutostart(routeMode, target) {
+  const routerHost = routeMode === 'custom' ? target.host : '127.0.0.1';
+  const routerPort = routeMode === 'custom' ? target.port : DEFAULT_PORT;
+
+  if (process.platform === 'darwin') {
+    // 1. Configure GUI environment variable so Ollama desktop app (Ollama.app) binds to port 11435
+    try {
+      spawnSync('launchctl', ['setenv', 'OLLAMA_HOST', '127.0.0.1:11435'], { stdio: 'ignore' });
+      console.log('✓ macOS GUI environment: launchctl setenv OLLAMA_HOST 127.0.0.1:11435');
+    } catch {}
+
+    // 2. Install LaunchAgent to keep Local Router daemon running in background
+    try {
+      const launchAgentsDir = path.join(os.homedir(), 'Library', 'LaunchAgents');
+      fs.mkdirSync(launchAgentsDir, { recursive: true });
+      const plistPath = path.join(launchAgentsDir, 'com.localrouter.daemon.plist');
+      const plistContent = [
+        '<?xml version="1.0" encoding="UTF-8"?>',
+        '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">',
+        '<plist version="1.0">',
+        '<dict>',
+        '    <key>Label</key>',
+        '    <string>com.localrouter.daemon</string>',
+        '    <key>ProgramArguments</key>',
+        '    <array>',
+        `        <string>${process.execPath}</string>`,
+        `        <string>${path.join(__dirname, 'local-router.js')}</string>`,
+        '        <string>start</string>',
+        '        <string>--foreground</string>',
+        '    </array>',
+        '    <key>RunAtLoad</key>',
+        '    <true/>',
+        '    <key>KeepAlive</key>',
+        '    <dict>',
+        '        <key>SuccessfulExit</key>',
+        '        <false/>',
+        '    </dict>',
+        '    <key>StandardOutPath</key>',
+        `    <string>${path.join(CONFIG_DIR, 'launchd.log')}</string>`,
+        '    <key>StandardErrorPath</key>',
+        `    <string>${path.join(CONFIG_DIR, 'launchd.err')}</string>`,
+        '</dict>',
+        '</plist>'
+      ].join('\n');
+      fs.writeFileSync(plistPath, plistContent, 'utf8');
+      spawnSync('launchctl', ['load', '-w', plistPath], { stdio: 'ignore' });
+      console.log(`✓ macOS LaunchAgent installed: ${plistPath}`);
+    } catch (err) {
+      console.log(`ℹ LaunchAgent registration notice: ${err.message}`);
+    }
+  } else if (IS_WIN) {
+    // 1. Set Windows User environment variable so Windows Ollama desktop app binds to port 11435
+    try {
+      spawnSync('powershell', ['-NoProfile', '-Command', `[Environment]::SetEnvironmentVariable("OLLAMA_HOST", "127.0.0.1:11435", "User")`], { stdio: 'ignore' });
+      console.log('✓ Windows User environment: OLLAMA_HOST=127.0.0.1:11435 registered.');
+    } catch {}
+
+    // 2. Install Startup script in Windows Startup folder for silent background boot
+    try {
+      const appData = process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming');
+      const startupDir = path.join(appData, 'Microsoft', 'Windows', 'Start Menu', 'Programs', 'Startup');
+      if (fs.existsSync(startupDir)) {
+        const vbsPath = path.join(startupDir, 'LocalRouter.vbs');
+        const vbsContent = [
+          'Set WshShell = CreateObject("WScript.Shell")',
+          'WshShell.Run "cmd /c local-router start", 0, False'
+        ].join('\r\n');
+        fs.writeFileSync(vbsPath, vbsContent, 'utf8');
+        console.log(`✓ Windows Startup launcher installed: ${vbsPath}`);
+      }
+    } catch (err) {
+      console.log(`ℹ Windows Startup script notice: ${err.message}`);
+    }
+  } else {
+    // Linux / WSL
+    // 1. Environment.d config for user desktop sessions
+    try {
+      const envDir = path.join(os.homedir(), '.config', 'environment.d');
+      fs.mkdirSync(envDir, { recursive: true });
+      fs.writeFileSync(path.join(envDir, 'ollama.conf'), 'OLLAMA_HOST=127.0.0.1:11435\n', 'utf8');
+      console.log('✓ Linux user session environment: ~/.config/environment.d/ollama.conf');
+    } catch {}
+
+    // 2. Desktop autostart entry
+    try {
+      const autostartDir = path.join(os.homedir(), '.config', 'autostart');
+      fs.mkdirSync(autostartDir, { recursive: true });
+      const desktopContent = [
+        '[Desktop Entry]',
+        'Type=Application',
+        'Exec=local-router start',
+        'Hidden=false',
+        'NoDisplay=true',
+        'X-GNOME-Autostart-enabled=true',
+        'Name=Local Router',
+        'Comment=Local Ollama and OpenAI model router'
+      ].join('\n');
+      fs.writeFileSync(path.join(autostartDir, 'local-router.desktop'), desktopContent, 'utf8');
+      console.log('✓ Linux desktop autostart entry: ~/.config/autostart/local-router.desktop');
+    } catch {}
+  }
+}
+
+function removeDesktopAndServiceAutostart() {
+  if (process.platform === 'darwin') {
+    try {
+      spawnSync('launchctl', ['unsetenv', 'OLLAMA_HOST'], { stdio: 'ignore' });
+      const plistPath = path.join(os.homedir(), 'Library', 'LaunchAgents', 'com.localrouter.daemon.plist');
+      if (fs.existsSync(plistPath)) {
+        spawnSync('launchctl', ['unload', plistPath], { stdio: 'ignore' });
+        fs.unlinkSync(plistPath);
+        console.log(`Removed macOS LaunchAgent: ${plistPath}`);
+      }
+    } catch {}
+  } else if (IS_WIN) {
+    try {
+      spawnSync('powershell', ['-NoProfile', '-Command', `[Environment]::SetEnvironmentVariable("OLLAMA_HOST", $null, "User")`], { stdio: 'ignore' });
+      const appData = process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming');
+      const vbsPath = path.join(appData, 'Microsoft', 'Windows', 'Start Menu', 'Programs', 'Startup', 'LocalRouter.vbs');
+      if (fs.existsSync(vbsPath)) {
+        fs.unlinkSync(vbsPath);
+        console.log(`Removed Windows Startup launcher: ${vbsPath}`);
+      }
+    } catch {}
+  } else {
+    try {
+      const envPath = path.join(os.homedir(), '.config', 'environment.d', 'ollama.conf');
+      if (fs.existsSync(envPath)) fs.unlinkSync(envPath);
+      const desktopPath = path.join(os.homedir(), '.config', 'autostart', 'local-router.desktop');
+      if (fs.existsSync(desktopPath)) fs.unlinkSync(desktopPath);
+    } catch {}
+  }
+}
+
 function shimFileContainsMarker(filePath) {
   try {
     const fd = fs.openSync(filePath, 'r');
@@ -625,8 +873,7 @@ function resolveRealServiceBinary(serviceTarget) {
       try {
         const realTarget = fs.realpathSync(candidate);
         if (path.resolve(realTarget) !== shimPathResolved) {
-          // A symlink lives at the shim path (e.g. ~/.local/bin/llama-server ->
-          // miniforge3/bin/llama-server): the link target survives replacing
+          // A symlink lives at the shim path: the link target survives replacing
           // the symlink with our shim.
           return realTarget;
         }
@@ -638,8 +885,29 @@ function resolveRealServiceBinary(serviceTarget) {
     if (shimFileContainsMarker(candidate)) {
       continue; // stale Local Router shim elsewhere in PATH
     }
+    if (IS_WIN && (candidate.toLowerCase().endsWith('.cmd') || candidate.toLowerCase().endsWith('.ps1'))) {
+      if (shimFileContainsMarker(candidate)) continue;
+    }
     return candidate;
   }
+
+  // Cross-platform standard binary fallback locations
+  if (serviceTarget.command === 'ollama') {
+    const fallbacks = process.platform === 'darwin'
+      ? ['/Applications/Ollama.app/Contents/Resources/ollama', '/usr/local/bin/ollama']
+      : IS_WIN
+        ? [
+            path.join(process.env.LOCALAPPDATA || '', 'Programs', 'Ollama', 'ollama.exe'),
+            path.join(process.env.ProgramFiles || 'C:\\Program Files', 'Ollama', 'ollama.exe')
+          ]
+        : ['/usr/local/bin/ollama', '/usr/bin/ollama'];
+    for (const fb of fallbacks) {
+      if (fb && fs.existsSync(fb) && !shimFileContainsMarker(fb)) {
+        return fb;
+      }
+    }
+  }
+
   return null;
 }
 
@@ -726,6 +994,22 @@ function renderServiceShim(serviceTarget, realPath, routeTarget) {
 }
 
 function installShim(serviceTarget, realPath, routeMode, routeTarget) {
+  if (IS_WIN) {
+    if (serviceTarget.command === 'ollama') {
+      const cmdPath = path.join(SHIM_DIR, 'ollama.cmd');
+      const ps1Path = path.join(SHIM_DIR, 'ollama.ps1');
+      const cmdScript = renderWindowsOllamaCmd(realPath, routeMode, routeTarget);
+      const ps1Script = renderWindowsOllamaPs1(realPath, routeMode, routeTarget);
+      fs.writeFileSync(cmdPath, cmdScript, 'utf8');
+      fs.writeFileSync(ps1Path, ps1Script, 'utf8');
+      const binDir = path.resolve(__dirname, '..', 'bin');
+      try {
+        fs.writeFileSync(path.join(binDir, 'ollama.cmd'), cmdScript, 'utf8');
+      } catch {}
+      return true;
+    }
+    return false;
+  }
   if (fs.existsSync(serviceTarget.shimPath)) {
     let isSymlink = false;
     try {
@@ -756,8 +1040,9 @@ function routeStatusSummary() {
   const activeOllamaPath = whichAll('ollama')[0] || '';
   const services = SERVICE_TARGETS.map((serviceTarget) => ({
     command: serviceTarget.command,
-    shimPath: serviceTarget.shimPath,
-    enabled: fs.existsSync(serviceTarget.shimPath) && shimFileContainsMarker(serviceTarget.shimPath),
+    shimPath: IS_WIN && serviceTarget.command === 'ollama' ? path.join(SHIM_DIR, 'ollama.cmd') : serviceTarget.shimPath,
+    enabled: fs.existsSync(serviceTarget.shimPath) && shimFileContainsMarker(serviceTarget.shimPath)
+      || (IS_WIN && fs.existsSync(path.join(SHIM_DIR, 'ollama.cmd')) && shimFileContainsMarker(path.join(SHIM_DIR, 'ollama.cmd'))),
     realPath: null
   }));
   const recorded = Array.isArray(routingState.services) ? routingState.services : [];
@@ -772,7 +1057,7 @@ function routeStatusSummary() {
   return {
     enabled: Boolean(ollamaService.enabled),
     services,
-    shimPath: OLLAMA_SHIM_PATH,
+    shimPath: IS_WIN ? path.join(SHIM_DIR, 'ollama.cmd') : OLLAMA_SHIM_PATH,
     activeOllamaPath: activeOllamaPath || null,
     realOllamaPath: ollamaService.realPath || routingState.realOllamaPath || null,
     mode: routingState.mode || (ollamaService.enabled ? 'ollama' : 'none'),
@@ -797,19 +1082,13 @@ function cmdRouteStatus() {
   if (summary.mode === 'custom' && summary.targetHost && summary.targetPort) {
     console.log(`Custom target: ${summary.targetHost}:${summary.targetPort}`);
   }
-  if (summary.enabled && summary.activeOllamaPath !== OLLAMA_SHIM_PATH) {
-    console.log('Warning: ollama shim exists but is not first in PATH. Place ~/.local/bin earlier in PATH.');
+  if (summary.enabled && summary.activeOllamaPath !== summary.shimPath) {
+    console.log(`Warning: ollama shim exists but is not first in PATH. Place ${SHIM_DIR} earlier in PATH.`);
   }
   return 0;
 }
 
 async function cmdRouteSet(routeMode = 'services', customTarget = null) {
-  if (IS_WIN) {
-    console.error('The service shims are POSIX bash features and are not supported on Windows.');
-    console.error('On Windows, run `local-router start` directly (and start the ollama backend separately if needed).');
-    return 1;
-  }
-
   let routeTarget = null;
   if (routeMode === 'custom') {
     routeTarget = parseCustomRouteTarget(customTarget);
@@ -822,6 +1101,9 @@ async function cmdRouteSet(routeMode = 'services', customTarget = null) {
   let sawError = false;
 
   for (const serviceTarget of SERVICE_TARGETS) {
+    if (IS_WIN && serviceTarget.command !== 'ollama') {
+      continue;
+    }
     const realPath = resolveRealServiceBinary(serviceTarget);
     if (!realPath) {
       if (serviceTarget.command === 'ollama') {
@@ -838,18 +1120,22 @@ async function cmdRouteSet(routeMode = 'services', customTarget = null) {
       continue;
     }
 
-    installed.push({ command: serviceTarget.command, shimPath: serviceTarget.shimPath, realPath });
-    console.log(`Installed ${serviceTarget.command} service shim: ${serviceTarget.shimPath}`);
+    const effectiveShimPath = IS_WIN && serviceTarget.command === 'ollama' ? path.join(SHIM_DIR, 'ollama.cmd') : serviceTarget.shimPath;
+    installed.push({ command: serviceTarget.command, shimPath: effectiveShimPath, realPath });
+    console.log(`Installed ${serviceTarget.command} service shim: ${effectiveShimPath}`);
     console.log(`  Real ${serviceTarget.command}: ${realPath}`);
     if (serviceTarget.providerSlug) {
       console.log(`  Registers custom provider "${serviceTarget.providerSlug}" when the service starts.`);
     }
   }
 
+  // Configure desktop application and daemon/service autostart
+  setupDesktopAndServiceAutostart(routeMode, routeTarget);
+
   writeStateFile(ROUTING_STATE_PATH, {
     enabled: installed.length > 0,
     mode: routeMode,
-    shimPath: OLLAMA_SHIM_PATH,
+    shimPath: IS_WIN ? path.join(SHIM_DIR, 'ollama.cmd') : OLLAMA_SHIM_PATH,
     realOllamaPath: (installed.find((entry) => entry.command === 'ollama') || {}).realPath || null,
     services: installed,
     targetHost: routeTarget?.host || null,
@@ -865,7 +1151,7 @@ async function cmdRouteSet(routeMode = 'services', customTarget = null) {
     console.log('Other invocations pass through to the real binary and talk to Local Router on its port.');
     console.log('Set LOCAL_ROUTER_NO_SHIM=1 to bypass a shim and use the real binary directly.');
   }
-  console.log('Ensure ~/.local/bin is before other paths in PATH for this to take effect.');
+  console.log(`Ensure ${SHIM_DIR} is before other paths in PATH for this to take effect.`);
   return sawError ? 1 : 0;
 }
 
@@ -873,18 +1159,26 @@ function cmdRouteUnset() {
   let refused = false;
   let removedAny = false;
   for (const serviceTarget of SERVICE_TARGETS) {
-    if (!fs.existsSync(serviceTarget.shimPath)) {
-      continue;
+    const checkPaths = [serviceTarget.shimPath];
+    if (serviceTarget.command === 'ollama') {
+      checkPaths.push(path.join(SHIM_DIR, 'ollama.cmd'), path.join(SHIM_DIR, 'ollama.ps1'));
     }
-    if (!shimFileContainsMarker(serviceTarget.shimPath)) {
-      console.error(`Refusing to remove non-Local Router file at ${serviceTarget.shimPath}`);
-      refused = true;
-      continue;
+    for (const p of checkPaths) {
+      if (!fs.existsSync(p)) {
+        continue;
+      }
+      if (!shimFileContainsMarker(p)) {
+        console.error(`Refusing to remove non-Local Router file at ${p}`);
+        refused = true;
+        continue;
+      }
+      fs.unlinkSync(p);
+      console.log(`Removed ${serviceTarget.command} service shim: ${p}`);
+      removedAny = true;
     }
-    fs.unlinkSync(serviceTarget.shimPath);
-    console.log(`Removed ${serviceTarget.command} service shim: ${serviceTarget.shimPath}`);
-    removedAny = true;
   }
+
+  removeDesktopAndServiceAutostart();
 
   const routingState = readStateFile(ROUTING_STATE_PATH) || {};
   writeStateFile(ROUTING_STATE_PATH, {
