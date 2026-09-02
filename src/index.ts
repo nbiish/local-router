@@ -3822,7 +3822,7 @@ function createOllamaStreamTransform(model: string, isGenerate: boolean) {
               ollamaChunk.done_reason = choice.finish_reason || 'stop';
             }
 
-            this.push(JSON.stringify(ollamaChunk) + '\\n');
+            this.push(JSON.stringify(ollamaChunk) + '\n');
           } catch (e) {
             // Ignore incomplete or parse error JSON in stream
           }
