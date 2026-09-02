@@ -1,0 +1,54 @@
+# agents.txt — CONTINUATION MANIFEST (fresh-chat entry point)
+# Repo: local-router · Generated: 2026-09-01 · windows-1
+#
+# Read order: THIS FILE → AGENTS.md (mission + FLEET_TOOLING section at the
+# end) → llms.txt (root PRD) → AGENTS/{date}.COMMS.md → ops chat
+# (local-router ops, 828d334113c772c7a8b8cb34db637698 — pairing key in wtf
+# repo chat seq 22).
+
+## STATE (verified 2026-09-01, windows side)
+
+- main @ abbea72: NDJSON newline fix (literal '\\n' in
+  createOllamaStreamTransform broke real ollama CLI streams) — rebuilt,
+  running, verified (NDJSON3-OK, rc=0).
+- Always-route shim: branch fix/shim-always-route (9e65e44, pushed).
+  Contract: ANY ollama.cli invocation probes the router, auto-starts it
+  detached if down (≤10s wait), sets OLLAMA_HOST to the router for
+  run/pull/list/ps, and `ollama serve` runs real ollama as BACKEND on
+  11435 behind the router. LOCAL_ROUTER_NO_SHIM=1 bypasses.
+- Graceful cascade: branch fix/fallback-graceful (d0fd9a2, pushed).
+  Preflight failures (unknown model / no provider / no key-credits /
+  allowlist) skip with zero retries and 'skipping to next stage' logging.
+- Headroom: DISABLED on windows (headroom-config.json enabled:false) —
+  nothing listens on :8787 and the 10s stall per attempt degraded
+  cascades. mac must check its own 8787.
+- Fallback chain on windows: 16/21 of mac's steps resolvable; 14 provider
+  keys loaded from the PQC bundle; key-gated steps verified live
+  (moonshot-kimi-k3, wafer-ai-glm-5.3-flash, openrouter-glm-5.3-flash-batch).
+- pqc-secrets pack QUIRK: replaces the bundle (not merge-safe despite the
+  runbook). Repack ALL keys together. Upstream fix owed.
+
+## NEXT (priority order)
+
+1. mac: merge fix/shim-always-route + fix/fallback-graceful into main;
+   re-run `local-router route set`; post MAC-SHIM-OK receipt in ops chat.
+2. mac: diagnose why the router was DOWN (operator report: hermes queries
+   missed the fallback model) — likely the router process died with a
+   shell and nothing re-apes it; the always-route shim fixes that class.
+3. Adopt the windows NDJSON fix (abbea72-equivalent is local-only on
+   windows main history — it is now COMMITTED on main abbea72, so a mac
+   pull carries it; mac must rebuild + restart after pull).
+4. Headroom: decide fleet-wide enable (requires running the proxy on
+   8787) or remove the config surface.
+5. Per-connection bins: expose trio_for_slot through the bridge so each
+   agent's MCP session gets its own bins (design in wtf repo chat seq 22+).
+
+## RULES THAT DON'T CHANGE
+
+- PQC bundle for every provider key (LOCALROUTER_* namespace; localRouter
+  env prefix). No plaintext keys in configs.
+- One router per machine, bound to loopback (11434); real ollama = backend
+  on 11435.
+- English only in code and docs.
+- Router code stays in this repo; fleet coordination happens in the wtf
+  repo chats.
