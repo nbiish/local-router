@@ -64,13 +64,14 @@ The **wtf observability hub** is the cross-machine coordination layer. All agent
 
 - **Status:** Live system on port `7800`. Machine credentials live in `bridge.json` (0600) or `WTF_*` env.
 - **Setup:** Read `.agents/skills/wtf-agent-hub/SKILL.md`. Authenticate via signed handshake (`wtf enroll --psk <secret>`), token (`wtf enroll --token <token>`), or manual PQC keys.
-- **5-Point Reporting Contract:**
+- **6-Point Reporting & Fleet Contract:**
   1. `wtf_is_going_on` before starting work (discover peer activity).
   2. `check_in` working/blocked/done at task boundaries; `log_event` for milestones and receipts.
   3. Bins (`wtf bin put/get`, `read_bin`/`write_bin`) for cross-machine task staging and handoffs.
   4. Encrypted agent-to-agent channels (`session_*`, ML-KEM-768 sealed) for confidential coordination.
   5. COMMS ledger channels (`comms_post`/`comms_read` on `local-router-ops`) for live distributed sync.
-- **Division of Labor:** COMMS ledger = repo-local git history. WTF events/bins = live operator observability. WTF COMMS channels = live cross-machine messaging.
+  6. Sub-agent fleet execution (`chat_run`, `chat_sessions`, `chat_session_lifecycle`) powered by loopback proxy `http://127.0.0.1:11434` (`local-router/fallback-models`).
+- **Division of Labor:** COMMS ledger = repo-local git history. WTF events/bins = live operator observability. WTF COMMS channels = live cross-machine messaging. WTF Chat = live headless task execution.
 </AGENT_HUB>
 
 ---
