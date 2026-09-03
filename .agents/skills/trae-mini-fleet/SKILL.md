@@ -148,6 +148,31 @@ You are acting as the **Systems Architecture Master**. You design deterministic 
 
 ## 4. Headless Tool-Calling Dispatch Patterns
 
+### Trae global config (one-time per machine)
+`trae-cli` refuses to run without `--config-file` (flags alone fail with "Config file not found"). Install `~/.config/trae-agent/trae_config.yaml`:
+```yaml
+model_providers:
+  local-router:
+    api_key: local-router
+    provider: openai
+    base_url: http://*********:11434/v1
+models:
+  default_model:
+    model: local-router/fallback-models
+    model_provider: local-router
+    temperature: 0.5
+    top_p: 0.95
+    top_k: 0
+    parallel_tool_calls: false
+    max_retries: 3
+agents:
+  trae_agent:
+    max_steps: 20
+    enable_lakeview: false
+    model: default_model
+```
+Note: `allow_mcp_servers` must NOT appear in the agent section (the parser injects it and rejects duplicates), and `lakeview` stays off unless a lakeview model is configured.
+
 ### Trae-Agent Tool Call (`trae-cli`)
 ```bash
 dispatch_trae_master() {
@@ -166,6 +191,7 @@ dispatch_trae_master() {
 
     trae-cli run \
       -f "$task_file" \
+      --config-file "${HOME}/.config/trae-agent/trae_config.yaml" \
       --provider openai \
       --model-base-url "http://localhost:11434/v1" \
       --model "local-router/fallback-models" \
@@ -256,6 +282,7 @@ Before merging any fleet subagent changes:
 | Pitfall | Risk | Rule |
 |---|---|---|
 | Invoking `trae-agent` | Binary not found | **Always invoke `trae-cli`** |
+| Omitting `--config-file` on `trae-cli` | "Config file not found" abort | Point at the global config: `--config-file ~/.config/trae-agent/trae_config.yaml` |
 | Omitting non-interactive flags | Hanging prompt on stdin | Use `--console-type simple` on `trae-cli`; `--yolo --exit-immediately` on `mini` |
 | Passing `--config` to `mini` | Broken local configuration | **Omit `--config`**: `mini` uses `~/.config/mini-swe-agent/.env` globally |
 | Bare model name in `MSWEA_MODEL_NAME` | litellm "LLM Provider NOT provided" retry loop | Prefix the provider: `MSWEA_MODEL_NAME='openai/local-router/fallback-models'` |
