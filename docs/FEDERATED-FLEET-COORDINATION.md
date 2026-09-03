@@ -13,7 +13,7 @@ The **WTF Federated Fleet** connects distributed physical machines (e.g., macOS 
 1. **`local-router`** serves as the **Singular Model System** running on `http://127.0.0.1:11434`:
    - It proxies the real Ollama daemon on `127.0.0.1:11435`.
    - It hosts the virtual model `local-router/fallback-models` backed by a 24-step multi-provider fallback cascade with Post-Quantum Cryptography (FIPS 203 ML-KEM-768 wrapped keys).
-   - It provides single-config routing for all harnesses: `trae-cli`, `mini-live`, `free-claude-code`, `omp`, and interactive chat UIs.
+   - It provides single-config routing for the SWE-bench Verified dual coding engines (`trae-cli` and `mini-live`) and interactive chat UIs.
 2. **`wtf-is-going-on-mcp`** serves as the **Cross-Machine Observability & Coordination Mesh** on port `7800`:
    - It connects machine hubs (e.g. Mac `hub-799c0c4c` and Windows `hub-2538554f`) over authenticated, federated peering links with ML-KEM-768 key sealing.
    - It provides MCP tools (`wtf_is_going_on`, `check_in`, `log_event`, `read_bin`, `write_bin`, `comms_post`, `comms_read`) allowing agents on any machine to observe, signal, hand off tasks, and verify cross-machine parity.

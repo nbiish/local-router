@@ -163,7 +163,7 @@ def main():
 
     # log
     p_log = subparsers.add_parser("log", help="Log a new dispatch result")
-    p_log.add_argument("--agent", required=True, choices=["trae-cli", "mini-live", "free-claude-code", "omp"])
+    p_log.add_argument("--agent", required=True, choices=["trae-cli", "mini-live", "mini"])
     p_log.add_argument("--task-type", required=True)
     p_log.add_argument("--step-budget", type=int, default=30)
     p_log.add_argument("--steps-taken", type=int, required=True)

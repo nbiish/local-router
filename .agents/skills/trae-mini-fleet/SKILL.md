@@ -96,21 +96,27 @@ All fleet sub-agents connect exclusively through the **Ollama endpoint shim** ho
 
 ---
 
-## 4. Headless Execution Fallback Cascade & Dispatch Patterns
+## 4. SWE-bench Verified Dual-Engine Dispatch Architecture
 
-### Primary Fallback Cascade
-When executing user or agent tasks headlessly, harnesses follow the resilient 3-stage fallback cascade:
-$$\text{free-claude-code} \xrightarrow{\text{if fail}} \text{omp} \xrightarrow{\text{if fail}} \text{trae-cli}$$
+The fleet exclusively standardizes on **`trae-cli`** and **`mini` (Live-SWE-Agent)** because empirical SWE-bench Verified evaluations demonstrate that these two harnesses achieve the highest benchmark problem resolution rates among all free, open-source agent harnesses.
 
-1. **`free-claude-code` (`claude` / `fcc-claude`):** Primary agent using `ANTHROPIC_BASE_URL=http://127.0.0.1:11434` with `--dangerously-skip-permissions`.
-2. **`omp` (OhMyPy):** Secondary agent for non-interactive execution (`omp -p <prompt>`).
-3. **`trae-cli` (Trae SWE Agent):** Tertiary agent for deep structural AST edits and patch generation.
+### Dual-Engine Specialization & Symbiotic Handoff
+The Master Orchestrator routes tasks dynamically between these two SWE-bench champions:
 
-### Agent Selection & Fleet Toggle
-Both `local-router` (/config/chat & CLI) and `wtf-is-going-on-mcp` (dashboard & MCP `chat_run`) provide:
-- **Agent Selection:** `auto` (runs the 3-stage cascade), or pinned to `free-claude-code`, `omp`, `trae-cli`, or `mini`.
-- **Trae / Mini Fleet Toggle:** Controls whether autonomous multi-file SWE fleet expansion is permitted (ON) or confined to single-turn interactive execution (OFF).
-- **Universal Model Standard:** All agents and chats route through virtual model `local-router/fallback-models`.
+$$\text{trae-cli (AST Refactoring & Patch Synthesis)} \underset{\text{Handoff}}{\overset{\text{Verify}}{\rightleftharpoons}} \text{mini (TDD Bug Reproduction & Test Hardening)}$$
+
+- **When to dispatch `trae-cli` first:** Broad codebase navigation, multi-file structural changes, interface refactoring, AST symbol search, and unified patch generation (`--patch-path`).
+- **When to dispatch `mini` first:** Failing test suites, flaky regressions, bug reproduction scripts, dynamic Python probe synthesis, and tight assertion verification loops (`--yolo`).
+- **Mutual Failover / Circuit Breaker:**
+  - If `trae-cli` hits step exhaustion on an elusive bug $\rightarrow$ hand off discovered files to `mini` to synthesize a reproduction test.
+  - If `mini` loops synthesizing helper tools $\rightarrow$ hand off isolated failure signature to `trae-cli` to perform AST-guided structural surgery.
+
+### Universal Model Routing Standard
+All fleet dispatches route through the unified local-router Ollama endpoint:
+- **Endpoint:** `http://localhost:11434/v1` (OpenAI-compatible) or `http://localhost:11434`
+- **Virtual Model:** `local-router/fallback-models`
+- **Auth Token:** `local-router`
+- Upstream failover, PQC key protection, and multi-provider failover are managed invisibly by Local Router.
 
 ### Pattern A: Trae-Agent Headless Dispatch (`trae-cli run`)
 
@@ -382,14 +388,6 @@ Run the following test commands to verify your changes before exiting:
 6. Verify tests pass 100% and exit immediately.
 ```
 
-### C. Free-Claude-Code (`claude` / `fcc-claude`) — Rapid Diagnostic Formula
-- **Cognitive Profile:** Best for single-turn rapid diagnosis, inspecting environment state, checking port listeners (`lsof`, `ps`), and reviewing small diffs.
-- **Formula:** Provide a single, direct diagnostic question with output format constraints (e.g. "Report which process holds port 11434 in 2 bullet points").
-
-### D. OhMyPy (`omp`) — Algorithmic Python Synthesis Formula
-- **Cognitive Profile:** Generates self-contained, clean Python automation scripts with zero external dependency assumptions.
-- **Formula:** Specify input format, output format, and mandate using Python standard library only (`argparse`, `json`, `csv`, `http.client`, `urllib`).
-
 ---
 
 ## 7. Empirical Data-Engineering Protocol (`trae-mini-fleet.csv`)
@@ -405,7 +403,7 @@ The fleet continuously data-engineers its own prompting effectiveness through th
 2. **Dispatch Logging:** Log the dispatch outcomes automatically:
    ```bash
    python3 .agents/skills/trae-mini-fleet/scripts/fleet_dataset.py log \
-       --agent <agent> \
+       --agent <trae-cli|mini-live> \
        --task-type <task_type> \
        --step-budget 25 \
        --steps-taken 14 \
@@ -421,18 +419,18 @@ The fleet continuously data-engineers its own prompting effectiveness through th
    python3 .agents/skills/trae-mini-fleet/scripts/fleet_dataset.py stats
    ```
 
-
 ---
 
-## 8. Agent Selection & Dynamic Handoff Matrix
+## 8. SWE-bench Verified Agent Selection & Dynamic Handoff Matrix
 
-| Task Characteristics | Primary Agent | Fallback / Handoff Agent | Handoff Trigger Condition |
-|----------------------|---------------|--------------------------|---------------------------|
+| Task Characteristics | Primary Agent | Handoff Agent | Dynamic Handoff Trigger Condition |
+|----------------------|---------------|---------------|-----------------------------------|
 | Multi-file refactoring / AST edits | `trae-cli` | `mini-live` | Trae hits step limit or syntax errors; Live-SWE writes targeted reproduction test to harden patch. |
 | Failing tests / bug reproduction | `mini-live` | `trae-cli` | Live-SWE loops creating helper tools; Trae is dispatched with exact file targets found by Live-SWE. |
-| Port collision / env diagnosis | `free-claude-code` | `omp` | Quick diagnosis needed; FCC probes state, OMP writes remediation script if complex. |
-| Standalone script / bench utility | `omp` | `trae-cli` | Script requires deeper integration with repository packages; Trae wires into codebase. |
-| End-to-end full-stack feature | Trae $\rightarrow$ Mini | Operator Review | Trae builds multi-file scaffold; Mini adds edge-case tests; orchestrator verifies. |
+| Algorithmic debugging & runtime probes | `mini-live` | `trae-cli` | Dynamic Python probes pinpoint defect; Trae applies structural changes to production files. |
+| Clean patch generation for review | `trae-cli` | `mini-live` | Trae exports standalone unified diff via `--patch-path`; Live-SWE runs verification suite. |
+| End-to-end full-stack feature | `trae-cli` $\rightarrow$ `mini-live` | Orchestrator Gate | Trae builds multi-file scaffold; Mini adds edge-case tests; orchestrator verifies and merges. |
+
 
 ---
 
