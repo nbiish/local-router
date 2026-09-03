@@ -53,7 +53,7 @@ The fleet is comprised of two expert terminal-based coding engines:
   - **Test-Driven Problem Reproduction:** Generates reproducing test cases before altering production code.
   - **Iterative Bash Verification:** Executes in a continuous action/observation loop until tests pass.
 - **CLI Invocations:**
-  - Standard command: `mini --config <config.yaml> --task "<task>" --yolo --exit-immediately`
+  - Standard command: `mini --task "<task>" --yolo --exit-immediately` (Pre-configured to `local-router/fallback-models` via `~/.config/mini-swe-agent/.env`; no `--config` flag required or permitted).
   - Vendor wrapper: `mini-live --task "<task>" --yolo` (loads `~/.config/mini-swe-agent/live-swe-agent.yaml`).
 
 ### 2. Trae-Agent (`trae-cli`)
@@ -172,59 +172,30 @@ EOF
 
 ### Pattern B: Live-SWE-Agent Headless Dispatch (`mini` / `mini-live`)
 
-Live-SWE-agent requires non-interactive flags (`--yolo --exit-immediately`) and a dynamic configuration specifying the local-router Ollama provider:
+Live-SWE-agent is already pre-configured to route through `local-router/fallback-models` via global environment configuration (`~/.config/mini-swe-agent/.env`). It requires non-interactive flags (`--yolo --exit-immediately`) and does **not** need a dynamic `--config` file:
 
 ```bash
 dispatch_live_swe_agent() {
     local task_content="$1"
     local workdir="${2:-$(pwd)}"
-    local step_limit="${3:-30}"
     local slug
     slug=$(basename "$workdir")
 
-    local temp_config
-    temp_config=$(mktemp /tmp/liveswe-config.XXXXXX.yaml)
     local log_file="/tmp/liveswe_exec_${slug}.log"
     local traj_file="${workdir}/liveswe_trajectory.json"
 
-    # Dynamic configuration incorporating local-router Ollama shim
-    cat > "$temp_config" <<EOF
-agent:
-  mode: yolo
-  step_limit: $step_limit
-  cost_limit: 0.0
-model:
-  model_name: "ollama/local-router/fallback-models"
-  model_kwargs:
-    api_base: "http://localhost:11434/v1"
-    api_key: "local-router"
-    temperature: 0.0
-    drop_params: true
-environment:
-  env:
-    PAGER: cat
-    MANPAGER: cat
-    LESS: -R
-    PIP_PROGRESS_BAR: "off"
-    TQDM_DISABLE: "1"
-EOF
-
-    echo "[Orchestrator] Dispatching Live-SWE-agent in workdir: $workdir"
+    echo "[Orchestrator] Dispatching Live-SWE-agent (TDD Reproduction Engineer) in workdir: $workdir"
     echo "[Orchestrator] Logs: $log_file"
 
     (
         cd "$workdir" || exit 1
-        OPENAI_API_BASE="http://localhost:11434/v1" \
-        OLLAMA_API_BASE="http://localhost:11434" \
         mini \
-          --config "$temp_config" \
           --task "$task_content" \
           --output "$traj_file" \
           --yolo \
           --exit-immediately > "$log_file" 2>&1
     )
     local exit_code=$?
-    rm -f "$temp_config"
 
     if [[ $exit_code -ne 0 ]]; then
         echo "[Orchestrator] mini exited with code $exit_code. Check $log_file"
@@ -414,7 +385,8 @@ Fleet coordination relies strictly on the dated ledger at `AGENTS/{date}.COMMS.m
 | Unescaped task arguments | Shell syntax error on quotes/backticks | Write task prompt to `/tmp/task.md` and pass via `trae-cli run -f /tmp/task.md`. |
 | Running directly in main tree | Branch pollution / git conflicts | **Mandatory:** `git worktree add -b <branch> ../<slug>`. |
 | Passing raw API keys | Leaked secrets / PQC violation | Direct traffic to `http://localhost:11434/v1` with placeholder key `local-router`. |
-| Unbounded step counts | Agent burns tokens in loops | Always set `--max-steps 20-35` for Trae and `step_limit: 30` for Live-SWE. |
+| Unbounded step counts | Agent burns tokens in loops | Always set `--max-steps 20-35` for Trae and non-interactive flags (`--yolo --exit-immediately`) for Live-SWE. |
+| Passing `--config` to `mini` | Overrides global config / causes failure | **Omit `--config`**: `mini` is pre-configured to use `local-router/fallback-models` via `~/.config/mini-swe-agent/.env`. |
 | Port 11434 collision | Standalone Ollama overrides proxy | Ensure `local-router route set` is active (Ollama backend on 11435, router on 11434). |
 | Unpruned failed worktrees | Disk / memory exhaustion | Discard failed worktrees immediately (`git worktree remove --force ../<slug>`). |
 | Missing COMMS ledger tracking | Uncoordinated merge conflicts | Record lifecycle entries in `AGENTS/{date}.COMMS.md` before and after dispatches. |
