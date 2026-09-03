@@ -315,7 +315,7 @@ Target repositories deploying ainish-coder rules delegate autonomous coding task
 - **Universal Model Standard**: Virtual model `local-router/fallback-models` powers all agents, user-facing web chat, and subagent fleet executions across all repos.
 - **Cross-Platform Auto-Start Guarantee**: The local-router server starts automatically upon the Ollama CLI or Desktop application starting on macOS, Windows, Linux, and WSL. Local Router binds to port `11434`, proxying the real Ollama backend on port `11435` via `OLLAMA_HOST=127.0.0.1:11435`.
 - **Git Worktree Isolation**: Sub-agents MUST execute in isolated worktrees (`git worktree add -b <branch> ../<slug>`). One dispatch = one worktree. Never run autonomous sub-agents directly on release or working branches.
-- **Continuous Action Reflection & TTS.COMMS Guardrails**: Upon each action with `trae-cli` or `mini`, orchestrators reflect on skill improvements and append entries into `trae-mini-fleet.csv` and `FLEET-SKILL-REFLECTIONS.txt` using concise, expertly crafted language while applying the 9 TTS.COMMS master suggestions:
+- **Continuous Action Reflection & TTS.COMMS Guardrails**: Upon each action with `trae-cli` or `mini`, orchestrators reflect on skill improvements and append entries into `FLEET-SKILL-REFLECTIONS.txt` using concise, expertly crafted language while applying the 9 TTS.COMMS master suggestions:
   1. *Adversarial:* Loopback proxy 11434 confinement; dummy bearer tokens (`local-router`).
   2. *Privacy:* Task and trajectory files scrubbed of sensitive data via `scrub_task.py`.
   3. *Supply-chain:* Pinned commit hashes for `trae-agent@8d4b3c1` and `live-swe-agent@f52e89a`.
@@ -457,16 +457,13 @@ unified diffs with zero tolerance for regressions.
 - **Probe $\rightarrow$ Fix:** Dispatch `mini-live` to write minimal reproduction test and isolate failure signature $\rightarrow$ dispatch `trae-cli` targeting exact files to apply production patch.
 
 
-**Empirical Data-Engineering Mandate (`trae-mini-fleet.csv`):**
-To systematically engineer the highest-performing prompts across the fleet:
-1. **Pre-Dispatch Query:** Before launching a subagent, the orchestrator inspects
-   `.agents/skills/trae-mini-fleet/trae-mini-fleet.csv` for the target `task_type` to retrieve
-   proven prompt templates and lessons learned.
-2. **Post-Dispatch Logging:** Upon receiving the subagent's exit code, patch, and trajectory,
-   the orchestrator records a structured row in `trae-mini-fleet.csv` tracking `steps_taken`,
-   `patch_generated`, `verification_passed`, `failure_mode`, and `prompt_refinement`.
-3. **Qualitative Reflection:** Concurrently record an expert entry in
-   `FLEET-SKILL-REFLECTIONS.txt` applying the 9 TTS.COMMS master suggestions.
+**Fleet Control & Action Reflection Mandate:**
+To maintain strict, un-bloated coordination across the fleet:
+1. **COMMS Ledger Tracking:** Before launching a subagent, the orchestrator logs `checkin` to
+   `AGENTS/{date}.COMMS.md`. Upon completion, log `update` / `intent-merge` with `parent: <calling-agent>`.
+2. **Trajectory Scrubbing:** Purge environmental credentials and home paths with `scrub_task.py`.
+3. **Qualitative Reflection:** Concurrently record a concise entry in `FLEET-SKILL-REFLECTIONS.txt`
+   applying the 9 TTS.COMMS master suggestions.
 
 **Continuation:** fresh chats resume from `agents.txt` (this repo) +
 `llms.txt` + `AGENTS/{date}.COMMS.md` + the ops chat.

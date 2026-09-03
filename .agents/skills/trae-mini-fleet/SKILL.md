@@ -298,7 +298,7 @@ git worktree remove ../<slug>
 git branch -d feat/<scope>-<slug>
 ```
 
-### Phase 8: Continuous Action Reflection & Empirical Data-Engineering
+### Phase 8: Continuous Action Reflection & COMMS Coordination
 Upon completing each action with `trae-cli` and `mini`:
 1. Inspect the agent trajectory (`trae_trajectory.json` or `liveswe_trajectory.json`) and output logs.
 2. **Sanitize & Scrub Files (Privacy Master):** Purge all environmental credentials, bearer tokens, and user home paths using the privacy scrubber:
@@ -312,32 +312,18 @@ Upon completing each action with `trae-cli` and `mini`:
    - *Supply-chain:* Upstream git commits pinned (`trae-agent@8d4b3c1`, `live-swe-agent@f52e89a`).
    - *Systems-architecture:* Port 11434 availability probed prior to execution.
    - *Reliability:* Explicit step limits respected; patch passed automated test execution.
-   - *Governance:* Commits, task files, and ledger entries recorded and tracked.
+   - *Governance:* Commits, task files, and ledger entries recorded and tracked in `AGENTS/{date}.COMMS.md`.
    - *Ergonomics:* Single-command task file templates (`-f <file>`) used without quoting flaws.
    - *Agentic-orchestration:* Trae AST navigation refactoring preceding Live-SWE test hardening.
    - *Performance:* Failed worktrees removed immediately, intermediate trajectories pruned.
-4. **Data-Engineering CSV Update:** Append a structured row to `trae-mini-fleet.csv` via the CLI helper:
-   ```bash
-   python3 .agents/skills/trae-mini-fleet/scripts/fleet_dataset.py log \
-       --agent <agent> \
-       --task-type <task_type> \
-       --step-budget <budget> \
-       --steps-taken <steps> \
-       --template <template_id> \
-       --excerpt "<summary>" \
-       --patch --pass \
-       --failure-mode <none|mode> \
-       --strengths "<strengths>" \
-       --weaknesses "<weaknesses>" \
-       --refinement "<refinement>"
-   ```
-5. Record a qualitative reflection entry in `.agents/skills/trae-mini-fleet/FLEET-SKILL-REFLECTIONS.txt` with an ISO-8601 timestamp, subagent used, action summary, and iterative instruction refinement.
+4. **COMMS Ledger Fleet Coordination:** Append a structured entry to `AGENTS/{date}.COMMS.md` tracking the subagent lifecycle (attributed with `parent: <calling-agent>`).
+5. Record a concise reflection entry in `.agents/skills/trae-mini-fleet/FLEET-SKILL-REFLECTIONS.txt` with an ISO-8601 timestamp, subagent used, action summary, and iterative instruction refinement.
 
 ---
 
-## 6. Prompt-Engineering Mastery per Harness
+## 6. Strict Sub-Agent Prompting Formulas
 
-High-performing subagents require prompt architectures calibrated to their cognitive harnesses:
+The Master Orchestrator generates concise, unambiguous task prompts calibrated to each engine:
 
 ### A. Trae-Agent (`trae-cli`) — Structural AST Prompt Formula
 - **Cognitive Profile:** Excels at broad symbol discovery, AST traversal, multi-file code editing, and patch generation. Vulnerable to open-ended wandering or step exhaustion if not given explicit scope boundaries.
@@ -390,34 +376,20 @@ Run the following test commands to verify your changes before exiting:
 
 ---
 
-## 7. Empirical Data-Engineering Protocol (`trae-mini-fleet.csv`)
+## 7. Fleet Control via AGENTS COMMS Ledger
 
-The fleet continuously data-engineers its own prompting effectiveness through the structured ledger at:
-`.agents/skills/trae-mini-fleet/trae-mini-fleet.csv`
+Fleet coordination relies strictly on the dated ledger at `AGENTS/{date}.COMMS.md`. Subagent dispatches are registered with attributed start/end timestamps and parent-child hierarchy:
 
-### CLI Data-Engineering Workflow:
-1. **Pre-Dispatch Query:** Before formulating a task prompt, query past benchmarks for the target `task_type`:
-   ```bash
-   python3 .agents/skills/trae-mini-fleet/scripts/fleet_dataset.py query <task_type>
-   ```
-2. **Dispatch Logging:** Log the dispatch outcomes automatically:
-   ```bash
-   python3 .agents/skills/trae-mini-fleet/scripts/fleet_dataset.py log \
-       --agent <trae-cli|mini-live> \
-       --task-type <task_type> \
-       --step-budget 25 \
-       --steps-taken 14 \
-       --template TPL_TRAE_AST_V2 \
-       --excerpt "Refactored WeakMap request compression" \
-       --patch --pass \
-       --strengths "Clean diff" \
-       --weaknesses "None" \
-       --refinement "Provided explicit target files"
-   ```
-3. **Continuous Performance Analysis:** View fleet statistics, pass rates, and failure distributions:
-   ```bash
-   python3 .agents/skills/trae-mini-fleet/scripts/fleet_dataset.py stats
-   ```
+```markdown
+### [2026-09-02T20:30:00Z] SUBAGENT-DISPATCH | agent:trae-cli | parent:master-orchestrator | wt:/path/to/worktree
+- start:2026-09-02T20:30:00Z
+- end:2026-09-02T20:34:00Z
+- scope:src/index.ts, tests/unit.test.mjs
+- objective:refactor WeakMap request deduplication and verify fail-open
+- output:trae_solution.patch generated, 12/12 unit tests passing
+- status:verifying
+- blockers:none
+```
 
 ---
 
@@ -430,7 +402,6 @@ The fleet continuously data-engineers its own prompting effectiveness through th
 | Algorithmic debugging & runtime probes | `mini-live` | `trae-cli` | Dynamic Python probes pinpoint defect; Trae applies structural changes to production files. |
 | Clean patch generation for review | `trae-cli` | `mini-live` | Trae exports standalone unified diff via `--patch-path`; Live-SWE runs verification suite. |
 | End-to-end full-stack feature | `trae-cli` $\rightarrow$ `mini-live` | Orchestrator Gate | Trae builds multi-file scaffold; Mini adds edge-case tests; orchestrator verifies and merges. |
-
 
 ---
 
@@ -446,6 +417,7 @@ The fleet continuously data-engineers its own prompting effectiveness through th
 | Unbounded step counts | Agent burns tokens in loops | Always set `--max-steps 20-35` for Trae and `step_limit: 30` for Live-SWE. |
 | Port 11434 collision | Standalone Ollama overrides proxy | Ensure `local-router route set` is active (Ollama backend on 11435, router on 11434). |
 | Unpruned failed worktrees | Disk / memory exhaustion | Discard failed worktrees immediately (`git worktree remove --force ../<slug>`). |
-| Missing CSV & reflection logging | Recurring subagent failure modes | Record lessons in `trae-mini-fleet.csv` and `FLEET-SKILL-REFLECTIONS.txt` after every dispatch. |
+| Missing COMMS ledger tracking | Uncoordinated merge conflicts | Record lifecycle entries in `AGENTS/{date}.COMMS.md` before and after dispatches. |
+
 
 
