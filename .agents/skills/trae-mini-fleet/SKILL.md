@@ -42,7 +42,12 @@ The fleet is comprised of two expert terminal-based coding engines:
 
 ### 1. Live-SWE-Agent (`mini` / `mini-live`)
 - **Repository:** [https://github.com/OpenAutoCoder/live-swe-agent](https://github.com/OpenAutoCoder/live-swe-agent)
-- **Installation Directive:** If live-swe-agent (or mini-swe-agent) is not installed on the system, clone and install it from https://github.com/OpenAutoCoder/live-swe-agent via `uv` or `pip` (e.g. `uv tool install mini-swe-agent` or `pip install -e .`).
+- **Pinned Release / Commit:** `v0.1.4` (`commit f52e89a64e18b8240a5fa7de21c97a5180f9bbfa`)
+- **Installation Directive:** Clone and install pinned release via `uv` or `pip`:
+  ```bash
+  git clone https://github.com/OpenAutoCoder/live-swe-agent.git /tmp/live-swe-agent
+  cd /tmp/live-swe-agent && git checkout f52e89a && pip install -e .
+  ```
 - **Core Strengths:**
   - **Dynamic Tool Synthesis:** Writes temporary Python helper scripts at runtime to investigate complex bugs.
   - **Test-Driven Problem Reproduction:** Generates reproducing test cases before altering production code.
@@ -53,7 +58,12 @@ The fleet is comprised of two expert terminal-based coding engines:
 
 ### 2. Trae-Agent (`trae-cli`)
 - **Repository:** [https://github.com/bytedance/trae-agent](https://github.com/bytedance/trae-agent)
-- **Installation Directive:** If trae-agent is not installed on the system, clone and install it from https://github.com/bytedance/trae-agent via `uv` (e.g. `git clone https://github.com/bytedance/trae-agent.git && cd trae-agent && uv sync --all-extras && uv tool install .` or `pip install -e .`).
+- **Pinned Release / Commit:** `v0.2.1` (`commit 8d4b3c1092e07173b22cf5c1f0d3a5a41571d871`)
+- **Installation Directive:** Clone and install pinned release via `uv` or `pip`:
+  ```bash
+  git clone https://github.com/bytedance/trae-agent.git /tmp/trae-agent
+  cd /tmp/trae-agent && git checkout 8d4b3c1 && uv tool install .
+  ```
 - **CRITICAL HARNESS NOTE:** The binary installed on PATH is **`trae-cli`** (invoking `trae-agent` directly fails with `zsh: command not found: trae-agent`).
 - **Core Strengths:**
   - **Structural Codebase Navigation:** Built-in tools for AST search, symbol inspection, and directory mapping.
@@ -285,18 +295,37 @@ git branch -d feat/<scope>-<slug>
 ### Phase 8: Continuous Action Reflection & Empirical Data-Engineering
 Upon completing each action with `trae-cli` and `mini`:
 1. Inspect the agent trajectory (`trae_trajectory.json` or `liveswe_trajectory.json`) and output logs.
-2. Evaluate adherence to the **9 TTS.COMMS Master Suggestions**:
+2. **Sanitize & Scrub Files (Privacy Master):** Purge all environmental credentials, bearer tokens, and user home paths using the privacy scrubber:
+   ```bash
+   python3 .agents/skills/trae-mini-fleet/scripts/scrub_task.py --in-place /tmp/trae_task_*.md
+   python3 .agents/skills/trae-mini-fleet/scripts/scrub_task.py --in-place trae_trajectory.json
+   ```
+3. Evaluate adherence to the **9 TTS.COMMS Master Suggestions**:
    - *Adversarial:* Confined to loopback proxy 11434 with dummy bearer token (`local-router`).
-   - *Privacy:* Intermediate files in `/tmp` scrubbed of sensitive environment data or user paths.
-   - *Supply-chain:* Upstream versions and tool repos pinned.
+   - *Privacy:* Intermediate files in `/tmp` scrubbed via `scrub_task.py`.
+   - *Supply-chain:* Upstream git commits pinned (`trae-agent@8d4b3c1`, `live-swe-agent@f52e89a`).
    - *Systems-architecture:* Port 11434 availability probed prior to execution.
    - *Reliability:* Explicit step limits respected; patch passed automated test execution.
    - *Governance:* Commits, task files, and ledger entries recorded and tracked.
    - *Ergonomics:* Single-command task file templates (`-f <file>`) used without quoting flaws.
    - *Agentic-orchestration:* Trae AST navigation refactoring preceding Live-SWE test hardening.
    - *Performance:* Failed worktrees removed immediately, intermediate trajectories pruned.
-3. **Data-Engineering CSV Update:** Append a structured row to `.agents/skills/trae-mini-fleet/trae-mini-fleet.csv` recording `dispatch_id`, `timestamp`, `agent`, `task_type`, `step_budget`, `steps_taken`, `prompt_template_id`, `patch_generated`, `verification_passed`, `failure_mode`, and `prompt_refinement`.
-4. Record a qualitative reflection entry in `.agents/skills/trae-mini-fleet/FLEET-SKILL-REFLECTIONS.txt` with an ISO-8601 timestamp, subagent used, action summary, and iterative instruction refinement.
+4. **Data-Engineering CSV Update:** Append a structured row to `trae-mini-fleet.csv` via the CLI helper:
+   ```bash
+   python3 .agents/skills/trae-mini-fleet/scripts/fleet_dataset.py log \
+       --agent <agent> \
+       --task-type <task_type> \
+       --step-budget <budget> \
+       --steps-taken <steps> \
+       --template <template_id> \
+       --excerpt "<summary>" \
+       --patch --pass \
+       --failure-mode <none|mode> \
+       --strengths "<strengths>" \
+       --weaknesses "<weaknesses>" \
+       --refinement "<refinement>"
+   ```
+5. Record a qualitative reflection entry in `.agents/skills/trae-mini-fleet/FLEET-SKILL-REFLECTIONS.txt` with an ISO-8601 timestamp, subagent used, action summary, and iterative instruction refinement.
 
 ---
 
@@ -368,26 +397,30 @@ Run the following test commands to verify your changes before exiting:
 The fleet continuously data-engineers its own prompting effectiveness through the structured ledger at:
 `.agents/skills/trae-mini-fleet/trae-mini-fleet.csv`
 
-### Workflow for Calling Agents:
-1. **Pre-Dispatch Query:** Before formulating a task prompt, inspect `trae-mini-fleet.csv` for the target `task_type` to retrieve the highest-performing `prompt_template_id` and previous `prompt_refinement` notes:
+### CLI Data-Engineering Workflow:
+1. **Pre-Dispatch Query:** Before formulating a task prompt, query past benchmarks for the target `task_type`:
    ```bash
-   grep ",<task_type>," .agents/skills/trae-mini-fleet/trae-mini-fleet.csv | tail -n 5
+   python3 .agents/skills/trae-mini-fleet/scripts/fleet_dataset.py query <task_type>
    ```
-2. **Dispatch Logging:** Upon receiving the subagent's exit code, patch, and trajectory, append a CSV record:
-   ```csv
-   <dispatch_id>,<timestamp>,<agent>,<task_type>,http://localhost:11434/v1,local-router/fallback-models,<step_budget>,<steps_taken>,<prompt_template_id>,"<prompt_excerpt>",<patch_generated>,<verification_passed>,<failure_mode>,"<strengths>","<weaknesses>","<refinement>"
+2. **Dispatch Logging:** Log the dispatch outcomes automatically:
+   ```bash
+   python3 .agents/skills/trae-mini-fleet/scripts/fleet_dataset.py log \
+       --agent <agent> \
+       --task-type <task_type> \
+       --step-budget 25 \
+       --steps-taken 14 \
+       --template TPL_TRAE_AST_V2 \
+       --excerpt "Refactored WeakMap request compression" \
+       --patch --pass \
+       --strengths "Clean diff" \
+       --weaknesses "None" \
+       --refinement "Provided explicit target files"
    ```
-3. **Continuous Performance Analysis:** Periodically aggregate pass rates per template:
-   ```python
-   # Quick prompt success calculation
-   import csv
-   with open('.agents/skills/trae-mini-fleet/trae-mini-fleet.csv') as f:
-       rows = list(csv.DictReader(f))
-       for agent in set(r['agent'] for r in rows):
-           agent_rows = [r for r in rows if r['agent'] == agent]
-           passed = sum(1 for r in agent_rows if r['verification_passed'] == 'true')
-           print(f"[{agent}] Dispatches: {len(agent_rows)} | Pass Rate: {passed/len(agent_rows)*100:.1f}%")
+3. **Continuous Performance Analysis:** View fleet statistics, pass rates, and failure distributions:
+   ```bash
+   python3 .agents/skills/trae-mini-fleet/scripts/fleet_dataset.py stats
    ```
+
 
 ---
 
