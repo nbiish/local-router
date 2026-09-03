@@ -184,6 +184,8 @@ test('POST /v1/responses non-streaming returns Responses envelope', async () => 
   assert.equal(data.object, 'response');
   assert.ok(Array.isArray(data.output));
   assert.ok(data.output.some((item) => item.type === 'message'));
+  assert.equal(typeof data.usage?.input_tokens_details?.cached_tokens, 'number');
+  assert.equal(typeof data.usage?.output_tokens_details?.reasoning_tokens, 'number');
 });
 
 test('POST /v1/responses streaming emits Responses SSE events', async () => {
