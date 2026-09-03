@@ -1706,6 +1706,25 @@ export function renderLayout(
         }
         let headroomEnabled = true;
         let headroomProxyUrl = 'http://localhost:8787';
+
+        function renderHeadroomStatus(data) {
+          const statusEl = document.getElementById('headroomStatus');
+          if (!statusEl) return;
+          if (!data || !data.enabled) {
+            statusEl.innerHTML = '<span style="color:var(--text-muted, #888);font-size:12px;">Context compression disabled</span>';
+            return;
+          }
+          if (data.healthy) {
+            statusEl.innerHTML = '<span style="color:#10b981;font-weight:600;font-size:12px;">● Connected</span> <span style="color:var(--text-muted, #888);font-size:12px;">(' + escapeHtml(data.proxyUrl || headroomProxyUrl) + ')</span>';
+          } else if (data.circuitState === 'OPEN') {
+            statusEl.innerHTML = '<span style="color:#f59e0b;font-weight:600;font-size:12px;">⚠ Proxy Offline</span> <span style="color:var(--text-muted, #888);font-size:12px;">(Circuit open — failing open, 0ms delay)</span>';
+          } else if (data.circuitState === 'HALF_OPEN') {
+            statusEl.innerHTML = '<span style="color:#3b82f6;font-weight:600;font-size:12px;">↻ Probing Recovery</span> <span style="color:var(--text-muted, #888);font-size:12px;">(' + escapeHtml(data.proxyUrl || headroomProxyUrl) + ')</span>';
+          } else {
+            statusEl.innerHTML = '<span style="color:var(--text-muted, #888);font-size:12px;">Active (' + escapeHtml(data.proxyUrl || headroomProxyUrl) + ')</span>';
+          }
+        }
+
         async function loadHeadroomConfig() {
           try {
             const res = await fetch('/api/headroom-config');
@@ -1714,13 +1733,12 @@ export function renderLayout(
             headroomEnabled = Boolean(data.enabled);
             headroomProxyUrl = data.proxyUrl || 'http://localhost:8787';
             const toggleEl = document.getElementById('headroomToggle');
-            const statusEl = document.getElementById('headroomStatus');
             const fieldsEl = document.getElementById('headroomFields');
             const urlInputEl = document.getElementById('headroomProxyUrlInput');
             if (toggleEl) toggleEl.checked = headroomEnabled;
-            if (statusEl) statusEl.textContent = headroomEnabled ? 'Context compression active (' + escapeHtml(headroomProxyUrl) + ')' : 'Context compression disabled';
             if (fieldsEl) fieldsEl.style.display = headroomEnabled ? 'block' : 'none';
             if (urlInputEl) urlInputEl.value = headroomProxyUrl;
+            renderHeadroomStatus(data);
           } catch (err) {
             console.error('loadHeadroomConfig failed:', err);
             const statusEl = document.getElementById('headroomStatus');
@@ -1745,8 +1763,7 @@ export function renderLayout(
             return;
           }
           headroomEnabled = payload.enabled;
-          const statusEl = document.getElementById('headroomStatus');
-          if (statusEl) statusEl.textContent = headroomEnabled ? 'Context compression active (' + escapeHtml(headroomProxyUrl) + ')' : 'Context compression disabled';
+          renderHeadroomStatus(payload);
           setMessage('Headroom context compression ' + (headroomEnabled ? 'enabled' : 'disabled') + '.', 'success');
         }
         async function saveHeadroomProxyUrl() {
@@ -1767,9 +1784,32 @@ export function renderLayout(
             return;
           }
           headroomProxyUrl = payload.proxyUrl;
-          const statusEl = document.getElementById('headroomStatus');
-          if (statusEl) statusEl.textContent = headroomEnabled ? 'Context compression active (' + escapeHtml(headroomProxyUrl) + ')' : 'Context compression disabled';
+          renderHeadroomStatus(payload);
           setMessage('Headroom proxy URL updated successfully.', 'success');
+        }
+        async function testHeadroomConnection() {
+          const testBtn = document.getElementById('headroomTestBtn');
+          if (testBtn) { testBtn.disabled = true; testBtn.textContent = 'Testing...'; }
+          try {
+            const urlInputEl = document.getElementById('headroomProxyUrlInput');
+            const proxyUrl = urlInputEl?.value?.trim() || undefined;
+            const res = await fetch('/api/headroom-config/probe', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ proxyUrl })
+            });
+            const data = await res.json();
+            renderHeadroomStatus(data);
+            if (data.probe?.ok) {
+              setMessage('Headroom proxy healthy (' + data.probe.latencyMs + 'ms).', 'success');
+            } else {
+              setMessage('Headroom probe failed: ' + (data.probe?.error || 'unreachable') + '. Failing open safely.', 'error');
+            }
+          } catch (err) {
+            setMessage('Failed to probe Headroom proxy: ' + (err.message || err), 'error');
+          } finally {
+            if (testBtn) { testBtn.disabled = false; testBtn.textContent = 'Test Connection'; }
+          }
         }
         async function toggleSystemPrompt() {
           const toggleEl = document.getElementById('systemPromptToggle');

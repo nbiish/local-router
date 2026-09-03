@@ -106,7 +106,15 @@ export interface ConfigApiDeps {
   persistWaferConfig: () => void;
   waferZdrApiPayload: () => { zdrEnabled: boolean };
   persistHeadroomConfig: () => void;
-  headroomApiPayload: () => { enabled: boolean; proxyUrl: string };
+  headroomApiPayload: () => {
+    enabled: boolean;
+    proxyUrl: string;
+    healthy?: boolean;
+    circuitState?: string;
+    lastCheckedAt?: number;
+    lastError?: string | null;
+  };
+  probeHeadroom: (proxyUrl?: string) => Promise<{ ok: boolean; status: string; latencyMs: number; error?: string }>;
   DEFAULT_FALLBACK_MODELS_TEXT: string;
   DEFAULT_CHAIN_OF_DRAFT_PROMPT: string;
   DEFAULT_THINKING_LEVEL: ThinkingLevel;
@@ -185,6 +193,7 @@ export function registerConfigApiRoutes(app: express.Express, deps: ConfigApiDep
     waferZdrApiPayload,
     persistHeadroomConfig,
     headroomApiPayload,
+    probeHeadroom,
     DEFAULT_FALLBACK_MODELS_TEXT,
     DEFAULT_CHAIN_OF_DRAFT_PROMPT,
     DEFAULT_THINKING_LEVEL,
@@ -1596,6 +1605,17 @@ app.put('/api/wafer-config', (req: Request, res: Response) => {
 // ── Headroom Compression Config API ────────────────────────────────────────
 app.get('/api/headroom-config', (req: Request, res: Response) => {
   return res.json(headroomApiPayload());
+});
+
+app.post('/api/headroom-config/probe', async (req: Request, res: Response) => {
+  const targetUrl = typeof req.body?.proxyUrl === 'string' && req.body.proxyUrl.trim()
+    ? req.body.proxyUrl.trim()
+    : undefined;
+  const probeResult = await probeHeadroom(targetUrl);
+  return res.json({
+    ...headroomApiPayload(),
+    probe: probeResult
+  });
 });
 
 app.put('/api/headroom-config', (req: Request, res: Response) => {
