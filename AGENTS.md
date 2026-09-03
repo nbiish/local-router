@@ -354,25 +354,32 @@ Tooling refinement happens in fleet chats, not harness swaps.
   - **Linux & WSL:** CLI shim in `~/.local/bin/ollama`; session environment set in
     `~/.config/environment.d/ollama.conf`; desktop autostart entry installed.
 
-**Terminal Coding Fleet (`trae-mini-fleet`):**
-- Master coding agents (`trae-cli` and `mini` / `mini-live`) configure exclusively
-  under `http://localhost:11434/v1` with model `local-router/fallback-models`.
-- Upstream authentication is handled entirely by Local Router via PQC secrets;
-  subagents use dummy bearer tokens (`local-router`) on loopback.
+**Augmented Master Fleet Orchestrator Prompting Contract:**
+The calling AI agent operates as an **Augmented Fleet Orchestrator Master**, selecting,
+prompt-engineering, and supervising specialized headless terminal subagents. All agents
+auto-route through `http://127.0.0.1:11434/v1` with model `local-router/fallback-models`.
 
-**Action Reflection & TTS.COMMS Guardrails:**
-- Upon each subagent action with `trae-cli` and `mini`, orchestrators reflect on
-  skill instruction improvements in the `.txt` reflection doc, applying TTS.COMMS
-  master directives:
-  1. *Adversarial:* Loopback proxy 11434 confinement; dummy bearer tokens.
-  2. *Privacy:* Trajectory and task files in `/tmp` scrubbed of sensitive data.
-  3. *Supply-chain:* Upstream git commits pinned before deployment.
-  4. *Systems-architecture:* Continuous port 11434 health probes before batch dispatches.
-  5. *Reliability:* Explicit step limits (20-35) + test verification before patches merge.
-  6. *Governance:* Commits, task ledgers, and comms stay cryptographically anchored.
-  7. *Ergonomics:* Single-command task file execution (`-f <file>`).
-  8. *Agentic-orchestration:* Trae AST refactoring first → Live-SWE test verification.
-  9. *Performance:* Immediate worktree cleanup and trajectory pruning.
+| Agent Harness | Prime Specialization & Strengths | Optimal Prompt Architecture | Failure Mode & Circuit Breaker |
+|---|---|---|---|
+| **`trae-cli`** (ByteDance) | AST exploration, cross-file symbol edits, multi-package refactoring, clean unified diff patches. | Scoped target file list, explicit symbol names, step budget (20-30), `-f <file>`, `--console-type simple`, `--patch-path`. | *Failure:* Unbounded search $\rightarrow$ step exhaustion. *Remedy:* Re-prompt with strict target file list. |
+| **`mini` / `mini-live`** (OpenAutoCoder) | Test-driven bug reproduction, runtime Python debug probe synthesis, iterative bash loops. | Reproduction test command first (TDD), cap probe creation to $\le 3$ before editing source, `--yolo --exit-immediately`. | *Failure:* Helper probe loop. *Remedy:* Hand off to Trae with target files discovered by Mini. |
+| **`free-claude-code`** (`claude` / `fcc-claude`) | Rapid single-turn environment & port diagnostics, quick git status/diff triage. | Concise direct query with strict output format constraints (bullet points, JSON). | *Failure:* Not suited for deep multi-file diff generation. *Remedy:* Delegate to Trae. |
+| **`omp`** (OhMyPy) | Self-contained Python utilities, latency benchmarks, algorithmic scripts. | Mandate Python standard library only (`argparse`, `json`, `csv`, `urllib`), specify exact inputs/outputs. | *Failure:* Missing third-party packages. *Remedy:* Enforce stdlib only. |
+
+**Dynamic Dual-Agent Handoff Chaining:**
+- **Refactor $\rightarrow$ Harden:** Dispatch `trae-cli` to perform structural AST refactoring and generate unified diff $\rightarrow$ dispatch `mini-live` to synthesize reproduction tests and harden edge-case coverage.
+- **Probe $\rightarrow$ Fix:** Dispatch `mini-live` to write minimal reproduction test and isolate failure signature $\rightarrow$ dispatch `trae-cli` targeting exact files to apply production patch.
+
+**Empirical Data-Engineering Mandate (`trae-mini-fleet.csv`):**
+To systematically engineer the highest-performing prompts across the fleet:
+1. **Pre-Dispatch Query:** Before launching a subagent, the orchestrator inspects
+   `.agents/skills/trae-mini-fleet/trae-mini-fleet.csv` for the target `task_type` to retrieve
+   proven prompt templates and lessons learned.
+2. **Post-Dispatch Logging:** Upon receiving the subagent's exit code, patch, and trajectory,
+   the orchestrator records a structured row in `trae-mini-fleet.csv` tracking `steps_taken`,
+   `patch_generated`, `verification_passed`, `failure_mode`, and `prompt_refinement`.
+3. **Qualitative Reflection:** Concurrently record an expert entry in
+   `FLEET-SKILL-REFLECTIONS.txt` applying the 9 TTS.COMMS master suggestions.
 
 **Continuation:** fresh chats resume from `agents.txt` (this repo) +
 `llms.txt` + `AGENTS/{date}.COMMS.md` + the ops chat.

@@ -1,0 +1,91 @@
+# FLEET-SKILL-REFLECTIONS.txt — Continuous Action Reflection & Skill Refinement Ledger
+#
+# Protocol: Upon every dispatch of `trae-cli` and `mini` via `local-router`
+# (endpoint: http://localhost:11434/v1, model: local-router/fallback-models),
+# the calling orchestrator MUST review subagent performance and record concise,
+# actionable skill refinements below, synthesizing the 9 TTS.COMMS master directives.
+# Format: ISO-8601 timestamp, subagent used, action summary, reflection & refinement.
+
+================================================================================
+GOVERNING TTS.COMMS MASTER DIRECTIVES (CROSS-DISPATCH SYNTHESIS)
+================================================================================
+1. Adversarial & Security Master:
+   Strict loopback proxy confinement (127.0.0.1:11434). Use dummy bearer tokens
+   (`local-router`). Subagents never receive or parse raw upstream API keys.
+
+2. Privacy & Regulatory Master:
+   Trajectory files (`trae_trajectory.json`) and task descriptions in `/tmp`
+   must be purged or scrubbed of sensitive environment details and absolute user paths.
+
+3. Supply-Chain & Third-Party Risk Master:
+   Pin upstream git commit hashes or release tags for `bytedance/trae-agent` and
+   `OpenAutoCoder/live-swe-agent` in repository setup documentation.
+
+4. Systems-Architecture & DevOps Master:
+   Preflight probe on port 11434 (`curl -sf http://127.0.0.1:11434/api/version`)
+   must pass prior to dispatching subagents. If down, auto-start via CLI shim.
+
+5. Reliability & Verification Master:
+   Enforce explicit step bounds (--max-steps 20-35). Require automated test suite
+   execution and compilation checks on all generated unified diff patches before merge.
+
+6. Governance & Sovereignty Master:
+   Commit logs, task tracking files (`.agents/tasks/`), and comms ledgers
+   (`AGENTS/{date}.COMMS.md`) travel with git commits and maintain cryptographic auditability.
+
+7. Developer Experience & Ergonomics Master:
+   Standardize task file execution (`trae-cli run -f <file> --console-type simple`)
+   over fragile shell string arguments to eliminate quoting errors across shells.
+
+8. Agentic Orchestration & Multi-Model Master:
+   Optimal chaining: dispatch Trae-Agent first for structural AST codebase refactoring
+   and patch creation, followed by Live-SWE-Agent for reproduction scripts and test hardening.
+
+9. Performance & Resource Optimization Master:
+   Discard failed subagent worktrees immediately (`git worktree remove --force`).
+   Purge intermediate trajectory logs to prevent filesystem bloat.
+
+================================================================================
+ACTION REFLECTIONS & SKILL REFINEMENT ENTRIES
+================================================================================
+
+## 2026-09-02T16:58:30Z | Trae-Agent (`trae-cli`) & Live-SWE-Agent (`mini-live`)
+- Context: Initial fleet unification under local-router/fallback-models shim.
+- Observed Action: Subagents executed cleanly when routed to port 11434, but failed
+  when port was occupied by standalone Ollama without backend proxying.
+- TTS.COMMS Alignment: Addressed systems-architecture master (probe port 11434) and
+  adversarial master (dummy token isolation).
+- Skill Refinement:
+  1. Mandate pre-dispatch curl probe to verify `local-router` readiness.
+  2. Configure dual-stack auto-start (Local Router on 11434, real Ollama on 11435).
+  3. Require `-f <task_file>` and `--console-type simple` for non-interactive `trae-cli`.
+
+## 2026-09-02T20:20:00Z | Cross-Platform Local-Router & Fleet Synchronization
+- Context: Extending Ollama auto-start across macOS, Windows, Linux, and WSL.
+- Observed Action: Windows environments lacked POSIX bash shim compatibility,
+  preventing seamless terminal fleet routing.
+- TTS.COMMS Alignment: Addressed developer-experience master (native Windows batch/PS1
+  wrappers) and privacy/hygiene master (ephemeral worktree isolation).
+- Skill Refinement:
+  1. Generate `ollama.cmd` and `ollama.ps1` alongside POSIX `~/.local/bin/ollama`.
+  2. Set `OLLAMA_HOST=127.0.0.1:11435` in GUI/User environments so desktop apps
+     automatically yield port 11434 to Local Router.
+  3. Ensure subagent task files and patches are systematically reviewed in isolated
+     worktrees before operator merge confirmation.
+
+## 2026-09-02T20:30:00Z | Free-Claude-Code, OhMyPy, and Trae-CLI Fallback Cascade
+- Context: Re-focusing headless execution chain (free-claude-code -> omp -> trae-cli),
+  adding browser/CLI agent chat, agent selection, and Trae/Mini fleet toggle.
+- Observed Action: Users require flexibility to chat conversational dialogue directly,
+  select specific agents, or trigger the autonomous fallback cascade while controlling
+  subagent fleet expansion.
+- TTS.COMMS Alignment: Addressed agentic-orchestration master (ordered cascade: FCC -> OMP -> Trae),
+  developer-experience master (web UI + CLI command chat), and reliability master (fleet toggle guardrail).
+- Skill Refinement:
+  1. Formalize primary fallback cascade: `free-claude-code` -> `omp` -> `trae-cli`.
+  2. Implement agent selection (`auto`, `free-claude-code`, `omp`, `trae-cli`, `mini`).
+  3. Add Trae/Mini fleet toggle: when enabled, subtasks can spawn autonomous fleet agents;
+     when disabled, execution remains strictly within the top-level CLI session.
+  4. Universally standardize on `local-router/fallback-models` via port 11434 for all agents,
+     web chats, and configuration.
+
