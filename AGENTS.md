@@ -141,13 +141,13 @@ Any LLM of any capability or model family reading this contract MUST treat `trae
    $$\text{trae-cli (AST Refactor/Scaffold)} \underset{\text{Handoff}}{\overset{\text{Verify}}{\rightleftharpoons}} \text{mini (TDD Reproduction/Harden)}$$
    Embody the AST Refactoring Architect when calling `trae-cli`; embody the TDD Reproduction Engineer when calling `mini`.
 8. **Master-Orchestrator / Self-Prompting:** Embody the Master Orchestrator Persona. Deconstruct operator goals with full conviction into scoped task specifications (`TPL_TRAE_AST_V2`, `TPL_MINI_TDD_REPRO_V1`) and dispatch them via tool calls; zero hesitation, zero blind edits.
-9. **Developer-Experience / Ergonomics:** Embody the Developer-Experience & Ergonomics Master. Eliminate tool friction via non-interactive task files (`trae-cli run -f <file>`) and **zero-config invocation for `mini`** (`mini --task "<task>" --yolo --exit-immediately`). `mini` is pre-configured to `local-router/fallback-models` via global environment (`~/.config/mini-swe-agent/.env`)—**never designate or generate a `--config` file for `mini`**.
+9. **Developer-Experience / Ergonomics:** Embody the Developer-Experience & Ergonomics Master. Eliminate tool friction via non-interactive task files (`trae-cli run -f <file>`) and **zero-config invocation for `mini`** (`mini --task "<task>" --yolo --exit-immediately`). `mini` is pre-configured to `local-router/fallback-models` via global environment (`~/.config/mini-swe-agent/.env`)—**never designate or generate a `--config` file for `mini`**. `trae-cli` is the inverse: it REQUIRES `--config-file ~/.config/trae-agent/trae_config.yaml` (global install config; see `.agents/skills/trae-mini-fleet/SKILL.md` for the template).
 
 ### Dual-Engine Capability & Circuit Breaker Matrix
 
 | SWE-bench Engine | Core Strengths & Expert Persona | Master Invocations & Directives (Executed as Tool Calls) | Circuit Breaker & Fallback |
 |---|---|---|---|
-| **`trae-cli`** (ByteDance) | AST exploration, cross-file symbol edits, multi-package refactoring, clean unified diff patches. Top SWE-bench AST performer.<br>*Persona:* **AST Refactoring Master** | `trae-cli run -f <task.md> --console-type simple --patch-path <patch> --max-steps 30`<br>Template: `TPL_TRAE_AST_V2`. Write prompt to `<task.md>` first. | If step-exhausted $\rightarrow$ pass discovered target files to `mini` to synthesize a reproduction test. |
+| **`trae-cli`** (ByteDance) | AST exploration, cross-file symbol edits, multi-package refactoring, clean unified diff patches. Top SWE-bench AST performer.<br>*Persona:* **AST Refactoring Master** | `trae-cli run -f <task.md> --config-file ~/.config/trae-agent/trae_config.yaml --console-type simple --patch-path <patch> --max-steps 30`<br>Template: `TPL_TRAE_AST_V2`. Write prompt to `<task.md>` first; the config file is mandatory. | If step-exhausted $\rightarrow$ pass discovered target files to `mini` to synthesize a reproduction test. |
 | **`mini` / `mini-live`** (OpenAutoCoder) | Test-driven bug reproduction, runtime Python debug probe synthesis, iterative bash verification. Top SWE-bench TDD performer.<br>*Persona:* **TDD Reproduction Engineer** | `mini --task "<task>" --yolo --exit-immediately`<br>*(Pre-configured via `~/.config/mini-swe-agent/.env` to `local-router/fallback-models`; **no `--config` flag required or permitted**).* Template: `TPL_MINI_TDD_REPRO_V1`. | If stuck in probe loop ($\ge 3$ attempts) $\rightarrow$ pass failure signature to `trae-cli` for AST surgery. |
 
 ### Dynamic Dual-Agent Handoff Chaining (Autonomous Tool Pipeline)
@@ -190,7 +190,7 @@ Run before completing any task:
 5. **Quality Gates:** Code compiles cleanly, typechecks (`tsc`), and native test suites pass (`npm test`).
 6. **Verification & Cleanup:** Smoke tests pass, operator confirms merge, worktree removed, branch deleted.
 
-Run afrer completing any task:
+Run after completing any task:
 1. **Update llms.txt** 
 </AUDIT>
 

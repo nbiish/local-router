@@ -68,7 +68,7 @@ The **WTF Federated Fleet** connects distributed physical machines (e.g., macOS 
 ### C. Trae-Mini Fleet Orchestration & YOLO Headless Execution
 - **The Upgrade:**
   - Standardized prompt templates (`TPL_TRAE_AST_V2`, `TPL_MINI_TDD_REPRO_V1`) for the SWE-bench Verified dual engines.
-  - Headless YOLO execution flags: `trae-cli run -f <file> --console-type simple` and `mini --yolo --exit-immediately`.
+  - Headless YOLO execution flags: `trae-cli run -f <file> --config-file ~/.config/trae-agent/trae_config.yaml --console-type simple` and `mini --yolo --exit-immediately` (`trae-cli` needs the global config file; `mini` is zero-config via `~/.config/mini-swe-agent/.env`).
   - Dedicated CLI helper: `scrub_task.py` (privacy redaction for intermediate task/trajectory files).
   - Cross-agent coordination tracked directly in `AGENTS/{date}.COMMS.md`.
 - **Fleet Impact:** Subagents executed on any machine follow identical prompt engineering principles and coordinate seamlessly via the shared COMMS ledger.
@@ -193,7 +193,7 @@ The federated mesh enables **Distributed Subagent Delegation**: an agent on Mac 
 2. **Task Execution (Worker):**
    - Peer agent reads task from bin (`wtf bin get <N>`).
    - Checks out an isolated task worktree (`git worktree add -b feat/<scope>-<slug> ../<slug>`).
-   - Runs `trae-cli run -f /tmp/task.md --console-type simple` or `mini --task ... --yolo` targeting `http://localhost:11434/v1`.
+   - Runs `trae-cli run -f /tmp/task.md --config-file ~/.config/trae-agent/trae_config.yaml --console-type simple` or `mini --task ... --yolo` targeting `http://localhost:11434/v1`.
 3. **Privacy Scrubbing & COMMS Tracking:**
    - Runs `python3 .agents/skills/trae-mini-fleet/scripts/scrub_task.py --in-place /tmp/task.md`.
    - Records task lifecycle in `AGENTS/{date}.COMMS.md` and posts status to `local-router-ops` channel.

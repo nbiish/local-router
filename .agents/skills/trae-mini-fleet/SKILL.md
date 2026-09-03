@@ -16,7 +16,7 @@ The calling AI agent operates as an **Augmented Fleet Orchestrator Master**, dis
 
 1. **Tool Calls, Not Passive Advice:** Dispatches of `trae-cli` and `mini` are immediate, headless tool calls executed via terminal runner in dedicated worktrees. Never ask the operator to execute them manually.
 2. **Zero-Config for `mini`:** `mini` is globally pre-configured (`~/.config/mini-swe-agent/.env`) to use `local-router/fallback-models` on `localhost:11434/v1`. **Never supply `--config <cfg>`**. Run: `mini --task "<task>" --yolo --exit-immediately`. Required `.env` keys: `OPENAI_API_BASE=http://localhost:11434/v1`, `MSWEA_MODEL_NAME='openai/local-router/fallback-models'` (litellm needs the `openai/` provider prefix; the bare name fails with "LLM Provider NOT provided"), `MSWEA_COST_TRACKING='ignore_errors'` (litellm has no price entry for local-router models).
-3. **Task Files for `trae-cli`:** Always write prompts to a task file (`-f <file>`) to prevent shell quoting failures. Run: `trae-cli run -f <file> --console-type simple --patch-path <patch> --max-steps 30`.
+3. **Task Files for `trae-cli`:** Always write prompts to a task file (`-f <file>`) to prevent shell quoting failures, and always pass the global config (`--config-file ~/.config/trae-agent/trae_config.yaml`). Run: `trae-cli run -f <file> --config-file ~/.config/trae-agent/trae_config.yaml --console-type simple --patch-path <patch> --max-steps 30`.
 4. **Embody Top-Tier Personas:** When formulating prompts and supervising runs, the calling orchestrator embodies the exact domain expert ("Master") required for the task.
 5. **Durable Ledger Attribution:** Every dispatch lifecycle (`start` $\rightarrow$ `end`, `parent`, `persona`, `status`) is logged in `AGENTS/{date}.COMMS.md`.
 6. **Pre-Flight Graph Intelligence:** Never guess file targets blindly. Query GitNexus (`impact`, `context`) to calculate exact upstream/downstream blast radius ($d=1, d=2$) before populating the task file's `SCOPE & TARGET FILES` block.
@@ -71,7 +71,7 @@ You must ONLY explore, inspect, and modify the following files:
 cat > /tmp/task_ast.md << 'EOF'
 [content above]
 EOF
-trae-cli run -f /tmp/task_ast.md --console-type simple --patch-path solution.patch --max-steps 30
+trae-cli run -f /tmp/task_ast.md --config-file ~/.config/trae-agent/trae_config.yaml --console-type simple --patch-path solution.patch --max-steps 30
 python3 .agents/skills/trae-mini-fleet/scripts/scrub_task.py --in-place /tmp/task_ast.md 2>/dev/null || true
 rm -f /tmp/task_ast.md
 ```
