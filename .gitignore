@@ -153,6 +153,7 @@ AGENTS/*.COMMS.live.md
 # ═══════════════════════════════════════════════════════════════════════════
 
 .opencode/
+example-repos/
 node_modules
 src-tauri/gen/
 src-tauri/target/
@@ -160,5 +161,4 @@ src/**/*.d.ts
 src/**/*.d.ts.map
 src/**/*.js
 src/**/*.js.map
-example-repos/
 

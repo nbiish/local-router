@@ -104,16 +104,24 @@ not retry-loop.
 > skill §5.9. Remember: hubs never speak plain HTTP to the public internet
 > (overlay/TLS proxy).
 
-## 3. Agent CLIs & SWE-Bench Verified Fleet (Headless Execution)
+## 3. Agent CLIs — install + fallback (headless execution)
 
-Tasks handed to a repo chat run headlessly via the SWE-bench verified coding fleet and CLI cascade, all wired to the loopback proxy `http://127.0.0.1:11434` (`local-router/fallback-models`):
+Tasks handed to a repo chat run headlessly via the FIRST available of:
 
-1. **`trae-cli` (ByteDance)** — AST exploration, cross-file symbol edits, multi-package refactoring, clean unified diff patches. Invocation: `trae-cli run -p openai -m local-router/fallback-models --model-base-url http://127.0.0.1:11434/v1 -k local-router --console-type simple --max-steps 30 "<prompt>"`.
-2. **`mini` / `mini-live` (OpenAutoCoder)** — Test-driven bug reproduction, runtime Python debug probe synthesis, iterative bash verification. Invocation: `mini --yolo --exit-immediately --task "<prompt>"`.
-3. **OhMyPy CLI (`omp`)** — General fast terminal agent. Invocation: `omp -p "<task prompt>"`.
-4. **FreeClaudeCode (`claude` / `fcc-claude`)** — Claude Code CLI with local-router proxy. Invocation: `claude -p --dangerously-skip-permissions "<prompt>"`.
-
-All sub-agents auto-route through single-config proxy `http://127.0.0.1:11434/v1` with bearer token `local-router`. Zero raw API keys exposed. Automated fallback cascade: `free-claude-code -> omp -> trae-cli -> mini`.
+1. **OhMyPy CLI (`omp`)** — preferred.
+   Check: `command -v omp`. Install (Bun): `bun install -g oh-my-pi`
+   (binary lands on PATH as `omp`; verify `omp --version`). Non-interactive
+   use: `omp "<task prompt>"` (see `omp --help` for model flags).
+2. **Hermes CLI** — check `command -v hermes`. Install/config ships with
+   the agent's ACP harness (e.g. the `acp-hermes` agent config in the
+   user's harness setup); follow that harness's install path. If absent
+   and OhMyPy is present, skip — do not install mid-task.
+3. **FreeClaudeCode** — the free Claude Code server + Claude system.
+   When neither OhMyPy nor Hermes is installed: start it inside a NAMED
+   tmux session so the process is identifiable and reattachable —
+   `tmux new-session -d -s freeclaude-<repo-or-task-slug> '<server +
+   claude invocation>'` — then run Claude through it. Report the tmux
+   session name + PID in task notes.
 
 **Cross-machine capability discovery:** `env_report` (run once per
 machine) publishes this machine's CLI surface to the hub; `env_probe`
@@ -172,14 +180,17 @@ machines. The rules are mechanical — follow them on every task:
    WireGuard/Tailscale overlay address or a TLS-terminating proxy —
    never raw port-forwarded HTTP.
 3. **Execute**: tasks from the chat run headlessly — the AUTOMATED lane is
-   `chat_run {prompt, agent?, fleet_enabled?, repo?, label?, workdir?, timeout_secs?}`:
+   `chat_run {prompt, repo?, label?, workdir?, timeout_secs?}` (v0.14.0):
    it maps the task to ONE persistent tmux session `wtf-chat-<slug>` (attach:
-   `tmux attach -t <name>` to watch live) and runs the fallback chain:
-   `free-claude-code -> omp -> trae-cli -> mini`, first installed + exit-0 wins.
-   Or specify an exact agent via `agent: "trae-cli" | "mini" | "fleet" | "omp" | "free-claude-code"`.
-   All CLIs route through the local-router Ollama/OpenAI proxy (`local-router/fallback-models`
-   on port 11434). `chat_sessions` lists active executor sessions, and
-   `chat_session_lifecycle {session, action: open|close|reconnect|delete}` controls them.
+   `tmux attach -t <name>` to watch live) and runs the fallback chain
+   (1) OhMyPy CLI → (2) Hermes CLI → (3) FreeClaudeCode (free Claude Code server +
+   Claude; auto-start when the first two are absent), first installed + exit-0 wins,
+   trace names the lane. `chat_sessions` lists this machine’s
+   executor sessions.
+   Record which CLI ran the task. All three CLIs are model-agnostic — operator config
+   on each machine points them at the local-router Ollama proxy (`local-router/fallback-models` on the Ollama-compatible port; verified receipts
+   OMP/HERMES/FCC-ROUTER-OK on mac + windows 2026-09-01). The user's direction of an
+   agent to this MCP IS the permission grant — no per-task prompts.
 4. **Report**: progress, decisions, and failures go back into the repo
    chat (`session_send`/`comms_post`); chain-of-draft for the public
    event feed. Post-quantum posture is automatic: FIPS 203 key sealing,
@@ -340,41 +351,7 @@ Etiquette:
   last 200 messages per channel. Commit the ledger for history; use
   COMMS for speed.
 
-## 10. Agent Fleet Execution Tooling & Prompting (`chat_run`, `chat_sessions`, `chat_session_lifecycle`)
-
-The hub exposes three first-class MCP tools for orchestrating and managing autonomous sub-agents across machines:
-
-### Tools Reference
-- **`chat_run`**: Execute a headless task in a named tmux session through the fallback chain or targeting a specific agent.
-  - `prompt` (string, required): The task prompt to execute headlessly. Format prompts clearly with objective, constraints, and verification steps.
-  - `agent` (string, optional): `"auto"` (default cascade), `"trae-cli"`, `"mini"`, `"fleet"` (SWE-bench dual-engine trae-cli -> mini), `"omp"`, or `"free-claude-code"`.
-  - `fleet_enabled` (bool, optional, default `true`): Enable Trae/Mini fleet execution in the cascade.
-  - `repo` (string, optional): Repo label for session slug attribution.
-  - `label` (string, optional): Task label refining session name (`wtf-chat-<repo>-<label>`).
-  - `workdir` (string, optional): Working directory for the agent (defaults to bridge cwd).
-  - `timeout_secs` (integer, optional, default `600`, range `10..3600`): Max wait time.
-- **`chat_sessions`**: List all `wtf-chat-*` tmux sessions on the host, showing whether an operator or peer is currently attached.
-- **`chat_session_lifecycle`**: Lifecycle management for tmux execution panes:
-  - `session` (string, required): Full session name (`wtf-chat-<slug>`) or bare slug.
-  - `action` (string, required): `"open"` (create if absent), `"close"` (graceful exit + terminate), `"reconnect"` (kill + fresh session), or `"delete"` (kill + purge temp exec files).
-
-### Orchestrator Prompting Pattern
-When delegating a sub-task via `chat_run`:
-1. Check `chat_sessions` to avoid colliding with an active session in the same repo.
-2. Call `chat_run` with a scoped imperative prompt:
-   ```json
-   {
-     "prompt": "Investigate test failures in src/auth.rs, write minimal reproduction test, and run cargo test. Keep changes in worktree.",
-     "agent": "fleet",
-     "repo": "wtf-is-going-on-mcp",
-     "label": "auth-repro",
-     "timeout_secs": 300
-   }
-   ```
-3. Read the returned `lane` and `output`. If attached inspection is desired, inform operator: `tmux attach -t wtf-chat-wtf-is-going-on-mcp-auth-repro`.
-4. When finished, clean up the tmux session via `chat_session_lifecycle { session: "...", action: "close" }`.
-
-## 11. Troubleshooting
+## 10. Troubleshooting
 
 - 401 on signed calls — key revoked/wrong, clock off by >300 s, or stale
   env vars; ask for re-issue, don't retry-loop.

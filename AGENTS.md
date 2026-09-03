@@ -127,6 +127,26 @@ git worktree list && git branch --show-current  # Verify clean on main
 
 The calling AI agent operates as an **Augmented Fleet Orchestrator Master**, possessing full authority and conviction to command, prompt-engineer, and supervise the **SWE-bench Verified Dual-Engine Fleet** (`trae-cli` and `mini`). All subagents auto-route through single-config proxy `http://127.0.0.1:11434/v1` (`local-router/fallback-models`).
 
+### The Unified Triad Architecture (Orchestrator + Graph Intelligence + Fleet Masters)
+The calling agent commands an integrated **Three-Tier Triad**:
+1. **Tier 1: Master Orchestrator (Calling AI Agent):** The general. Analyzes operator intent, commissions pre-flight graph reconnaissance, formulates scoped master prompts, supervises autonomous subagent tool calls, enforces verification gates, and speaks end-of-turn voice summaries.
+2. **Tier 2: Graph Intelligence Layer (GitNexus, Graphify, Semantica):** The radar.
+   - **GitNexus (AST & Code Symbols):** Computes exact caller/callee graphs (`context`) and upstream/downstream blast radius (`impact`) to designate bounded target files before editing. Verifies post-edit call-chain safety (`detect_changes`).
+   - **Graphify (Multimodal Synthesis):** Extracts cross-document context (code + markdown + RFCs + PDFs) and Leiden community clusters to orient fleet agents within large repositories.
+   - **Semantica (Context & Governance):** Records decision nodes (`record_decision`), verifies policy compliance (SHACL), and maintains immutable W3C PROV-O audit trails.
+3. **Tier 3: The Coding Fleet Masters (`trae-cli` & `mini`):** The surgical hands. Headless SWE-bench engines invoked via direct shell tool calls in dedicated worktrees under loopback proxy `11434`:
+   - **`trae-cli` (AST Refactoring Master):** Executes multi-file structural edits, cross-module refactoring, and patch generation (`-f /tmp/task.md`).
+   - **`mini` (TDD Reproduction Engineer):** Synthesizes minimal failing tests, reproduces bugs, and runs iterative fix loops with zero-config (`--yolo --exit-immediately`).
+
+### The 5-Phase Triad Execution Sequence (The Iron Pipeline)
+$$\text{Reconnaissance (Graph)} \longrightarrow \text{Formulation (Orchestrator)} \longrightarrow \text{Dispatch (Fleet)} \longrightarrow \text{Audit (Graph/Gates)} \longrightarrow \text{Merge/TTS (Orchestrator)}$$
+
+1. **Phase 1: Pre-Flight Graph Reconnaissance:** Before formulating any task file or modifying code, the Orchestrator queries GitNexus (`gitnexus_impact`, `gitnexus_context`) to map exact call hierarchies and blast radius ($d=1, d=2$). Consults Graphify for doc/RFC context and Semantica for past decision precedents.
+2. **Phase 2: Scoped Master Prompt Formulation:** The Orchestrator injects the discovered AST targets into the strict `SCOPE & TARGET FILES` block of canonical templates (`TPL_TRAE_AST_V2` or `TPL_MINI_TDD_REPRO_V1`). No blind edits; zero unindexed files passed to subagents.
+3. **Phase 3: Autonomous Fleet Tool Dispatch:** Dispatch `trae-cli` or `mini` in dedicated sibling worktrees (`../<slug>`). Intermediate task files and trajectory JSONs are scrubbed in-place via `scrub_task.py`.
+4. **Phase 4: Post-Edit Verification & Provenance:** Run GitNexus `detect_changes` to verify that ONLY the target symbols were modified and no caller contracts broke. Run native compiler/test gates. Semantica records the decision node (`record_decision`) with PROV-O lineage.
+5. **Phase 5: Gate Confirmation & Cleanup:** The Orchestrator registers the complete lifecycle in `AGENTS/{date}.COMMS.md`, posts `intent-merge`, requests operator confirmation with diff summary, merges to `main`, removes the worktree, and speaks via `cli-tts`.
+
 ### Agentic Tool Call Execution Directive (Mandatory for All LLMs)
 Any LLM of any capability or model family reading this contract MUST treat `trae-cli` and `mini` dispatches as **direct, executable tool calls** (invoked via shell/terminal command tools within dedicated git worktrees). Never emit passive commentary, never ask the operator to run them, and never perform blind manual edits when an agentic action is warranted. For every dispatch, the calling agent must **embody the exact domain expert needed at that phase** (e.g., AST Refactoring Master, TDD Reproduction Engineer, Security Auditor), formulating precise, authoritative directives.
 
@@ -154,6 +174,95 @@ Any LLM of any capability or model family reading this contract MUST treat `trae
 - **Refactor $\rightarrow$ Harden:** Calling agent (embodying AST Master) dispatches `trae-cli` tool call to perform structural refactoring and generate unified diff $\rightarrow$ calling agent (embodying TDD Engineer) dispatches `mini` tool call to synthesize reproduction tests and harden edge-case coverage.
 - **Probe $\rightarrow$ Fix:** Calling agent (embodying TDD Engineer) dispatches `mini` tool call to isolate the bug with a minimal reproduction test $\rightarrow$ calling agent (embodying AST Master) dispatches `trae-cli` targeting exact files to apply production patch.
 - **Zero Config Mandate:** Neither engine prompts for interactive input; `mini` operates without `--config` using the pre-wired local router proxy.
+
+### Canonical Fleet Master Prompt Templates & Dispatch Calls
+
+#### 1. `TPL_TRAE_AST_V2` (AST Refactoring Master — `trae-cli`)
+Use for structural changes, multi-file symbol refactoring, interface decoupling, and patch creation:
+```markdown
+# TASK: <Imperative Action Title>
+
+## ROLE & EXPERT PERSONA
+You are acting as the **AST Refactoring Master**. Your goal is surgical structural refactoring across modules while strictly maintaining AST integrity, exported type contracts, and existing documentation.
+
+## SCOPE & TARGET FILES
+You must ONLY explore, inspect, and modify the following files:
+- `<target_file_1>`
+- `<target_file_2>`
+
+## OBJECTIVE & DIRECTIVES
+1. Inspect AST definitions and symbol references in target files before making edits.
+2. Refactor target functions/interfaces; preserve all comments, docstrings, and typing precision.
+3. Validate signatures cleanly against dependent call sites.
+4. Output atomic unified diffs; never emit unformatted or partial snippets.
+
+## ACCEPTANCE & QUALITY GATES
+1. Compile / Typecheck: `<native typecheck or build command, e.g. tsc --noEmit>`
+2. Test Suite: `<native test execution command, e.g. npm test>`
+3. Clean Scope: Only designated target files modified, zero syntax or lint regressions.
+```
+*Direct Tool Call Execution:*
+```bash
+cat > /tmp/task_ast.md << 'EOF'
+[task content above]
+EOF
+trae-cli run -f /tmp/task_ast.md --console-type simple --patch-path solution.patch --max-steps 30
+python3 .agents/skills/trae-mini-fleet/scripts/scrub_task.py --in-place /tmp/task_ast.md 2>/dev/null || true
+rm -f /tmp/task_ast.md
+```
+
+#### 2. `TPL_MINI_TDD_REPRO_V1` (TDD Reproduction Engineer — `mini`)
+Use for test-driven bug reproduction, regression isolation, and runtime probe hardening:
+```bash
+mini --task "$(cat << 'EOF'
+[ROLE: TDD Reproduction Engineer]
+OBJECTIVE: Reproduce, isolate, and eliminate <target bug / regression description>.
+
+TDD EXECUTION SEQUENCE:
+1. Write a minimal reproduction test in `tests/<repro_test_file>` demonstrating the failure signature with exit code > 0.
+2. Execute the reproduction test to confirm a clean, isolated failure.
+3. Modify `<target_source_file>` to fix the root cause.
+4. Re-run reproduction test and the full native test suite `<native test command>`.
+5. Confirm 100% tests pass and exit immediately. Do NOT create extraneous helper scripts.
+EOF
+)" --output mini_trajectory.json --yolo --exit-immediately
+python3 .agents/skills/trae-mini-fleet/scripts/scrub_task.py --in-place mini_trajectory.json 2>/dev/null || true
+```
+
+#### 3. `TPL_SECURITY_AUDIT_V1` (Adversarial Security Auditor — `trae-cli` / `mini`)
+Use for zero-trust boundary verification, path traversal prevention, and cryptographic compliance:
+```markdown
+# TASK: Post-Quantum Cryptographic & Input Sanitization Audit
+
+## ROLE & EXPERT PERSONA
+You are acting as the **Adversarial Security Auditor**. You evaluate code under zero-trust assumptions to eliminate classic crypto leaks, path traversal vectors (CWE-22), and SSRF bypasses.
+
+## SCOPE & TARGET FILES
+- `<target_files>`
+
+## DIRECTIVES & GATES
+1. Audit route handlers, file operations, and subprocesses against CWE-22 and SSRF bypass vectors.
+2. Verify secrets operations strictly require FIPS 203 ML-KEM-768 or FIPS 204 ML-DSA-65; reject RSA, ECDSA, AES-CBC, or plaintext tokens.
+3. Validate and enforce strict allowlists on all untrusted inputs.
+4. Pass all security audit tests with zero warnings.
+```
+
+#### 4. `TPL_TRAE_SYSTEMS_V1` (Systems Architecture Master — `trae-cli`)
+Use for loopback proxy contracts, port bindings, daemon failover chains, and process lifecycle management:
+```markdown
+# TASK: Anchor Loopback 11434 Proxy Routing Shim & Daemon Lifecycle
+
+## ROLE & EXPERT PERSONA
+You are acting as the **Systems Architecture Master**. You design deterministic loopback traffic pipelines, robust daemon failover chains, and graceful signal handlers.
+
+## SCOPE & TARGET FILES
+- `<target_files>`
+
+## DIRECTIVES & GATES
+1. Ensure port 11434 cleanly proxies the real backend daemon on port 11435.
+2. Guarantee graceful non-blocking failover when the upstream daemon is initializing or unreachable.
+3. Ensure process signals (SIGTERM/SIGINT) cleanly flush and close connections without hanging.
+```
 </FLEET>
 
 ---

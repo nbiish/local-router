@@ -348,7 +348,7 @@ PQC_KEYCHAIN_ACCOUNT_OLD=default PQC_KEYCHAIN_ACCOUNT_NEW=pqc-secrets-key bin/pq
 || `PQC_CONFIG_DIR` | `~/.config/pqc-secrets` | Directory for bundle and public key files |
 | `PQC_USE_KEYCHAIN` | `false` | Enable native platform keychain storage (defaults to the `machine.kek` file store) |
 | `PQC_VAULT_PASSPHRASE` | — (prompt) | Vault passphrase for non-interactive use; env only, never persisted or logged |
-| `PQC_UNLOCK_TTL` | `8h` | Wrapper bootstrap (§5.12) session-holder TTL for auto-unlock |
+| `PQC_UNLOCK_TTL` | `never` | Wrapper bootstrap (§5.12) session lifetime; `never` = until `vault lock`, shutdown, or reboot |
 | `PQC_VAULT_TEST_KDF_LIGHT` | unset | **Test-only** Argon2id lightener (m=8 MiB, t=1, p=1) for fast sandboxed tests; production defaults unchanged; params are recorded per-vault in the header |
 
 **Private-key wrapping key (KEK):** the ML-KEM-768 private key is encrypted under a stable per-machine KEK persisted to `~/.config/pqc-secrets/machine.kek` (0600). It is generated once and survives reboots, kernel upgrades, and distro re-creation; a pre-existing legacy-encrypted store is migrated automatically. See `references/kek-persistence.md` for the full strategy.
@@ -929,9 +929,9 @@ vault-gated command after that is prompt-free for agents and tooling. The
 - **Rust surfaces** (`export`, `issue`, `envelope`, `vault sign`,
   `vault export-identity`, `vault migrate`): decap the bundle via the OS
   keychain → read `VAULT_PASSPHRASE` from the decrypted payload →
-  `vault unlock --ttl ${PQC_UNLOCK_TTL:-8h}` → rerun vault-first. The
-  session holder then serves all later tooling until TTL expiry or
-  `vault lock`.
+  `vault unlock --ttl ${PQC_UNLOCK_TTL:-never}` → rerun vault-first. The
+  session holder then serves all later tooling until `vault lock`,
+  shutdown, or reboot (`--ttl never` = no wall-clock expiry; sleep-safe).
 - **Python identity reads** (`list`, `verify`, `rename` — they never
   consult the holder): decap → inject `PQC_VAULT_PASSPHRASE` into the
   engine process env only.
@@ -942,7 +942,8 @@ vault-gated command after that is prompt-free for agents and tooling. The
 
 **Security notes:** the passphrase transits process memory and the
 environment of a single command — never another process's argv, never disk,
-never logs. `PQC_UNLOCK_TTL` overrides the 8h default session TTL;
+never logs. `PQC_UNLOCK_TTL` overrides the session lifetime (default
+`never` — until `vault lock`, shutdown, or reboot);
 `vault lock` still locks everything immediately; `export --use-keychain`
 skips bootstrap entirely.
 

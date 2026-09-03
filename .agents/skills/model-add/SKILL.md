@@ -56,10 +56,10 @@ Validation scripts to run **after** editing:
 
 ### 3.1 Run the Worktree Gate
 
-Per `AGENTS.md`: branch from `develop`, not `main`. One model = one worktree.
+Per `AGENTS.md`: branch from `main`. One model = one worktree.
 
 ```bash
-git worktree add -b feat/<scope>-add-<provider>-<model> ../add-<model> develop
+git worktree add -b feat/<scope>-add-<provider>-<model> ../add-<model> main
 cd ../add-<model>
 ```
 

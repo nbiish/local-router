@@ -54,10 +54,10 @@ User state on disk (NOT in git, but a removal must clean these too):
 
 ### 3.1 Run the Worktree Gate
 
-Per `AGENTS.md`: branch from `develop`, one removal = one worktree. Deprecations are not hot-patched.
+Per `AGENTS.md`: branch from `main`, one removal = one worktree. Deprecations are not hot-patched.
 
 ```bash
-git worktree add -b chore/<scope>-remove-<model> ../remove-<model> develop
+git worktree add -b chore/<scope>-remove-<model> ../remove-<model> main
 cd ../remove-<model>
 ```
 
