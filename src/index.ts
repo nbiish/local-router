@@ -43,7 +43,13 @@ function getOAuthStateSafe(name: string): OAuthProviderState | undefined {
 }
 import { sanitizeProviderRequestBody, stripReasoningMetadata, ThinkingLevel, DEFAULT_THINKING_LEVEL } from './reasoning';
 import { loadExpertLogs, LogEntryTracker, createUsageSpyStream } from './expert-logs';
-import { buildWraparoundExecutionPlan } from './execution-plan';
+import { buildWraparoundExecutionPlan, buildMultiPassExecutionPlan, DEFAULT_FALLBACK_ROUNDS } from './execution-plan';
+import {
+  filterEligibleFallbackModels,
+  estimateRequestContext,
+  requestRequiresMultimodal,
+  ModelCapabilitySpecs
+} from './routing-capabilities';
 import {
   buildResponseCreatedEvent,
   chatCompletionToResponsesResponse,
@@ -2404,14 +2410,23 @@ function resolveModelTarget(modelName: string): ModelTarget | null {
 }
 
 function fallbackModelPresentation(model: FallbackModel): ProviderModel {
-  const firstTarget = model.models[0];
-  // Resolve the presenting step's specs from the full catalog inventory
-  // (registry ∪ cache) first: chains are authored inventory-wide, so the
-  // route must not advertise default 64k/4k metadata just because its first
-  // step happens to be outside the curated serving subset right now.
-  const firstResolved = firstTarget
-    ? (findCatalogModel(firstTarget) || findProviderModel(firstTarget))
-    : undefined;
+  const active = activeFallbackModels(model);
+  const targets = active.length > 0 ? active : model.models;
+  const resolvedSpecs = targets
+    .map((target) => findCatalogModel(target) || findProviderModel(target))
+    .filter(Boolean) as ProviderModel[];
+
+  const maxContext = resolvedSpecs.length > 0
+    ? Math.max(...resolvedSpecs.map((s) => s.contextLength || 0))
+    : DEFAULT_CONTEXT_LENGTH;
+  const maxOutput = resolvedSpecs.length > 0
+    ? Math.max(...resolvedSpecs.map((s) => s.outputTokens || 0))
+    : DEFAULT_OUTPUT_TOKENS;
+  const anyImages = resolvedSpecs.some((s) => s.supportsImages);
+  const anyTools = resolvedSpecs.some((s) => s.supportsTools);
+  const anyCache = resolvedSpecs.some((s) => s.supportsCache);
+  const anyReasoning = resolvedSpecs.some((s) => s.supportsReasoning);
+
   const routeId = normalizeFallbackRouteId(model.id);
   const presentedId = fallbackPresentedModelId(routeId);
 
@@ -2420,12 +2435,12 @@ function fallbackModelPresentation(model: FallbackModel): ProviderModel {
     provider: FALLBACK_PROVIDER_NAME,
     model: routeId,
     display: `${presentedId}: ${model.models.join(' -> ')}`,
-    contextLength: firstResolved?.contextLength || DEFAULT_CONTEXT_LENGTH,
-    outputTokens: firstResolved?.outputTokens || DEFAULT_OUTPUT_TOKENS,
-    supportsTools: firstResolved?.supportsTools ?? true,
-    supportsImages: firstResolved?.supportsImages ?? false,
-    supportsCache: firstResolved?.supportsCache ?? false,
-    supportsReasoning: false
+    contextLength: maxContext > 0 ? maxContext : DEFAULT_CONTEXT_LENGTH,
+    outputTokens: maxOutput > 0 ? maxOutput : DEFAULT_OUTPUT_TOKENS,
+    supportsTools: resolvedSpecs.length > 0 ? anyTools : true,
+    supportsImages: anyImages,
+    supportsCache: anyCache,
+    supportsReasoning: anyReasoning
   };
 }
 
@@ -4691,8 +4706,23 @@ export function activeFallbackModels(fallbackRoute: FallbackModel): string[] {
   });
 }
 
-export function fallbackExecutionPlan(fallbackRoute: FallbackModel) {
-  return buildWraparoundExecutionPlan(activeFallbackModels(fallbackRoute), FALLBACK_PRIMARY_ATTEMPTS);
+export function fallbackExecutionPlan(fallbackRoute: FallbackModel, body?: any) {
+  const active = activeFallbackModels(fallbackRoute);
+  if (!body) {
+    return buildWraparoundExecutionPlan(active, FALLBACK_PRIMARY_ATTEMPTS);
+  }
+  const filterResult = filterEligibleFallbackModels(active, body, (modelId) => {
+    const m = findCatalogModel(modelId) || findProviderModel(modelId);
+    return {
+      contextLength: m?.contextLength || DEFAULT_CONTEXT_LENGTH,
+      outputTokens: m?.outputTokens || DEFAULT_OUTPUT_TOKENS,
+      supportsImages: Boolean(m?.supportsImages),
+      supportsTools: m?.supportsTools ?? true,
+      supportsCache: Boolean(m?.supportsCache),
+      supportsReasoning: Boolean(m?.supportsReasoning)
+    };
+  });
+  return buildWraparoundExecutionPlan(filterResult.eligible, FALLBACK_PRIMARY_ATTEMPTS);
 }
 
 async function handleChatCompletion(req: Request, res: Response, bodyOverrides?: any, options?: { outputFormat?: CompletionOutputFormat }) {
@@ -4795,12 +4825,82 @@ async function executeFallbackRoute(
   res: Response,
   logTracker?: LogEntryTracker
 ) {
-  const plan = fallbackExecutionPlan(fallbackRoute);
+  const activeModels = activeFallbackModels(fallbackRoute);
+  const filterResult = filterEligibleFallbackModels(activeModels, body, (modelId) => {
+    const m = findCatalogModel(modelId) || findProviderModel(modelId);
+    return {
+      contextLength: m?.contextLength || DEFAULT_CONTEXT_LENGTH,
+      outputTokens: m?.outputTokens || DEFAULT_OUTPUT_TOKENS,
+      supportsImages: Boolean(m?.supportsImages),
+      supportsTools: m?.supportsTools ?? true,
+      supportsCache: Boolean(m?.supportsCache),
+      supportsReasoning: Boolean(m?.supportsReasoning)
+    };
+  });
+
   const attemptLog: Array<Record<string, unknown>> = [];
+
+  // Record skipped models in the attempt log so clients have full observability
+  for (const s of filterResult.skipped) {
+    attemptLog.push({
+      fallbackRoute: fallbackRoute.id,
+      targetModel: s.model,
+      skipped: true,
+      reason: s.reason,
+      contextLength: s.contextLength,
+      supportsImages: s.supportsImages,
+      requiredContext: filterResult.requiredContext,
+      requiresMultimodal: filterResult.requiresMultimodal
+    });
+  }
+
+  if (filterResult.error === 'no_multimodal_models') {
+    const status = 400;
+    const errorMsg = `Fallback model "${fallbackRoute.id}" has no multimodal-capable targets to process request containing image inputs.`;
+    if (logTracker) {
+      logTracker.onFailure(status, 'unsupported_multimodal', errorMsg);
+      logTracker.onFinish(Date.now() - requestStartedAt);
+    }
+    return res.status(status).json({
+      error: errorMsg,
+      provider: 'local-router',
+      fallback: {
+        id: fallbackRoute.id,
+        requiredContext: filterResult.requiredContext,
+        requiresMultimodal: true,
+        configuredTargets: fallbackRoute.models,
+        attempts: attemptLog
+      }
+    });
+  }
+
+  const eligible = filterResult.eligible;
+  if (eligible.length === 0) {
+    const status = 502;
+    const errorMsg = `Fallback model "${fallbackRoute.id}" has no active or eligible targets (requiredContext: ${filterResult.requiredContext}).`;
+    if (logTracker) {
+      logTracker.onFailure(status, 'fallback_exhaustion', errorMsg);
+      logTracker.onFinish(Date.now() - requestStartedAt);
+    }
+    return res.status(status).json({
+      error: errorMsg,
+      provider: 'local-router',
+      fallback: {
+        id: fallbackRoute.id,
+        requiredContext: filterResult.requiredContext,
+        requiresMultimodal: filterResult.requiresMultimodal,
+        configuredTargets: fallbackRoute.models,
+        attempts: attemptLog
+      }
+    });
+  }
+
+  const plan = fallbackExecutionPlan(fallbackRoute, body);
   let lastFailure: AttemptFailure | null = null;
 
   for (let stageIndex = 0; stageIndex < plan.length; stageIndex += 1) {
     const stage = plan[stageIndex];
+
     const preflightFailure = fallbackStagePreflight(stage.model);
     if (preflightFailure) {
       lastFailure = preflightFailure;
@@ -4889,21 +4989,28 @@ async function executeFallbackRoute(
   }
 
   const terminalFailure = lastFailure as AttemptFailure | null;
-
   const status = terminalFailure?.status || 502;
+  const terminalMessage = `Fallback model "${fallbackRoute.id}" exhausted all ${eligible.length} eligible targets across ${DEFAULT_FALLBACK_ROUNDS} retry passes.`;
+
   if (logTracker) {
     logTracker.onFailure(
       status,
       terminalFailure?.errorType || 'fallback_exhaustion',
-      terminalFailure?.message || `Fallback model "${fallbackRoute.id}" exhausted all configured targets.`
+      terminalFailure?.message || terminalMessage
     );
     logTracker.onFinish(Date.now() - requestStartedAt);
   }
+
   return res.status(status).json({
-    error: `Fallback model "${fallbackRoute.id}" exhausted all configured targets.`,
+    error: terminalMessage,
+    provider: 'local-router',
     fallback: {
       id: fallbackRoute.id,
       configuredTargets: fallbackRoute.models,
+      eligibleTargets: eligible,
+      requiredContext: filterResult.requiredContext,
+      requiresMultimodal: filterResult.requiresMultimodal,
+      passesCompleted: DEFAULT_FALLBACK_ROUNDS,
       terminalErrorType: terminalFailure?.errorType || null,
       terminalErrorMessage: terminalFailure?.message || null,
       attempts: attemptLog
@@ -5790,3 +5897,9 @@ function handleHttpUpgrade(request: any, socket: any, head: any) {
 
 server?.on('upgrade', handleHttpUpgrade);
 serverV6?.on('upgrade', handleHttpUpgrade);
+
+export {
+  estimateRequestContext,
+  requestRequiresMultimodal,
+  filterEligibleFallbackModels
+};
