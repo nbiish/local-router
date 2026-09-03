@@ -57,7 +57,13 @@ export function chatCompletionToResponsesResponse(chatData: any, presentedModel:
     usage: {
       input_tokens: usage.prompt_tokens || 0,
       output_tokens: usage.completion_tokens || 0,
-      total_tokens: usage.total_tokens || 0
+      total_tokens: usage.total_tokens || 0,
+      input_tokens_details: {
+        cached_tokens: usage.prompt_tokens_details?.cached_tokens || 0
+      },
+      output_tokens_details: {
+        reasoning_tokens: usage.completion_tokens_details?.reasoning_tokens || usage.reasoning_tokens || 0
+      }
     }
   };
 }
@@ -72,7 +78,13 @@ export function buildResponseCreatedEvent(responseId: string, modelId: string): 
       model: modelId,
       status: 'in_progress',
       output: [],
-      usage: { input_tokens: 0, output_tokens: 0, total_tokens: 0 }
+      usage: {
+        input_tokens: 0,
+        output_tokens: 0,
+        total_tokens: 0,
+        input_tokens_details: { cached_tokens: 0 },
+        output_tokens_details: { reasoning_tokens: 0 }
+      }
     }
   };
 }
