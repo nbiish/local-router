@@ -303,21 +303,22 @@ git branch --show-current  # main
 <FLEET>
 ## TERMINAL CODING FLEET — HEADLESS SUB-AGENT ORCHESTRATION
 
-Target repositories deploying ainish-coder rules can delegate complex coding tasks to headless terminal coding agents governed by `trae-mini-fleet`:
+Target repositories deploying ainish-coder rules delegate autonomous coding tasks exclusively to the **SWE-bench Verified Dual-Engine Fleet** (`trae-cli` and `mini`):
 
-- **Master Coding Agents**:
-  - `trae-cli` (ByteDance SWE agent) — Structural exploration, AST search, multi-file editing, patch creation (`trae-cli run [TASK]`). Note: the CLI binary on PATH is `trae-cli` (invoking `trae-agent` fails). Use `-f <task_file>` and `--console-type simple` for non-interactive execution.
-  - `mini` / `mini-live` (OpenAutoCoder Live-SWE-agent) — Test-driven reproduction, dynamic tool synthesis, iterative patch verification (`mini --config <cfg> --task [TASK] --yolo --exit-immediately`).
+- **SWE-bench Verified Master Coding Engines**:
+  - `trae-cli` (ByteDance SWE agent) — Structural exploration, AST search, multi-file editing, patch creation (`trae-cli run -f <task_file> --console-type simple --patch-path <patch>`). Pinned at `v0.2.1` (`8d4b3c1`). The CLI binary on PATH is `trae-cli` (never invoke `trae-agent`).
+  - `mini` / `mini-live` (OpenAutoCoder Live-SWE-agent) — Test-driven reproduction, dynamic runtime tool synthesis, iterative bash verification (`mini --config <cfg> --task [TASK] --yolo --exit-immediately`). Pinned at `v0.1.4` (`f52e89a`).
+- **SWE-bench Dual-Engine Rationale**: `trae-cli` and `mini` are selected exclusively because empirical SWE-bench Verified evaluations demonstrate that these two harnesses achieve the highest benchmark problem resolution rates among all free, open-source agent harnesses.
 - **Single Config Proxy / Shim**: All fleet agents route through the local Ollama endpoint (`http://localhost:11434/v1`) with model `local-router/fallback-models`. Local-router manages provider failovers and PQC secrets upstream; child repositories never manage separate API keys or provider configs for sub-agents.
-- **Headless Fallback Cascade**: Autonomous actions follow the 3-stage fallback cascade: `free-claude-code` $\rightarrow$ `omp` $\rightarrow$ `trae-cli`.
-- **Agent Selection & Fleet Toggle**: Web chat and CLI interfaces in `local-router` (/config/chat) and `wtf-is-going-on-mcp` (dashboard) allow selecting the CLI agent (`auto`, `free-claude-code`, `omp`, `trae-cli`, `mini`) and toggling the Trae/Mini fleet ON/OFF.
+- **Symbiotic Dual-Engine Handoff**: Complex tasks cycle between Trae and Mini:
+  $$\text{trae-cli (AST Refactor/Scaffold)} \underset{\text{Handoff}}{\overset{\text{Verify}}{\rightleftharpoons}} \text{mini (TDD Reproduction/Harden)}$$
 - **Universal Model Standard**: Virtual model `local-router/fallback-models` powers all agents, user-facing web chat, and subagent fleet executions across all repos.
 - **Cross-Platform Auto-Start Guarantee**: The local-router server starts automatically upon the Ollama CLI or Desktop application starting on macOS, Windows, Linux, and WSL. Local Router binds to port `11434`, proxying the real Ollama backend on port `11435` via `OLLAMA_HOST=127.0.0.1:11435`.
 - **Git Worktree Isolation**: Sub-agents MUST execute in isolated worktrees (`git worktree add -b <branch> ../<slug>`). One dispatch = one worktree. Never run autonomous sub-agents directly on release or working branches.
-- **Continuous Action Reflection & TTS.COMMS Guardrails**: Upon each action with `trae-cli` or `mini`, orchestrators reflect on skill improvements and append entries into `FLEET-SKILL-REFLECTIONS.txt` using concise, expertly crafted language while applying the 9 TTS.COMMS master suggestions:
+- **Continuous Action Reflection & TTS.COMMS Guardrails**: Upon each action with `trae-cli` or `mini`, orchestrators reflect on skill improvements and append entries into `trae-mini-fleet.csv` and `FLEET-SKILL-REFLECTIONS.txt` using concise, expertly crafted language while applying the 9 TTS.COMMS master suggestions:
   1. *Adversarial:* Loopback proxy 11434 confinement; dummy bearer tokens (`local-router`).
-  2. *Privacy:* Trajectory and temporary task files in `/tmp` scrubbed of sensitive data.
-  3. *Supply-chain:* Pinned commit hashes for `trae-agent` and `live-swe-agent`.
+  2. *Privacy:* Task and trajectory files scrubbed of sensitive data via `scrub_task.py`.
+  3. *Supply-chain:* Pinned commit hashes for `trae-agent@8d4b3c1` and `live-swe-agent@f52e89a`.
   4. *Systems-architecture:* Port 11434 health checks prior to dispatch.
   5. *Reliability:* Step limits (20-35) + test verification on all patches.
   6. *Governance:* Commits, task files, and comms ledgers cryptographically tracked.
@@ -436,20 +437,25 @@ Tooling refinement happens in fleet chats, not harness swaps.
     `~/.config/environment.d/ollama.conf`; desktop autostart entry installed.
 
 **Augmented Master Fleet Orchestrator Prompting Contract:**
-The calling AI agent operates as an **Augmented Fleet Orchestrator Master**, selecting,
-prompt-engineering, and supervising specialized headless terminal subagents. All agents
-auto-route through `http://127.0.0.1:11434/v1` with model `local-router/fallback-models`.
+The calling AI agent operates as an **Augmented Fleet Orchestrator Master**, possessing full
+conviction and authority to command, prompt-engineer, and supervise the **SWE-bench Verified
+Dual-Engine Fleet** (`trae-cli` and `mini`). All subagents auto-route through
+`http://127.0.0.1:11434/v1` with model `local-router/fallback-models`.
 
-| Agent Harness | Prime Specialization & Strengths | Optimal Prompt Architecture | Failure Mode & Circuit Breaker |
+Believe in your orchestration capability: You do not make tentative, blind, or unverified edits.
+You command two of the highest-performing free SWE agents on SWE-bench Verified, decomposing complex
+operator goals into atomic, testable dispatches, synthesizing exact prompt templates, and verifying
+unified diffs with zero tolerance for regressions.
+
+| SWE-bench Engine | Core Specialization & Strengths | Master Prompt Architecture | Failure Mode & Circuit Breaker |
 |---|---|---|---|
-| **`trae-cli`** (ByteDance) | AST exploration, cross-file symbol edits, multi-package refactoring, clean unified diff patches. | Scoped target file list, explicit symbol names, step budget (20-30), `-f <file>`, `--console-type simple`, `--patch-path`. | *Failure:* Unbounded search $\rightarrow$ step exhaustion. *Remedy:* Re-prompt with strict target file list. |
-| **`mini` / `mini-live`** (OpenAutoCoder) | Test-driven bug reproduction, runtime Python debug probe synthesis, iterative bash loops. | Reproduction test command first (TDD), cap probe creation to $\le 3$ before editing source, `--yolo --exit-immediately`. | *Failure:* Helper probe loop. *Remedy:* Hand off to Trae with target files discovered by Mini. |
-| **`free-claude-code`** (`claude` / `fcc-claude`) | Rapid single-turn environment & port diagnostics, quick git status/diff triage. | Concise direct query with strict output format constraints (bullet points, JSON). | *Failure:* Not suited for deep multi-file diff generation. *Remedy:* Delegate to Trae. |
-| **`omp`** (OhMyPy) | Self-contained Python utilities, latency benchmarks, algorithmic scripts. | Mandate Python standard library only (`argparse`, `json`, `csv`, `urllib`), specify exact inputs/outputs. | *Failure:* Missing third-party packages. *Remedy:* Enforce stdlib only. |
+| **`trae-cli`** (ByteDance) | AST exploration, cross-file symbol edits, multi-package refactoring, clean unified diff patches. Top SWE-bench AST performer. | Scoped target file list, explicit symbol names, step budget (20-30), `-f <file>`, `--console-type simple`, `--patch-path <patch>`. Template: `TPL_TRAE_AST_V2`. | *Failure:* Unbounded search $\rightarrow$ step exhaustion. *Remedy:* Re-prompt with strict target file list. |
+| **`mini` / `mini-live`** (OpenAutoCoder) | Test-driven bug reproduction, runtime Python debug probe synthesis, iterative bash loops. Top SWE-bench TDD performer. | Reproduction test command first (TDD), cap probe creation to $\le 3$ before editing source, `--yolo --exit-immediately`. Template: `TPL_MINI_TDD_REPRO_V1`. | *Failure:* Helper probe loop. *Remedy:* Hand off to Trae with target files discovered by Mini. |
 
-**Dynamic Dual-Agent Handoff Chaining:**
+**Dynamic Dual-Agent Handoff Chaining (Symbiotic Mastery):**
 - **Refactor $\rightarrow$ Harden:** Dispatch `trae-cli` to perform structural AST refactoring and generate unified diff $\rightarrow$ dispatch `mini-live` to synthesize reproduction tests and harden edge-case coverage.
 - **Probe $\rightarrow$ Fix:** Dispatch `mini-live` to write minimal reproduction test and isolate failure signature $\rightarrow$ dispatch `trae-cli` targeting exact files to apply production patch.
+
 
 **Empirical Data-Engineering Mandate (`trae-mini-fleet.csv`):**
 To systematically engineer the highest-performing prompts across the fleet:
