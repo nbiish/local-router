@@ -42,6 +42,23 @@ Local Router is the **singular model system** for the operator's agent fleet: ev
 - **Cross-machine CLI helpers (windows):** `wtf-ask --local "q"` (fallback chain, reports lane) and `wtf-ask-remote <chat> "directive" [--wait N]` (post to an ops chat + poll replies) — the message is the contract; remote runtime irrelevant. Promote to bridge MCP tools later.
 - **Operational rule:** a harness lane failing is a ROUTER troubleshooting item (chain, keys, upstream) — never a reason to repoint a harness at a raw provider.
 
+### Dynamic Context Sizing & Multimodal Fallback Routing (2026-09-03)
+
+Local Router dynamically evaluates the token context requirements and multimodal visual payload constraints of every incoming request to select and advance through capable fallback chain targets:
+
+- **Context Token Estimation (`estimateRequestContext`):** Accurately calculates required tokens ($T_{\text{input}} + T_{\text{output}}$) across all message turns, system prompts, tool schemas (JSON stringified), and vision images (~1,200 tokens/image) with conservative char-to-token heuristics (`chars / 3.2`) plus requested output headroom (`max_tokens`, default 4,096).
+- **Multimodal Payload Detection (`requestRequiresMultimodal`):** Inspects message parts for OpenAI (`image_url`), Anthropic (`image` base64), and Ollama (`images` array) visual attachments.
+- **Dynamic Candidate Filtering (`filterEligibleFallbackModels`):**
+  - If a request contains multimodal image inputs, candidates lacking `supportsImages` are dynamically bypassed. If no candidate supports images, returns HTTP 400 (`no_multimodal_support`).
+  - If a request requires a large context window (e.g. 350,000 tokens), candidates whose `contextLength` < requiredTokens are dynamically bypassed without making futile upstream calls. If an active 1M model hits a provider error (keys, rate limit, downtime), the router automatically advances to the next available fallback model in the list that can fit the context.
+  - If a request exceeds all configured model context windows, the router automatically selects the highest-capacity models in the chain rather than failing with zero attempts.
+- **3-Pass Retry Loop (`buildMultiPassExecutionPlan`):**
+  - Traverses eligible candidates across at least 3 full rounds (`DEFAULT_FALLBACK_ROUNDS = 3`).
+  - Passes 2 and 3 include inter-pass backoff delays (1.5s, 3.0s) to allow temporary 429 rate limits, token bucket cooldowns, and concurrency limits to reset.
+  - If all 3 passes fail, returns a structured HTTP 502 error with `provider: "local-router"`, including full attempt history, skipped reasons, required context, and pass count.
+- **Advertised Model Specs (`fallbackModelPresentation`):**
+  - `local-router/fallback-models` dynamically computes and advertises the MAXIMUM `context_length` (e.g. 1,048,576) and union of capabilities (`imageInput: true` if any active candidate supports images, tools, cache, reasoning) across active targets in `/v1/models` and `/api/tags`, ensuring agent harnesses know the route's full capacity.
+
 ### Product North Star
 Local Router should become an easy local drop-in replacement for Ollama-compatible tooling: one localhost server, one familiar Ollama/OpenAI-compatible surface, and many provider-backed or locally routed models behind it.
 
