@@ -1054,12 +1054,16 @@ function setupDesktopAndServiceAutostart(routeMode, target) {
       const systemdDir = path.join(os.homedir(), '.config', 'systemd', 'user');
       fs.mkdirSync(systemdDir, { recursive: true });
       const localRouterBin = path.join(__dirname, 'local-router.js');
+      // KillMode=process: ensure may spawn long-lived children (e.g. the ollama
+      // backend on 11435). The default control-group kill would reap them the
+      // moment this oneshot run exits, so the backend could never persist.
       const serviceContent = [
         '[Unit]',
         'Description=Local Router port-contract watchdog (11434=router, 11435=ollama)',
         '',
         '[Service]',
         'Type=oneshot',
+        'KillMode=process',
         `ExecStart=${process.execPath} ${localRouterBin} ${ensureArgsStr}`,
         ''
       ].join('\n');

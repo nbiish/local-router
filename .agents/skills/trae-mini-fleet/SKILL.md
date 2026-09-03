@@ -15,7 +15,7 @@ The calling AI agent operates as an **Augmented Fleet Orchestrator Master**, dis
 ## 1. Core Operating Principles
 
 1. **Tool Calls, Not Passive Advice:** Dispatches of `trae-cli` and `mini` are immediate, headless tool calls executed via terminal runner in dedicated worktrees. Never ask the operator to execute them manually.
-2. **Zero-Config for `mini`:** `mini` is globally pre-configured (`~/.config/mini-swe-agent/.env`) to use `local-router/fallback-models` on `localhost:11434/v1`. **Never supply `--config <cfg>`**. Run: `mini --task "<task>" --yolo --exit-immediately`.
+2. **Zero-Config for `mini`:** `mini` is globally pre-configured (`~/.config/mini-swe-agent/.env`) to use `local-router/fallback-models` on `localhost:11434/v1`. **Never supply `--config <cfg>`**. Run: `mini --task "<task>" --yolo --exit-immediately`. Required `.env` keys: `OPENAI_API_BASE=http://localhost:11434/v1`, `MSWEA_MODEL_NAME='openai/local-router/fallback-models'` (litellm needs the `openai/` provider prefix; the bare name fails with "LLM Provider NOT provided"), `MSWEA_COST_TRACKING='ignore_errors'` (litellm has no price entry for local-router models).
 3. **Task Files for `trae-cli`:** Always write prompts to a task file (`-f <file>`) to prevent shell quoting failures. Run: `trae-cli run -f <file> --console-type simple --patch-path <patch> --max-steps 30`.
 4. **Embody Top-Tier Personas:** When formulating prompts and supervising runs, the calling orchestrator embodies the exact domain expert ("Master") required for the task.
 5. **Durable Ledger Attribution:** Every dispatch lifecycle (`start` $\rightarrow$ `end`, `parent`, `persona`, `status`) is logged in `AGENTS/{date}.COMMS.md`.
@@ -258,6 +258,8 @@ Before merging any fleet subagent changes:
 | Invoking `trae-agent` | Binary not found | **Always invoke `trae-cli`** |
 | Omitting non-interactive flags | Hanging prompt on stdin | Use `--console-type simple` on `trae-cli`; `--yolo --exit-immediately` on `mini` |
 | Passing `--config` to `mini` | Broken local configuration | **Omit `--config`**: `mini` uses `~/.config/mini-swe-agent/.env` globally |
+| Bare model name in `MSWEA_MODEL_NAME` | litellm "LLM Provider NOT provided" retry loop | Prefix the provider: `MSWEA_MODEL_NAME='openai/local-router/fallback-models'` |
+| litellm cost map miss on local models | RuntimeError "This model isn't mapped yet" | Set `MSWEA_COST_TRACKING='ignore_errors'` in `~/.config/mini-swe-agent/.env` |
 | Unescaped task arguments | Shell quoting errors | Write task prompt to `/tmp/task.md` and pass via `-f <file>` |
 | Direct commits on `main` | Unclean reflog / pollution | Mandatory worktree: `git worktree add -b <branch> ../<slug> main` |
 | Missing COMMS tracking | Uncoordinated collisions | Always log start/end timestamps and parent/persona in `AGENTS/{date}.COMMS.md` |

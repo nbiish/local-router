@@ -1,17 +1,18 @@
 ---
 name: wtf-agent-hub
-description: Connect any agent, on any machine or harness, to the wtf multi-agent observability hub. Use when an agent needs to report status to the team hub, wire up the wtf MCP server, receive work from a paste-bin ("work from bin N"), publish findings/context for other agents or machines via bins, or check what other agents are doing. Covers env/PQC credential delivery, MCP registration, reporting etiquette, bin-based cross-agent collaboration, and the v0.14.0 executor (chat_run: per-chat tmux sessions running the omp-hermes-fcc-claude fallback chain) plus the dashboard SESSIONS card.
+description: Connect any agent, on any machine or harness, to the wtf multi-agent observability hub. Use when an agent needs to report status to the team hub, wire up the wtf MCP server, receive work from a paste-bin ("work from bin N"), publish findings/context for other agents or machines via bins, orchestrate multi-machine release commands in the federated shell, or check what other agents are doing. Covers env/PQC credential delivery, MCP registration, reporting etiquette, bin-based cross-agent collaboration, the v0.15.2 SWE-bench coding fleet executor (chat_run: per-chat tmux sessions running the fcc-omp-trae-mini fallback cascade via local-router:11434), singular capability dashboard URL (/w/<capability>), architecture LKGL tracking, and the paired Federated Multi-Machine Shell.
 ---
 
 # wtf-agent-hub — connect any agent to the team hub
 
 `wtf` is a zero-dependency Rust hub (`wtf serve`) + MCP stdio bridge
 (`wtf agent`). The hub is the shared truth: agent status, events, three
-persistent paste-bins, and the federated repo chats (dashboard SESSIONS card —
-click a chat to open its viewer; tasks dispatched there run via the executor). Any MCP-speaking agent — Claude Desktop, Cursor,
-Warp, Codex, CI bots, custom harnesses — connects the same way. Full docs:
-the `wtf-is-going-on-mcp` repo README and its `.agents/skills/wtf-observability`
-skill (that repo's own operating guide).
+persistent paste-bins, the federated repo chats (dashboard SESSIONS card),
+and the paired Federated Multi-Machine Shell. Dispatched agent tasks run
+via the SWE-bench Coding Fleet executor. Any MCP-speaking agent — Claude
+Desktop, Cursor, Warp, Codex, CI bots, custom harnesses — connects the
+same way. Full docs: the `wtf-is-going-on-mcp` repo README and its
+`.agents/skills/wtf-observability` skill (that repo's own operating guide).
 
 Non-negotiables: never log, echo, or commit device keys or the dashboard
 key; never put secrets in events or bins; never port-forward plain HTTP to
@@ -29,7 +30,7 @@ The build needs only a Rust toolchain — zero external crates, fully
 offline. Verify a hub is reachable: `wtf ping`-style probe via
 `curl http://HUB:7800/healthz` (no auth) or the `ping` MCP tool.
 
-**Zero-config join (v0.12.x target):** the operator hands you TWO
+**Zero-config join (v0.15.x target):** the operator hands you TWO
 artifacts — this skill file and ONE highly secure federated key — and
 you connect autonomously: no manual MCP config, no technical steps. If
 you are reading this file with a key in hand, that is your instruction:
@@ -48,7 +49,7 @@ wtf skill print                                # raw SKILL.md to stdout
 
 Installs are idempotent; an existing different file needs `--force`.
 
-## 2. Credentials
+## 2. Credentials & Dashboard Access
 
 The bridge reads, in order of precedence:
 
@@ -57,6 +58,20 @@ The bridge reads, in order of precedence:
    secrets lane; keys never touch disk in plaintext.
 2. `bridge.json` (0600, default `$HOME/.config/wtf-mcp/bridge.json`) —
    written by `wtf join`/`wtf setup`; safe default when env is absent.
+
+### Singular Capability Dashboard URL (`/w/<capability>`)
+
+In v0.15.1+, the hub serves a singular, unguessable 64-hex capability URL:
+```bash
+wtf dashboard-url
+# Output: http://<host>:7800/w/<64-hex-capability>
+```
+- **Uniform security:** Serves universally across loopback, LAN, and reverse
+  proxies with zero query-string secret leakage.
+- **Fail-closed:** Any unauthorized or malformed capability request returns
+  a uniform `404 Not Found` without information leakage.
+- **Constant-time:** Authenticated constantly in-memory using constant-time
+  comparison against `$WTF_HOME/dashboard_capability` (0600).
 
 ### PQC secrets lane (preferred where available)
 
@@ -104,33 +119,38 @@ not retry-loop.
 > skill §5.9. Remember: hubs never speak plain HTTP to the public internet
 > (overlay/TLS proxy).
 
-## 3. Agent CLIs — install + fallback (headless execution)
+## 3. Agent CLIs & SWE-bench Coding Fleet (Headless Execution)
 
-Tasks handed to a repo chat run headlessly via the FIRST available of:
+Tasks handed to a repo chat run headlessly via the SWE-bench Verified
+Coding Fleet cascade:
 
-1. **OhMyPy CLI (`omp`)** — preferred.
-   Check: `command -v omp`. Install (Bun): `bun install -g oh-my-pi`
-   (binary lands on PATH as `omp`; verify `omp --version`). Non-interactive
-   use: `omp "<task prompt>"` (see `omp --help` for model flags).
-2. **Hermes CLI** — check `command -v hermes`. Install/config ships with
-   the agent's ACP harness (e.g. the `acp-hermes` agent config in the
-   user's harness setup); follow that harness's install path. If absent
-   and OhMyPy is present, skip — do not install mid-task.
-3. **FreeClaudeCode** — the free Claude Code server + Claude system.
-   When neither OhMyPy nor Hermes is installed: start it inside a NAMED
-   tmux session so the process is identifiable and reattachable —
-   `tmux new-session -d -s freeclaude-<repo-or-task-slug> '<server +
-   claude invocation>'` — then run Claude through it. Report the tmux
-   session name + PID in task notes.
+1. **FreeClaudeCode (`free-claude-code`)**: Free Claude Code server + Claude system.
+2. **OhMyPy CLI (`omp`)**: Python & generalist refactoring CLI.
+   Check: `command -v omp`. Non-interactive: `omp "<task prompt>"`.
+3. **Trae CLI (`trae-cli`)** — **AST Refactoring Master**:
+   Top SWE-bench structural performer. Executes surgical AST refactoring,
+   multi-file symbol renaming, and clean unified diffs (`trae-cli run -f <task.md>`).
+4. **Mini-SWE (`mini` / `mini-live`)** — **TDD Reproduction Engineer**:
+   Top SWE-bench TDD performer. Zero-config test reproduction, dynamic runtime
+   debug probes, and test hardening (`mini --task "<task>" --yolo --exit-immediately`).
+5. **Fleet Mode (`agent: "fleet"`)**: Chained dual-engine pipeline where `trae-cli`
+   performs structural AST refactoring and passes discovered target symbols to
+   `mini` for test-driven hardening.
+
+**Singular Model Routing Contract:**
+ALL headless fleet engines route strictly through the singular loopback proxy:
+`http://127.0.0.1:11434/v1` (`local-router/fallback-models`).
+The router dynamically evaluates required context tokens and multimodal visual inputs,
+bypassing models lacking required capacity across 3 retry passes before terminal failure.
 
 **Cross-machine capability discovery:** `env_report` (run once per
 machine) publishes this machine's CLI surface to the hub; `env_probe`
 lists every device's report — check a remote machine's tooling before
 configuring it. Presence + versions only, never credentials.
 
-Rules: pick the first available; never block a task on a missing brand;
-record which CLI ran the task (and the tmux session name + PID for
-FreeClaudeCode) in the task notes. Full one-command environment setup:
+Rules: pick the first available or explicit agent; never block a task on
+a missing brand; record which CLI ran the task (and the tmux session name + PID
+for `wtf-chat-<slug>`) in task notes. Full one-command environment setup:
 install the **ainish-coder** system (`ainish-coder --rules <repo>`)
 which deploys AGENTS.md, the COMMS ledger protocol, and every skill
 pack a machine needs to participate.
@@ -150,15 +170,15 @@ Standard `mcpServers` shape; `command` must be absolute:
 }
 ```
 
-Tools you get (20, v0.14.0): `check_in`, `log_event`, `wtf_is_going_on`, `read_bin`,
+Tools you get (21, v0.15.1): `check_in`, `log_event`, `wtf_is_going_on`, `read_bin`,
 `write_bin`, `list_bins`, `ping`, `hub_info`, `env_report`,
 `env_probe`, `session_create`, `session_list`, `session_join`,
 `session_seal`, `session_send`, `session_read`, `comms_post`,
-`comms_read`, `chat_run`, `chat_sessions`. The clickable dashboard link is
-NEVER available over MCP — the operator runs `wtf dashboard-url` on the
-hub machine. Never echo or guess the dashboard key.
+`comms_read`, `chat_run`, `chat_sessions`, `chat_session_lifecycle`. The clickable
+dashboard link is NEVER exposed over MCP — the operator runs `wtf dashboard-url`
+on the hub machine. Never echo or guess the dashboard key.
 
-## 5. Orchestrator contract — repo-scoped federated coordination
+## 5. Orchestrator Contract & Paired Studio / Federated Shell
 
 ANY agent harness wired to this MCP acts as an orchestrator across
 machines. The rules are mechanical — follow them on every task:
@@ -179,19 +199,36 @@ machines. The rules are mechanical — follow them on every task:
    <hub's wtf enroll-secret>`; internet: the same command against a
    WireGuard/Tailscale overlay address or a TLS-terminating proxy —
    never raw port-forwarded HTTP.
-3. **Execute**: tasks from the chat run headlessly — the AUTOMATED lane is
-   `chat_run {prompt, repo?, label?, workdir?, timeout_secs?}` (v0.14.0):
+3. **Execute via Studio & Coding Fleet**:
+   Tasks run headlessly via `chat_run {prompt, agent?, repo?, workdir?, timeout_secs?}`:
    it maps the task to ONE persistent tmux session `wtf-chat-<slug>` (attach:
    `tmux attach -t <name>` to watch live) and runs the fallback chain
-   (1) OhMyPy CLI → (2) Hermes CLI → (3) FreeClaudeCode (free Claude Code server +
-   Claude; auto-start when the first two are absent), first installed + exit-0 wins,
-   trace names the lane. `chat_sessions` lists this machine’s
-   executor sessions.
-   Record which CLI ran the task. All three CLIs are model-agnostic — operator config
-   on each machine points them at the local-router Ollama proxy (`local-router/fallback-models` on the Ollama-compatible port; verified receipts
-   OMP/HERMES/FCC-ROUTER-OK on mac + windows 2026-09-01). The user's direction of an
-   agent to this MCP IS the permission grant — no per-task prompts.
-4. **Report**: progress, decisions, and failures go back into the repo
+   (`free-claude-code → omp → trae-cli → mini` or explicit `fleet`).
+   `chat_sessions` lists active executor sessions; `chat_session_lifecycle`
+   manages pane lifecycle (open/close/reconnect/delete).
+4. **Paired Federated Multi-Machine Shell & Intelligent Distributed Compute**:
+   The dashboard integrates a paired Federated Shell and distributed compute engine (`src/fed_shell.rs`):
+   - **Virtual Root (`~/`)**: Contains directories for every connected machine
+     (`~/mac`, `~/windows`, `~/creeper-pi`).
+   - **Architecture LKGL Tracking**: Each architecture (`mac`, `windows`, `pi`, `linux`)
+     persists its Last Known Good Location across sessions (`$WTF_HOME/lkgl.json`),
+     ensuring commands and dispatched tasks automatically execute in their native project workspaces.
+   - **Federated OMP Configuration (`fed_omp_config.json`)**: Synchronized shared
+     model parameters (`local-router/fallback-models`), proxy endpoint (`127.0.0.1:11434`),
+     and fallback cascade (`free-claude-code → omp → trae-cli → mini` or `fleet`).
+   - **Intelligent Distributed Compute**: `chat_run` accepts `machine: "<name>"`. Any
+     connected node (including low-power edge devices like a Raspberry Pi) can utilize the
+     WTF MCP tools to dispatch heavy compilation, testing, or model synthesis workloads to
+     the cluster's strongest compute node and stream results back.
+   - **Cross-Architecture Multi-Prompt Orchestration**: Operators can execute
+     chained multi-machine build/test pipelines in a single compound command:
+     ```bash
+     cd ~/mac/frontend && npm test && cd ~/windows/backend && cargo test
+     ```
+   - **Attributed Output**: Interleaves machine badge chips (`[mac]`, `[windows]`)
+     directly in the terminal feed.
+   - Backend routes: `GET /api/v1/shell/machines`, `GET/POST /api/v1/shell/config`, and `POST /api/v1/shell/exec`.
+5. **Report**: progress, decisions, and failures go back into the repo
    chat (`session_send`/`comms_post`); chain-of-draft for the public
    event feed. Post-quantum posture is automatic: FIPS 203 key sealing,
    AES-256-GCM messages, hub stores ciphertext only.
@@ -295,24 +332,11 @@ Flow:
 Verified cross-machine flow (2026-09-01): mac-agent ⇄ windows-1 on chat
 `a305c8ea…` (repo `wtf-is-going-on-mcp`) — creator's send auto-sealed the
 key to the joiner, first read recovered it, encrypted round-trip +
-`comms_post` ledger entries confirmed. Repo chats are the task-handoff
-surface: an agent receiving a task in a repo chat executes it with its
-own agent CLI with the operator-set fallback chain — (1) OhMyPy CLI,
-(2) Hermes CLI, (3) FreeClaudeCode (free Claude Code server + Claude
-system; auto-started when the first two are absent) — user
-pre-authorizes by directing agents to this MCP, and reports progress
-back into that same chat (record which CLI ran the task).
+`comms_post` ledger entries confirmed.
 
-Dashboard (v0.14.0): the SESSIONS card lists every chat (id, name, repo,
-members, msgs) from `/api/v1/state`; clicking one opens a viewer tab —
-member-encrypted bodies stay opaque to the hub and non-members.
-
-Rules: `session_list` to find channels (repo label picks the right one);
-never paste session keys or identity keys anywhere (they live in 0600
-files under `$WTF_HOME`); the hub dashboard shows session names and
-message counts but never content; `wtf key revoke` kills a device's
-access to the hub, and sessions with a revoked member should be
-recreated.
+Studio & Chat View (v0.15.1): Embedded directly into the dashboard page
+accessible at `/w/<capability>`. Members can view messages, create lanes,
+and dispatch SWE-bench Coding Fleet tasks directly from the browser.
 
 ## 9. COMMS protocol — encrypted ledger channels (cross-repo, cross-machine)
 
