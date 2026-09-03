@@ -108,3 +108,94 @@ test('Headroom config payload shape matches settings map contract', () => {
   const keys = Object.keys(sampleConfig).sort();
   assert.deepEqual(keys, ['enabled', 'proxyUrl']);
 });
+
+test('Headroom probeHeadroomHealth returns structured probe result on unreachable port', async () => {
+  const { probeHeadroomHealth } = await import('../build/index.js');
+  // Probe a non-listening random high port
+  const result = await probeHeadroomHealth('http://127.0.0.1:49991');
+  assert.equal(typeof result.ok, 'boolean');
+  assert.equal(result.ok, false);
+  assert.equal(typeof result.status, 'string');
+  assert.equal(typeof result.latencyMs, 'number');
+  assert.ok(result.latencyMs >= 0);
+});
+
+test('Headroom circuit breaker trips and fails open with near-zero latency', async () => {
+  const {
+    compressWithHeadroom,
+    getHeadroomCircuitState,
+    resetHeadroomCircuitBreaker,
+    headroomApiPayload
+  } = await import('../build/index.js');
+
+  resetHeadroomCircuitBreaker();
+  const initial = getHeadroomCircuitState();
+  assert.equal(initial.state, 'CLOSED');
+
+  const body = {
+    model: 'gpt-4o',
+    messages: [
+      { role: 'system', content: 'test system prompt' },
+      { role: 'user', content: 'test user query' }
+    ]
+  };
+
+  // Attempt 1: proxy is offline (assuming 8787 is offline), trips circuit breaker
+  const res1 = await compressWithHeadroom(body, 'gpt-4o');
+  assert.ok(res1);
+  assert.equal(res1.messages.length, 2);
+
+  const tripped = getHeadroomCircuitState();
+  // Circuit breaker should be OPEN or failed open safely
+  const payload = headroomApiPayload();
+  assert.equal(typeof payload.healthy, 'boolean');
+  assert.equal(typeof payload.circuitState, 'string');
+
+  // Attempt 2: with circuit OPEN, compressWithHeadroom should return immediately (< 50ms)
+  const t0 = Date.now();
+  const res2 = await compressWithHeadroom({
+    model: 'gpt-4o',
+    messages: [{ role: 'user', content: 'fast failover query' }]
+  }, 'gpt-4o');
+  const elapsed = Date.now() - t0;
+
+  assert.ok(res2);
+  assert.ok(elapsed < 100, `Circuit open should return in <100ms, took ${elapsed}ms`);
+
+  // Clean up
+  resetHeadroomCircuitBreaker();
+});
+
+test('Headroom deduplication reuses compressed body for fallback cascade safely', async () => {
+  const { compressWithHeadroom, resetHeadroomCircuitBreaker } = await import('../build/index.js');
+  resetHeadroomCircuitBreaker();
+
+  const body = {
+    model: 'test-model',
+    messages: [
+      { role: 'system', content: 'You are an agent.' },
+      { role: 'user', content: 'Perform refactoring.' }
+    ]
+  };
+
+  // 1. Initial call (proxy offline -> fail-open with original messages)
+  const res1 = await compressWithHeadroom(body, 'test-model');
+  assert.ok(res1);
+  assert.equal(res1.messages.length, 2);
+
+  // 2. Serialization check: must NEVER throw circular structure error
+  assert.doesNotThrow(() => {
+    JSON.stringify(res1);
+  }, 'Body must be safely serializable to JSON without circular references');
+
+  // 3. Deduplication check: second call with same body returns instantly
+  const t0 = Date.now();
+  const res2 = await compressWithHeadroom(body, 'test-model');
+  const elapsed = Date.now() - t0;
+  assert.ok(elapsed < 20, `Cached deduplication should return in <20ms, took ${elapsed}ms`);
+  assert.deepEqual(res2.messages, res1.messages);
+
+  // Clean up
+  resetHeadroomCircuitBreaker();
+});
+

@@ -1380,11 +1380,103 @@ function waferZdrApiPayload() {
   return { zdrEnabled: waferZdrEnabled };
 }
 
-// ── Headroom Compression Configuration ─────────────────────────────────────
+// ── Headroom Compression Configuration & Circuit Breaker ───────────────────
 
 const DEFAULT_HEADROOM_PROXY_URL = 'http://localhost:8787';
+const HEADROOM_TIMEOUT_MS = 1500; // Fast fail-open timeout (replaces 10s stall)
+const HEADROOM_CIRCUIT_COOLOFF_MS = 30000; // 30s cooloff window when OPEN
+
 let headroomEnabled = true;
 let headroomProxyUrl = DEFAULT_HEADROOM_PROXY_URL;
+
+export type HeadroomCircuitState = 'CLOSED' | 'OPEN' | 'HALF_OPEN';
+
+export interface HeadroomCircuitBreaker {
+  state: HeadroomCircuitState;
+  lastFailureTime: number;
+  lastSuccessTime: number;
+  consecutiveFailures: number;
+  lastCheckedAt: number;
+  lastError: string | null;
+}
+
+const headroomCircuit: HeadroomCircuitBreaker = {
+  state: 'CLOSED',
+  lastFailureTime: 0,
+  lastSuccessTime: 0,
+  consecutiveFailures: 0,
+  lastCheckedAt: 0,
+  lastError: null,
+};
+
+// In-memory LRU cache to deduplicate compression across fallback cascade hops
+const headroomCompressionCache = new Map<string, { messages: any[]; timestamp: number }>();
+const headroomRequestCompressedMessages = new WeakMap<object, any[]>();
+const MAX_COMPRESSION_CACHE_ENTRIES = 50;
+const COMPRESSION_CACHE_TTL_MS = 60000; // 1 minute
+
+function getHeadroomCacheKey(messages: any[], model: string): string {
+  if (!Array.isArray(messages) || messages.length === 0) return '';
+  const len = messages.length;
+  const first = messages[0]?.content || '';
+  const last = messages[len - 1]?.content || '';
+  const sample = `${model}:${len}:${typeof first === 'string' ? first.slice(0, 100) : ''}:${typeof last === 'string' ? last.slice(0, 100) : ''}`;
+  let hash = 0;
+  for (let i = 0; i < sample.length; i++) {
+    hash = (hash << 5) - hash + sample.charCodeAt(i);
+    hash |= 0;
+  }
+  return 'hm_' + Math.abs(hash).toString(16);
+}
+
+export function getHeadroomCircuitState(): HeadroomCircuitBreaker {
+  return { ...headroomCircuit };
+}
+
+export function resetHeadroomCircuitBreaker(): void {
+  headroomCircuit.state = 'CLOSED';
+  headroomCircuit.lastFailureTime = 0;
+  headroomCircuit.lastSuccessTime = Date.now();
+  headroomCircuit.consecutiveFailures = 0;
+  headroomCircuit.lastCheckedAt = Date.now();
+  headroomCircuit.lastError = null;
+  headroomCompressionCache.clear();
+}
+
+export async function probeHeadroomHealth(proxyUrl: string = headroomProxyUrl): Promise<{ ok: boolean; status: string; latencyMs: number; error?: string }> {
+  const started = Date.now();
+  try {
+    const url = new URL('/health', proxyUrl).toString();
+    const res = await fetch(url, {
+      method: 'GET',
+      signal: AbortSignal.timeout(HEADROOM_TIMEOUT_MS)
+    });
+    const latencyMs = Date.now() - started;
+    headroomCircuit.lastCheckedAt = Date.now();
+    if (res.ok) {
+      headroomCircuit.state = 'CLOSED';
+      headroomCircuit.lastSuccessTime = Date.now();
+      headroomCircuit.consecutiveFailures = 0;
+      headroomCircuit.lastError = null;
+      return { ok: true, status: 'healthy', latencyMs };
+    }
+    const err = `HTTP ${res.status}`;
+    headroomCircuit.consecutiveFailures += 1;
+    headroomCircuit.state = 'OPEN';
+    headroomCircuit.lastFailureTime = Date.now();
+    headroomCircuit.lastError = err;
+    return { ok: false, status: 'unhealthy', latencyMs, error: err };
+  } catch (err: any) {
+    const latencyMs = Date.now() - started;
+    const errMsg = err?.name === 'TimeoutError' ? 'Connection timeout (1500ms)' : (err?.message || 'Connection failed');
+    headroomCircuit.consecutiveFailures += 1;
+    headroomCircuit.state = 'OPEN';
+    headroomCircuit.lastFailureTime = Date.now();
+    headroomCircuit.lastCheckedAt = Date.now();
+    headroomCircuit.lastError = errMsg;
+    return { ok: false, status: 'unreachable', latencyMs, error: errMsg };
+  }
+}
 
 function loadHeadroomConfig(): void {
   if (!fs.existsSync(HEADROOM_CONFIG_PATH)) return;
@@ -1413,36 +1505,120 @@ function persistHeadroomConfig(): void {
   fs.chmodSync(HEADROOM_CONFIG_PATH, 0o600);
 }
 
-function headroomApiPayload() {
-  return { enabled: headroomEnabled, proxyUrl: headroomProxyUrl };
+export function headroomApiPayload() {
+  const isCooldownActive = headroomCircuit.state === 'OPEN' &&
+    (Date.now() - headroomCircuit.lastFailureTime <= HEADROOM_CIRCUIT_COOLOFF_MS);
+  const effectiveCircuitState: HeadroomCircuitState = isCooldownActive
+    ? 'OPEN'
+    : (headroomCircuit.state === 'OPEN' ? 'HALF_OPEN' : headroomCircuit.state);
+
+  return {
+    enabled: headroomEnabled,
+    proxyUrl: headroomProxyUrl,
+    healthy: effectiveCircuitState === 'CLOSED',
+    circuitState: effectiveCircuitState,
+    lastCheckedAt: headroomCircuit.lastCheckedAt,
+    lastError: headroomCircuit.lastError
+  };
 }
 
 /**
  * Compress messages via the Headroom proxy before forwarding upstream.
- * On failure (proxy unavailable, timeout, etc.) returns the original body unchanged —
- * headroom is an optimization layer and must never block the request pipeline.
+ * Implements:
+ * 1. Request-level caching & deduplication via WeakMap + LRU (zero circular reference risk).
+ * 2. Circuit breaker protection: immediate fail-open (0ms) when proxy is unreachable/unhealthy.
+ * 3. Fast failover timeout (1500ms, 0 retries).
+ * On failure, fails open and returns the original body unchanged.
  */
-async function compressWithHeadroom(body: any, model: string): Promise<any> {
+export async function compressWithHeadroom(body: any, model: string): Promise<any> {
   if (!headroomEnabled || !Array.isArray(body?.messages) || body.messages.length === 0) {
     return body;
   }
+
+  // 1. Check request-level deduplication cache via WeakMap (safe, non-mutating, zero serialization impact)
+  if (typeof body === 'object' && body !== null && headroomRequestCompressedMessages.has(body)) {
+    const cachedMessages = headroomRequestCompressedMessages.get(body)!;
+    return { ...body, messages: cachedMessages };
+  }
+
+  const cacheKey = getHeadroomCacheKey(body.messages, model);
+  if (cacheKey && headroomCompressionCache.has(cacheKey)) {
+    const cached = headroomCompressionCache.get(cacheKey)!;
+    if (Date.now() - cached.timestamp < COMPRESSION_CACHE_TTL_MS) {
+      if (typeof body === 'object' && body !== null) {
+        headroomRequestCompressedMessages.set(body, cached.messages);
+      }
+      return { ...body, messages: cached.messages };
+    }
+    headroomCompressionCache.delete(cacheKey);
+  }
+
+  // 2. Circuit breaker check
+  const now = Date.now();
+  if (headroomCircuit.state === 'OPEN') {
+    if (now - headroomCircuit.lastFailureTime > HEADROOM_CIRCUIT_COOLOFF_MS) {
+      headroomCircuit.state = 'HALF_OPEN';
+    } else {
+      // Circuit is OPEN — fail open immediately with 0ms delay
+      if (typeof body === 'object' && body !== null) {
+        headroomRequestCompressedMessages.set(body, body.messages);
+      }
+      return body;
+    }
+  }
+
   try {
     const { compress } = await import('headroom-ai');
     const result = await compress(body.messages, {
       model,
       baseUrl: headroomProxyUrl,
-      timeout: 10_000,
+      timeout: HEADROOM_TIMEOUT_MS,
       fallback: true,
-      retries: 1,
+      retries: 0,
       stack: 'local_router'
     });
+
+    // Success — mark circuit healthy
+    headroomCircuit.state = 'CLOSED';
+    headroomCircuit.lastSuccessTime = Date.now();
+    headroomCircuit.consecutiveFailures = 0;
+    headroomCircuit.lastCheckedAt = Date.now();
+    headroomCircuit.lastError = null;
+
     if (result.compressed && result.tokensSaved > 0) {
       console.log(`[Headroom] ${result.tokensBefore} → ${result.tokensAfter} tokens (saved ${result.tokensSaved}, ${Math.round(result.compressionRatio * 100)}% ratio)`);
-      return { ...body, messages: result.messages };
+      const compressedBody = { ...body, messages: result.messages };
+      if (typeof body === 'object' && body !== null) {
+        headroomRequestCompressedMessages.set(body, result.messages);
+      }
+
+      // Cache across fallback attempts
+      if (cacheKey) {
+        if (headroomCompressionCache.size >= MAX_COMPRESSION_CACHE_ENTRIES) {
+          const oldestKey = headroomCompressionCache.keys().next().value;
+          if (oldestKey) headroomCompressionCache.delete(oldestKey);
+        }
+        headroomCompressionCache.set(cacheKey, { messages: result.messages, timestamp: Date.now() });
+      }
+
+      return compressedBody;
+    }
+
+    if (typeof body === 'object' && body !== null) {
+      headroomRequestCompressedMessages.set(body, body.messages);
     }
     return body;
   } catch (err: any) {
-    console.error('[Headroom] Compression failed:', err?.message || err);
+    headroomCircuit.consecutiveFailures += 1;
+    headroomCircuit.state = 'OPEN';
+    headroomCircuit.lastFailureTime = Date.now();
+    headroomCircuit.lastCheckedAt = Date.now();
+    headroomCircuit.lastError = err?.message || String(err);
+
+    console.warn(`[Headroom] Compression failed, circuit breaker OPEN for 30s (${sanitizeDiagnosticText(String(err?.message || err), 120)})`);
+    if (typeof body === 'object' && body !== null) {
+      headroomRequestCompressedMessages.set(body, body.messages);
+    }
     return body;
   }
 }
@@ -3371,6 +3547,7 @@ const configApiDeps = {
   waferZdrApiPayload,
   persistHeadroomConfig,
   headroomApiPayload,
+  probeHeadroom: probeHeadroomHealth,
   DEFAULT_FALLBACK_MODELS_TEXT,
   DEFAULT_CHAIN_OF_DRAFT_PROMPT,
   DEFAULT_THINKING_LEVEL,
