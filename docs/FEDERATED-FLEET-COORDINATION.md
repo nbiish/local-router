@@ -39,7 +39,7 @@ The **WTF Federated Fleet** connects distributed physical machines (e.g., macOS 
 │  • Headroom Circuit Breaker  │              │  • Headroom Circuit Breaker  │
 │    (1500ms timeout / 0ms FO) │              │    (1500ms timeout / 0ms FO) │
 │  • PQC Secrets Bundle        │              │  • PQC Secrets Bundle        │
-│  • trae-mini-fleet.csv       │              │  • trae-mini-fleet.csv       │
+│  • Headless YOLO Fleet       │              │  • Headless YOLO Fleet       │
 │  • Ollama on 11435           │              │  • Ollama on 11435           │
 └──────────────────────────────┘              └──────────────────────────────┘
 ```
@@ -65,12 +65,13 @@ The **WTF Federated Fleet** connects distributed physical machines (e.g., macOS 
   - Supervisors are installed across macOS (LaunchAgent), Windows (cmd/ps1 wrappers + Startup), and Linux/WSL2 (`environment.d` + systemd/cron watchdog).
 - **Fleet Impact:** Eliminates port collisions and guarantees that any CLI, agent, or web interface on any machine targeting `localhost:11434` is serviced by Local Router.
 
-### C. Trae-Mini Fleet Orchestration & Empirical Prompt Engineering
+### C. Trae-Mini Fleet Orchestration & YOLO Headless Execution
 - **The Upgrade:**
-  - Standardized prompt templates (`TPL_TRAE_AST_V2`, `TPL_MINI_TDD_REPRO_V1`, `TPL_FCC_INVESTIGATE_V1`, `TPL_OMP_SCRIPT_V1`).
-  - Structured empirical dataset: `trae-mini-fleet.csv` tracking dispatches, step counts, pass rates, and failure modes.
-  - Dedicated CLI helpers: `fleet_dataset.py` (query/log/stats) and `scrub_task.py` (privacy redaction).
-- **Fleet Impact:** Subagents executed on any machine follow identical prompt engineering principles and contribute to a shared performance baseline.
+  - Standardized prompt templates (`TPL_TRAE_AST_V2`, `TPL_MINI_TDD_REPRO_V1`) for the SWE-bench Verified dual engines.
+  - Headless YOLO execution flags: `trae-cli run -f <file> --console-type simple` and `mini --yolo --exit-immediately`.
+  - Dedicated CLI helper: `scrub_task.py` (privacy redaction for intermediate task/trajectory files).
+  - Cross-agent coordination tracked directly in `AGENTS/{date}.COMMS.md`.
+- **Fleet Impact:** Subagents executed on any machine follow identical prompt engineering principles and coordinate seamlessly via the shared COMMS ledger.
 
 ---
 
@@ -119,7 +120,7 @@ When a verified merge lands on `main` (such as the Headroom circuit breaker or T
    # Using wtf CLI or write_bin MCP tool
    wtf bin put 3 --file - <<EOF
    RELEASE: local-router main @ commit $(git rev-parse --short HEAD)
-   CHANGES: Headroom circuit breaker (0ms fail-open), trae-mini-fleet.csv dataset, route set hardening
+   CHANGES: Headroom circuit breaker (0ms fail-open), YOLO headless fleet templates, route set hardening
    ACTION_REQUIRED: git pull origin main && local-router route set && npm test
    EOF
    ```
@@ -186,17 +187,16 @@ Post confirmation to the WTF Hub so the operator and peer agents can confirm par
 The federated mesh enables **Distributed Subagent Delegation**: an agent on Mac can instruct an agent on Windows to execute an autonomous SWE subagent dispatch.
 
 ### Distributed Task Handoff Protocol:
-1. **Task Packaging (Caller):**
-   - The master orchestrator queries benchmark data using `python3 fleet_dataset.py query <task_type>`.
+1. **Task Formulation & Staging (Orchestrator):**
    - Formulates the task using template `TPL_TRAE_AST_V2` or `TPL_MINI_TDD_REPRO_V1`.
    - Writes the task specification into a shared WTF bin (`wtf bin put <N>`).
 2. **Task Execution (Worker):**
    - Peer agent reads task from bin (`wtf bin get <N>`).
    - Checks out an isolated task worktree (`git worktree add -b feat/<scope>-<slug> ../<slug>`).
-   - Runs `trae-cli run -f /tmp/task.md` or `mini --task ...` targeting `http://localhost:11434/v1`.
-3. **Privacy Scrubbing & Metric Logging:**
+   - Runs `trae-cli run -f /tmp/task.md --console-type simple` or `mini --task ... --yolo` targeting `http://localhost:11434/v1`.
+3. **Privacy Scrubbing & COMMS Tracking:**
    - Runs `python3 .agents/skills/trae-mini-fleet/scripts/scrub_task.py --in-place /tmp/task.md`.
-   - Logs results into `trae-mini-fleet.csv` via `fleet_dataset.py log`.
+   - Records task lifecycle in `AGENTS/{date}.COMMS.md` and posts status to `local-router-ops` channel.
 4. **Patch Delivery:**
    - Harvests patch (`git diff > /tmp/solution.patch`).
    - Stages patch in return bin or posts merge intent to COMMS ledger.
