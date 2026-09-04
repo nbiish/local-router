@@ -6,7 +6,8 @@ import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
-import { execFileSync } from 'child_process';
+import { execFile as execFileCallback, execFileSync } from 'child_process';
+import { promisify } from 'util';
 import { WebSocket, WebSocketServer } from 'ws';
 import { ProxyProvider } from './types';
 import {
@@ -4794,6 +4795,103 @@ export function injectPromptCaching(body: any, providerName: string): any {
   return newBody;
 }
 
+const execFileAsync = promisify(execFileCallback);
+
+// ── GitHub Copilot auto bridge ──────────────────────────────────────────────
+
+const COPILOT_BRIDGE_TIMEOUT_MS = 180_000;
+
+/** Flatten an OpenAI chat request to the plain-text prompt the CLI expects. */
+function copilotAutoPromptFromBody(body: any): string {
+  const parts: string[] = [];
+  const messages = Array.isArray(body?.messages) ? body.messages : [];
+  for (const message of messages) {
+    if (!message || typeof message !== 'object') continue;
+    const content = typeof message.content === 'string'
+      ? message.content
+      : JSON.stringify(message.content);
+    if (message.role === 'system') parts.push(`[system]\n${content}`);
+    else if (message.role === 'user') parts.push(content);
+    else if (message.role === 'assistant') parts.push(`[assistant]\n${content}`);
+  }
+  return parts.join('\n\n') || 'Say OK';
+}
+
+/** Strip the CLI's trailing stat lines (Changes / AI Credits / Tokens / Resume). */
+function stripCopilotCliStats(stdout: string): string {
+  const statMarkers = /^(Changes|AI Credits|Tokens|Resume|Error:)\s/i;
+  const lines = stdout.replace(/\r/g, '').split('\n');
+  let end = lines.length;
+  for (let i = lines.length - 1; i >= 0; i -= 1) {
+    if (lines[i].trim() === '') continue;
+    if (statMarkers.test(lines[i])) end = i;
+    else break;
+  }
+  return lines.slice(0, end).join('\n').trim();
+}
+
+async function runCopilotAutoBridge(
+  body: any,
+  targetModelName: string,
+  stream: boolean,
+  requestStartedAt: number
+): Promise<AttemptResult> {
+  const prompt = copilotAutoPromptFromBody(body);
+  const args = ['-p', prompt, '--model', 'auto'];
+  try {
+    const { stdout } = await execFileAsync(
+      process.env.LOCAL_ROUTER_COPILOT_BIN || 'copilot',
+      args,
+      { timeout: COPILOT_BRIDGE_TIMEOUT_MS, maxBuffer: 16 * 1024 * 1024, shell: false, env: { ...process.env, NO_COLOR: '1' } }
+    );
+    const content = stripCopilotCliStats(stdout);
+    if (!content) {
+      return {
+        ok: false,
+        error: { errorType: 'upstream_http', status: 502, message: 'Copilot CLI auto bridge returned an empty response.' }
+      };
+    }
+    const completionId = `copilot-auto-${Date.now()}`;
+    const payload = {
+      id: completionId,
+      object: 'chat.completion',
+      created: Math.floor(Date.now() / 1000),
+      model: 'auto',
+      choices: [{
+        index: 0,
+        message: { role: 'assistant', content },
+        finish_reason: 'stop'
+      }],
+      usage: {
+        prompt_tokens: Math.ceil(prompt.length / 4),
+        completion_tokens: Math.ceil(content.length / 4),
+        total_tokens: Math.ceil((prompt.length + content.length) / 4)
+      }
+    };
+    const responseBody = stream
+      ? `data: ${JSON.stringify({ id: completionId, object: 'chat.completion.chunk', model: 'auto', choices: [{ index: 0, delta: { role: 'assistant', content }, finish_reason: null }] })}\n\ndata: ${JSON.stringify({ id: completionId, object: 'chat.completion.chunk', model: 'auto', choices: [{ index: 0, delta: {}, finish_reason: 'stop' }] })}\n\ndata: [DONE]\n\n`
+      : JSON.stringify(payload);
+    const response = new Response(responseBody, {
+      status: 200,
+      headers: { 'content-type': stream ? 'text/event-stream' : 'application/json' }
+    });
+    console.log(`[copilot-auto] bridge served ${content.length} chars in ${Date.now() - requestStartedAt}ms`);
+    return {
+      ok: true,
+      value: { providerName: 'github-copilot', actualModel: 'auto', requestBody: body, response }
+    };
+  } catch (error: any) {
+    const message = error?.killed
+      ? `Copilot CLI auto bridge timed out after ${COPILOT_BRIDGE_TIMEOUT_MS / 1000}s.`
+      : `Copilot CLI auto bridge failed: ${String(error?.message || error).slice(0, 200)}`;
+    console.warn(`[copilot-auto] ${sanitizeDiagnosticText(message)}`);
+    return {
+      ok: false,
+      error: { errorType: 'upstream_http', status: 502, providerName: 'github-copilot', actualModel: 'auto', message }
+    };
+  }
+}
+
 async function proxyModelAttempt(
   body: any,
   requestRoute: string,
@@ -4824,6 +4922,15 @@ async function proxyModelAttempt(
         message: `Fallback model "${targetModelName}" cannot be nested inside another fallback route.`
       }
     };
+  }
+
+  // GitHub Copilot auto bridge (2026-09-04): the `auto` model only resolves
+  // inside first-party Copilot clients — the API rejects it outright
+  // (400 model_not_supported). Run the logged-in Copilot CLI headlessly
+  // (`copilot -p <prompt> --model auto`) and wrap stdout as an
+  // OpenAI-shaped response.
+  if (target.providerName === 'github-copilot' && target.actualModel === 'auto') {
+    return await runCopilotAutoBridge(body, targetModelName, stream, requestStartedAt);
   }
 
   const provider = await loadProvider(target.providerName);
