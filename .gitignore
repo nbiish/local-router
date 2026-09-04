@@ -171,3 +171,4 @@ src/**/*.d.ts.map
 src/**/*.js
 src/**/*.js.map
 
+router-settings.json

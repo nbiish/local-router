@@ -22,9 +22,9 @@
 | kilo | API key | https://api.kilo.ai/api/gateway | https://api.kilo.ai/api/gateway/models | https://api.kilo.ai/api/gateway/chat/completions | KILO_API_KEY | configured | 2 |
 | commandcode | API key | https://api.commandcode.ai/provider/v1 | https://api.commandcode.ai/provider/v1/models | https://api.commandcode.ai/provider/v1/chat/completions | COMMANDCODE_API_KEY | configured | 0 |
 | antigravity | OAuth (signed in) | https://generativelanguage.googleapis.com/v1beta | https://generativelanguage.googleapis.com/v1beta/models | https://generativelanguage.googleapis.com/v1beta/chat/completions | ANTIGRAVITY_API_KEY | token active | 2 |
-| github-copilot | OAuth (signed in) | https://api.githubcopilot.com | https://api.githubcopilot.com/models | https://api.githubcopilot.com/chat/completions | GITHUB_COPILOT_API_KEY | token active | 53 |
+| github-copilot | OAuth (signed in) | https://api.githubcopilot.com | https://api.githubcopilot.com/models | https://api.githubcopilot.com/chat/completions | GITHUB_COPILOT_API_KEY | token active | 64 |
 | cursor | OAuth (not signed in) | https://api2.cursor.sh/v1 | https://api2.cursor.sh/v1/models | https://api2.cursor.sh/v1/chat/completions | CURSOR_API_KEY | not signed in | 0 |
 | pioneer | API key | https://api.pioneer.ai/v1 | https://api.pioneer.ai/v1/models | https://api.pioneer.ai/v1/chat/completions | PIONEER_API_KEY | configured | 1 |
 | nous-portal | API key | https://inference-api.nousresearch.com/v1 | https://inference-api.nousresearch.com/v1/models | https://inference-api.nousresearch.com/v1/chat/completions | NOUS_API_KEY | configured | 1 |
 
-_Generated 2026-09-04T19:44:37.816Z._
+_Generated 2026-09-04T20:02:20.192Z._
