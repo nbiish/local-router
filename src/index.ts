@@ -4055,6 +4055,7 @@ if (modelSourceConfig.defaultCurationConfig) {
 }
 loadEndpointModelsCache();
 loadPersistedProviderModels();
+seedRegistryBaselines();
 mergeBaselineProviderModelOverrides();
 seedRegistryCatalogIfNeeded();
 loadPersistedFallbackModels();
@@ -6334,7 +6335,6 @@ app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
 
 loadExpertLogs();
 loadPqcSecrets();
-seedRegistryBaselines();
 // Boot-time config round-trip: once keys are in memory, re-check provider
 // catalogs whose fallback-referenced models are missing (new-machine import).
 setTimeout(() => scheduleRecheckForFallbackReferences(), 4000).unref?.();
