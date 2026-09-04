@@ -2243,10 +2243,6 @@ export function renderLayout(
           return String(value).replace(/&/g, '&amp;').replace(/"/g, '&quot;');
         }
 
-        function escapeJsString(value) {
-          return String(value).replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '&quot;');
-        }
-
         function renderCurationCatalog(anchorProvider) {
           const catalogEl = document.getElementById('catalog');
           const statusEl = document.getElementById('curationStatus');
@@ -2291,8 +2287,8 @@ export function renderLayout(
             }).length;
             html += '<section class="provider-group" data-provider="' + escapeHtml(group.provider) + '">'
               + '<h3>' + escapeHtml(group.provider) + ' <span class="muted">(' + matching.length + (matching.length !== models.length ? ' / ' + models.length : '') + ' · ' + servedCount + ' served)</span> ' + providerKeyStatusHtml(group.provider)
-              + ' <button type="button" class="button-secondary" onclick="selectAllCatalogProvider(\'' + escapeJsString(group.provider) + '\')" style="padding: 1px 8px; font-size: 11px;">Select all</button>'
-              + ' <button type="button" class="button-secondary" onclick="clearCatalogProvider(\'' + escapeJsString(group.provider) + '\')" style="padding: 1px 8px; font-size: 11px;">Deselect all</button>'
+              + ' <button type="button" class="button-secondary" data-catalog-select-all="' + escapeHtml(group.provider) + '" style="padding: 1px 8px; font-size: 11px;">Select all</button>'
+              + ' <button type="button" class="button-secondary" data-catalog-clear="' + escapeHtml(group.provider) + '" style="padding: 1px 8px; font-size: 11px;">Deselect all</button>'
               + '</h3>'
               + '<input type="search" class="curation-provider-search" data-curation-provider="' + escapeHtml(group.provider) + '"'
               + ' placeholder="Search ' + escapeHtml(group.provider) + ' models…"'
@@ -2367,6 +2363,16 @@ export function renderLayout(
           catalogEl.querySelectorAll('button[data-stage-fallback]').forEach(function(btn) {
             btn.addEventListener('click', function() {
               stageModelOnFallbackPage(btn.getAttribute('data-stage-fallback') || '');
+            });
+          });
+          catalogEl.querySelectorAll('button[data-catalog-select-all]').forEach(function(btn) {
+            btn.addEventListener('click', function() {
+              selectAllCatalogProvider(btn.getAttribute('data-catalog-select-all') || '');
+            });
+          });
+          catalogEl.querySelectorAll('button[data-catalog-clear]').forEach(function(btn) {
+            btn.addEventListener('click', function() {
+              clearCatalogProvider(btn.getAttribute('data-catalog-clear') || '');
             });
           });
 
