@@ -284,8 +284,29 @@ export function getAntigravityStateDbPaths(): string[] {
       path.join(home, ".config", "Antigravity IDE", "User", "globalStorage", "state.vscdb"),
       path.join(home, ".config", "Antigravity", "User", "globalStorage", "state.vscdb")
     );
+    // WSL interop (2026-09-04): when running under WSL, the Antigravity IDE
+    // is typically installed on the Windows side. Its state DB is reachable
+    // through /mnt/<drive>/Users/<user>/AppData/Roaming/... — hydrate the
+    // router from the IDE's own login instead of requiring a separate one.
+    try {
+      if (fs.existsSync("/proc/version") && fs.readFileSync("/proc/version", "utf8").toLowerCase().includes("microsoft")) {
+        for (const driveRoot of fs.readdirSync("/mnt")) {
+          const usersRoot = path.join("/mnt", driveRoot, "Users");
+          if (!fs.existsSync(usersRoot)) continue;
+          for (const user of fs.readdirSync(usersRoot)) {
+            if (user === "Public" || user === "Default" || user.startsWith(".")) continue;
+            candidates.push(
+              path.join(usersRoot, user, "AppData", "Roaming", "Antigravity IDE", "User", "globalStorage", "state.vscdb"),
+              path.join(usersRoot, user, "AppData", "Roaming", "Antigravity", "User", "globalStorage", "state.vscdb")
+            );
+          }
+        }
+      }
+    } catch {
+      /* interop probe unavailable — native paths only */
+    }
   }
-  return candidates;
+  return candidates.filter((candidate) => fs.existsSync(candidate));
 }
 
 /**
