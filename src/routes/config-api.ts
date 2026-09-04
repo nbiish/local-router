@@ -1287,7 +1287,18 @@ app.post('/api/fallback-models', (req: Request, res: Response) => {
   const previousModel = fallbackModelStore[parsed.model.id]
     ? cloneFallbackModel(fallbackModelStore[parsed.model.id])
     : null;
-  fallbackModelStore[parsed.model.id] = cloneFallbackModel(parsed.model);
+
+  // Merge guard for chains (2026-09-04): emptying a chain that previously had
+  // 3+ steps requires an explicit force flag — the silent empty-chain write
+  // class of incident. Snapshots are taken by persistFallbackModels.
+  const previousChain = Array.isArray(previousModel?.models) ? previousModel.models : [];
+  const nextChain = Array.isArray(parsed.model.models) ? parsed.model.models : [];
+  if (previousChain.length >= 3 && nextChain.length === 0 && req.body?.force !== true) {
+    return res.status(409).json({
+      error: `Fallback merge guard: this write would empty the "${parsed.model.id}" chain (${previousChain.length} steps). Re-send with "force": true if intentional.`,
+      previousStepCount: previousChain.length
+    });
+  }
 
   try {
     persistFallbackModels();
