@@ -3713,6 +3713,16 @@ function loadPqcSecrets(): void {
   ensureDefaultOllamaApiKey(keyStore);
   pruneDisallowedOllamaCloudRouting();
   reportMissingProviders();
+  // Hydrate Antigravity from the host IDE session (2026-09-04): runs on the
+  // normal boot path too, not only when PQC loading is skipped.
+  const antigravitySession = detectLocalAntigravitySession();
+  if (antigravitySession) {
+    console.log('[oauth] Detected active Antigravity session on host system (' + (antigravitySession.accountLabel || 'authenticated') + ').');
+  }
+  const cursorSession = detectLocalCursorSession();
+  if (cursorSession) {
+    console.log('[oauth] Detected active Cursor session on host system (' + (cursorSession.accountLabel || 'authenticated') + ').');
+  }
 }
 
 function reportMissingProviders(): void {
