@@ -195,9 +195,6 @@ export function renderProvidersPage(params: {
                   <span style="font-weight: 500;">Curate endpoint models (serve only checked)</span>
                 </label>
                 <input id="catalogSearch" type="search" placeholder="Search ported models…" oninput="renderCurationCatalog()" style="flex: 1; min-width: 160px;">
-                <button type="button" class="button-secondary" onclick="selectAllShownCatalog()" style="padding: 4px 10px; font-size: 13px;">Select shown</button>
-                <button type="button" class="button-secondary" onclick="selectAllCatalog()" style="padding: 4px 10px; font-size: 13px;">Select all</button>
-                <button type="button" class="button-secondary" onclick="clearCatalogSelection()" style="padding: 4px 10px; font-size: 13px;">Deselect all</button>
                 <button type="button" onclick="saveCuration()" style="padding: 4px 10px; font-size: 13px;">Save Curation</button>
               </div>
               <div class="muted" id="curationStatus" style="margin-top: 6px;"></div>

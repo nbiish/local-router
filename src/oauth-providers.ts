@@ -504,8 +504,26 @@ export function getCursorStateDbPaths(): string[] {
     candidates.push(
       path.join(home, ".config", "Cursor", "User", "globalStorage", "state.vscdb")
     );
+    // WSL interop (2026-09-04): the Cursor IDE usually lives on the Windows
+    // side; its state DB is reachable via /mnt/<drive>/Users/<user>/...
+    try {
+      if (fs.existsSync("/proc/version") && fs.readFileSync("/proc/version", "utf8").toLowerCase().includes("microsoft")) {
+        for (const driveRoot of fs.readdirSync("/mnt")) {
+          const usersRoot = path.join("/mnt", driveRoot, "Users");
+          if (!fs.existsSync(usersRoot)) continue;
+          for (const user of fs.readdirSync(usersRoot)) {
+            if (user === "Public" || user === "Default" || user.startsWith(".")) continue;
+            candidates.push(
+              path.join(usersRoot, user, "AppData", "Roaming", "Cursor", "User", "globalStorage", "state.vscdb")
+            );
+          }
+        }
+      }
+    } catch {
+      /* interop probe unavailable */
+    }
   }
-  return candidates;
+  return candidates.filter((candidate) => fs.existsSync(candidate));
 }
 
 /**
