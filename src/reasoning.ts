@@ -2,7 +2,7 @@ type JsonObject = Record<string, any>;
 
 export type ThinkingLevel = 'none' | 'low' | 'medium' | 'high' | 'xhigh';
 
-export const DEFAULT_THINKING_LEVEL: ThinkingLevel = 'none';
+export const DEFAULT_THINKING_LEVEL: ThinkingLevel = 'medium';
 
 const RESPONSE_REASONING_KEYS = new Set([
   'reasoning_content',
@@ -49,6 +49,55 @@ function hasExplicitNoThinkingRequest(value: JsonObject): boolean {
   }
 
   return false;
+}
+
+const VALID_EFFORT_LEVELS = new Set(['none', 'minimal', 'low', 'medium', 'high', 'xhigh']);
+
+/**
+ * Detect a request that explicitly opted IN to thinking or chose an effort
+ * level. Any agent harness can express this via its native parameter shape
+ * (OpenAI `reasoning_effort`, Ollama `think`, Anthropic-style `thinking`,
+ * Qwen/GLM `enable_thinking`, or any of those inside `extra_body`). When
+ * present, the harness's choice wins over the proxy default.
+ */
+export function hasExplicitThinkingRequest(value: JsonObject): boolean {
+  if (value.think === true) return true;
+  if (value.enable_thinking === true) return true;
+  if (typeof value.reasoning_effort === 'string' && VALID_EFFORT_LEVELS.has(value.reasoning_effort)) {
+    return true;
+  }
+  if (isObject(value.thinking)) {
+    if (value.thinking.type === 'enabled') return true;
+    if (value.thinking.enabled === true) return true;
+    if (typeof value.thinking.budget_tokens === 'number') return true;
+  }
+
+  const extra = value.extra_body;
+  if (isObject(extra)) {
+    if (extra.enable_thinking === true) return true;
+    if (typeof extra.reasoning_effort === 'string' && VALID_EFFORT_LEVELS.has(extra.reasoning_effort)) {
+      return true;
+    }
+    if (typeof extra.reasoning_budget === 'number') return true;
+    const kwargs = extra.chat_template_kwargs;
+    if (isObject(kwargs) && kwargs.enable_thinking === true) return true;
+  }
+
+  return false;
+}
+
+/**
+ * Normalize an explicitly-requested thinking body so it is safe to forward
+ * upstream verbatim: Ollama's boolean `think: true` is translated to the
+ * portable `enable_thinking: true` and the non-standard key is dropped.
+ */
+function normalizeExplicitThinkingRequest(value: JsonObject): JsonObject {
+  const next: JsonObject = { ...value };
+  if (next.think === true) {
+    next.enable_thinking = true;
+  }
+  delete next.think;
+  return next;
 }
 
 function stripReasoningMetadataInternal(value: unknown, depth: number): unknown {
@@ -158,6 +207,16 @@ export function stripReasoningMetadata<T>(value: T): T {
  * to be present in assistant tool_call messages when thinking is enabled.
  *
  * Reasoning metadata is only stripped from responses (see stripReasoningMetadata).
+ *
+ * Thinking resolution order (any agent harness, any wire shape):
+ *   1. Explicit opt-out (`think:false`, `reasoning_effort:'none'`,
+ *      `thinking:{type:'disabled'}`, …) → thinking disabled.
+ *   2. Explicit opt-in / effort (`reasoning_effort`, `think:true`,
+ *      `enable_thinking:true`, `thinking:{...}`, incl. `extra_body`) →
+ *      passed through verbatim.
+ *   3. Otherwise → configured level, defaulting to `DEFAULT_THINKING_LEVEL`
+ *      (`medium`), regardless of the `applyProxyThinking` toggle (deprecated,
+ *      retained for signature compatibility; now a no-op).
  */
 export function sanitizeProviderRequestBody<T extends JsonObject>(
   body: T,
@@ -168,22 +227,23 @@ export function sanitizeProviderRequestBody<T extends JsonObject>(
     applyProxyThinking?: boolean;
   }
 ): T {
-  if (options.applyProxyThinking === false) {
-    const passthrough = { ...body } as JsonObject;
-    delete passthrough.think;
-    return passthrough as T;
-  }
-
-  const level = options.thinkingLevel ?? DEFAULT_THINKING_LEVEL;
-
-  // Respect explicit user request to disable thinking
+  // Explicit opt-out from any harness is honored unconditionally — even when
+  // proxy-side thinking defaults are disabled.
   if (hasExplicitNoThinkingRequest(body)) {
     const sanitized = { ...body } as JsonObject;
     delete sanitized.think;
     return applyNoThinkingHints(sanitized) as T;
   }
 
-  // For native reasoning models, default to disabling unless explicitly enabled
+  // Explicit opt-in / effort choice from any harness passes through verbatim
+  // (normalized), overriding the proxy default level.
+  if (hasExplicitThinkingRequest(body)) {
+    return normalizeExplicitThinkingRequest(body) as T;
+  }
+
+  const level = options.thinkingLevel ?? DEFAULT_THINKING_LEVEL;
+
+  // For native reasoning models with an explicit 'none' level, disable
   const isNativeReasoning = shouldDisableNativeThinking(options.providerName, options.modelName);
   if (isNativeReasoning && level === 'none') {
     return applyNoThinkingHints(body) as T;
