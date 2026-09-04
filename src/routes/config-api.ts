@@ -71,6 +71,14 @@ export interface ConfigApiDeps {
   }>;
   ensureCurationDefaultsForCache: () => void;
   deselectAllProviderCurationKeys: () => number;
+  snapshotFullCurationBackup: (reason: string) => void;
+  evaluateCurationShrink: (nextKeys: string[]) => {
+    blocked: boolean;
+    removedCount: number;
+    removedKeys: string[];
+    currentCount: number;
+    nextCount: number;
+  };
   syncKeysFromPqcBundle: (options?: { force?: boolean }) =>
     | { ok: true; loaded: string[]; skipped: string[] }
     | { ok: false; error: string };
@@ -157,6 +165,8 @@ export function registerConfigApiRoutes(app: express.Express, deps: ConfigApiDep
     refreshProviderEndpointModels,
     ensureCurationDefaultsForCache,
     deselectAllProviderCurationKeys,
+    snapshotFullCurationBackup,
+    evaluateCurationShrink,
     syncKeysFromPqcBundle,
     localRouterEnvVarName,
     mergeProviderEndpointModels,
@@ -582,6 +592,29 @@ app.get('/api/model-curation', (req: Request, res: Response) => {
   });
 });
 
+// Curation merge guard: a replacement that drops >=90% of a meaningful
+// curated list is treated as a probable accident (2026-09-04 catalog-wipe
+// class of incident). Such writes require an explicit `force: true`; any
+// substantial shrink snapshots the outgoing list first.
+function guardCurationReplacement(
+  nextKeys: string[],
+  force: unknown,
+  reason: string
+): { blocked?: ReturnType<typeof evaluateCurationShrink> } {
+  const evaluation = evaluateCurationShrink(nextKeys);
+  if (evaluation.blocked && force !== true) {
+    return { blocked: evaluation };
+  }
+  if (
+    evaluation.removedCount > 0
+    && evaluation.currentCount > 0
+    && evaluation.removedCount >= evaluation.currentCount / 2
+  ) {
+    snapshotFullCurationBackup(force === true ? `${reason} (forced)` : reason);
+  }
+  return {};
+}
+
 app.put('/api/model-curation', (req: Request, res: Response) => {
   const { enabled, selectedKeys, activate } = req.body || {};
 
@@ -612,9 +645,19 @@ app.put('/api/model-curation', (req: Request, res: Response) => {
     if (invalidEntry !== undefined) {
       return res.status(400).json({ error: 'selectedKeys entries must be "provider::model" strings.' });
     }
-    modelSourceConfig.curatedEndpointModelKeys = Array.from(new Set(
+    const nextKeys = Array.from(new Set(
       selectedKeys.map((key: string) => key.trim()).filter(Boolean)
     )).slice(0, 5000);
+    const guard = guardCurationReplacement(nextKeys, req.body?.force, 'PUT /api/model-curation');
+    if (guard.blocked) {
+      return res.status(409).json({
+        error: `Curation merge guard: this write would remove ${guard.blocked.removedCount} of ${guard.blocked.currentCount} curated models. Re-send with "force": true if this is intentional.`,
+        removedCount: guard.blocked.removedCount,
+        currentCount: guard.blocked.currentCount,
+        removedKeysPreview: guard.blocked.removedKeys.slice(0, 25)
+      });
+    }
+    modelSourceConfig.curatedEndpointModelKeys = nextKeys;
   }
 
   // Curation cannot be disabled in the single-catalog regime (2026-08-20):
@@ -698,10 +741,20 @@ app.post('/api/curation-configs/load', (req: Request, res: Response) => {
   if (!config) {
     return res.status(404).json({ error: `Curation config not found: ${name}` });
   }
+  const nextKeys = Array.from(new Set(config.selectedKeys))
+    .slice(0, MAX_CURATED_ENDPOINT_MODEL_KEYS);
+  const guard = guardCurationReplacement(nextKeys, req.body?.force, `curation-configs/load:${name}`);
+  if (guard.blocked) {
+    return res.status(409).json({
+      error: `Curation merge guard: loading "${name}" would remove ${guard.blocked.removedCount} of ${guard.blocked.currentCount} curated models. Re-send with "force": true if this is intentional.`,
+      removedCount: guard.blocked.removedCount,
+      currentCount: guard.blocked.currentCount,
+      removedKeysPreview: guard.blocked.removedKeys.slice(0, 25)
+    });
+  }
   modelSourceConfig.source = 'endpoints';
   modelSourceConfig.curationEnabled = true;
-  modelSourceConfig.curatedEndpointModelKeys = Array.from(new Set(config.selectedKeys))
-    .slice(0, MAX_CURATED_ENDPOINT_MODEL_KEYS);
+  modelSourceConfig.curatedEndpointModelKeys = nextKeys;
   try {
     persistModelSourceConfig();
   } catch (error: unknown) {

@@ -2268,6 +2268,58 @@ function deselectProviderCurationKeys(providerName: string): number {
   return previous.length;
 }
 
+/**
+ * Snapshot the ENTIRE curated list before a bulk replacement write so any
+ * mass-shrink (the 2026-09-04 catalog-wipe class of incident) is recoverable.
+ */
+function snapshotFullCurationBackup(reason: string): void {
+  try {
+    fs.mkdirSync(CURATION_BACKUP_DIR, { recursive: true, mode: 0o700 });
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const payload = {
+      provider: '__full__',
+      reason: sanitizeDiagnosticText(reason).slice(0, 120),
+      createdAt: new Date().toISOString(),
+      keyCount: modelSourceConfig.curatedEndpointModelKeys.length,
+      keys: [...modelSourceConfig.curatedEndpointModelKeys]
+    };
+    fs.writeFileSync(
+      path.join(CURATION_BACKUP_DIR, `curation-full-${stamp}.json`),
+      `${JSON.stringify(payload, null, 2)}\n`,
+      { encoding: 'utf8', mode: 0o600 }
+    );
+  } catch (error: any) {
+    console.error('[catalog] Failed to snapshot full curation backup:', sanitizeDiagnosticText(String(error?.message || error)));
+  }
+}
+
+const CURATION_GUARD_MIN_SIZE = 10;
+const CURATION_GUARD_SHRINK_RATIO = 0.9;
+
+/**
+ * Curation merge guard: evaluate a proposed replacement of the curated list.
+ * A replacement that drops >= CURATION_GUARD_SHRINK_RATIO of the current
+ * selection (with a meaningful starting size) is treated as a probable
+ * accident — the caller must pass an explicit force flag to apply it.
+ */
+function evaluateCurationShrink(nextKeys: string[]): {
+  blocked: boolean;
+  removedCount: number;
+  removedKeys: string[];
+  currentCount: number;
+  nextCount: number;
+} {
+  const current = modelSourceConfig.curatedEndpointModelKeys;
+  const next = new Set(nextKeys);
+  const removedKeys = current.filter((key) => !next.has(key));
+  const removedCount = removedKeys.length;
+  const ratio = current.length === 0 ? 0 : removedCount / current.length;
+  const blocked = current.length >= CURATION_GUARD_MIN_SIZE
+    && removedCount >= CURATION_GUARD_MIN_SIZE
+    && ratio >= CURATION_GUARD_SHRINK_RATIO;
+  return { blocked, removedCount, removedKeys, currentCount: current.length, nextCount: nextKeys.length };
+}
+
 /** Deselect every provider present in the endpoint cache (Refresh All path). */
 function deselectAllProviderCurationKeys(): number {
   let deselected = 0;
@@ -3526,6 +3578,8 @@ const configApiDeps = {
   refreshProviderEndpointModels,
   ensureCurationDefaultsForCache,
   deselectAllProviderCurationKeys,
+  snapshotFullCurationBackup,
+  evaluateCurationShrink,
   syncKeysFromPqcBundle,
   localRouterEnvVarName,
   mergeProviderEndpointModels,
