@@ -56,7 +56,12 @@ const SERVICE_TARGETS = [
     keyEnvVar: 'UNSLOTH_API_KEY',
     displayName: 'Unsloth (local)',
     backendPort: 8000,
-    serveSubcommands: ['serve', 'server']
+    serveSubcommands: ['serve', 'server'],
+    // Always install the shim even when the real binary is not on PATH yet:
+    // the shim resolves the binary lazily at invocation time, so `unsloth
+    // serve` still boots Local Router and registers the provider, and the
+    // shim transparently picks the binary up once unsloth is installed.
+    provisionWithoutBinary: true
   }
 ];
 
@@ -1227,7 +1232,7 @@ function pushProviderRegistration(lines, serviceTarget, routerHost, routerPort) 
     `    || curl -sf -m 5 -X PUT http://${routerHost}:${routerPort}/api/providers/${serviceTarget.providerSlug} -H 'Content-Type: application/json' -d "$payload" >/dev/null 2>&1 || true`,
     '  sleep 12',
     `  curl -sf -m 60 -X POST http://${routerHost}:${routerPort}/api/refresh-endpoint-models >/dev/null 2>&1 || true`,
-    ') &'
+    ') >/dev/null 2>&1 &'
   );
 }
 
@@ -1241,15 +1246,32 @@ function renderServiceShim(serviceTarget, realPath, routeTarget) {
     '#!/usr/bin/env bash',
     'set -euo pipefail',
     SERVICE_SHIM_MARKER,
-    `${realVar}=${bashSingleQuote(realPath)}`,
-    'LOCAL_ROUTER_BIN="${LOCAL_ROUTER_BIN:-${FVS_CODE_BIN:-local-router}}"',
-    '',
+    `${realVar}=${bashSingleQuote(realPath || '')}`,
+    'LOCAL_ROUTER_BIN="${LOCAL_ROUTER_BIN:-${FVS_CODE_BIN:-local-router}}"'
+  ];
+
+  if (serviceTarget.provisionWithoutBinary && !realPath) {
+    // Pre-provisioned shim: resolve the real binary at invocation time so the
+    // shim keeps working (and self-upgrades) once the binary lands on PATH.
+    lines.push(
+      `if [[ -z "$${realVar}" ]] || [[ ! -x "$${realVar}" ]]; then`,
+      `  __cand="$(command -v ${serviceTarget.command} 2>/dev/null || true)"`,
+      '  # Never resolve to a Local Router shim (including this file): that would recurse.',
+      `  if [[ -n "$__cand" ]] && [[ ! "$__cand" -ef "$0" ]] && ! grep -q ${bashSingleQuote(SERVICE_SHIM_MARKER)} "$__cand" 2>/dev/null; then`,
+      `    ${realVar}="$__cand"`,
+      '  fi',
+      'fi',
+      ''
+    );
+  }
+
+  lines.push(
     '# Escape hatch: LOCAL_ROUTER_NO_SHIM=1 runs the real binary directly.',
     'if [[ "${LOCAL_ROUTER_NO_SHIM:-0}" == "1" ]]; then',
     `  exec "$${realVar}" "$@"`,
     'fi',
     ''
-  ];
+  );
 
   if (serviceTarget.interceptAllArgs) {
     // llama-server always serves: every invocation is a service start.
@@ -1279,7 +1301,24 @@ function renderServiceShim(serviceTarget, realPath, routeTarget) {
   lines.push(
     '    ;;',
     'esac',
-    '',
+    ''
+  );
+
+  if (serviceTarget.provisionWithoutBinary && !realPath) {
+    // Graceful degradation for the pre-provisioned shim: once the router is
+    // ensured (and, for serve, the provider registered), a missing binary is
+    // reported clearly instead of failing with an opaque exec error.
+    lines.push(
+      `if [[ -z "$${realVar}" ]]; then`,
+      `  echo "[local-router] ${serviceTarget.command} binary not installed; Local Router is intercepting on port ${port}." >&2`,
+      `  echo "[local-router] Install ${serviceTarget.command} on PATH and re-run 'local-router route set' to run the real backend." >&2`,
+      '  exit 127',
+      'fi',
+      ''
+    );
+  }
+
+  lines.push(
     `exec "$${realVar}" "$@"`,
     ''
   );
@@ -1398,7 +1437,7 @@ async function cmdRouteSet(routeMode = 'services', customTarget = null) {
       continue;
     }
     const realPath = resolveRealServiceBinary(serviceTarget);
-    if (!realPath) {
+    if (!realPath && !serviceTarget.provisionWithoutBinary) {
       if (serviceTarget.command === 'ollama') {
         console.error('Could not locate the real ollama binary. Install Ollama first.');
         sawError = true;
@@ -1416,7 +1455,11 @@ async function cmdRouteSet(routeMode = 'services', customTarget = null) {
     const effectiveShimPath = IS_WIN && serviceTarget.command === 'ollama' ? path.join(SHIM_DIR, 'ollama.cmd') : serviceTarget.shimPath;
     installed.push({ command: serviceTarget.command, shimPath: effectiveShimPath, realPath });
     console.log(`Installed ${serviceTarget.command} service shim: ${effectiveShimPath}`);
-    console.log(`  Real ${serviceTarget.command}: ${realPath}`);
+    if (realPath) {
+      console.log(`  Real ${serviceTarget.command}: ${realPath}`);
+    } else {
+      console.log(`  Real ${serviceTarget.command}: (not installed yet — shim resolves it from PATH at invocation)`);
+    }
     if (serviceTarget.providerSlug) {
       console.log(`  Registers custom provider "${serviceTarget.providerSlug}" when the service starts.`);
     }
