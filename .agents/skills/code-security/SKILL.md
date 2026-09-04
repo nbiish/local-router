@@ -7,11 +7,12 @@ description: >
 
 # Safety-Critical Code Engineering Skill
 
-*Updated: May 4th, 2026 (May 2026 Standards)*
+*Updated: September 4th, 2026 (September 2026 Standards — incl. Domas compiler-research sync)*
 
 > Domain knowledge for deterministic, verifiable, and secure foundational code.
 > Load this skill when writing security-hardened code, infrastructure, input validation, cryptography, or container security.
 > This covers **The Body**: the deterministic runtime, tools, and infrastructure that must be absolutely reliable.
+> **Production Standards Reference:** [`references/production-standards.md`](references/production-standards.md) (condensed engineering standards deployed via `ainish-coder --secure`).
 
 ---
 
@@ -268,7 +269,62 @@ async def update_data(_: None = Depends(verify_csrf)):
 
 ---
 
-## 2. Authentication & Authorization
+## 2. Compiler-Introduced Vulnerabilities (Source ≠ Binary)
+
+> **2026 expert sync:** Christopher Domas's Black Hat research (interviewed by David Bombal, "Your Compiler Can Make Secure Code Vulnerable") demonstrates that a spec-compliant optimizer can **delete the defensive snapshot** in the canonical TOCTOU fix pattern — reintroducing the exact vulnerability the code avoided. Distilled knowledge base: `research/video/WU7SEq2hYpY/`.
+
+Your source code is not what executes. The C specification defines an *abstract machine*; the compiler owes you only the observable **results** (the as-if rule) and may implement everything else however it likes. Auditing source is necessary, not sufficient.
+
+### Compiler-Introduced TOCTOU (CWE-367, optimizer-emitted)
+
+The textbook secure pattern — snapshot untrusted shared data, check the copy, use the copy — is **not guaranteed to survive optimization**:
+
+```c
+/* --- SOURCE: looks secure (snapshot-check-use) --- */
+T local = *shared_untrusted;          /* defensive snapshot   */
+if (local.amount <= account_balance)  /* check the copy       */
+    transfer(local.amount);           /* use the copy         */
+
+/* --- BINARY (optimizer, spec-legal): pattern deleted --- */
+if ((*shared_untrusted).amount <= account_balance)  /* check re-reads   */
+    transfer((*shared_untrusted).amount);           /* use re-reads: TOCTOU is back */
+```
+
+Empirical trigger conditions (Domas, Black Hat):
+
+- **Register pressure** — when all CPU registers are in use, the optimizer drops the snapshot and re-reads the untrusted original.
+- **Struct layout** — reordering two struct fields can flip a secure binary into a vulnerable one.
+- **Data size mod 16** — access sizes congruent to 1 (mod 16) (e.g., 17 or 33 bytes) compiled safe in the study; other sizes did not.
+- **No rule of thumb** — the transformation emerges from interacting optimizer layers, each locally "correct". A compiler **upgrade or downgrade with identical flags** can flip the outcome; so can recompilation after verified inspection.
+- **Every compiler is affected** (GCC, Clang, ...). Switching toolchains is not a fix. Rust removes most memory-corruption classes but still has a translation layer; treat it as exposed until audited.
+
+### Dead-Store Elimination of Secret Wipes
+
+The classic sibling: the optimizer deletes `memset(secret, 0, len)` before `free` because the memory is "never read again" — dead credentials linger in the heap.
+
+```c
+/* --- BLOCKED: removable by dead-store elimination --- */
+memset(password, 0, password_len);
+
+/* --- SAFE: barriers the optimizer must honor --- */
+memset_s(password, sizeof password, 0, password_len);  /* C11 Annex K        */
+explicit_bzero(password, password_len);                /* glibc / BSD        */
+volatile unsigned char *wipe = (volatile unsigned char *)password;
+for (size_t i = 0; i < password_len; i++) wipe[i] = 0; /* volatile barrier   */
+```
+
+### Defensive Checklist (compiler-distrust hardening)
+
+- [ ] **Warnings as errors**: `-Wall -Wextra -Werror -Wconversion` (MSVC `/W4 /WX`); treat every warning as a defect.
+- [ ] **Sanitizers in CI**: ASan + UBSan (`-fsanitize=address,undefined`); MSan on secret-handling paths.
+- [ ] **Test what you ship**: security tests must run against the **optimized shipping binary** — the optimization pass is where transformations bite; a clean debug build proves nothing about it.
+- [ ] **Toolchain changes are security events**: pin the compiler; after any upgrade/downgrade re-verify security-sensitive binaries (identical flags ≠ identical security).
+- [ ] **AI pattern audit**: frontier LLMs reliably find `snapshot-check-use` pattern instances at scale (Domas: ~300 candidate instances across ~500M LOC in ~100 hours, each needing binary-level confirmation); no compiler flag or binary analyzer covers this class yet (see `llm-security` §15).
+- [ ] **Honor secret-wipe barriers** (`memset_s` / `explicit_bzero` / volatile loop); never rely on plain `memset` for zeroization.
+
+---
+
+## 3. Authentication & Authorization
 
 ### JWT Validation (ML-DSA / hybrid — 2026 PQC policy)
 
@@ -409,7 +465,7 @@ app.delete('/api/users/:id', authenticate, requirePermission('delete'), deleteUs
 
 ---
 
-## 3. Cryptographic Patterns
+## 4. Cryptographic Patterns
 
 ### AES-256-GCM Encryption/Decryption
 
@@ -542,7 +598,7 @@ fn build_tls_config() -> ServerConfig {
 
 ---
 
-## 4. MCP Security Hardening
+## 5. MCP Security Hardening
 
 ### ML-DSA-65 Manifest Signing & Verification (TypeScript)
 
@@ -734,7 +790,7 @@ class OutputSanitizer {
 
 ---
 
-## 5. Supply Chain Security
+## 6. Supply Chain Security
 
 ### SBOM Generation
 
@@ -830,7 +886,7 @@ npm ci  # Uses exact lockfile (package-lock.json)
 
 ---
 
-## 6. Container Security
+## 7. Container Security
 
 ### Secure Dockerfile (Multi-Stage, Non-Root, Read-Only)
 
@@ -907,7 +963,7 @@ spec:
 
 ---
 
-## 7. Sandboxing Patterns
+## 8. Sandboxing Patterns
 
 ### WASM Sandbox for Untrusted Code
 
@@ -978,7 +1034,7 @@ EOF
 
 ---
 
-## 8. Language-Specific Standards
+## 9. Language-Specific Standards
 
 ### Rust (High-Assurance Core)
 
@@ -1106,7 +1162,7 @@ func (f *Frame) Process(ctx context.Context) error {
 
 ---
 
-## 9. Verification & Formal Methods
+## 10. Verification & Formal Methods
 
 ### Testing Coverage Requirements
 
@@ -1138,7 +1194,7 @@ func (f *Frame) Process(ctx context.Context) error {
 
 ---
 
-## 10. Safety & Criticality Classification
+## 11. Safety & Criticality Classification
 
 | Standard | Domain | Levels | Key Requirement |
 |----------|--------|--------|-----------------|
@@ -1150,7 +1206,7 @@ func (f *Frame) Process(ctx context.Context) error {
 
 ---
 
-## 11. Supply Chain Security (SLSA 1.2)
+## 12. Supply Chain Security (SLSA 1.2)
 
 | Level | Requirements | Protects Against |
 |-------|-------------|------------------|
@@ -1163,7 +1219,7 @@ func (f *Frame) Process(ctx context.Context) error {
 
 ---
 
-## 12. Operational Safety
+## 13. Operational Safety
 
 ### Zero Trust Architecture (SP 800-207)
 
@@ -1208,7 +1264,7 @@ openssl s_server -cert cert.pem -key key.pem -groups x25519_mlkem768
 
 ---
 
-## 13. CWE Top 25 (2026) — Quick Reference
+## 14. CWE Top 25 (2026) — Quick Reference
 
 | # | CWE | Name | Fix |
 |---|-----|------|-----|
@@ -1229,10 +1285,11 @@ openssl s_server -cert cert.pem -key key.pem -groups x25519_mlkem768
 | 15 | CWE-918 | SSRF | URL allowlisting, network isolation |
 | 16 | CWE-77 | Command Injection | Avoid shell; parameterize |
 | 17 | CWE-770 | Resource Alloc Without Limits | Rate limiting, quotas |
+| 18 | CWE-367 | TOCTOU (incl. optimizer-emitted) | Snapshot-copy idiom + re-verify binaries after toolchain changes; LLM pattern audit (no automated detector yet) |
 
 ---
 
-## 14. Deployment Checklist
+## 15. Deployment Checklist
 
 ### Criticality Assessment
 - [ ] Life-Critical (patient safety, avionics)

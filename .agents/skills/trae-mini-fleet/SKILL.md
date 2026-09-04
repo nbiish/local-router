@@ -15,8 +15,8 @@ The calling AI agent operates as an **Augmented Fleet Orchestrator Master**, dis
 ## 1. Core Operating Principles
 
 1. **Tool Calls, Not Passive Advice:** Dispatches of `trae-cli` and `mini` are immediate, headless tool calls executed via terminal runner in dedicated worktrees. Never ask the operator to execute them manually.
-2. **Zero-Config for `mini`:** `mini` is globally pre-configured (`~/.config/mini-swe-agent/.env`) to use `local-router/fallback-models` on `localhost:11434/v1`. **Never supply `--config <cfg>`**. Run: `mini --task "<task>" --yolo --exit-immediately`. Required `.env` keys: `OPENAI_API_BASE=http://localhost:11434/v1`, `MSWEA_MODEL_NAME='openai/local-router/fallback-models'` (litellm needs the `openai/` provider prefix; the bare name fails with "LLM Provider NOT provided"), `MSWEA_COST_TRACKING='ignore_errors'` (litellm has no price entry for local-router models).
-3. **Task Files for `trae-cli`:** Always write prompts to a task file (`-f <file>`) to prevent shell quoting failures, and always pass the global config (`--config-file ~/.config/trae-agent/trae_config.yaml`). Run: `trae-cli run -f <file> --config-file ~/.config/trae-agent/trae_config.yaml --console-type simple --patch-path <patch> --max-steps 30`.
+2. **Zero-Config for `mini`:** `mini` is globally pre-configured (`~/.config/mini-swe-agent/.env`) to use `local-router/fallback-models` on `localhost:11434/v1`. **Never supply `--config <cfg>`**. Run: `mini --task "<task>" --yolo --exit-immediately`.
+3. **Task Files for `trae-cli`:** Always write prompts to a task file (`-f <file>`) to prevent shell quoting failures. Run: `trae-cli run -f <file> --console-type simple --patch-path <patch> --max-steps 30`.
 4. **Embody Top-Tier Personas:** When formulating prompts and supervising runs, the calling orchestrator embodies the exact domain expert ("Master") required for the task.
 5. **Durable Ledger Attribution:** Every dispatch lifecycle (`start` $\rightarrow$ `end`, `parent`, `persona`, `status`) is logged in `AGENTS/{date}.COMMS.md`.
 6. **Pre-Flight Graph Intelligence:** Never guess file targets blindly. Query GitNexus (`impact`, `context`) to calculate exact upstream/downstream blast radius ($d=1, d=2$) before populating the task file's `SCOPE & TARGET FILES` block.
@@ -71,7 +71,7 @@ You must ONLY explore, inspect, and modify the following files:
 cat > /tmp/task_ast.md << 'EOF'
 [content above]
 EOF
-trae-cli run -f /tmp/task_ast.md --config-file ~/.config/trae-agent/trae_config.yaml --console-type simple --patch-path solution.patch --max-steps 30
+trae-cli run -f /tmp/task_ast.md --console-type simple --patch-path solution.patch --max-steps 30
 python3 .agents/skills/trae-mini-fleet/scripts/scrub_task.py --in-place /tmp/task_ast.md 2>/dev/null || true
 rm -f /tmp/task_ast.md
 ```
@@ -148,31 +148,6 @@ You are acting as the **Systems Architecture Master**. You design deterministic 
 
 ## 4. Headless Tool-Calling Dispatch Patterns
 
-### Trae global config (one-time per machine)
-`trae-cli` refuses to run without `--config-file` (flags alone fail with "Config file not found"). Install `~/.config/trae-agent/trae_config.yaml`:
-```yaml
-model_providers:
-  local-router:
-    api_key: local-router
-    provider: openai
-    base_url: http://*********:11434/v1
-models:
-  default_model:
-    model: local-router/fallback-models
-    model_provider: local-router
-    temperature: 0.5
-    top_p: 0.95
-    top_k: 0
-    parallel_tool_calls: false
-    max_retries: 3
-agents:
-  trae_agent:
-    max_steps: 20
-    enable_lakeview: false
-    model: default_model
-```
-Note: `allow_mcp_servers` must NOT appear in the agent section (the parser injects it and rejects duplicates), and `lakeview` stays off unless a lakeview model is configured.
-
 ### Trae-Agent Tool Call (`trae-cli`)
 ```bash
 dispatch_trae_master() {
@@ -191,7 +166,6 @@ dispatch_trae_master() {
 
     trae-cli run \
       -f "$task_file" \
-      --config-file "${HOME}/.config/trae-agent/trae_config.yaml" \
       --provider openai \
       --model-base-url "http://localhost:11434/v1" \
       --model "local-router/fallback-models" \
@@ -274,19 +248,73 @@ All agent dispatches MUST log their lifecycle to `AGENTS/{date}.COMMS.md`.
 
 Before merging any fleet subagent changes:
 1. **Worktree Isolation:** Changes must reside in a sibling worktree (`../<slug>`), never on `main`.
-2. **Quality Gates:** Verify `./node_modules/.bin/tsc --noEmit` and `npm test` cleanly pass.
-3. **Privacy Scrubbing:** Run `python3 .agents/skills/trae-mini-fleet/scripts/scrub_task.py --in-place <file>` on intermediate task/trajectory files.
-4. **COMMS Ledger:** Register checkout entry attributing the dispatch lifecycle.
+2. **Quality Gates:** Verify `./node_modules/.bin/tsc --noEmit` and `npm test` cleanly pass. Plugin validators (ruff, bandit, py_compile for Python; semgrep/ESLint security where configured) run on every touched file — zero ruff findings and zero bandit medium+ findings are the merge gate.
+3. **Scope Conformance:** `git diff --name-only` vs the task's `SCOPE & TARGET FILES` allowlist; edits outside scope fail the dispatch (code 50) and are reverted before re-dispatch.
+4. **Compiler Integrity (C/C++ patches):** warnings-as-errors + ASan/UBSan in gates, and security tests re-run on the **optimized shipping binary** — the optimization pass is where transforms bite (see `code-security` §2).
+5. **Privacy Scrubbing:** Run `python3 .agents/skills/trae-mini-fleet/scripts/scrub_task.py --in-place <file>` on intermediate task/trajectory files. Under the v2 wrapper this is **fail-closed**: a failed scrub blocks completion (code 70) instead of being skipped.
+6. **COMMS Ledger:** Register checkout entry attributing the dispatch lifecycle, referencing the dispatch receipt.
 
 ### Quick Guardrail Reference
 | Pitfall | Risk | Rule |
 |---|---|---|
 | Invoking `trae-agent` | Binary not found | **Always invoke `trae-cli`** |
-| Omitting `--config-file` on `trae-cli` | "Config file not found" abort | Point at the global config: `--config-file ~/.config/trae-agent/trae_config.yaml` |
 | Omitting non-interactive flags | Hanging prompt on stdin | Use `--console-type simple` on `trae-cli`; `--yolo --exit-immediately` on `mini` |
 | Passing `--config` to `mini` | Broken local configuration | **Omit `--config`**: `mini` uses `~/.config/mini-swe-agent/.env` globally |
-| Bare model name in `MSWEA_MODEL_NAME` | litellm "LLM Provider NOT provided" retry loop | Prefix the provider: `MSWEA_MODEL_NAME='openai/local-router/fallback-models'` |
-| litellm cost map miss on local models | RuntimeError "This model isn't mapped yet" | Set `MSWEA_COST_TRACKING='ignore_errors'` in `~/.config/mini-swe-agent/.env` |
 | Unescaped task arguments | Shell quoting errors | Write task prompt to `/tmp/task.md` and pass via `-f <file>` |
 | Direct commits on `main` | Unclean reflog / pollution | Mandatory worktree: `git worktree add -b <branch> ../<slug> main` |
 | Missing COMMS tracking | Uncoordinated collisions | Always log start/end timestamps and parent/persona in `AGENTS/{date}.COMMS.md` |
+| Dispatching without doctor | Burned steps on broken env | Run `fleet_doctor.py` first; NO-GO = fix env before dispatch |
+| Merging without receipts | Unverifiable lifecycle | One JSON receipt per dispatch (`fleet.receipt/v1`); no receipt = no merge |
+
+---
+
+## 7. Dispatch Protocol v2 — Doctor, Wrapper, Receipts & Exit Taxonomy
+
+The narrative circuit-breaker rules above are made mechanical by two scripts in `scripts/`:
+
+### 7.1 Preflight: `fleet_doctor.py`
+
+Run before the first dispatch of a session (and after any environment change):
+
+```bash
+python3 .agents/skills/trae-mini-fleet/scripts/fleet_doctor.py          # human-readable
+python3 .agents/skills/trae-mini-fleet/scripts/fleet_doctor.py --json   # machine-readable
+```
+
+Checks: `trae-cli`/`mini` binaries resolvable (+ optional `--pin-trae`/`--pin-mini` sha256 enforcement), loopback proxy `127.0.0.1:11434` health (any HTTP answer = up), Ollama backend `11435` (warn-only), `scrub_task.py` present, and cwd is a dedicated non-main worktree (skip with `--skip-worktree` for doctor-only runs). Exit `0` = GO, `1` = NO-GO. Non-loopback probes are refused (SSRF guard).
+
+### 7.2 Dispatch wrapper: `fleet_dispatch.py`
+
+```bash
+python3 .agents/skills/trae-mini-fleet/scripts/fleet_dispatch.py \
+  --engine trae \
+  --task-file /tmp/task_ast.md \
+  --worktree ../my-feature \
+  --scope src/module.ts src/other.ts \
+  --gate "ruff check ." --gate "./node_modules/.bin/tsc --noEmit" \
+  --persona "AST Refactoring Master" \
+  --max-steps 30 --timeout 1800 \
+  --output /tmp/fleet_receipt.json
+```
+
+- Builds the correct non-interactive engine invocation (`trae-cli run -f ... --console-type simple ...` / `mini --task ... --yolo --exit-immediately`; **never `--config` for mini**).
+- Enforces the worktree contract (refuses `main`), runs post-edit `--gate` commands (shlex-split, `shell=False`, cwd = worktree), checks `git status --porcelain` against `--scope`, and scrubs task file + trajectory **fail-closed**.
+- Writes a `fleet.receipt/v1` JSON receipt (engine, persona, binary sha256, branch, task hash, changed files, scope verdict, gate results, probe-loop flag, scrub status + post-scrub hash, artifacts, native exit code, normalized code, durations).
+- `--auto-revert` reverts tracked edits on scope violation; `--bin` overrides the engine binary for testing.
+
+### 7.3 Normalized exit-code taxonomy (automatic handoff)
+
+| Code | Meaning | Orchestrator action |
+|---|---|---|
+| `0` | OK | Collect receipt; proceed to verification/merge flow |
+| `20` | STEP-EXHAUSTED (engine failed, zero edits) | Hand off to sibling engine with discovered targets |
+| `30` | PROBE-LOOP (mini, ≥3 identical probes) | Hand off failure signature to `trae-cli` for AST surgery |
+| `40` | ENGINE_OR_GATES_FAILED | Inspect receipt gates/tail; fix scope, re-dispatch |
+| `50` | SCOPE_VIOLATION | Revert (`--auto-revert`), tighten allowlist, re-dispatch |
+| `60` | PREFLIGHT_FAILED | Fix environment (run `fleet_doctor.py`) |
+| `70` | SCRUB_FAILED | Scrub manually before discarding anything; never skip |
+| `124` | TIMEOUT | Kill confirmed; treat as `20` (handoff) |
+
+### 7.4 Receipts are the COMMS evidence
+
+Append one `SUBAGENT-DISPATCH` ledger entry per dispatch (§5 schema) referencing the receipt (path + normalized code). **No receipt = the dispatch never happened**, and no merge may proceed without receipts for every dispatched phase plus green native gates.

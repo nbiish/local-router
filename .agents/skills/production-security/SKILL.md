@@ -255,6 +255,13 @@ LMS/XMSS→ signatures     (stateful hash-based)        ← CNSA 2.0 sw/fw signi
   hybrid classical+ML-DSA acceptable during transition per DJB June 2026
   implementation-fragility findings), CI/CD Policy-as-Code.
 - All security scans must pass before merge.
+- **Compiler-integrity gates (2026 expert sync — Domas compiler research):**
+  warnings-as-errors (`-Wall -Wextra -Werror`) and ASan/UBSan must pass in CI;
+  security tests run on the **optimized shipping binary**, never only a debug
+  build; the toolchain version is pinned and any compiler upgrade/downgrade is
+  treated as a security event that re-triggers security verification of the
+  rebuilt artifact (spec-legal optimizer transforms can delete secret wipes and
+  reintroduce TOCTOU — see `code-security` §2).
 - Cryptographic deprecation clock (NIST IR 8547 / EO 14412 / OMB M-26-15):
   classical 112-bit public-key crypto enters risk-acceptance-only after
   2030; all RSA/ECC disallowed in standards after 2035; federal HVAs must

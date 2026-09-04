@@ -14,6 +14,11 @@ version: 3.0.0
 
 A unified, three-pillar knowledge-graph architecture providing complete codebase, multimodal, and governance intelligence.
 
+## 0. Fleet Context Standard — llms.txt is the PRD (CLAUDE.md replacement)
+- **`llms.txt` is the PRD.** Repo-root `llms.txt` (plus per-directory DOX files) replaces CLAUDE.md as the canonical project-context source. Consult it before graph queries; update it after meaningful changes (DOX "Update After Editing" gate).
+- **`.agents/` is the global skill standard.** All skills, including the GitNexus playbooks bundled here, live in `.agents/skills/`.
+- **`.claude/` pairing.** Tooling may generate `.claude/` alongside (GitNexus `analyze` mirrors skills there), and Claude-Code-compatible harnesses — notably `fcc-claude` — require it. Tolerate the generated mirror and never hand-edit both: `.agents/` + `llms.txt` are the source of truth; `.claude/` is paired tool output for fcc-claude.
+
 ---
 
 ## 1. The Three Pillars & Purpose Determination

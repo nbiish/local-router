@@ -11,6 +11,7 @@ description: >
 
 > Domain knowledge for securing probabilistic AI components — models, prompts, RAG, agents, MCP, and their orchestration layers.
 > Load this skill when working on LLM integration, agentic workflows, prompt engineering, MCP servers, or AI red teaming.
+> **Production Standards Reference:** [`references/production-standards.md`](references/production-standards.md) (condensed engineering standards deployed via `ainish-coder --secure`).
 
 ---
 
@@ -1344,6 +1345,25 @@ Use for prioritizing AI-specific vulnerabilities alongside CVSS.
 - **Threat Modeling**: `"Identify potential attack vectors for [COMPONENT]"` or `"Generate threat model for [SYSTEM] considering STRIDE methodology"`
 - **Vulnerability Assessment**: `"Review this code for security vulnerabilities focusing on [OWASP_CATEGORY]"`
 - **Multi-Stage Validation**: Generate implementation -> `"Review codebase for vulnerabilities"` -> `"Implement fixes"` -> `"Generate security test cases"`.
+
+---
+
+## 15. AI as Security Analyzer (Dual-Use — 2026 Expert Sync)
+
+> **Source:** Christopher Domas (Black Hat) interviewed by David Bombal — frontier models reviewed ~500M lines of open source in ~100 hours and surfaced ~300 instances of a vulnerability class with **no existing automated detector** (compiler-introduced TOCTOU, see `code-security` §2). Knowledge base: `research/video/WU7SEq2hYpY/`.
+
+### Defensive Deployment (mandate)
+
+- Use frontier LLMs as a **pattern-audit gate** for vulnerability classes that lack tooling — e.g., audit `snapshot-check-use` patterns in security-critical C/C++ before every release.
+- **Defensive framing beats guardrail friction:** "audit my own code and propose fixes" is reliably assisted; exploit-first framing gets refused by newer models. Write audit prompts as defender tasks (find-and-fix), never attack tasks.
+- **Verify findings deterministically** (compile, sanitize, test) — LLM findings are probabilistic leads, not proof. Route confirmed findings through the normal patch/test pipeline.
+- **Log every AI audit** as a decision node: operator, model + version, patterns requested, findings. "AI-audited" is a claim that needs provenance.
+
+### Adversarial Reality (assumptions)
+
+- Assume attackers run the same audits at the same scale. AI collapses the search cost of rare bug classes — rarity is no longer cover.
+- Assume model guardrails fluctuate between versions: a defensive workflow blocked today may need reframing or a different frontier model tomorrow. Design audit prompts to survive model churn.
+- Treat model-suggested "fixes" for compiler-level issues as unverified until the rebuilt binary passes the security suite (the fix itself can be transformed by the optimizer — see `code-security` §2 checklist).
 
 ---
 

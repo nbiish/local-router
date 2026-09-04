@@ -17,7 +17,7 @@ Commands below use `node .gitnexus/run.cjs <command>` — the project-local runn
 node .gitnexus/run.cjs analyze
 ```
 
-Run from the project root. This parses all source files, builds the knowledge graph, writes it to `.gitnexus/`, and generates CLAUDE.md / AGENTS.md context files.
+Run from the project root. This parses all source files, builds the knowledge graph, writes it to `.gitnexus/`, and generates CLAUDE.md / AGENTS.md context files. In this fleet, generated context files and any `.claude/` skill mirror pair with the canonical `.agents/` skills + root `llms.txt` (the PRD) — the mirror exists for Claude-Code-compatible harnesses (`fcc-claude`) and is never hand-edited.
 
 | Flag           | Effect                                                           |
 | -------------- | ---------------------------------------------------------------- |

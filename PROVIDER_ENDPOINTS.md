@@ -5,26 +5,26 @@
 
 | Provider | Auth | Base URL | Models Endpoint | Chat Endpoint | Key Env Var | Key Status | Curated Models |
 |---|---|---|---|---|---|---|---|
-| wafer-serverless | API key | https://pass.wafer.ai/v1 | https://pass.wafer.ai/v1/models | https://pass.wafer.ai/v1/chat/completions | WAFER_SERVERLESS_API_KEY | missing | 1 |
-| zenmux | API key | https://zenmux.ai/api/v1 | https://zenmux.ai/api/v1/models | https://zenmux.ai/api/v1/chat/completions | ZENMUX_API_KEY | missing | 0 |
-| nebius | API key | https://api.tokenfactory.nebius.com/v1 | https://api.tokenfactory.nebius.com/v1/models | https://api.tokenfactory.nebius.com/v1/chat/completions | NEBIUS_API_KEY | missing | 1 |
-| moonshot | API key | https://api.moonshot.ai/v1 | https://api.moonshot.ai/v1/models | https://api.moonshot.ai/v1/chat/completions | MOONSHOT_API_KEY | missing | 0 |
+| wafer-serverless | API key | https://pass.wafer.ai/v1 | https://pass.wafer.ai/v1/models | https://pass.wafer.ai/v1/chat/completions | WAFER_SERVERLESS_API_KEY | configured | 1 |
+| zenmux | API key | https://zenmux.ai/api/v1 | https://zenmux.ai/api/v1/models | https://zenmux.ai/api/v1/chat/completions | ZENMUX_API_KEY | configured | 0 |
+| nebius | API key | https://api.tokenfactory.nebius.com/v1 | https://api.tokenfactory.nebius.com/v1/models | https://api.tokenfactory.nebius.com/v1/chat/completions | NEBIUS_API_KEY | configured | 1 |
+| moonshot | API key | https://api.moonshot.ai/v1 | https://api.moonshot.ai/v1/models | https://api.moonshot.ai/v1/chat/completions | MOONSHOT_API_KEY | configured | 0 |
 | nvidia-nim | API key | https://integrate.api.nvidia.com/v1 | https://integrate.api.nvidia.com/v1/models | https://integrate.api.nvidia.com/v1/chat/completions | NVIDIA_NIM_API_KEY | missing | 0 |
 | modal | API key | https://api.us-west-2.modal.direct/v1 | https://api.us-west-2.modal.direct/v1/models | https://api.us-west-2.modal.direct/v1/chat/completions | MODAL_API_KEY | missing | 0 |
-| modal-proxy | API key | https://nbiish--ep-glm-5-3-flash-server.us-west.modal.direct/v1 | https://nbiish--ep-glm-5-3-flash-server.us-west.modal.direct/v1/models | https://nbiish--ep-glm-5-3-flash-server.us-west.modal.direct/v1/chat/completions | MODAL_PROXY_API_KEY | missing | 1 |
-| openrouter | API key | https://openrouter.ai/api/v1 | https://openrouter.ai/api/v1/models | https://openrouter.ai/api/v1/chat/completions | OPENROUTER_API_KEY | missing | 2 |
-| xiaomi-mimo | API key | https://token-plan-sgp.xiaomimimo.com/v1 | https://token-plan-sgp.xiaomimimo.com/v1/models | https://token-plan-sgp.xiaomimimo.com/v1/chat/completions | XIAOMI_MIMO_API_KEY | missing | 1 |
+| modal-proxy | API key | https://nbiish--ep-glm-5-3-flash-server.us-west.modal.direct/v1 | https://nbiish--ep-glm-5-3-flash-server.us-west.modal.direct/v1/models | https://nbiish--ep-glm-5-3-flash-server.us-west.modal.direct/v1/chat/completions | MODAL_PROXY_API_KEY | configured | 1 |
+| openrouter | API key | https://openrouter.ai/api/v1 | https://openrouter.ai/api/v1/models | https://openrouter.ai/api/v1/chat/completions | OPENROUTER_API_KEY | configured | 2 |
+| xiaomi-mimo | API key | https://token-plan-sgp.xiaomimimo.com/v1 | https://token-plan-sgp.xiaomimimo.com/v1/models | https://token-plan-sgp.xiaomimimo.com/v1/chat/completions | XIAOMI_MIMO_API_KEY | configured | 1 |
 | opencode-go | API key | https://opencode.ai/zen/go/v1 | https://opencode.ai/zen/go/v1/models | https://opencode.ai/zen/go/v1/chat/completions | OPENCODE_API_KEY | missing | 0 |
-| opencode-zen | API key | https://opencode.ai/zen/v1 | https://opencode.ai/zen/v1/models | https://opencode.ai/zen/v1/chat/completions | OPENCODE_ZEN_API_KEY | missing | 1 |
-| zai | API key | https://api.z.ai/api/coding/paas/v4 | https://api.z.ai/api/coding/paas/v4/models | https://api.z.ai/api/coding/paas/v4/chat/completions | ZAI_API_KEY | missing | 0 |
+| opencode-zen | API key | https://opencode.ai/zen/v1 | https://opencode.ai/zen/v1/models | https://opencode.ai/zen/v1/chat/completions | OPENCODE_ZEN_API_KEY | configured | 1 |
+| zai | API key | https://api.z.ai/api/coding/paas/v4 | https://api.z.ai/api/coding/paas/v4/models | https://api.z.ai/api/coding/paas/v4/chat/completions | ZAI_API_KEY | configured | 0 |
 | ollama | API key | http://127.0.0.1:11435/v1 | http://127.0.0.1:11435/v1/models | http://127.0.0.1:11435/v1/chat/completions | OLLAMA_API_KEY | configured | 0 |
-| cline | API key | https://api.cline.bot/api/v1 | https://api.cline.bot/api/v1/models | https://api.cline.bot/api/v1/chat/completions | CLINE_API_KEY | missing | 1 |
-| kilo | API key | https://api.kilo.ai/api/gateway | https://api.kilo.ai/api/gateway/models | https://api.kilo.ai/api/gateway/chat/completions | KILO_API_KEY | missing | 2 |
-| commandcode | API key | https://api.commandcode.ai/provider/v1 | https://api.commandcode.ai/provider/v1/models | https://api.commandcode.ai/provider/v1/chat/completions | COMMANDCODE_API_KEY | missing | 0 |
+| cline | API key | https://api.cline.bot/api/v1 | https://api.cline.bot/api/v1/models | https://api.cline.bot/api/v1/chat/completions | CLINE_API_KEY | configured | 1 |
+| kilo | API key | https://api.kilo.ai/api/gateway | https://api.kilo.ai/api/gateway/models | https://api.kilo.ai/api/gateway/chat/completions | KILO_API_KEY | configured | 2 |
+| commandcode | API key | https://api.commandcode.ai/provider/v1 | https://api.commandcode.ai/provider/v1/models | https://api.commandcode.ai/provider/v1/chat/completions | COMMANDCODE_API_KEY | configured | 0 |
 | antigravity | OAuth (signed in) | https://generativelanguage.googleapis.com/v1beta | https://generativelanguage.googleapis.com/v1beta/models | https://generativelanguage.googleapis.com/v1beta/chat/completions | ANTIGRAVITY_API_KEY | token active | 2 |
 | github-copilot | OAuth (signed in) | https://api.githubcopilot.com | https://api.githubcopilot.com/models | https://api.githubcopilot.com/chat/completions | GITHUB_COPILOT_API_KEY | token active | 53 |
 | cursor | OAuth (not signed in) | https://api2.cursor.sh/v1 | https://api2.cursor.sh/v1/models | https://api2.cursor.sh/v1/chat/completions | CURSOR_API_KEY | not signed in | 0 |
-| pioneer | API key | https://api.pioneer.ai/v1 | https://api.pioneer.ai/v1/models | https://api.pioneer.ai/v1/chat/completions | PIONEER_API_KEY | missing | 1 |
-| nous-portal | API key | https://inference-api.nousresearch.com/v1 | https://inference-api.nousresearch.com/v1/models | https://inference-api.nousresearch.com/v1/chat/completions | NOUS_API_KEY | missing | 1 |
+| pioneer | API key | https://api.pioneer.ai/v1 | https://api.pioneer.ai/v1/models | https://api.pioneer.ai/v1/chat/completions | PIONEER_API_KEY | configured | 1 |
+| nous-portal | API key | https://inference-api.nousresearch.com/v1 | https://inference-api.nousresearch.com/v1/models | https://inference-api.nousresearch.com/v1/chat/completions | NOUS_API_KEY | configured | 1 |
 
-_Generated 2026-09-04T19:44:04.993Z._
+_Generated 2026-09-04T19:44:37.816Z._

@@ -129,3 +129,111 @@ What would this governance / sovereignty master suggest? Keep the daily COMMS le
 What would this terminal-orchestration / swe-bench master suggest? Continue treating trae-cli and mini as first-class agentic tool calls executed in worktrees.
 What would this master-orchestrator / self-prompting master suggest? Deconstruct complex coding problems into unambiguous scoped task prompts.
 What would this developer-experience / ergonomics master suggest? Benefit from zero-config mini execution and streamlined master persona workflows.
+
+## 2026-09-04T16:23:26Z
+point your fleet tools at fallback-models with no thinking config and confirm behavior.
+What would this adversarial / security master suggest? Explicit thinking opt-outs are honored unconditionally, so no harness can be forced into reasoning it disabled.
+What would this privacy / data-protection regulatory master suggest? Nothing new is persisted; the only state change is the local thinking-config JSON, no secrets involved.
+What would this supply-chain / third-party-risk master suggest? Change is two committed source edits with no new dependencies, pinned lockfile untouched.
+What would this systems-architecture / devops / infrastructure master suggest? The stale-proxy failure mode recurs after every rebuild, so add a post-build restart to your deploy loop.
+What would this reliability / verification master suggest? Smoke tests verified default-on, explicit-off, and explicit-on paths against two live providers; add them as regression tests.
+What would this governance / sovereignty master suggest? Work was done in a worktree branch, COMMS checkin recorded, and merge happened only after operator confirmation.
+What would this terminal-orchestration / swe-bench master suggest? mini and trae-cli can now send think:false or reasoning_effort per task when they need terse non-reasoning turns.
+What would this master-orchestrator / self-prompting master suggest? Next, wire per-provider thinking levels through PUT /api/thinking-level for fleet-wide tuning.
+What would this developer-experience / ergonomics master suggest? Document the accepted override shapes (reasoning_effort, think, enable_thinking, thinking) in llms.txt for harness authors.
+
+## 2026-09-04T17:03:00Z
+re-test agent0 against localhost:11434 and report which models it lists.
+What would this adversarial / security master suggest? Keep curation changes audited, since the curated key list gates which providers can be reached.
+What would this privacy / data-protection regulatory master suggest? Provider keys stay in the PQC bundle and were never written to disk or logs during this fix.
+What would this supply-chain / third-party-risk master suggest? The catalog restore came from the local endpoint cache only, with no new external dependencies.
+What would this systems-architecture / devops / infrastructure master suggest? Add a watchdog that alerts when curated model count drops or the PQC bundle fails to decrypt at boot.
+What would this reliability / verification master suggest? Both ollama and OpenAI shapes return OK through the fallback chain, verified from both OS sides.
+What would this governance / sovereignty master suggest? Wipe and restore events are backed up with timestamped files, and COMMS ledger records the intervention.
+What would this terminal-orchestration / swe-bench master suggest? Fleet tools can now resume dispatching through local-router/fallback-models immediately.
+What would this master-orchestrator / self-prompting master suggest? Investigate which curation writer truncated the curated list at 12:45 and add a merge guard.
+What would this developer-experience / ergonomics master suggest? Document restore-from-cache procedure in llms.txt so catalog loss is a one-command recovery.
+
+## 2026-09-04T17:14:43Z
+confirm agent0 now shows the single modal endpoint and route fleet traffic through it.
+What would this adversarial / security master suggest? The force flag gating mass curation writes should be rate-limited and logged to prevent abuse by a compromised harness.
+What would this privacy / data-protection regulatory master suggest? Removed provider references leave no residual keys; PQC bundle still holds only what is needed.
+What would this supply-chain / third-party-risk master suggest? Single-endpoint concentration on modal-proxy creates dependency risk; keep a tested fallback rehearsed.
+What would this systems-architecture / devops / infrastructure master suggest? Route the fallback chain to a second provider only after modal proves stable for a week.
+What would this reliability / verification master suggest? Guard verified live: 409 without force, 200 with force, full-list backup written before both.
+What would this governance / sovereignty master suggest? All changes landed via reviewed worktree branches with COMMS ledger entries and operator-approved merges.
+What would this terminal-orchestration / swe-bench master suggest? Re-point trae-cli and mini task templates to the modal endpoint as the sole fallback target.
+What would this master-orchestrator / self-prompting master suggest? Next, add a nightly health probe that curls the fallback chain and alerts on empty catalogs.
+What would this developer-experience / ergonomics master suggest? Surface the merge-guard 409 message in the /config UI so operators understand why a save was blocked.
+
+## 2026-09-04T17:17:51Z
+run agent0 and confirm it lists the single modal endpoint.
+What would this adversarial / security master suggest? The force flag is the one bypass into the catalog guard, so keep it out of any template a harness copies blindly.
+What would this privacy / data-protection regulatory master suggest? No secrets were written to llms.txt or any committed file during the documentation pass.
+What would this supply-chain / third-party-risk master suggest? Single-provider concentration stands; revisit a rehearsed secondary once modal proves stable.
+What would this systems-architecture / devops / infrastructure master suggest? Consider a boot-time watchdog asserting curated count and PQC load so the next wipe pages you immediately.
+What would this reliability / verification master suggest? End-state verified: tags and v1 at 200, fallback chain returning OK, guard strings present in the running build.
+What would this governance / sovereignty master suggest? Every change today traveled a named worktree branch, a COMMS ledger entry, and an explicit merge; the audit trail is complete.
+What would this terminal-orchestration / swe-bench master suggest? Fleet templates can safely hardcode the fallback-models alias since it is always present and now single-target.
+What would this master-orchestrator / self-prompting master suggest? Close the loop by archiving today's timestamped config backups to the wtf bin for cross-machine recovery.
+What would this developer-experience / ergonomics master suggest? The docs now explain the 409 force semantics inline, so harness authors can self-serve when a save is blocked.
+
+## 2026-09-04T17:53:04Z
+re-run your old-machine config import and confirm every chain step shows Available first try.
+What would this adversarial / security master suggest? The auto-curator should log which keys it adds so an imported config cannot silently widen the served catalog.
+What would this privacy / data-protection regulatory master suggest? Keys still flow only through the PQC bundle; the re-check path never transmits them beyond the provider call.
+What would this supply-chain / third-party-risk master suggest? Preserve-curation refresh removes the footgun that made operators afraid to refresh, improving upstream hygiene.
+What would this systems-architecture / devops / infrastructure master suggest? Consider exporting a single portable bundle (chains plus curated keys plus routes) instead of separate JSON files per machine.
+What would this reliability / verification master suggest? Verified live: imported chain references auto-curated and presented without manual re-checks, then production restored to modal-only.
+What would this governance / sovereignty master suggest? The healer changes shipped through a worktree branch with a COMMS entry and a clean merge at db-referenced head.
+What would this terminal-orchestration / swe-bench master suggest? Fleet machines can now bootstrap by copying fallback-models.json and resyncing PQC keys, zero manual catalog work.
+What would this master-orchestrator / self-prompting master suggest? Next, test a true cold machine: empty cache, keys only, one imported config file, measure time to Available.
+What would this developer-experience / ergonomics master suggest? Add an export button next to import in the config UI so the round trip is one click each way.
+
+## 2026-09-04T18:20:39Z
+re-check the /config catalog page renders the correct 1M limits and scroll behavior in your browser.
+What would this adversarial / security master suggest? The empty-curation recurrence was a file-level write the API guard cannot see, so file integrity monitoring is the real control.
+What would this privacy / data-protection regulatory master suggest? The modal key stayed inside the PQC bundle through every probe and restart.
+What would this supply-chain / third-party-risk master suggest? Single-endpoint dependency is now absolute, so schedule a periodic reachability probe against the modal URL.
+What would this systems-architecture / devops / infrastructure master suggest? Override-versus-cache drift caused the stale limits; consider making the cache the single source at boot.
+What would this reliability / verification master suggest? End state verified: one modal model at 1048576 by 1048576, five catalog entries, inference OK.
+What would this governance / sovereignty master suggest? Two more reviewed branches merged today with ledger entries; the tree is clean at a single commit head.
+What would this terminal-orchestration / swe-bench master suggest? Fleet harnesses can trust max_output_tokens for step budgeting against the modal endpoint now.
+What would this master-orchestrator / self-prompting master suggest? Next, investigate what wrote an empty curated list during the restart cycle and close that hole.
+What would this developer-experience / ergonomics master suggest? Refresh the /config page to confirm scroll stays put when checking models on the modal provider.
+
+## 2026-09-04T18:38:58Z
+add your multi-provider GLM aliases to the chain and watch the escalation in the attempt log.
+What would this adversarial / security master suggest? Per-provider keys remain isolated inside the PQC bundle even as alias entries multiply in the catalog.
+What would this privacy / data-protection regulatory master suggest? The attempt log records provider and model but never keys or payloads.
+What would this supply-chain / third-party-risk master suggest? Credit-spreading across providers reduces single-vendor lock, which is exactly what alias chaining enables.
+What would this systems-architecture / devops / infrastructure master suggest? Watch request latency on exhausted chains since the escalating plan can take far longer before terminal failure.
+What would this reliability / verification master suggest? The simulated plan A-B-A-B-C-A-B-C-D proves the two-then-three-then-four restart contract precisely.
+What would this governance / sovereignty master suggest? The operator contract is documented in the execution-plan module header and COMMS ledger for future auditors.
+What would this terminal-orchestration / swe-bench master suggest? Harnesses can now rely on local-router absorbing provider outages without a single interrupted run until true exhaustion.
+What would this master-orchestrator / self-prompting master suggest? Next, surface the escalating plan stages in the /config fallback editor so operators can visualize restart cycles.
+What would this developer-experience / ergonomics master suggest? When aliases reappear upstream they will auto-present with unique prefixed ids and be immediately chainable.
+
+## 2026-09-04T18:42:50Z
+import your old fallback-models config once more and confirm every step shows Available without re-checking.
+What would this adversarial / security master suggest? Bulk-deselect removal narrows the attack surface where a compromised refresh could silently strip serving config.
+What would this privacy / data-protection regulatory master suggest? Curation state is preference data only; keys remain sealed in the PQC bundle.
+What would this supply-chain / third-party-risk master suggest? Credit-spreading chains work now that provider alias entries persist across refreshes.
+What would this systems-architecture / devops / infrastructure master suggest? Consider a watchdog that diffs curated keys before and after boot to catch silent config writers.
+What would this reliability / verification master suggest? Verified: refresh reports preservedSelection true with zero deselected and inference returns OK through the modal chain.
+What would this governance / sovereignty master suggest? The fix shipped through a worktree branch with a COMMS update and merges back to a clean main.
+What would this terminal-orchestration / swe-bench master suggest? Fleet engines can refresh provider discovery mid-session without breaking their own routing.
+What would this master-orchestrator / self-prompting master suggest? Next, re-run the cross-machine import test to validate the full round trip end to end.
+What would this developer-experience / ergonomics master suggest? The config UI status line should read preserved after refresh so operators trust the behavior change.
+
+## 2026-09-04T19:09:06Z
+reload the providers page and confirm the corrected limits render beside your imported override.
+What would this adversarial / security master suggest? Registry limits are display metadata only and cannot be abused to bypass real provider-side enforcement.
+What would this privacy / data-protection regulatory master suggest? No new data flows; the fix is a static in-repo metadata row.
+What would this supply-chain / third-party-risk master suggest? Keep registry limits synced with upstream model announcements so stale metadata never misroutes budget decisions.
+What would this systems-architecture / devops / infrastructure master suggest? Consider annotating registry rows with an as-of date so drift is visible at a glance.
+What would this reliability / verification master suggest? Verified the merged build serves the catalog cleanly on 11434 after restart.
+What would this governance / sovereignty master suggest? Single-row change merged through a worktree with a COMMS ledger entry as required.
+What would this terminal-orchestration / swe-bench master suggest? Fleet step budgeting against copilot gemini-3.8-flash can now trust the advertised output ceiling.
+What would this master-orchestrator / self-prompting master suggest? Next, sweep the whole registry for models missing context or output values and fill the gaps in one pass.
+What would this developer-experience / ergonomics master suggest? Imported router-settings overrides should visually differ from registry defaults so operators know which value wins.
