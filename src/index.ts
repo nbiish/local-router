@@ -1212,8 +1212,41 @@ export function cloneFallbackModel(model: FallbackModel): FallbackModel {
   return cloned;
 }
 
+// Fallback wipe guard (2026-09-04): a transition of the system chain from
+// non-empty to empty is snapshotted to curation-backups/ and loudly warned —
+// the 2026-09-04 churn produced silent empty-chain writes.
+let lastKnownSystemChain: string[] | null = null;
+
+function snapshotFallbackChainBackup(previousModels: string[]): void {
+  try {
+    fs.mkdirSync(CURATION_BACKUP_DIR, { recursive: true, mode: 0o700 });
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const payload = {
+      provider: '__fallback_chain__',
+      reason: 'system chain emptied',
+      createdAt: new Date().toISOString(),
+      keyCount: previousModels.length,
+      keys: [...previousModels]
+    };
+    fs.writeFileSync(
+      path.join(CURATION_BACKUP_DIR, `fallback-chain-${stamp}.json`),
+      `${JSON.stringify(payload, null, 2)}\n`,
+      { encoding: 'utf8', mode: 0o600 }
+    );
+    console.warn(`[fallback] Empty system chain write detected — previous ${previousModels.length} step(s) backed up to curation-backups/fallback-chain-${stamp}.json`);
+  } catch (error: any) {
+    console.error('[fallback] Failed to snapshot chain backup:', sanitizeDiagnosticText(String(error?.message || error)));
+  }
+}
+
 function persistFallbackModels() {
   ensureLocalRouterConfigDir();
+  const sysRouteBefore = fallbackModelStore[SYSTEM_FALLBACK_ROUTE_ID];
+  const beforeModels = Array.isArray(sysRouteBefore?.models) ? sysRouteBefore.models : [];
+  if (lastKnownSystemChain && lastKnownSystemChain.length > 0 && beforeModels.length === 0) {
+    snapshotFallbackChainBackup(lastKnownSystemChain);
+  }
+  lastKnownSystemChain = [...beforeModels];
   const routes = Object.values(fallbackModelStore)
     .map((model) => cloneFallbackModel(model))
     .sort((a, b) => a.id.localeCompare(b.id));
@@ -1343,6 +1376,9 @@ function persistSystemPrompt(): void {
   fs.chmodSync(SYSTEM_PROMPT_PATH, 0o600);
 }
 
+let pqcBundleLoaded = false;
+const HEALTH_STATE_PATH = path.join(LOCAL_ROUTER_CONFIG_DIR, 'health.json');
+const HEALTH_PROBE_INTERVAL_MS = 15 * 60 * 1000;
 // ── Thinking Level Configuration ───────────────────────────────────────────
 
 const thinkingLevelStore: Record<string, ThinkingLevel> = {};
@@ -3660,7 +3696,8 @@ function loadPqcSecrets(): void {
   const sync = syncKeysFromPqcBundle({ force: true });
   if (sync.ok) {
     if (sync.loaded.length > 0) {
-      console.log(`[PQC] Loaded ${sync.loaded.length} provider key(s) from bundle: ${sync.loaded.join(', ')}`);
+      pqcBundleLoaded = true;
+    console.log(`[PQC] Loaded ${sync.loaded.length} provider key(s) from bundle: ${sync.loaded.join(', ')}`);
     }
     if (sync.skipped.length > 0) {
       console.log(`[PQC] Env vars not mapped to providers: ${sync.skipped.join(', ')}`);
@@ -4056,6 +4093,7 @@ if (modelSourceConfig.defaultCurationConfig) {
 loadEndpointModelsCache();
 loadPersistedProviderModels();
 seedRegistryBaselines();
+startCatalogHealthMonitor();
 mergeBaselineProviderModelOverrides();
 seedRegistryCatalogIfNeeded();
 loadPersistedFallbackModels();
@@ -4426,6 +4464,94 @@ function ollamaCloudRoutingAllowsPro(): boolean {
  * and curated model count — regenerated at server boot, on provider add,
  * and on key save, so the repo always carries a current endpoint map.
  */
+// ── Catalog health monitor (2026-09-04) ─────────────────────────────────────
+// Masters' suggestions: watch for silent curated-count collapse, empty
+// discovery cache, PQC load failure, missing bridge binaries, and upstream
+// reachability of the first fallback target — warn loudly, persist state.
+
+
+
+function binaryOnPath(binary: string): boolean {
+  try {
+    const result = execFileSync('which', [binary], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+    return Boolean(result.trim());
+  } catch {
+    return false;
+  }
+}
+
+function catalogHealthSnapshot(): Record<string, unknown> {
+  const curated = modelSourceConfig.curatedEndpointModelKeys.length;
+  const cached = endpointModelsCache.length;
+  const bridges: Record<string, boolean> = {
+    copilot: binaryOnPath(process.env.LOCAL_ROUTER_COPILOT_BIN || 'copilot'),
+    cursor: binaryOnPath(process.env.LOCAL_ROUTER_CURSOR_BIN || 'cursor-agent')
+  };
+  return {
+    timestamp: new Date().toISOString(),
+    curatedCount: curated,
+    cacheCount: cached,
+    pqcBundleLoaded,
+    bridges,
+    systemChain: (fallbackModelStore[SYSTEM_FALLBACK_ROUTE_ID]?.models || []).slice()
+  };
+}
+
+function persistHealthState(snapshot: Record<string, unknown>): void {
+  try {
+    ensureLocalRouterConfigDir();
+    fs.writeFileSync(HEALTH_STATE_PATH, `${JSON.stringify(snapshot, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
+  } catch (error: any) {
+    console.error('[health] Failed to persist health state:', sanitizeDiagnosticText(String(error?.message || error)));
+  }
+}
+
+async function probeFirstFallbackTargetReachability(): Promise<void> {
+  const chain = fallbackModelStore[SYSTEM_FALLBACK_ROUTE_ID]?.models || [];
+  const first = chain.find((id) => !id.startsWith('cursor-') && id !== 'github-copilot-auto');
+  if (!first) return;
+  const target = resolveModelTarget(first);
+  if (!target || !target.actualModel) return;
+  const provider = getProviderSummary(target.providerName);
+  if (!provider?.endpoint) return;
+  try {
+    const res = await safeFetch(`${provider.endpoint.replace(/\/+$/, '')}/models`, {
+      headers: { Authorization: `Bearer ${keyStore[target.providerName] || providerEnvKeyValue(provider.keyEnvVar) || ''}` },
+      signal: AbortSignal.timeout(8000)
+    });
+    if (!res.ok) console.warn(`[health] First fallback target upstream ${provider.endpoint} answered HTTP ${res.status}`);
+  } catch (error: any) {
+    console.warn(`[health] First fallback target upstream unreachable: ${sanitizeDiagnosticText(String(error?.message || error), 120)}`);
+  }
+}
+
+function runCatalogHealthCheck(): void {
+  const snapshot = catalogHealthSnapshot();
+  persistHealthState(snapshot);
+  if (snapshot.curatedCount === 0) {
+    console.warn('[health] WARN: curated model count is 0 — served catalog has collapsed.');
+  }
+  if (snapshot.cacheCount === 0) {
+    console.warn('[health] WARN: endpoint models cache is empty.');
+  }
+  if (!snapshot.pqcBundleLoaded) {
+    console.warn('[health] WARN: PQC bundle not loaded this run — provider keys may be missing.');
+  }
+  const missing = Object.entries(snapshot.bridges as Record<string, boolean>).filter(([, ok]) => !ok).map(([name]) => name);
+  if (missing.length > 0) {
+    console.warn(`[health] WARN: auto bridge binaries not found on PATH: ${missing.join(', ')}`);
+  }
+}
+
+function startCatalogHealthMonitor(): void {
+  runCatalogHealthCheck();
+  const timer = setInterval(() => {
+    runCatalogHealthCheck();
+    void probeFirstFallbackTargetReachability();
+  }, HEALTH_PROBE_INTERVAL_MS);
+  timer.unref?.();
+}
+
 function writeProviderEndpointsDoc(): void {
   try {
     const outPath = path.resolve(__dirname, '..', 'PROVIDER_ENDPOINTS.md');
@@ -4435,9 +4561,14 @@ function writeProviderEndpointsDoc(): void {
       '> AUTO-GENERATED by the Local Router server — do not hand-edit.',
       '> Regenerated at server boot, on provider add, and on key save.',
       '',
-      '| Provider | Auth | Base URL | Models Endpoint | Chat Endpoint | Key Env Var | Key Status | Curated Models |',
+      '| Provider | Auth | Base URL | Models Endpoint | Chat Endpoint | Key Env Var | Key Status | Curated Models | CLI Auto Bridge |',
       '|---|---|---|---|---|---|---|---|'
     ];
+    const cliBridgeStatus = (slug: string): string => {
+      if (slug === 'github-copilot') return binaryOnPath(process.env.LOCAL_ROUTER_COPILOT_BIN || 'copilot') ? 'yes (copilot CLI — `github-copilot-auto`)' : 'CLI not found';
+      if (slug === 'cursor') return binaryOnPath(process.env.LOCAL_ROUTER_CURSOR_BIN || 'cursor-agent') ? 'yes (cursor-agent CLI — `cursor-auto`)' : 'CLI not found';
+      return '—';
+    };
     for (const summary of allProviderSummaries()) {
       const slug = canonicalProviderSlug(summary.name);
       if (!slug || isLocalRouterProviderName(slug)) continue;
@@ -4454,7 +4585,7 @@ function writeProviderEndpointsDoc(): void {
       const chatEp = base === 'internal' ? 'internal' : `${base}/chat/completions`;
       const curatedCount = modelSourceConfig.curatedEndpointModelKeys
         .filter((k) => k.startsWith(`${slug}::`)).length;
-      lines.push(`| ${slug} | ${auth} | ${base} | ${modelsEp} | ${chatEp} | ${summary.keyEnvVar || '—'} | ${keyStatus} | ${curatedCount} |`);
+      lines.push(`| ${slug} | ${auth} | ${base} | ${modelsEp} | ${chatEp} | ${summary.keyEnvVar || '—'} | ${keyStatus} | ${curatedCount} | ${cliBridgeStatus(slug)} |`);
     }
     lines.push('', `_Generated ${new Date().toISOString()}._`, '');
     fs.writeFileSync(outPath, lines.join('\n'), { encoding: 'utf8' });
