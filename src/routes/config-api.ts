@@ -71,6 +71,7 @@ export interface ConfigApiDeps {
   }>;
   ensureCurationDefaultsForCache: () => void;
   deselectAllProviderCurationKeys: () => number;
+  scheduleRecheckForFallbackReferences: () => void;
   snapshotFullCurationBackup: (reason: string) => void;
   evaluateCurationShrink: (nextKeys: string[]) => {
     blocked: boolean;
@@ -165,6 +166,7 @@ export function registerConfigApiRoutes(app: express.Express, deps: ConfigApiDep
     refreshProviderEndpointModels,
     ensureCurationDefaultsForCache,
     deselectAllProviderCurationKeys,
+    scheduleRecheckForFallbackReferences,
     snapshotFullCurationBackup,
     evaluateCurationShrink,
     syncKeysFromPqcBundle,
@@ -874,7 +876,15 @@ app.post('/api/pqc-resync', (req: Request, res: Response) => {
   const result = syncKeysFromPqcBundle({ force });
   if (result.ok) {
     console.log(`[PQC] Resync loaded ${result.loaded.length} provider key(s) from bundle: ${result.loaded.join(', ')}`);
-    return res.json({ success: true, resynced: true, loaded: result.loaded, skipped: result.skipped });
+    // Config round-trip (2026-09-04): keys just arrived — re-check provider
+    // catalogs so imported fallback references resolve without manual re-checks.
+    const recheckProviders = Array.from(new Set(
+      result.loaded.flatMap((envVar) => providerSummariesForEnvVar(envVar).map((summary) => summary.name))
+    ));
+    if (recheckProviders.length > 0) {
+      setTimeout(() => scheduleRecheckForFallbackReferences(), 1500).unref?.();
+    }
+    return res.json({ success: true, resynced: true, loaded: result.loaded, skipped: result.skipped, recheckingProviders: recheckProviders });
   }
   if (result.error === 'cooldown') {
     return res.json({ success: true, resynced: false, reason: 'cooldown' });
@@ -1266,6 +1276,11 @@ app.post('/api/fallback-models', (req: Request, res: Response) => {
       details: sanitizeDiagnosticText(String(error?.message || error))
     });
   }
+
+  // Config round-trip (2026-09-04): an imported chain may reference models
+  // this machine has not discovered yet — schedule catalog re-checks for the
+  // providers involved so steps come up Available instead of Unavailable.
+  scheduleRecheckForFallbackReferences();
 
   return res.json({
     success: true,

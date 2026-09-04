@@ -2336,7 +2336,7 @@ function deselectAllProviderCurationKeys(): number {
  * refresh/key-save discovery is off-by-default (2026-08-22); the source
  * catalog stays fully toggleable.
  */
-async function refreshProviderEndpointModels(providerName: string): Promise<{
+async function refreshProviderEndpointModels(providerName: string, options?: { preserveCuration?: boolean }): Promise<{
   models: ProviderModel[];
   deselectedCount: number;
   source: LiveModelSource;
@@ -2349,8 +2349,132 @@ async function refreshProviderEndpointModels(providerName: string): Promise<{
   );
   mergeProviderEndpointModels(providerName, fetched.models);
   persistEndpointModelsCache();
-  const deselectedCount = deselectProviderCurationKeys(providerName);
+  // preserveCuration (2026-09-04): automated re-checks (PQC resync, fallback
+  // import heal) must never wipe the operator's curated selection — only the
+  // explicit operator-triggered refresh path keeps the bulk-off behavior.
+  const deselectedCount = options?.preserveCuration
+    ? 0
+    : deselectProviderCurationKeys(providerName);
   return { models: fetched.models, deselectedCount, source: fetched.source, note: fetched.note };
+}
+
+// ── Config round-trip re-check (2026-09-04) ────────────────────────────────
+// After PQC keys sync on a new machine, provider models must be re-discovered
+// automatically, and models referenced by imported fallback chains must come
+// up Available — without the operator re-checking boxes by hand.
+
+const providerRecheckInFlight = new Set<string>();
+
+function fallbackReferencedModelIds(): Set<string> {
+  const referenced = new Set<string>();
+  for (const route of Object.values(fallbackModelStore)) {
+    if (Array.isArray(route?.models)) {
+      for (const modelId of route.models) {
+        if (typeof modelId === 'string' && modelId.trim()) referenced.add(modelId.trim());
+      }
+    }
+  }
+  return referenced;
+}
+
+function providerSlugCandidatesForModelId(modelId: string): string[] {
+  const candidates: string[] = [];
+  for (const summary of allProviderSummaries()) {
+    const slug = canonicalProviderSlug(summary.name);
+    if (!slug || slug === 'ollama' || isCustomProvider(slug) || isLocalRouterProviderName(slug)) continue;
+    if (modelId === slug || modelId.startsWith(`${slug}-`)) candidates.push(slug);
+  }
+  return candidates;
+}
+
+async function recheckProviderCatalog(providerName: string): Promise<void> {
+  if (providerRecheckInFlight.has(providerName)) return;
+  providerRecheckInFlight.add(providerName);
+  try {
+    await refreshProviderEndpointModels(providerName, { preserveCuration: true });
+    // Auto-curate exactly the models referenced by fallback chains so an
+    // imported config comes up Available instead of Unavailable.
+    const referenced = fallbackReferencedModelIds();
+    const providerModels = effectiveProviderModels(providerName);
+    let added = 0;
+    for (const model of providerModels) {
+      if (!referenced.has(model.id)) continue;
+      const key = endpointModelCurationKey(model);
+      if (!modelSourceConfig.curatedEndpointModelKeys.includes(key)) {
+        modelSourceConfig.curatedEndpointModelKeys.push(key);
+        added += 1;
+      }
+    }
+    if (added > 0) {
+      modelSourceConfig.curatedEndpointModelKeys.sort();
+      persistModelSourceConfig();
+      console.log(`[catalog] Re-check auto-curated ${added} fallback-referenced model(s) for ${providerName}.`);
+    }
+  } catch (error: any) {
+    console.warn(`[catalog] Post-sync re-check failed for ${providerName}: ${sanitizeDiagnosticText(String(error?.message || error))}`);
+  } finally {
+    providerRecheckInFlight.delete(providerName);
+  }
+}
+
+/**
+ * Schedule background catalog re-checks for the given providers (PQC resync,
+ * boot, or fallback import). Sequential + staggered so we never hammer every
+ * upstream at once; failures are logged, never fatal.
+ */
+function scheduleProviderRechecks(providerNames: string[], delayMs = 2000): void {
+  const providers = Array.from(new Set(providerNames.filter(Boolean)));
+  if (providers.length === 0) return;
+  const timer = setTimeout(() => {
+    void (async () => {
+      for (const providerName of providers) {
+        await recheckProviderCatalog(providerName);
+      }
+    })();
+  }, delayMs);
+  timer.unref?.();
+}
+
+/**
+ * Config round-trip healer: make every fallback-referenced model resolvable.
+ * 1. Models already in the endpoint cache → add their curation keys directly
+ *    (this is the "shows Unavailable until re-checked" case).
+ * 2. Models missing from the cache → schedule provider re-checks; after each
+ *    refresh the auto-curator runs again over the fresh data.
+ */
+function scheduleRecheckForFallbackReferences(): void {
+  const referenced = fallbackReferencedModelIds();
+  if (referenced.size === 0) return;
+
+  // Pass 1: direct-curate from whatever the cache already holds.
+  let curated = 0;
+  for (const model of endpointModelsCache) {
+    if (!referenced.has(model.id)) continue;
+    const key = endpointModelCurationKey(model);
+    if (!modelSourceConfig.curatedEndpointModelKeys.includes(key)) {
+      modelSourceConfig.curatedEndpointModelKeys.push(key);
+      curated += 1;
+    }
+  }
+  if (curated > 0) {
+    modelSourceConfig.curatedEndpointModelKeys.sort();
+    persistModelSourceConfig();
+    console.log(`[catalog] Auto-curated ${curated} fallback-referenced model(s) from existing cache.`);
+  }
+
+  // Pass 2: schedule provider re-checks for referenced ids still missing.
+  const cachedIds = new Set(endpointModelsCache.map((model) => model.id));
+  const providers = new Set<string>();
+  for (const modelId of referenced) {
+    if (cachedIds.has(modelId)) continue;
+    for (const slug of providerSlugCandidatesForModelId(modelId)) {
+      providers.add(slug);
+    }
+  }
+  if (providers.size > 0) {
+    console.log(`[catalog] Fallback references missing from catalog; scheduling re-checks for: ${[...providers].join(', ')}`);
+    scheduleProviderRechecks([...providers], 1500);
+  }
 }
 
 type CatalogResolveOptions = {
@@ -3579,6 +3703,7 @@ const configApiDeps = {
   ensureCurationDefaultsForCache,
   deselectAllProviderCurationKeys,
   snapshotFullCurationBackup,
+  scheduleRecheckForFallbackReferences,
   evaluateCurationShrink,
   syncKeysFromPqcBundle,
   localRouterEnvVarName,
@@ -5846,6 +5971,9 @@ app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
 
 loadExpertLogs();
 loadPqcSecrets();
+// Boot-time config round-trip: once keys are in memory, re-check provider
+// catalogs whose fallback-referenced models are missing (new-machine import).
+setTimeout(() => scheduleRecheckForFallbackReferences(), 4000).unref?.();
 
 function isMainModule(): boolean {
   const entry = process.argv[1];
