@@ -1916,6 +1916,62 @@ function mapLiveRawModelsToCatalog(
   const baselineModels = rawProviderCacheModels(providerName);
   const providerModels: ProviderModel[] = [];
 
+  // Provider metadata hints (2026-09-04): accept every common upstream shape
+  // (OpenAI, OpenRouter, vLLM, llama.cpp, Ollama payloads). Nested paths cover
+  // OpenRouter's top_provider.* and Ollama's model_info.*; providers that
+  // publish nothing fall back to the shared default window.
+  const numberHintPath = (raw: Record<string, unknown>, ...paths: string[]): number | undefined => {
+    for (const path of paths) {
+      let value: unknown = raw;
+      for (const segment of path.split('.')) {
+        value = (value && typeof value === 'object' && !Array.isArray(value))
+          ? (value as Record<string, unknown>)[segment]
+          : undefined;
+      }
+      if (typeof value === 'number' && Number.isFinite(value) && value > 0) return value;
+    }
+    return undefined;
+  };
+  const numberHintKeys = (raw: Record<string, unknown>, ...keys: string[]): number | undefined => {
+    for (const key of keys) {
+      const value = raw[key];
+      if (typeof value === 'number' && Number.isFinite(value) && value > 0) return value;
+    }
+    return undefined;
+  };
+  const contextHint = (raw: Record<string, unknown>): number | undefined =>
+    numberHintKeys(
+      raw,
+      'contextLength',
+      'context_length',
+      'max_model_len',
+      'max_context_length',
+      'context_window',
+      'context_window_tokens',
+      'max_sequence_length',
+      'max_input_tokens'
+    ) ?? numberHintPath(
+      raw,
+      'top_provider.context_length',
+      'model_info.context_length',
+      'limits.context_length',
+      'info.context_length'
+    );
+  const outputHint = (raw: Record<string, unknown>): number | undefined =>
+    numberHintKeys(
+      raw,
+      'outputTokens',
+      'max_output_tokens',
+      'output_token_limit',
+      'max_completion_tokens',
+      'max_tokens_out'
+    ) ?? numberHintPath(
+      raw,
+      'top_provider.max_completion_tokens',
+      'limits.max_output_tokens',
+      'info.max_output_tokens'
+    );
+
   for (const raw of rawModels) {
     const modelId = raw.id;
     const presentedId = defaultPresentedModelName(providerName, modelId);
@@ -1924,9 +1980,13 @@ function mapLiveRawModelsToCatalog(
     );
 
     if (matchingBaseline) {
+      // Live metadata wins over the registry baseline (2026-09-04): a cached
+      // context/output value is only kept when upstream publishes none.
       providerModels.push({
         ...matchingBaseline,
-        id: presentedId
+        id: presentedId,
+        contextLength: contextHint(raw) ?? matchingBaseline.contextLength ?? DEFAULT_CONTEXT_LENGTH,
+        outputTokens: outputHint(raw) ?? matchingBaseline.outputTokens ?? DEFAULT_OUTPUT_TOKENS
       });
       continue;
     }
@@ -1934,6 +1994,19 @@ function mapLiveRawModelsToCatalog(
     const numberHint = (...keys: string[]): number | undefined => {
       for (const key of keys) {
         const value = (raw as Record<string, unknown>)[key];
+        if (typeof value === 'number' && Number.isFinite(value) && value > 0) return value;
+      }
+      return undefined;
+    };
+    // Nested lookup (e.g. OpenRouter's top_provider.max_completion_tokens).
+    const numberHintPath = (...paths: string[]): number | undefined => {
+      for (const path of paths) {
+        let value: unknown = raw;
+        for (const segment of path.split('.')) {
+          value = (value && typeof value === 'object' && !Array.isArray(value))
+            ? (value as Record<string, unknown>)[segment]
+            : undefined;
+        }
         if (typeof value === 'number' && Number.isFinite(value) && value > 0) return value;
       }
       return undefined;
@@ -1951,8 +2024,8 @@ function mapLiveRawModelsToCatalog(
       provider: providerName,
       model: modelId,
       display: providerModelDisplay(providerName, modelId),
-      contextLength: numberHint('contextLength', 'context_length') ?? DEFAULT_CONTEXT_LENGTH,
-      outputTokens: numberHint('outputTokens', 'max_output_tokens') ?? DEFAULT_OUTPUT_TOKENS,
+      contextLength: contextHint(raw) ?? DEFAULT_CONTEXT_LENGTH,
+      outputTokens: outputHint(raw) ?? DEFAULT_OUTPUT_TOKENS,
       tier: stringHint('tier'),
       sourceUrl: stringHint('sourceUrl'),
       supportsTools: booleanHint('supportsTools', true),
@@ -2084,9 +2157,14 @@ async function fetchLiveProviderModels(providerName: string): Promise<LiveModels
             ? data
             : [];
       const models = list
-        .map((model: any) => model?.id ?? model?.name ?? model?.model)
-        .filter((id: unknown): id is string => typeof id === 'string' && id.trim().length > 0)
-        .map((id: string) => ({ id: id.trim(), object: 'model', owned_by: summary.name }));
+        .filter((model: any) => typeof (model?.id ?? model?.name ?? model?.model) === 'string')
+        .map((model: any) => {
+          // Metadata passthrough (2026-09-04): keep context/output hints the
+          // upstream includes (context_length, max_output_tokens, …) so the
+          // catalog shows real per-provider limits instead of defaults.
+          const id = String(model.id ?? model.name ?? model.model).trim();
+          return { ...model, id, object: 'model', owned_by: summary.name };
+        });
       if (models.length > 0) {
         return { models, source: 'live' };
       }

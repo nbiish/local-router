@@ -59,9 +59,14 @@ const provider: ProxyProvider = {
               ? payload
               : [];
         const models = list
-          .map((m: any) => m?.id ?? m?.name ?? m?.model)
-          .filter((id: unknown): id is string => typeof id === "string" && id.trim().length > 0)
-          .map((id: string) => ({ id: id.trim(), object: "model", owned_by: "modal-proxy" }));
+          .map((m: any) => {
+            const id = m?.id ?? m?.name ?? m?.model;
+            if (typeof id !== "string" || id.trim().length === 0) return null;
+            // Metadata passthrough: keep context/output hints the upstream
+            // publishes so the catalog shows real limits, not defaults.
+            return { ...m, id: id.trim(), object: "model", owned_by: "modal-proxy" };
+          })
+          .filter((m: any): m is { id: string; [key: string]: unknown } => m !== null);
         if (models.length > 0) return models;
       }
     } catch {

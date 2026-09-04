@@ -6,7 +6,7 @@ import {
   resolveOllamaApiKey
 } from '../ollama-keys';
 
-type RawModel = { id: string; object: string; owned_by: string };
+type RawModel = { id: string; object: string; owned_by: string; context_length?: number; max_output_tokens?: number };
 
 function ollamaAuthHeaders(forRemoteOllamaCom = false): Record<string, string> {
   const headers: Record<string, string> = {
@@ -33,11 +33,37 @@ async function fetchOllamaTagsFromUrl(
 
   const payload = await response.json();
   const models = Array.isArray(payload?.models) ? payload.models : [];
+  collectTagMeta(models);
   return filterOllamaCloudTags(models);
+}
+
+// name -> metadata published alongside the tag list (Ollama tags carry
+// details.context_length; the OpenAI-compat list carries context_length too).
+type OllamaTagMeta = { context_length?: number; max_output_tokens?: number };
+const tagMeta = new Map<string, OllamaTagMeta>();
+
+function collectTagMeta(models: unknown[]): void {
+  for (const model of models) {
+    const id = typeof (model as any)?.name === 'string'
+      ? (model as any).name
+      : (typeof (model as any)?.id === 'string' ? (model as any).id : '');
+    if (!id) continue;
+    const details = (model as any)?.details ?? {};
+    const meta: OllamaTagMeta = {
+      context_length: Number(details?.context_length)
+        ?? Number((model as any)?.context_length)
+        ?? undefined,
+      max_output_tokens: Number((model as any)?.max_output_tokens) || undefined
+    };
+    if (meta.context_length || meta.max_output_tokens) {
+      tagMeta.set(id, meta);
+    }
+  }
 }
 
 export async function fetchLiveOllamaModels(): Promise<RawModel[]> {
   const discovered = new Set<string>();
+  tagMeta.clear();
 
   try {
     const localTags = await fetchOllamaTagsFromUrl(ollamaBackendTagsUrl());
@@ -74,6 +100,9 @@ export async function fetchLiveOllamaModels(): Promise<RawModel[]> {
         const id = typeof model?.id === 'string' ? model.id : '';
         if (id && isOllamaCloudModelName(id)) {
           discovered.add(id);
+          if (typeof model?.context_length === 'number' && model.context_length > 0) {
+            tagMeta.set(id, { context_length: model.context_length });
+          }
         }
       }
     }
@@ -92,7 +121,8 @@ export async function fetchLiveOllamaModels(): Promise<RawModel[]> {
     .map((id) => ({
       id,
       object: 'model',
-      owned_by: 'ollama'
+      owned_by: 'ollama',
+      ...(tagMeta.get(id) ?? {})
     }));
 }
 

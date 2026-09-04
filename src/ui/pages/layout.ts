@@ -2235,11 +2235,27 @@ export function renderLayout(
           }
         }
 
-        function renderCurationCatalog() {
+        // Scroll preservation (2026-09-04): re-rendering the catalog on every
+        // toggle used to snap the operator back to the top of the provider's
+        // list. Capture where the viewed section sat and restore it after the
+        // innerHTML swap; anchor to the toggled provider's section when given.
+        function catalogCssEscape(value) {
+          return String(value).replace(/&/g, '&amp;').replace(/"/g, '&quot;');
+        }
+
+        function renderCurationCatalog(anchorProvider) {
           const catalogEl = document.getElementById('catalog');
           const statusEl = document.getElementById('curationStatus');
           const searchEl = document.getElementById('catalogSearch');
           if (!catalogEl || !Array.isArray(curationCatalogData)) return;
+
+          const prevWindowY = window.scrollY;
+          const prevCatalogTop = catalogEl.scrollTop;
+          let anchorViewportTop = null;
+          if (anchorProvider) {
+            const anchorSec = catalogEl.querySelector('section[data-provider="' + catalogCssEscape(anchorProvider) + '"]');
+            if (anchorSec) anchorViewportTop = anchorSec.getBoundingClientRect().top;
+          }
 
           const search = String((searchEl && searchEl.value) || '').trim().toLowerCase();
           let shown = 0;
@@ -2299,6 +2315,22 @@ export function renderLayout(
 
           catalogEl.innerHTML = html
             || '<div class="muted">No ported endpoint models match. Use 🔄 Refresh Endpoints to port models from every provider.</div>';
+
+          // Restore scroll: keep the anchor provider's section at the same
+          // viewport position; otherwise hold the previous scroll offsets.
+          if (anchorProvider && anchorViewportTop !== null) {
+            const anchorSec = catalogEl.querySelector('section[data-provider="' + catalogCssEscape(anchorProvider) + '"]');
+            if (anchorSec) {
+              const delta = anchorSec.getBoundingClientRect().top - anchorViewportTop;
+              if (delta !== 0) {
+                window.scrollBy(0, delta);
+                if (catalogEl.scrollTop > 0 || prevCatalogTop > 0) catalogEl.scrollTop -= delta;
+              }
+            }
+          } else {
+            window.scrollTo(0, prevWindowY);
+            if (prevCatalogTop > 0) catalogEl.scrollTop = prevCatalogTop;
+          }
 
           catalogEl.querySelectorAll('button[data-configure-provider]').forEach(function(btn) {
             btn.addEventListener('click', function() {
@@ -2364,7 +2396,7 @@ export function renderLayout(
           } else {
             curationSelectedKeys.delete(key);
           }
-          renderCurationCatalog();
+          renderCurationCatalog(group.provider);
           scheduleCurationAutoSave();
         }
 
