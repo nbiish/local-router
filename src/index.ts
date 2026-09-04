@@ -43,7 +43,7 @@ function getOAuthStateSafe(name: string): OAuthProviderState | undefined {
 }
 import { sanitizeProviderRequestBody, stripReasoningMetadata, ThinkingLevel, DEFAULT_THINKING_LEVEL } from './reasoning';
 import { loadExpertLogs, LogEntryTracker, createUsageSpyStream } from './expert-logs';
-import { buildWraparoundExecutionPlan, buildMultiPassExecutionPlan, DEFAULT_FALLBACK_ROUNDS } from './execution-plan';
+import { buildWraparoundExecutionPlan, buildEscalatingWraparoundPlan, buildMultiPassExecutionPlan, DEFAULT_FALLBACK_ROUNDS } from './execution-plan';
 import {
   filterEligibleFallbackModels,
   estimateRequestContext,
@@ -823,6 +823,40 @@ function defaultPresentedModelName(providerName: string, modelName: string) {
     return segment;
   }
   return `${prefix}-${segment || 'model'}`;
+}
+
+/**
+ * Presented ids must stay unique per provider (2026-09-04): several providers
+ * publish alias ids for the same underlying model (`zai-org/GLM-5.3-Flash`,
+ * `GLM-5.3-Flash`, `glm-5.3-flash`) and each alias is a distinct curated
+ * entry — the operator wires them into fallback chains separately to burn
+ * credits in a chosen order. When the short segment collides, fall back to
+ * the provider prefix + full sanitized model name (org segment included),
+ * then a numeric suffix as a last resort.
+ */
+function makeUniquePresentedModelName(
+  providerName: string,
+  modelName: string,
+  usedIds: Set<string>
+): string {
+  const base = defaultPresentedModelName(providerName, modelName);
+  if (!usedIds.has(base)) return base;
+
+  const prefix = providerPresentationPrefix(providerName);
+  const fullSegment = modelName
+    .replace(/^@/, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9._+-]+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '');
+  const fullBase = fullSegment.startsWith(`${prefix}-`)
+    ? fullSegment
+    : `${prefix}-${fullSegment || 'model'}`;
+  if (!usedIds.has(fullBase)) return fullBase;
+
+  let suffix = 2;
+  while (usedIds.has(`${fullBase}-${suffix}`)) suffix += 1;
+  return `${fullBase}-${suffix}`;
 }
 
 function providerModelDisplay(providerName: string, modelName: string) {
@@ -1973,9 +2007,11 @@ function mapLiveRawModelsToCatalog(
       'info.max_output_tokens'
     );
 
+  const usedPresentedIds = new Set<string>();
   for (const raw of rawModels) {
     const modelId = raw.id;
-    const presentedId = defaultPresentedModelName(providerName, modelId);
+    const presentedId = makeUniquePresentedModelName(providerName, modelId, usedPresentedIds);
+    usedPresentedIds.add(presentedId);
     const matchingBaseline = baselineModels.find(
       (baseline) => baseline.provider === providerName && baseline.model === modelId
     );
@@ -2590,7 +2626,9 @@ async function resolveCatalogModels(options: CatalogResolveOptions = {}): Promis
 function providerCatalogModels(): ProviderModel[] {
   // Serving catalog: curated selection over the toggle store union any
   // persisted per-provider overrides (the custom editor still works; its
-  // models are toggles like everything else).
+  // models are toggles like everything else). Provider alias entries stay
+  // distinct (2026-09-04): each alias is separately curatable so the
+  // operator can chain the same underlying model across providers/credits.
   const byKey = new Map<string, ProviderModel>();
   for (const model of modelPresentationList()) {
     byKey.set(endpointModelCurationKey(model), model);
@@ -2599,21 +2637,7 @@ function providerCatalogModels(): ProviderModel[] {
     const key = endpointModelCurationKey(model);
     if (!byKey.has(key)) byKey.set(key, model);
   }
-  // Providers publish alias ids for the same model (e.g. modal-proxy serves
-  // `zai-org/GLM-5.3-Flash`, `GLM-5.3-Flash`, `glm-5.3-flash`), which map to
-  // distinct curation keys but the same presented id — dedupe by id so the
-  // catalog never lists one model multiple times. Keep the curated entry.
-  const curated = modelSourceConfig.curatedEndpointModelKeys;
-  const byId = new Map<string, ProviderModel>();
-  const entries = [...byKey.values()];
-  for (const model of entries) {
-    const isCurated = curated.includes(endpointModelCurationKey(model));
-    const existing = byId.get(model.id);
-    if (!existing || (isCurated && !curated.includes(endpointModelCurationKey(existing)))) {
-      byId.set(model.id, model);
-    }
-  }
-  return applyEndpointCuration([...byId.values()]);
+  return applyEndpointCuration([...byKey.values()]);
 }
 
 async function discoveryModelList(live = false): Promise<ProviderModel[]> {
@@ -5003,21 +5027,24 @@ export function activeFallbackModels(fallbackRoute: FallbackModel): string[] {
 
 export function fallbackExecutionPlan(fallbackRoute: FallbackModel, body?: any) {
   const active = activeFallbackModels(fallbackRoute);
-  if (!body) {
-    return buildWraparoundExecutionPlan(active, FALLBACK_PRIMARY_ATTEMPTS);
-  }
-  const filterResult = filterEligibleFallbackModels(active, body, (modelId) => {
-    const m = findCatalogModel(modelId) || findProviderModel(modelId);
-    return {
-      contextLength: m?.contextLength || DEFAULT_CONTEXT_LENGTH,
-      outputTokens: m?.outputTokens || DEFAULT_OUTPUT_TOKENS,
-      supportsImages: Boolean(m?.supportsImages),
-      supportsTools: m?.supportsTools ?? true,
-      supportsCache: Boolean(m?.supportsCache),
-      supportsReasoning: Boolean(m?.supportsReasoning)
-    };
-  });
-  return buildWraparoundExecutionPlan(filterResult.eligible, FALLBACK_PRIMARY_ATTEMPTS);
+  const eligible = (() => {
+    if (!body) return active;
+    return filterEligibleFallbackModels(active, body, (modelId) => {
+      const m = findCatalogModel(modelId) || findProviderModel(modelId);
+      return {
+        contextLength: m?.contextLength || DEFAULT_CONTEXT_LENGTH,
+        outputTokens: m?.outputTokens || DEFAULT_OUTPUT_TOKENS,
+        supportsImages: Boolean(m?.supportsImages),
+        supportsTools: m?.supportsTools ?? true,
+        supportsCache: Boolean(m?.supportsCache),
+        supportsReasoning: Boolean(m?.supportsReasoning)
+      };
+    }).eligible;
+  })();
+  // Escalating wraparound (2026-09-04): failure → next model; after two
+  // fallback failures retry the top of the list (usage-reset), then escalate
+  // the per-cycle failure threshold (3, 4, …) until the list is exhausted.
+  return buildEscalatingWraparoundPlan(eligible);
 }
 
 async function handleChatCompletion(req: Request, res: Response, bodyOverrides?: any, options?: { outputFormat?: CompletionOutputFormat }) {

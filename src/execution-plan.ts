@@ -80,3 +80,50 @@ export function buildWraparoundExecutionPlan(
 
   return stages;
 }
+
+/**
+ * Escalating wraparound plan (2026-09-04 operator contract):
+ *
+ * Failures always advance to the next model so agent harnesses are never
+ * interrupted. After two fallback failures the FIRST model is retried (its
+ * usage window may have reset), then the list runs until three models fail
+ * and the top is retried again, then until four fail, and so on — the
+ * per-cycle failure threshold escalates by one each restart — until a full
+ * traversal completes without triggering a restart, i.e. the whole list is
+ * exhausted.
+ */
+export function buildEscalatingWraparoundPlan(models: string[]): ExecutionStage[] {
+  const stages: ExecutionStage[] = [];
+  if (models.length === 0) return stages;
+
+  let threshold = 2; // restart from the top after N failures in a cycle
+  let failuresInCycle = 0;
+  let pass = 1;
+  let index = 0;
+  // Each cycle costs at most `threshold` stages; the loop terminates once
+  // threshold >= models.length (a full traversal then ends exhausted).
+  const maxStages = (models.length * (models.length + 1)) / 2 + models.length;
+
+  while (index < models.length && stages.length < maxStages) {
+    stages.push({
+      stage: `pass-${pass}-step-${index + 1}`,
+      model: models[index],
+      attempts: 1,
+      primary: stages.length === 0,
+      pass
+    });
+
+    failuresInCycle += 1;
+    index += 1;
+
+    if (failuresInCycle >= threshold && threshold < models.length) {
+      // Usage-reset retry: start over from the top of the chain.
+      pass += 1;
+      index = 0;
+      failuresInCycle = 0;
+      threshold += 1;
+    }
+  }
+
+  return stages;
+}
