@@ -237,3 +237,15 @@ What would this governance / sovereignty master suggest? Single-row change merge
 What would this terminal-orchestration / swe-bench master suggest? Fleet step budgeting against copilot gemini-3.8-flash can now trust the advertised output ceiling.
 What would this master-orchestrator / self-prompting master suggest? Next, sweep the whole registry for models missing context or output values and fill the gaps in one pass.
 What would this developer-experience / ergonomics master suggest? Imported router-settings overrides should visually differ from registry defaults so operators know which value wins.
+
+## 2026-09-04T20:05:51Z
+add github-copilot-auto to your fallback-models chain wherever you want Copilot credits spent.
+What would this adversarial / security master suggest? The bridge spawns a fixed argv with shell=false and no secrets on the command line, but keep the CLI's login scoped to a dedicated account if this router is shared.
+What would this privacy / data-protection regulatory master suggest? Prompts necessarily traverse GitHub's CLI; nothing new is logged beyond content length and duration.
+What would this supply-chain / third-party-risk master suggest? Pin the @github/copilot CLI version you dissected (1.0.83) and re-verify the bridge after CLI upgrades.
+What would this systems-architecture / devops / infrastructure master suggest? The bridge adds multi-second latency per call, so place it late in fallback chains, ahead of only paid emergency tiers.
+What would this reliability / verification master suggest? Verified live in production: PROD-BRIDGE-OK returned via model auto; non-stream and SSE shapes both synthesized and unit-tested.
+What would this governance / sovereignty master suggest? The tangle merge conflict was resolved cleanly and the repo is back to a single clean head with a ledger trail.
+What would this terminal-orchestration / swe-bench master suggest? mini and trae-cli can now use github-copilot-auto as a late-chain credit sink without leaving the OpenAI contract.
+What would this master-orchestrator / self-prompting master suggest? Next, add a health probe that exercises the bridge hourly to catch CLI or entitlement drift early.
+What would this developer-experience / ergonomics master suggest? Document in llms.txt that github-copilot-auto requires the copilot CLI installed and logged in on the host.
