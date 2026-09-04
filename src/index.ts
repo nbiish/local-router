@@ -2462,6 +2462,7 @@ async function refreshProviderEndpointModels(providerName: string, options?: { p
     PROVIDER_ENDPOINT_REFRESH_TIMEOUT_MS,
     `Provider ${providerName} model refresh timed out after ${PROVIDER_ENDPOINT_REFRESH_TIMEOUT_MS / 1000}s`
   );
+  const knownKeysBefore = new Set(endpointModelsCache.map((model) => endpointModelCurationKey(model)));
   mergeProviderEndpointModels(providerName, fetched.models);
   persistEndpointModelsCache();
   // preserveCuration (2026-09-04): automated re-checks (PQC resync, fallback
@@ -2470,6 +2471,25 @@ async function refreshProviderEndpointModels(providerName: string, options?: { p
   const deselectedCount = options?.preserveCuration
     ? 0
     : deselectProviderCurationKeys(providerName);
+  // New-discovery auto-curation (2026-09-04): a model that appears upstream
+  // (e.g. a provider ships a new flash model) is served immediately instead
+  // of waiting for a manual check — that is the whole point of a live
+  // refresh. Existing selections are untouched.
+  if (options?.preserveCuration) {
+    let curated = 0;
+    for (const model of fetched.models) {
+      const key = endpointModelCurationKey(model);
+      if (!knownKeysBefore.has(key) && !modelSourceConfig.curatedEndpointModelKeys.includes(key)) {
+        modelSourceConfig.curatedEndpointModelKeys.push(key);
+        curated += 1;
+      }
+    }
+    if (curated > 0) {
+      modelSourceConfig.curatedEndpointModelKeys.sort();
+      persistModelSourceConfig();
+      console.log(`[catalog] Auto-curated ${curated} newly discovered ${providerName} model(s).`);
+    }
+  }
   return { models: fetched.models, deselectedCount, source: fetched.source, note: fetched.note };
 }
 

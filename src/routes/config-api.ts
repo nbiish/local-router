@@ -843,6 +843,7 @@ app.post('/api/provider-models/:provider/refresh', async (req: Request, res: Res
 app.post('/api/refresh-endpoint-models', async (req: Request, res: Response) => {
   try {
     await ensureOllamaBackend();
+    const knownKeysBefore = new Set(state.endpointModelsCache.map((model: ProviderModel) => `${model.provider}::${model.model}`));
     const fetchedModels = await queryAllProviderEndpoints();
     // Per-provider section merge (2026-08-22): a provider whose fetch threw
     // contributes NO rows and keeps its existing cache section — refresh-all
@@ -856,6 +857,21 @@ app.post('/api/refresh-endpoint-models', async (req: Request, res: Response) => 
       mergedCount += section.length;
     }
     persistEndpointModelsCache();
+    // New-discovery auto-curation (2026-09-04): models that appear upstream
+    // are served immediately — the operator contract is that a live refresh
+    // makes new models usable without a manual re-check pass.
+    let newlyCurated = 0;
+    for (const model of fetchedModels) {
+      const key = `${model.provider}::${model.model}`;
+      if (!knownKeysBefore.has(key) && !modelSourceConfig.curatedEndpointModelKeys.includes(key)) {
+        modelSourceConfig.curatedEndpointModelKeys.push(key);
+        newlyCurated += 1;
+      }
+    }
+    if (newlyCurated > 0) {
+      modelSourceConfig.curatedEndpointModelKeys.sort();
+      persistModelSourceConfig();
+    }
     // Operator contract (2026-09-04): Refresh All PRESERVES the curated
     // selection. The old bulk-off behavior forced a manual re-check after
     // every refresh and left imported fallback chains Unavailable. An
@@ -869,7 +885,7 @@ app.post('/api/refresh-endpoint-models', async (req: Request, res: Response) => 
       ollamaCloudRoutingAllowsPro()
     );
     void pullOllamaCloudModels(ollamaTags);
-    res.json({ success: true, count: mergedCount, deselectedCount, preservedSelection: true, data: fetchedModels });
+    res.json({ success: true, count: mergedCount, deselectedCount, preservedSelection: true, newlyCurated, data: fetchedModels });
   } catch (error: any) {
     res.status(500).json({ error: error?.message || 'Failed to refresh endpoint models' });
   }
