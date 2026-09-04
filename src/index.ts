@@ -92,6 +92,7 @@ import {
   resolveOllamaApiKey
 } from './ollama-keys';
 import { assertSafeUpstreamUrl, safeFetch } from './ssrf-guard';
+import { runCliAuto } from './cli-auto-bridge';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 
@@ -4461,8 +4462,24 @@ function writeProviderEndpointsDoc(): void {
   }
 }
 
+function cursorCliAuthenticated(): boolean {
+  try {
+    const configPath = path.join(os.homedir(), '.cursor', 'cli-config.json');
+    if (!fs.existsSync(configPath)) return false;
+    const parsed = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+    return Boolean(parsed?.authInfo?.authId || parsed?.authInfo?.userId);
+  } catch {
+    return false;
+  }
+}
+
 function providerHasConfiguredKey(providerName: string) {
   if (providerName === 'ollama') {
+    return true;
+  }
+  // Cursor CLI carries its own auth (outside the router's OAuth store):
+  // treat the provider as configured when the CLI is signed in (2026-09-04).
+  if (providerName === 'cursor' && cursorCliAuthenticated()) {
     return true;
   }
   // Local loopback custom providers (llama-server/unsloth service shims)
@@ -4931,6 +4948,51 @@ async function proxyModelAttempt(
   // OpenAI-shaped response.
   if (target.providerName === 'github-copilot' && target.actualModel === 'auto') {
     return await runCopilotAutoBridge(body, targetModelName, stream, requestStartedAt);
+  }
+
+  // CLI auto bridges (2026-09-04): Copilot and Cursor resolve `auto`
+  // client-side — their APIs reject the literal id.
+  if (target.actualModel === 'auto' && (target.providerName === 'github-copilot' || target.providerName === 'cursor')) {
+    const label = target.providerName === 'github-copilot' ? 'copilot' : 'cursor';
+    const bridge = await runCliAuto(label, body);
+    if (bridge.ok) {
+      const completionId = `cli-auto-${Date.now()}`;
+      const payload = {
+        id: completionId,
+        object: 'chat.completion',
+        created: Math.floor(Date.now() / 1000),
+        model: 'auto',
+        choices: [{ index: 0, message: { role: 'assistant', content: bridge.content }, finish_reason: 'stop' }],
+        usage: {
+          prompt_tokens: Math.max(1, Math.ceil((bridge.content || '').length / 4)),
+          completion_tokens: Math.max(1, Math.ceil((bridge.content || '').length / 4)),
+          total_tokens: Math.ceil(((body && JSON.stringify(body).length) || 0) / 4) + Math.ceil((bridge.content || '').length / 4)
+        }
+      };
+      const responseBody = stream
+        ? `data: ${JSON.stringify({ id: completionId, object: 'chat.completion.chunk', model: 'auto', choices: [{ index: 0, delta: { role: 'assistant', content: bridge.content }, finish_reason: null }] })}\n\ndata: ${JSON.stringify({ id: completionId, object: 'chat.completion.chunk', model: 'auto', choices: [{ index: 0, delta: {}, finish_reason: 'stop' }] })}\n\ndata: [DONE]\n\n`
+        : JSON.stringify(payload);
+      const response = new Response(responseBody, {
+        status: 200,
+        headers: { 'content-type': stream ? 'text/event-stream' : 'application/json' }
+      });
+      console.log(`[cli-auto] ${label} bridge served ${bridge.elapsedMs}ms`);
+      return {
+        ok: true,
+        value: { providerName: target.providerName, actualModel: 'auto', requestBody: body, response }
+      };
+    }
+    console.warn(`[cli-auto] ${label} bridge failed: ${bridge.errorMessage || 'unknown'}`);
+    return {
+      ok: false,
+      error: {
+        errorType: 'upstream_http',
+        status: bridge.errorStatus || 502,
+        providerName: target.providerName,
+        actualModel: 'auto',
+        message: bridge.errorMessage || 'CLI auto bridge failed.'
+      }
+    };
   }
 
   const provider = await loadProvider(target.providerName);
@@ -6272,9 +6334,44 @@ app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
 
 loadExpertLogs();
 loadPqcSecrets();
+seedRegistryBaselines();
 // Boot-time config round-trip: once keys are in memory, re-check provider
 // catalogs whose fallback-referenced models are missing (new-machine import).
 setTimeout(() => scheduleRecheckForFallbackReferences(), 4000).unref?.();
+// Registry baselines (2026-09-04): make registry-only entries (copilot/cursor
+// `auto`, curated premiums) catalogable without waiting for a live refresh.
+function seedRegistryBaselines(): void {
+  try {
+    let seeded = 0;
+    for (const summary of allProviderSummaries()) {
+      const slug = canonicalProviderSlug(summary.name);
+      if (!slug || isLocalRouterProviderName(slug) || isCustomProvider(slug)) continue;
+      const known = new Set(endpointModelsCache.filter((m) => m.provider === slug).map((m) => m.model));
+      const extras = providerRegistryModels(slug)
+        .filter((raw) => !known.has(String(raw.id)))
+        .map((raw) => mapLiveRawModelsToCatalog(slug, [raw])[0])
+        .filter(Boolean);
+      if (extras.length > 0) {
+        mergeProviderEndpointModels(slug, extras);
+        seeded += extras.length;
+        for (const model of extras) {
+          const key = endpointModelCurationKey(model);
+          if (!modelSourceConfig.curatedEndpointModelKeys.includes(key)) {
+            modelSourceConfig.curatedEndpointModelKeys.push(key);
+          }
+        }
+      }
+    }
+    if (seeded > 0) {
+      modelSourceConfig.curatedEndpointModelKeys.sort();
+      persistEndpointModelsCache();
+      persistModelSourceConfig();
+      console.log(`[catalog] Seeded ${seeded} registry baseline model(s) into the cache.`);
+    }
+  } catch (error: any) {
+    console.error('[catalog] Registry baseline seed failed:', sanitizeDiagnosticText(String(error?.message || error)));
+  }
+}
 writeProviderEndpointsDoc();
 
 function isMainModule(): boolean {
