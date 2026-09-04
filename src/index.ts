@@ -4660,7 +4660,30 @@ async function sendSuccessfulProxyResponse(
     return;
   }
 
-  const upstreamData = await fetchResponse.json();
+  let upstreamData: any;
+  try {
+    upstreamData = await fetchResponse.json();
+  } catch (parseError: any) {
+    const errMsg = `Failed to parse upstream response body from ${success.providerName}: ${parseError?.message || parseError}`;
+    console.error(`[sendSuccessfulProxyResponse] ${errMsg}`);
+    if (logTracker) {
+      logTracker.onFailure(502, 'upstream_parse_error', errMsg);
+      logTracker.onFinish(Date.now() - requestStartedAt);
+    }
+    if (!res.headersSent) {
+      if (outputFormat.startsWith('ollama')) {
+        return res.status(502).json({ error: errMsg });
+      }
+      return res.status(502).json({
+        error: {
+          message: errMsg,
+          type: 'upstream_error',
+          code: 502
+        }
+      });
+    }
+    return;
+  }
   const normalizedUpstream = normalizeGatewayChatCompletionBody(success.providerName, upstreamData);
   const data = stripReasoningMetadata(normalizedUpstream) as Record<string, unknown>;
 
@@ -4726,92 +4749,107 @@ export function fallbackExecutionPlan(fallbackRoute: FallbackModel, body?: any) 
 }
 
 async function handleChatCompletion(req: Request, res: Response, bodyOverrides?: any, options?: { outputFormat?: CompletionOutputFormat }) {
-  const body = bodyOverrides || req.body;
-  const { model, stream } = body;
-  const requestStartedAt = Date.now();
-  const requestRoute = req.path || '/v1/chat/completions';
   const outputFormat = options?.outputFormat || 'openai';
+  const requestStartedAt = Date.now();
+  try {
+    const body = bodyOverrides || req.body;
+    const { model, stream } = body;
+    const requestRoute = req.path || '/v1/chat/completions';
 
-  if (!model) {
-    return res.status(400).json({ error: 'Model is required in request body.' });
-  }
-  // Inject custom system prompt when enabled
-  if (systemPromptConfig.enabled && systemPromptConfig.prompt && Array.isArray(body.messages)) {
-    body.messages.unshift({ role: 'system', content: systemPromptConfig.prompt });
-  }
-  const rawClient = req.headers['x-local-router-client'];
-  const clientName = typeof rawClient === 'string' ? rawClient : Array.isArray(rawClient) ? rawClient[0] : 'unknown';
-  const fallbackRoute = findFallbackModel(model);
-  const logTracker = new LogEntryTracker(
-    clientName,
-    String(model),
-    fallbackRoute ? 'fallback' : 'direct'
-  );
-  logTracker.setRequestDetails(body);
+    if (!model) {
+      return res.status(400).json({ error: 'Model is required in request body.' });
+    }
+    // Inject custom system prompt when enabled
+    if (systemPromptConfig.enabled && systemPromptConfig.prompt && Array.isArray(body.messages)) {
+      body.messages.unshift({ role: 'system', content: systemPromptConfig.prompt });
+    }
+    const rawClient = req.headers['x-local-router-client'];
+    const clientName = typeof rawClient === 'string' ? rawClient : Array.isArray(rawClient) ? rawClient[0] : 'unknown';
+    const fallbackRoute = findFallbackModel(model);
+    const logTracker = new LogEntryTracker(
+      clientName,
+      String(model),
+      fallbackRoute ? 'fallback' : 'direct'
+    );
+    logTracker.setRequestDetails(body);
 
-  if (fallbackRoute) {
-    return executeFallbackRoute(fallbackRoute, body, model, stream, requestRoute, outputFormat, requestStartedAt, res, logTracker);
-  }
+    if (fallbackRoute) {
+      return executeFallbackRoute(fallbackRoute, body, model, stream, requestRoute, outputFormat, requestStartedAt, res, logTracker);
+    }
 
-  // Direct model — try it, then cascade to system fallback on failure
-  const directModelResult = await proxyModelAttempt(
-    body,
-    requestRoute,
-    outputFormat,
-    model,
-    model,
-    Boolean(stream),
-    requestStartedAt
-  );
-
-  if (directModelResult.ok) {
-    logTracker.onSuccess(directModelResult.value.providerName, directModelResult.value.actualModel, directModelResult.value.response.status);
-    return sendSuccessfulProxyResponse(
-      res,
+    // Direct model — try it, then cascade to system fallback on failure
+    const directModelResult = await proxyModelAttempt(
+      body,
+      requestRoute,
+      outputFormat,
+      model,
       model,
       Boolean(stream),
-      requestRoute,
-      requestStartedAt,
-      outputFormat,
-      directModelResult.value,
-      logTracker
+      requestStartedAt
     );
-  }
 
-  const sysFallback = findSystemFallback();
+    if (directModelResult.ok) {
+      logTracker.onSuccess(directModelResult.value.providerName, directModelResult.value.actualModel, directModelResult.value.response.status);
+      return sendSuccessfulProxyResponse(
+        res,
+        model,
+        Boolean(stream),
+        requestRoute,
+        requestStartedAt,
+        outputFormat,
+        directModelResult.value,
+        logTracker
+      );
+    }
 
-  if (sysFallback && shouldCascadeDirectModelToSystemFallback(model)) {
-    const cascadeDetail = `${directModelResult.error.errorType} (status ${directModelResult.error.status || 500})`;
-    console.warn(
-      `[proxy] Direct model "${model}" failed on provider "${directModelResult.error.providerName}" — ` +
-      `${cascadeDetail} — cascading to system fallback "${sysFallback.id}".`
-    );
-    return executeFallbackRoute(sysFallback, body, model, stream, requestRoute, outputFormat, requestStartedAt, res, logTracker);
-  }
-  if (directModelResult.error.errorType === 'upstream_http') {
-    const errorBody = directModelResult.error.responseText || directModelResult.error.message;
-    const errStatus = directModelResult.error.status || 502;
-    logTracker.onFailure(errStatus, directModelResult.error.errorType, directModelResult.error.message);
-    logTracker.onFinish(Date.now() - requestStartedAt);
-    return res.status(errStatus).send(errorBody);
-  }
+    const sysFallback = findSystemFallback();
 
-  const directStatus = directModelResult.error.errorType === 'unknown_model'
-    ? 400
-    : directModelResult.error.errorType === 'provider_not_found'
+    if (sysFallback && shouldCascadeDirectModelToSystemFallback(model)) {
+      const cascadeDetail = `${directModelResult.error.errorType} (status ${directModelResult.error.status || 500})`;
+      console.warn(
+        `[proxy] Direct model "${model}" failed on provider "${directModelResult.error.providerName}" — ` +
+        `${cascadeDetail} — cascading to system fallback "${sysFallback.id}".`
+      );
+      return executeFallbackRoute(sysFallback, body, model, stream, requestRoute, outputFormat, requestStartedAt, res, logTracker);
+    }
+    if (directModelResult.error.errorType === 'upstream_http') {
+      const errorBody = directModelResult.error.responseText || directModelResult.error.message;
+      const errStatus = directModelResult.error.status || 502;
+      logTracker.onFailure(errStatus, directModelResult.error.errorType, directModelResult.error.message);
+      logTracker.onFinish(Date.now() - requestStartedAt);
+      return res.status(errStatus).send(errorBody);
+    }
+
+    const directStatus = directModelResult.error.errorType === 'unknown_model'
       ? 400
-      : directModelResult.error.errorType === 'provider_config'
+      : directModelResult.error.errorType === 'provider_not_found'
         ? 400
-        : 500;
+        : directModelResult.error.errorType === 'provider_config'
+          ? 400
+          : 500;
 
-  logTracker.onFailure(directStatus, directModelResult.error.errorType, directModelResult.error.message);
-  logTracker.onFinish(Date.now() - requestStartedAt);
+    logTracker.onFailure(directStatus, directModelResult.error.errorType, directModelResult.error.message);
+    logTracker.onFinish(Date.now() - requestStartedAt);
 
-  return res.status(directStatus).json({
-    error: directModelResult.error.message,
-    provider: directModelResult.error.providerName,
-    model: directModelResult.error.actualModel
-  });
+    return res.status(directStatus).json({
+      error: directModelResult.error.message,
+      provider: directModelResult.error.providerName,
+      model: directModelResult.error.actualModel
+    });
+  } catch (err: any) {
+    console.error('[handleChatCompletion] Unhandled error:', err?.stack || err?.message || err);
+    if (!res.headersSent) {
+      if (outputFormat.startsWith('ollama')) {
+        return res.status(500).json({ error: err?.message || 'Internal error processing completion' });
+      }
+      return res.status(500).json({
+        error: {
+          message: err?.message || 'Internal error processing completion',
+          type: 'internal_error'
+        }
+      });
+    }
+  }
 }
 
 async function executeFallbackRoute(
@@ -5691,33 +5729,47 @@ app.get(/^\/api\/show\/(.+)$/, (req: Request, res: Response) => {
 
 // POST /api/chat
 app.post('/api/chat', async (req: Request, res: Response) => {
-  // Translate Ollama req -> OpenAI request
-  const openAiReq: any = {
-    model: req.body.model,
-    messages: ollamaMessagesToOpenAI(Array.isArray(req.body.messages) ? req.body.messages : []),
-    stream: req.body.stream !== false
-  };
-  applyOllamaRequestOptions(openAiReq, req.body);
+  try {
+    // Translate Ollama req -> OpenAI request
+    const openAiReq: any = {
+      model: req.body.model,
+      messages: ollamaMessagesToOpenAI(Array.isArray(req.body.messages) ? req.body.messages : []),
+      stream: req.body.stream !== false
+    };
+    applyOllamaRequestOptions(openAiReq, req.body);
 
-  await handleChatCompletion(req, res, openAiReq, { outputFormat: 'ollama_chat' });
+    await handleChatCompletion(req, res, openAiReq, { outputFormat: 'ollama_chat' });
+  } catch (err: any) {
+    console.error('[POST /api/chat] Unhandled error:', err?.stack || err?.message || err);
+    if (!res.headersSent) {
+      res.status(500).json({ error: err?.message || 'Internal server error in /api/chat' });
+    }
+  }
 });
 
 // POST /api/generate
 app.post('/api/generate', async (req: Request, res: Response) => {
-  const message: any = { role: 'user', content: typeof req.body.prompt === 'string' ? req.body.prompt : '' };
-  if (Array.isArray(req.body.images)) {
-    message.images = req.body.images;
+  try {
+    const message: any = { role: 'user', content: typeof req.body.prompt === 'string' ? req.body.prompt : '' };
+    if (Array.isArray(req.body.images)) {
+      message.images = req.body.images;
+    }
+
+    // Translate to /chat/completions
+    const openAiReq: any = {
+      model: req.body.model,
+      messages: ollamaMessagesToOpenAI([message]),
+      stream: req.body.stream !== false
+    };
+    applyOllamaRequestOptions(openAiReq, req.body);
+
+    await handleChatCompletion(req, res, openAiReq, { outputFormat: 'ollama_generate' });
+  } catch (err: any) {
+    console.error('[POST /api/generate] Unhandled error:', err?.stack || err?.message || err);
+    if (!res.headersSent) {
+      res.status(500).json({ error: err?.message || 'Internal server error in /api/generate' });
+    }
   }
-
-  // Translate to /chat/completions
-  const openAiReq: any = {
-    model: req.body.model,
-    messages: ollamaMessagesToOpenAI([message]),
-    stream: req.body.stream !== false
-  };
-  applyOllamaRequestOptions(openAiReq, req.body);
-
-  await handleChatCompletion(req, res, openAiReq, { outputFormat: 'ollama_generate' });
 });
 
 const isDevMode = process.env.LOCAL_ROUTER_DEV === 'true' || process.env.NODE_ENV === 'development';

@@ -60,6 +60,46 @@ Local Router dynamically evaluates the token context requirements and multimodal
 - **Advertised Model Specs (`fallbackModelPresentation`):**
   - `local-router/fallback-models` dynamically computes and advertises the MAXIMUM `context_length` (e.g. 1,048,576) and union of capabilities (`imageInput: true` if any active candidate supports images, tools, cache, reasoning) across active targets in `/v1/models` and `/api/tags`, ensuring agent harnesses know the route's full capacity.
 
+### Graph Intelligence Architecture & End-to-End Execution Flows (2026-09-03)
+
+Local Router integrates a native **Three-Pillar Graph Intelligence Architecture** powered by GitNexus (AST & Code-Symbol layer), Graphify (Multimodal & synthesis layer), and Semantica (Decision governance layer) to provide deterministic, zero-blind-searching codebase navigation:
+
+- **GitNexus AST Knowledge Graph:**
+  - Complete repository symbol graph indexed into embedded LadybugDB (3,302 nodes, 10,425 edges, 128 clusters, 286 execution flows).
+  - CLI Runner: `node "$env:APPDATA/npm/node_modules/gitnexus/dist/cli/index.js"` (or `gitnexus` when in path).
+  - Primary Tools:
+    - `context <symbol>`: 360° symbol view of callers, callees, and participating execution flows.
+    - `impact <symbol>`: Blast radius calculation ($d=1, d=2, d=3$) with risk scoring (LOW/MEDIUM/HIGH/CRITICAL) and upstream caller mapping.
+    - `query "<concept>"`: Semantic and structural discovery of execution flows across modules.
+    - `detect-changes`: Maps git diff hunks to affected symbols and execution flows prior to commit.
+- **Architectural Flow Map (Request Lifecycle):**
+  1. **Ingress:** Client requests land on Express route handlers (`/v1/chat/completions`, `/api/chat`, `/api/generate`, `/v1/responses`, `/v1/messages`).
+  2. **Translation & Options:** Ollama payloads (`/api/chat`, `/api/generate`) translate via `ollamaMessagesToOpenAI` and `applyOllamaRequestOptions` into OpenAI request structure, encapsulated in defensive try/catch blocks to ensure compliant error responses (`{ error: string }`).
+  3. **Core Orchestration (`handleChatCompletion`):**
+     - Checks system prompt injection (`systemPromptConfig`).
+     - Initializes telemetry tracking (`LogEntryTracker`).
+     - Routes to `executeFallbackRoute` if model is a fallback alias (`local-router/fallback-models`), or attempts direct proxying via `proxyModelAttempt`.
+  4. **Fallback Evaluation & Candidate Sizing (`executeFallbackRoute`):**
+     - Filters candidates via `filterEligibleFallbackModels` using `estimateRequestContext` and `requestRequiresMultimodal`.
+     - Builds wraparound execution plan via `fallbackExecutionPlan`.
+     - Runs stage preflight (`fallbackStagePreflight`) for credit/key/provider availability.
+     - Preserves failover body mutations (`buildFailoverPreservedBody`).
+  5. **Upstream Attempt (`proxyModelAttempt`):**
+     - Resolves provider credentials from PQC bundle / in-memory `keyStore`.
+     - Validates URL against SSRF protection (`assertSafeUpstreamUrl`).
+     - Dispatches HTTP fetch to provider OpenAI-compatible endpoint.
+     - Performs error classification (`classifyResponseContent`) on 200 error payloads.
+  6. **Response Transmission & Error Containment (`sendSuccessfulProxyResponse`):**
+     - Protected JSON parsing with try/catch around `fetchResponse.json()` to catch upstream malformations or network drops.
+     - Strips reasoning metadata for client safety (`stripReasoningMetadata`).
+     - Formats output for target client (`ollama_generate`, `ollama_chat`, `openai`, `anthropic`).
+- **Resilient Error Containment Architecture (2026-09-03):**
+  - **Issue Remediated:** Transient upstream failures previously caused unhandled JSON parsing exceptions in `sendSuccessfulProxyResponse`, which cascaded to Express's generic error handler and emitted opaque `{"error":{"message":"Internal server error","type":"server_error"}}`, causing Litellm / agent0 clients to crash with `APIConnectionError: OllamaException`.
+  - **Fix Deployed:**
+    1. Guarded JSON parsing: `fetchResponse.json()` wrapped in `sendSuccessfulProxyResponse`, returning HTTP 502 with structured upstream error details.
+    2. Route handler try/catch: `/api/chat` and `/api/generate` wrapped with localized catch blocks returning standard Ollama `{ error: "..." }` responses.
+    3. Global completion guard: `handleChatCompletion` wrapped in top-level try/catch with format-aware error dispatching.
+
 ### Product North Star
 Local Router should become an easy local drop-in replacement for Ollama-compatible tooling: one localhost server, one familiar Ollama/OpenAI-compatible surface, and many provider-backed or locally routed models behind it.
 
@@ -108,6 +148,7 @@ task worktree (verify) → main (merge after user confirm) → cleanup
 
 | Commit | Summary |
 |--------|---------|
+| `pending` | **Release 2026-09-03** — Resilient Error Containment & Graph Intelligence: Wrap `fetchResponse.json()` in try/catch to eliminate unhandled 500 Internal Server Errors on `/api/generate` and `/api/chat` from malformed/interrupted upstream provider bodies; add defensive error boundaries in Ollama routes returning Ollama-compliant `{ error: string }` objects; integrate GitNexus AST knowledge graph (3,302 nodes, 10,425 edges, 286 execution flows) with zero blind searching policy across all agents |
 | `c6e5b41` | **Release v1.1.0 (2026-08-30)** — First tagged desktop release: Tauri v2 app installers for Windows (NSIS/MSI), macOS universal (lipo of aarch64+x86_64), and Linux (AppImage/deb/rpm) built by `desktop-release.yml` into a draft release; release tooling hardened along the way (npm ci lockfile sync, Windows-safe explicit test list, workflow `contents: write`, real rustup macOS targets); see `RELEASING.md` |
 | `338224c` | **Release 2026-08-29f** — Universal Tooling Interception & Tauri v2 Desktop Application: Standalone GUI Desktop Application (src-tauri/) for Windows, macOS, and Linux with corner/menu bar system tray; cross-platform environment auto-export (local-router env, GET /api/env, Windows registry User sync, WSL ~/.config/local-router/env.sh auto-source); and drop-in routing for cc-server and omp with Anthropic double-newline SSE delimiters and generic model alias fallback cascading |
 | `4d428dd` | **Release 2026-08-29e** — Continuous Integration & Continuous Development (CI/CD) update system (`src/update-checker.ts`, `GET /api/update-status`, `POST /api/check-updates`, `POST /api/apply-update`), multi-OS GitHub Actions workflow (`.github/workflows/ci.yml`), and `local-router update` CLI self-update command |

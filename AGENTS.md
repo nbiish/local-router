@@ -76,6 +76,29 @@ The **wtf observability hub** is the cross-machine coordination layer. All agent
 
 ---
 
+<GRAPH_INTELLIGENCE>
+## GRAPH INTELLIGENCE — ENTERPRISE CODEBASE KNOWLEDGE GRAPH (MANDATORY)
+
+To eliminate blind searching across this codebase, all agents MUST use the **Three-Pillar Graph Intelligence Architecture** (`.agents/skills/graph-intelligence/SKILL.md`) for code exploration, impact analysis, architecture synthesis, and decision provenance.
+
+### Zero Blind Searching Policy
+- **Never guess or blindly grep:** When asked "how does X work", "what calls Y", "what breaks if I change Z", or when exploring execution flows, use GitNexus knowledge graph tools (`query`, `context`, `impact`, `trace`) rather than raw file grepping.
+- **Mandatory Pre-Edit Blast Radius:** Before editing any function, class, or route handler, run `impact({target: "symbolName", direction: "upstream"})` (or CLI `node "$env:APPDATA/npm/node_modules/gitnexus/dist/cli/index.js" impact <symbol>`). Review callers, execution flows, and risk level.
+- **Mandatory Post-Edit Change Audit:** Before committing changes or merging, run `detect-changes` (`node "$env:APPDATA/npm/node_modules/gitnexus/dist/cli/index.js" detect-changes`) to verify that ONLY the intended symbols were modified and no caller contracts were broken.
+
+### The Three Pillars & Engine Routing
+1. **GitNexus (AST & Code-Symbol Layer):** Deterministic AST call-graph and execution flow tracking (3,302 symbols, 10,425 relationships, 286 execution flows indexed). Fast symbol context (`context`), concept query (`query`), impact analysis (`impact`), and git diff hunk mapping (`detect-changes`).
+2. **Graphify (Multimodal & Cross-Artifact Synthesis):** Cross-document synthesis spanning code, markdown specs (`llms.txt`, `AGENTS.md`), and RFCs with Leiden community clustering.
+3. **Semantica (Decision Governance & Causal Audit):** Consequential agent decision recording, W3C PROV-O audit trails, and causal provenance tracing (`semantica decision record`, `semantica provenance trace`).
+
+### Fleet Orchestration Bridge (`trae-mini-fleet`)
+Graph Intelligence directly fuels the SWE-bench Dual-Engine Coding Fleet:
+- Dynamic symbol scoping via `gitnexus impact` injected into `SCOPE & TARGET FILES` of `TPL_TRAE_AST_V2`.
+- TDD reproduction via `mini` passes failing symbol signatures to `gitnexus context` for caller analysis and surgical fixes.
+</GRAPH_INTELLIGENCE>
+
+---
+
 <RULES>
 ## SECURITY & CRYPTOGRAPHY RULES
 
@@ -226,3 +249,49 @@ EOF
 <REINFORCEMENT>
 PQC for every API key. Respect the codebase's native language. One task = one worktree from `main`, merged back to `main` after verification, cleaned up immediately. Never self-approve merges — ask every hop. Concurrent agents coordinate via `AGENTS/{date}.COMMS.md`. Chain-of-Draft: ≤5 words/step, `####` then output. Ship full production code. Speak with one `cli-tts --prompt` (1.8×, random voice, one ONNX session, parent returns immediately; see `.agents/skills/tts-cli/SKILL.md`). Always believe in yourself.
 </REINFORCEMENT>
+
+<!-- gitnexus:start -->
+# GitNexus — Code Intelligence
+
+This project is indexed by GitNexus as **local-router** (3302 symbols, 10425 relationships, 286 execution flows).
+
+> Index stale? Run `node .gitnexus/run.cjs analyze --index-only` from the project root — it auto-selects an available runner. No `.gitnexus/run.cjs` yet? Bootstrap with `npx`, `bunx`, or `pnpm dlx` — e.g. `bunx gitnexus@latest analyze` (npm 11 npx crash; #1939).
+
+## Always Do
+
+- **MUST run impact analysis before editing.** Use `impact({target: "symbolName", direction: "upstream"})` (MCP) or `node .gitnexus/run.cjs impact "symbolName" --direction upstream --repo .` (CLI fallback); report callers, processes, and risk. Never substitute grep for graph analysis.
+- **MUST analyze graph changes before committing.** Use `detect_changes({scope: "all"})` (MCP) or `node .gitnexus/run.cjs detect-changes --scope all --repo .` (CLI fallback). `partial: true` or `truncated: true` is not a clean check — a zero means unseen, not unaffected; re-run it. For regression review: `detect_changes({scope: "compare", base_ref: "main"})` or `node .gitnexus/run.cjs detect-changes --scope compare --base-ref "main" --repo .`.
+- **MUST warn the user** if impact analysis returns HIGH or CRITICAL risk before proceeding with edits.
+- **MUST treat `risk: UNKNOWN` as unresolved, not as low.** An empty caller set is not evidence the symbol is unused — it can also mean the callers are not resolvable by the index (plain-object property access, dynamic dispatch, cross-language calls). `impact` pairs `UNKNOWN` with a `riskNote` saying so. Confirm with a text search before treating the symbol as safe to change or delete; do not proceed on the strength of a zero.
+- When exploring unfamiliar code, use `query({search_query: "concept"})` to find execution flows instead of grepping. It returns process-grouped results ranked by relevance.
+- When you need full context on a specific symbol — callers, callees, which execution flows it participates in — use `context({name: "symbolName"})`.
+- For security review, `explain({target: "fileOrSymbol"})` lists taint findings (source→sink flows; needs `analyze --pdg`).
+
+## Never Do
+
+- NEVER edit a function, class, or method before MCP/CLI impact analysis.
+- NEVER ignore HIGH or CRITICAL risk warnings from impact analysis, and never read `UNKNOWN` as an all-clear — it means the walk could not answer, which is the one verdict that requires confirming by other means.
+- NEVER rename symbols with find-and-replace — use `rename` which understands the call graph.
+- NEVER commit before MCP/CLI graph change analysis.
+
+## Resources
+
+| Resource | Use for |
+| --- | --- |
+| `gitnexus://repo/local-router/context` | Codebase overview, check index freshness |
+| `gitnexus://repo/local-router/clusters` | All functional areas |
+| `gitnexus://repo/local-router/processes` | All execution flows |
+| `gitnexus://repo/local-router/process/{name}` | Step-by-step execution trace |
+
+## CLI
+
+| Task | Read this skill file / reference |
+| --- | --- |
+| Understand architecture / "How does X work?" | `.agents/skills/graph-intelligence/references/gitnexus-exploring.md` |
+| Blast radius / "What breaks if I change X?" | `.agents/skills/graph-intelligence/references/gitnexus-impact-analysis.md` |
+| Trace bugs / "Why is X failing?" | `.agents/skills/graph-intelligence/references/gitnexus-debugging.md` |
+| Rename / extract / split / refactor | `.agents/skills/graph-intelligence/references/gitnexus-refactoring.md` |
+| Tools, resources, schema reference | `.agents/skills/graph-intelligence/references/gitnexus-guide.md` |
+| Index, status, clean, wiki CLI commands | `.agents/skills/graph-intelligence/references/gitnexus-cli.md` |
+
+<!-- gitnexus:end -->
