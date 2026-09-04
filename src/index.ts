@@ -4819,11 +4819,12 @@ async function proxyModelAttempt(
     ...body,
     model: target.actualModel
   };
+  // Operator contract (2026-09-04): the proxy never sets a thinking default.
+  // Each call configures its own thinking/effort; sanitize is pure passthrough
+  // (Ollama `think` normalized to the portable `enable_thinking`).
   const safeRequestBody = sanitizeProviderRequestBody(requestBody, {
     providerName: target.providerName,
-    modelName: target.actualModel,
-    thinkingLevel: getEffectiveThinkingLevel(target.providerName),
-    applyProxyThinking: thinkingProxyEnabled
+    modelName: target.actualModel
   });
   const compressedRequestBody = await compressWithHeadroom(safeRequestBody, target.actualModel);
   const cachedRequestBody = injectPromptCaching(compressedRequestBody, target.providerName);

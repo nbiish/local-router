@@ -220,50 +220,26 @@ export function stripReasoningMetadata<T>(value: T): T {
  */
 export function sanitizeProviderRequestBody<T extends JsonObject>(
   body: T,
-  options: {
-    providerName: string;
-    modelName: string;
+  options?: {
+    providerName?: string;
+    modelName?: string;
+    /** Deprecated (2026-09-04 operator contract): the proxy NEVER sets a
+     *  thinking default. Every call to the endpoint configures its own
+     *  thinking/effort — whatever the harness sends is forwarded verbatim
+     *  (Ollama `think` normalized to the portable `enable_thinking`). */
     thinkingLevel?: ThinkingLevel;
     applyProxyThinking?: boolean;
+    supportsReasoning?: boolean;
   }
 ): T {
-  // Explicit opt-out from any harness is honored unconditionally — even when
-  // proxy-side thinking defaults are disabled.
-  if (hasExplicitNoThinkingRequest(body)) {
-    const sanitized = { ...body } as JsonObject;
-    delete sanitized.think;
-    return applyNoThinkingHints(sanitized) as T;
+  // Pure passthrough (2026-09-04): no proxy-injected reasoning_effort /
+  // enable_thinking / thinking payloads, ever. Providers that reject an
+  // unsupported parameter (gpt-4o-mini + reasoning_effort → HTTP 400
+  // invalid_reasoning_effort) only see parameters the caller actually sent.
+  const next: JsonObject = { ...body };
+  if (next.think === true) {
+    next.enable_thinking = true; // normalize Ollama's boolean for OpenAI-shaped upstreams
   }
-
-  // Explicit opt-in / effort choice from any harness passes through verbatim
-  // (normalized), overriding the proxy default level.
-  if (hasExplicitThinkingRequest(body)) {
-    return normalizeExplicitThinkingRequest(body) as T;
-  }
-
-  const level = options.thinkingLevel ?? DEFAULT_THINKING_LEVEL;
-
-  // For native reasoning models with an explicit 'none' level, disable
-  const isNativeReasoning = shouldDisableNativeThinking(options.providerName, options.modelName);
-  if (isNativeReasoning && level === 'none') {
-    return applyNoThinkingHints(body) as T;
-  }
-
-  // Apply configured thinking level
-  const sanitized = { ...body } as JsonObject;
-  delete sanitized.think;
-
-  const thinkingParams = getThinkingRequestParams(level, options.providerName, options.modelName);
-
-  // Merge thinking params, preserving existing extra_body
-  const result: JsonObject = { ...sanitized };
-  for (const [key, value] of Object.entries(thinkingParams)) {
-    if (key === 'extra_body' && isObject(result.extra_body) && isObject(value)) {
-      result.extra_body = { ...result.extra_body, ...value };
-    } else {
-      result[key] = value;
-    }
-  }
-
-  return result as T;
+  delete next.think;
+  return next as T;
 }
