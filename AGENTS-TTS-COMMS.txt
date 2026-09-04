@@ -285,3 +285,15 @@ What would this governance / sovereignty master suggest? Main is clean with zero
 What would this terminal-orchestration / swe-bench master suggest? The fleet can proceed dispatching through cursor-auto, copilot-auto, and the modal chain in credit order.
 What would this master-orchestrator / self-prompting master suggest? Next session, begin with the Antigravity re-login and provider availability matrix refresh.
 What would this developer-experience / ergonomics master suggest? health.json is the single glanceable source for curated counts, PQC state, and bridge readiness.
+
+## 2026-09-04T21:48:01Z
+run a short traffic capture of the Antigravity IDE to identify its actual API endpoint and auth header shape.
+What would this adversarial / security master suggest? The MITM capture must exclude and redact token material from any logs or commits.
+What would this privacy / data-protection regulatory master suggest? Captured IDE traffic may contain your code prompts, so scrub captures immediately after endpoint discovery.
+What would this supply-chain / third-party-risk master suggest? The IDE could change its private endpoint in any update, so the bridge should fail loudly with the capture procedure documented.
+What would this systems-architecture / devops / infrastructure master suggest? Consider a nightly job asserting each configured provider answers its models endpoint, alerting on drift.
+What would this reliability / verification master suggest? Everything else is green: both auto bridges, modal chain, health monitor, and regression tests verified on the fresh build.
+What would this governance / sovereignty master suggest? The detection and boot-path fixes are committed on main with a clean tree and closed ledger entries.
+What would this terminal-orchestration / swe-bench master suggest? The fleet runs fully on cursor-auto, copilot-auto, and modal credits today with graceful escalation.
+What would this master-orchestrator / self-prompting master suggest? Next session, capture the IDE traffic, then point the antigravity provider at the discovered host and re-probe.
+What would this developer-experience / ergonomics master suggest? Record the antigravity finding in llms.txt so the provider's current limitation is documented, not tribal knowledge.
