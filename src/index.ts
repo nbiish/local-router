@@ -2598,7 +2598,21 @@ function providerCatalogModels(): ProviderModel[] {
     const key = endpointModelCurationKey(model);
     if (!byKey.has(key)) byKey.set(key, model);
   }
-  return applyEndpointCuration([...byKey.values()]);
+  // Providers publish alias ids for the same model (e.g. modal-proxy serves
+  // `zai-org/GLM-5.3-Flash`, `GLM-5.3-Flash`, `glm-5.3-flash`), which map to
+  // distinct curation keys but the same presented id — dedupe by id so the
+  // catalog never lists one model multiple times. Keep the curated entry.
+  const curated = modelSourceConfig.curatedEndpointModelKeys;
+  const byId = new Map<string, ProviderModel>();
+  const entries = [...byKey.values()];
+  for (const model of entries) {
+    const isCurated = curated.includes(endpointModelCurationKey(model));
+    const existing = byId.get(model.id);
+    if (!existing || (isCurated && !curated.includes(endpointModelCurationKey(existing)))) {
+      byId.set(model.id, model);
+    }
+  }
+  return applyEndpointCuration([...byId.values()]);
 }
 
 async function discoveryModelList(live = false): Promise<ProviderModel[]> {
