@@ -63,7 +63,7 @@ export interface ConfigApiDeps {
   filterConfiguredModels: (models: ProviderModel[]) => ProviderModel[];
   ensureOllamaBackend: () => Promise<boolean>;
   queryAllProviderEndpoints: () => Promise<ProviderModel[]>;
-  refreshProviderEndpointModels: (providerName: string) => Promise<{
+  refreshProviderEndpointModels: (providerName: string, options?: { preserveCuration?: boolean }) => Promise<{
     models: ProviderModel[];
     deselectedCount: number;
     source: 'live' | 'registry' | 'catalog';
@@ -341,7 +341,7 @@ app.post('/api/keys', async (req: Request, res: Response) => {
     let discovered: { count: number; deselectedCount: number; models: ProviderModel[]; source: string; note?: string } | null = null;
     if (!isOAuthProvider(providerName)) {
       try {
-        const { models, deselectedCount, source, note } = await refreshProviderEndpointModels(providerName);
+        const { models, deselectedCount, source, note } = await refreshProviderEndpointModels(providerName, { preserveCuration: true });
         discovered = { count: models.length, deselectedCount, models, source, note };
       } catch {
         // The key stays saved; discovery can be retried from the provider card.
@@ -833,7 +833,7 @@ app.post('/api/provider-models/:provider/refresh', async (req: Request, res: Res
   }
 
   try {
-    const { models, deselectedCount, source, note } = await refreshProviderEndpointModels(providerName);
+    const { models, deselectedCount, source, note } = await refreshProviderEndpointModels(providerName, { preserveCuration: true });
     return res.json({ success: true, provider: providerName, count: models.length, deselectedCount, source, note, data: models });
   } catch (error: any) {
     return res.status(502).json({ error: error?.message || 'Failed to refresh provider models' });
@@ -856,16 +856,20 @@ app.post('/api/refresh-endpoint-models', async (req: Request, res: Response) => 
       mergedCount += section.length;
     }
     persistEndpointModelsCache();
-    // Off-by-default (2026-08-22): Refresh All repopulates the toggle store
-    // and turns every refreshed provider's models OFF (selections backed up);
-    // the operator re-checks the few models they serve per provider.
-    const deselectedCount = deselectAllProviderCurationKeys();
+    // Operator contract (2026-09-04): Refresh All PRESERVES the curated
+    // selection. The old bulk-off behavior forced a manual re-check after
+    // every refresh and left imported fallback chains Unavailable. An
+    // operator who wants a blank slate can still clear via the curation UI.
+    // Fallback-referenced models are re-curated afterwards in case upstream
+    // renamed ids.
+    scheduleRecheckForFallbackReferences();
+    const deselectedCount = 0;
     const ollamaTags = filterOllamaCloudPullTags(
       effectiveProviderModels('ollama').map((model) => model.model),
       ollamaCloudRoutingAllowsPro()
     );
     void pullOllamaCloudModels(ollamaTags);
-    res.json({ success: true, count: mergedCount, deselectedCount, data: fetchedModels });
+    res.json({ success: true, count: mergedCount, deselectedCount, preservedSelection: true, data: fetchedModels });
   } catch (error: any) {
     res.status(500).json({ error: error?.message || 'Failed to refresh endpoint models' });
   }
