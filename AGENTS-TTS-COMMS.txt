@@ -261,3 +261,27 @@ What would this governance / sovereignty master suggest? The bridge code went th
 What would this terminal-orchestration / swe-bench master suggest? Harnesses can now burn Copilot and Cursor subscription credits through local-router before touching API pay-per-token providers.
 What would this master-orchestrator / self-prompting master suggest? Next, watch the antigravity provider which still needs a re-login through the config UI before its models serve.
 What would this developer-experience / ergonomics master suggest? Document the three CLI prerequisites (copilot, cursor-agent logins and binary paths) in PROVIDER_ENDPOINTS.md key status notes.
+
+## 2026-09-04T20:57:57Z
+re-login Antigravity through the config UI so its models come back online.
+What would this adversarial / security master suggest? The cursor bridge still runs with --trust for directory access, so restrict which directories the router process can reach.
+What would this privacy / data-protection regulatory master suggest? health.json carries counts and flags only, no prompts, keys, or model content.
+What would this supply-chain / third-party-risk master suggest? Both CLI bridges now report binary presence in health.json, so a silent CLI update or removal is visible within fifteen minutes.
+What would this systems-architecture / devops / infrastructure master suggest? Add the smoke-test config-dir isolation rule to CI so the production cache race cannot recur.
+What would this reliability / verification master suggest? Six regression tests cover the escalating plan, reasoning passthrough, and CLI stat stripping, all green.
+What would this governance / sovereignty master suggest? Every fix landed through a reviewed worktree with a ledger entry; main is clean at a single head.
+What would this terminal-orchestration / swe-bench master suggest? The fleet can now chain modal, cursor-auto, and copilot-auto in credit-priority order with graceful cascade.
+What would this master-orchestrator / self-prompting master suggest? Next, re-login Antigravity via the config UI, then probe its models to confirm they serve.
+What would this developer-experience / ergonomics master suggest? llms.txt and PROVIDER_ENDPOINTS.md now document the CLI prerequisites and health file location.
+
+## 2026-09-04T21:27:25Z
+work out the Antigravity re-login with me through the config UI.
+What would this adversarial / security master suggest? Keep the bridge bearer tokens scoped per vendor account and rotate the Copilot CLI login if this router is ever shared.
+What would this privacy / data-protection regulatory master suggest? health.json continues to carry only counts, flags, and chain names.
+What would this supply-chain / third-party-risk master suggest? Re-verify the pinned copilot CLI 1.0.83 behavior after its next self-update before trusting the bridge.
+What would this systems-architecture / devops / infrastructure master suggest? Automate the post-rebuild server restart so a fresh build is never left unserved.
+What would this reliability / verification master suggest? The stale-server pattern recurred once more, so consider a build-stamp check in the ensure command itself.
+What would this governance / sovereignty master suggest? Main is clean with zero stray worktrees and the ledger carries the full session trail.
+What would this terminal-orchestration / swe-bench master suggest? The fleet can proceed dispatching through cursor-auto, copilot-auto, and the modal chain in credit order.
+What would this master-orchestrator / self-prompting master suggest? Next session, begin with the Antigravity re-login and provider availability matrix refresh.
+What would this developer-experience / ergonomics master suggest? health.json is the single glanceable source for curated counts, PQC state, and bridge readiness.
