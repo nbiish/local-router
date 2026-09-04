@@ -2271,6 +2271,15 @@ export interface ProviderEndpointFetch {
 async function fetchProviderEndpointModels(providerName: string): Promise<ProviderEndpointFetch> {
   const { models: rawModels, source, note } = await fetchLiveProviderModels(providerName);
   const mapped = mapLiveRawModelsToCatalog(providerName, rawModels);
+  // Registry superset (2026-09-04): registry-only entries (e.g. GitHub
+  // Copilot's VS Code `auto` model, which the live /models list omits) stay
+  // selectable even when the upstream list doesn't advertise them.
+  const liveModelNames = new Set(mapped.map((model) => model.model));
+  const registryExtra = providerRegistryModels(providerName)
+    .filter((raw) => !liveModelNames.has(String(raw.id)))
+    .map((raw) => mapLiveRawModelsToCatalog(providerName, [raw])[0])
+    .filter(Boolean);
+  mapped.push(...registryExtra);
   const seen = new Set<string>();
   const deduped: ProviderModel[] = [];
   for (const model of mapped) {
