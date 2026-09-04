@@ -1962,6 +1962,7 @@ function mapLiveRawModelsToCatalog(
       raw,
       'outputTokens',
       'max_output_tokens',
+      'max_output_length',
       'output_token_limit',
       'max_completion_tokens',
       'max_tokens_out'
