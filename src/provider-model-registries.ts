@@ -158,6 +158,7 @@ export const PROVIDER_MODEL_REGISTRY: Record<string, RegistryModelEntry[]> = {
     { id: 'deepseek-v4-pro', contextLength: 1000000, outputTokens: 384000, supportsTools: true, tier: 'paid', note: 'Chat-proven legacy id (live uses deepseek/deepseek-v4-pro)' },
   ],
   'cursor': [
+    { id: 'auto', supportsTools: true, tier: 'subscription', note: 'Cursor Auto — routes each request to the best entitled model; served via the headless cursor-agent bridge' },
     { id: 'claude-sonnet-4.6', contextLength: 200000, outputTokens: 32000, supportsTools: true, supportsImages: true, tier: 'subscription' },
     { id: 'claude-opus-4.6', contextLength: 200000, outputTokens: 32000, supportsTools: true, tier: 'subscription' },
     { id: 'gpt-5-mini', contextLength: 264000, outputTokens: 64000, supportsTools: true, supportsImages: true, tier: 'subscription' },
