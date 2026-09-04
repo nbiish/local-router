@@ -2243,6 +2243,10 @@ export function renderLayout(
           return String(value).replace(/&/g, '&amp;').replace(/"/g, '&quot;');
         }
 
+        function escapeJsString(value) {
+          return String(value).replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '&quot;');
+        }
+
         function renderCurationCatalog(anchorProvider) {
           const catalogEl = document.getElementById('catalog');
           const statusEl = document.getElementById('curationStatus');
@@ -2286,7 +2290,10 @@ export function renderLayout(
               return curationSelectedKeys.has(catalogRowKey(group.provider, model.model));
             }).length;
             html += '<section class="provider-group" data-provider="' + escapeHtml(group.provider) + '">'
-              + '<h3>' + escapeHtml(group.provider) + ' <span class="muted">(' + matching.length + (matching.length !== models.length ? ' / ' + models.length : '') + ' · ' + servedCount + ' served)</span> ' + providerKeyStatusHtml(group.provider) + '</h3>'
+              + '<h3>' + escapeHtml(group.provider) + ' <span class="muted">(' + matching.length + (matching.length !== models.length ? ' / ' + models.length : '') + ' · ' + servedCount + ' served)</span> ' + providerKeyStatusHtml(group.provider)
+              + ' <button type="button" class="button-secondary" onclick="selectAllCatalogProvider(\'' + escapeJsString(group.provider) + '\')" style="padding: 1px 8px; font-size: 11px;">Select all</button>'
+              + ' <button type="button" class="button-secondary" onclick="clearCatalogProvider(\'' + escapeJsString(group.provider) + '\')" style="padding: 1px 8px; font-size: 11px;">Deselect all</button>'
+              + '</h3>'
               + '<input type="search" class="curation-provider-search" data-curation-provider="' + escapeHtml(group.provider) + '"'
               + ' placeholder="Search ' + escapeHtml(group.provider) + ' models…"'
               + ' value="' + escapeHtml(curationSearchByProvider[group.provider] || '') + '"'
@@ -2400,13 +2407,26 @@ export function renderLayout(
           scheduleCurationAutoSave();
         }
 
-        function selectAllCatalog() {
-          for (const group of curationCatalogData) {
-            for (const model of (group.models || [])) {
-              curationSelectedKeys.add(catalogRowKey(group.provider, model.model));
-            }
+        // Per-provider scoping (2026-09-04): Select/Deselect operate within a
+        // single provider's section only — global bulk toggles made it far too
+        // easy to wipe selections across every provider at once.
+        function selectAllCatalogProvider(provider) {
+          const group = curationCatalogData.find(function(g) { return g.provider === provider; });
+          if (!group) return;
+          for (const model of (group.models || [])) {
+            curationSelectedKeys.add(catalogRowKey(group.provider, model.model));
           }
-          renderCurationCatalog();
+          renderCurationCatalog(provider);
+          scheduleCurationAutoSave();
+        }
+
+        function clearCatalogProvider(provider) {
+          const prefix = provider + '::';
+          const keys = Array.from(curationSelectedKeys);
+          for (const key of keys) {
+            if (key.startsWith(prefix)) curationSelectedKeys.delete(key);
+          }
+          renderCurationCatalog(provider);
           scheduleCurationAutoSave();
         }
 
@@ -2568,27 +2588,6 @@ export function renderLayout(
           }
         }
 
-        function selectAllShownCatalog() {
-          const searchEl = document.getElementById('catalogSearch');
-          const search = String((searchEl && searchEl.value) || '').trim().toLowerCase();
-          for (const group of curationCatalogData) {
-            for (const model of (group.models || [])) {
-              const haystack = [model.id, model.display, model.model]
-                .map((part) => String(part || '').toLowerCase())
-                .join('\\n');
-              if (search && !haystack.includes(search)) continue;
-              curationSelectedKeys.add(catalogRowKey(group.provider, model.model));
-            }
-          }
-          renderCurationCatalog();
-          scheduleCurationAutoSave();
-        }
-
-        function clearCatalogSelection() {
-          curationSelectedKeys.clear();
-          renderCurationCatalog();
-          scheduleCurationAutoSave();
-        }
 
         function toggleCuration(checked) {
           curationEnabled = Boolean(checked);
