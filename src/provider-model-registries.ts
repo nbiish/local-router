@@ -188,6 +188,7 @@ export const PROVIDER_MODEL_REGISTRY: Record<string, RegistryModelEntry[]> = {
     { id: 'gemini-3.5-flash', contextLength: 200000, outputTokens: 64000, supportsTools: true, tier: 'subscription' },
     { id: 'gemini-3.6-flash', contextLength: 1000000, outputTokens: 64000, supportsTools: true, tier: 'subscription' },
     { id: 'gemini-3.7-flash', contextLength: 1000000, outputTokens: 64000, supportsTools: true, tier: 'subscription' },
+    { id: 'gemini-3.8-flash', contextLength: 1048576, outputTokens: 65536, supportsTools: true, supportsImages: true, tier: 'subscription', note: '1M ctx; limits per OpenRouter google/gemini-3.8-flash' },
     { id: 'mai-code-1-flash', contextLength: 256000, outputTokens: 128000, supportsTools: true, tier: 'subscription', note: 'Microsoft; retires 2026-09-10' },
     { id: 'mai-code-1.1-flash', contextLength: 256000, outputTokens: 128000, supportsTools: true, tier: 'subscription', note: 'Microsoft' },
     { id: 'raptor-mini', supportsTools: true, tier: 'subscription', note: 'Fine-tuned GPT-5 mini; retires 2026-09-01' },
