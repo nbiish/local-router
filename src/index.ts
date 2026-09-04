@@ -6494,14 +6494,12 @@ function seedRegistryBaselines(): void {
         .map((raw) => mapLiveRawModelsToCatalog(slug, [raw])[0])
         .filter(Boolean);
       if (extras.length > 0) {
+        // Cache seeding only (2026-09-04): registry baselines are DISCOVERABLE
+        // after boot, but never auto-curated — curation stays operator- and
+        // fallback-healer-driven, otherwise every restart balloons the served
+        // catalog back up to the full registry.
         mergeProviderEndpointModels(slug, extras);
         seeded += extras.length;
-        for (const model of extras) {
-          const key = endpointModelCurationKey(model);
-          if (!modelSourceConfig.curatedEndpointModelKeys.includes(key)) {
-            modelSourceConfig.curatedEndpointModelKeys.push(key);
-          }
-        }
       }
     }
     if (seeded > 0) {
