@@ -72,6 +72,7 @@ export interface ConfigApiDeps {
   ensureCurationDefaultsForCache: () => void;
   deselectAllProviderCurationKeys: () => number;
   scheduleRecheckForFallbackReferences: () => void;
+  writeProviderEndpointsDoc: () => void;
   snapshotFullCurationBackup: (reason: string) => void;
   evaluateCurationShrink: (nextKeys: string[]) => {
     blocked: boolean;
@@ -167,6 +168,7 @@ export function registerConfigApiRoutes(app: express.Express, deps: ConfigApiDep
     ensureCurationDefaultsForCache,
     deselectAllProviderCurationKeys,
     scheduleRecheckForFallbackReferences,
+    writeProviderEndpointsDoc,
     snapshotFullCurationBackup,
     evaluateCurationShrink,
     syncKeysFromPqcBundle,
@@ -348,6 +350,7 @@ app.post('/api/keys', async (req: Request, res: Response) => {
       }
     }
 
+    writeProviderEndpointsDoc();
     return res.json({
       success: true,
       provider: providerName,
@@ -372,6 +375,7 @@ app.post('/api/keys', async (req: Request, res: Response) => {
   }
   if (updatedLegacyProvider) {
     persistPqcSecrets();
+    writeProviderEndpointsDoc();
     return res.json({ success: true });
   }
 
@@ -393,6 +397,7 @@ app.delete('/api/keys/:provider', (req: Request, res: Response) => {
     keyStore.ollama = DEFAULT_OLLAMA_API_KEY;
     process.env.OLLAMA_API_KEY = DEFAULT_OLLAMA_API_KEY;
     persistPqcSecrets();
+    writeProviderEndpointsDoc();
     return res.json({
       success: true,
       provider: providerName,
@@ -1125,6 +1130,7 @@ app.post('/api/providers', (req: Request, res: Response) => {
   state.customProviderStore.push(parsed.record);
   state.customProviderStore.sort((a, b) => a.name.localeCompare(b.name));
   persistCustomProviders();
+  writeProviderEndpointsDoc();
 
   return res.status(201).json({
     success: true,

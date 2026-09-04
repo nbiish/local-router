@@ -164,6 +164,7 @@ export const PROVIDER_MODEL_REGISTRY: Record<string, RegistryModelEntry[]> = {
     { id: 'cursor-small', contextLength: 128000, outputTokens: 8192, supportsTools: true, tier: 'subscription' },
   ],
   'github-copilot': [
+    { id: 'auto', supportsTools: true, tier: 'subscription', note: 'VS Code auto model — the only chat model on Free/Student plans; GitHub routes to an entitled backend' },
     { id: 'gpt-5-mini', contextLength: 264000, outputTokens: 64000, supportsTools: true, supportsImages: true, tier: 'subscription', note: '0x multiplier' },
     { id: 'gpt-5.3-codex', contextLength: 400000, outputTokens: 128000, supportsTools: true, tier: 'subscription', note: '1M ctx option' },
     { id: 'gpt-5.4', contextLength: 1050000, outputTokens: 128000, supportsTools: true, tier: 'subscription', note: '1M ctx option' },
