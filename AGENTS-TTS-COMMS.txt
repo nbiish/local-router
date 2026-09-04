@@ -249,3 +249,15 @@ What would this governance / sovereignty master suggest? The tangle merge confli
 What would this terminal-orchestration / swe-bench master suggest? mini and trae-cli can now use github-copilot-auto as a late-chain credit sink without leaving the OpenAI contract.
 What would this master-orchestrator / self-prompting master suggest? Next, add a health probe that exercises the bridge hourly to catch CLI or entitlement drift early.
 What would this developer-experience / ergonomics master suggest? Document in llms.txt that github-copilot-auto requires the copilot CLI installed and logged in on the host.
+
+## 2026-09-04T20:44:20Z
+decide where cursor-auto and github-copilot-auto belong in your fallback chain order to spend credits as intended.
+What would this adversarial / security master suggest? The cursor bridge runs with --mode ask plus --trust, which still grants code-execution tools, so gate it behind the same permission policy as the copilot bridge.
+What would this privacy / data-protection regulatory master suggest? Each bridge authenticates with its own vendor account and logs only durations and sizes, never prompt content.
+What would this supply-chain / third-party-risk master suggest? Both bridges depend on CLI versions that update themselves, so pin or re-verify after every CLI upgrade.
+What would this systems-architecture / devops / infrastructure master suggest? The two-servers-one-config-dir race caused hours of ghost failures, so isolate smoke tests with a separate config dir from now on.
+What would this reliability / verification master suggest? Both auto models verified OK in production plus the modal fallback chain; the seed-ordering bug is fixed and regression-tested.
+What would this governance / sovereignty master suggest? The bridge code went through a worktree, graph recon, and detect-changes scope proof despite the merge tangle.
+What would this terminal-orchestration / swe-bench master suggest? Harnesses can now burn Copilot and Cursor subscription credits through local-router before touching API pay-per-token providers.
+What would this master-orchestrator / self-prompting master suggest? Next, watch the antigravity provider which still needs a re-login through the config UI before its models serve.
+What would this developer-experience / ergonomics master suggest? Document the three CLI prerequisites (copilot, cursor-agent logins and binary paths) in PROVIDER_ENDPOINTS.md key status notes.
