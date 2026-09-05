@@ -140,13 +140,21 @@ test('logout survives host-session re-detection until a fresh login appears', as
   assert.equal(markersRaw.includes('eyJ'), false, 'marker must not contain token material');
   assert.equal(markers.cursor.accountLabel, 'old@cursor.test (pro)');
 
-  // Login attempt while suppressed: guided message, still not configured.
-  const login = await postJson('/api/oauth/login/cursor', {});
-  assert.equal(login.response.status, 200);
-  assert.equal(login.body.configured, false);
-  assert.match(login.body.message, /ignored|logged out/i);
+  // Login click IS consent to re-adopt the host session (2026-09-04):
+  // clears the marker and adopts the still-signed-in IDE session.
+  const readopt = await postJson('/api/oauth/login/cursor', {});
+  assert.equal(readopt.response.status, 200);
+  assert.equal(readopt.body.configured, true, 'explicit login must re-adopt the host session');
+  assert.match(readopt.body.message, /re-adopted/i);
+  const markersAfterReadopt = JSON.parse(readFileSync(markersPath, 'utf8'));
+  assert.equal('cursor' in markersAfterReadopt, false, 're-adoption must clear the logout marker');
+  const statusAfterReadopt = await getJson('/api/oauth/status/cursor');
+  assert.equal(statusAfterReadopt.body.configured, true);
 
-  // Fresh host login (different account/token): adopted, marker dropped.
+  // Logout again, then a fresh host login (different account/token):
+  // adopted, marker dropped.
+  const out2 = await deleteJson('/api/oauth/credentials/cursor');
+  assert.equal(out2.body.configured, false);
   const newToken = jwtLikeToken({ exp: Math.floor(Date.now() / 1000) + 30 * 24 * 3600, email: 'new@cursor.test' });
   writeCursorDb({ accessToken: newToken, email: 'new@cursor.test', membership: 'free' });
   const relogin = await getJson('/api/oauth/status/cursor');
