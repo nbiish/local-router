@@ -42,7 +42,9 @@ test("buildAntigravityAuthUrl includes non-empty client_id and required paramete
 test("getAntigravityStateDbPaths returns platform candidate paths", () => {
   const paths = getAntigravityStateDbPaths();
   assert.ok(Array.isArray(paths));
-  assert.ok(paths.length >= 2);
+  // >=1: native platform candidate always exists; WSL interop candidates
+  // depend on /mnt mount state (environment), so counting them flakes.
+  assert.ok(paths.length >= 1);
   for (const p of paths) {
     assert.ok(typeof p === "string");
     assert.ok(p.includes("state.vscdb"));
@@ -158,7 +160,9 @@ test("renderProvidersPage pre-renders SSR cards for all OAuth providers", async 
 test("getCopilotHostsPaths returns platform candidate paths", () => {
   const paths = getCopilotHostsPaths();
   assert.ok(Array.isArray(paths));
-  assert.ok(paths.length >= 2);
+  // >=1: native platform candidate always exists; WSL interop candidates
+  // depend on /mnt mount state (environment), so counting them flakes.
+  assert.ok(paths.length >= 1);
   for (const p of paths) {
     assert.ok(p.includes("github-copilot"));
   }
