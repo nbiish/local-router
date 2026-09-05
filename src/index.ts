@@ -75,7 +75,7 @@ import {
   providerHasNoLiveModelList
 } from './provider-model-registries';
 import { catalogProviderSummaries } from './provider-registry';
-import { loadCurationConfigs, loadRouterSettings, saveRouterSettings } from './config-persistence';
+import { loadCurationConfigs, loadRouterSettings, ROUTER_SETTINGS_PATH, saveRouterSettings } from './config-persistence';
 import { normalizeGatewayChatCompletionBody } from './gateway-response';
 import {
   DEFAULT_FALLBACK_ORDERED_IDS,
@@ -1216,6 +1216,8 @@ export function cloneFallbackModel(model: FallbackModel): FallbackModel {
 // non-empty to empty is snapshotted to curation-backups/ and loudly warned —
 // the 2026-09-04 churn produced silent empty-chain writes.
 let lastKnownSystemChain: string[] | null = null;
+/** Content snapshot of the last-applied router-settings.json (loop guard for the file watcher). */
+let lastAppliedSettingsSnapshot = '';
 
 function snapshotFallbackChainBackup(previousModels: string[]): void {
   try {
@@ -1264,14 +1266,20 @@ function persistFallbackModels() {
   fs.chmodSync(FALLBACK_MODELS_PATH, 0o600);
 
   try {
+    // Single-source sync (2026-09-04): the FULL chain set mirrors into
+    // router-settings.json — the authoritative file the boot loader and the
+    // disk watcher apply. Keeps API/toggle writers and the file convergent.
     const sysRoute = fallbackModelStore[SYSTEM_FALLBACK_ROUTE_ID];
+    let text = '';
     if (sysRoute) {
       const disabled = new Set(Array.isArray(sysRoute.disabledModels) ? sysRoute.disabledModels : []);
-      const text = (Array.isArray(sysRoute.models) ? sysRoute.models : [])
+      text = (Array.isArray(sysRoute.models) ? sysRoute.models : [])
         .map((m) => (disabled.has(m) ? `${m} disabled` : m))
         .join('\n');
-      saveRouterSettings({ fallbackModelsText: text });
     }
+    const merged = { ...loadRouterSettings(), fallbackModelsText: text, routes };
+    lastAppliedSettingsSnapshot = JSON.stringify({ fallbackModelsText: text, routes });
+    saveRouterSettings(merged);
   } catch (error) {
     // Non-fatal sync
   }
@@ -1324,26 +1332,94 @@ function loadPersistedFallbackModels() {
   }
 }
 
+/**
+ * Single-source fallback configuration (2026-09-04): router-settings.json is
+ * THE canonical chain definition — the /config/fallback page is a read-only
+ * view of it, and every chain write (toggle/save/order) syncs back into it.
+ * This loader therefore APPLIES the file (authoritative) rather than only
+ * backfilling an empty cache: it wins over the derived fallback-models.json
+ * cache at boot. Empty/absent file = no opinion (empty-by-default preserved).
+ */
+function applyRouterSettingsToStore(): boolean {
+  const settings = loadRouterSettings();
+  if (!settings || typeof settings !== 'object') return false;
+  const hasText = typeof settings.fallbackModelsText === 'string' && settings.fallbackModelsText.trim().length > 0;
+  const declaredRoutes = Array.isArray((settings as any).routes) ? (settings as any).routes : [];
+  if (!hasText && declaredRoutes.length === 0) return false;
+
+  let appliedRoutes = 0;
+  for (const entry of declaredRoutes) {
+    let parsedRoute = parseFallbackModel(entry);
+    if (!parsedRoute.ok && entry && typeof entry === 'object' && typeof entry.id === 'string' && Array.isArray(entry.models)) {
+      // Lenient path: accept structurally valid short chains (see cache loader).
+      parsedRoute = parseFallbackModel(
+        { id: entry.id, models: entry.models, disabledModels: entry.disabledModels },
+        { allowShort: true }
+      );
+    }
+    if (!parsedRoute.ok) continue;
+    const referenceCheck = validateFallbackReferences(parsedRoute.model);
+    if (!referenceCheck.ok) continue;
+    fallbackModelStore[parsedRoute.model.id] = cloneFallbackModel(parsedRoute.model);
+    appliedRoutes++;
+  }
+
+  if (hasText) {
+    const parsed = parseFallbackModel({ id: SYSTEM_FALLBACK_ROUTE_ID, modelsText: settings.fallbackModelsText!.trim() }, { allowShort: true });
+    if (parsed.ok) {
+      fallbackModelStore[SYSTEM_FALLBACK_ROUTE_ID] = cloneFallbackModel(parsed.model);
+      appliedRoutes++;
+    }
+  }
+
+  if (appliedRoutes === 0) return false;
+  lastAppliedSettingsSnapshot = JSON.stringify({ fallbackModelsText: settings.fallbackModelsText || '', routes: declaredRoutes });
+  return true;
+}
+
 function loadPersistedRouterSettings() {
   try {
-    const settings = loadRouterSettings();
-    if (!settings || typeof settings !== 'object') return;
-    if (typeof settings.fallbackModelsText === 'string' && settings.fallbackModelsText.trim()) {
-      const existing = fallbackModelStore[SYSTEM_FALLBACK_ROUTE_ID];
-      if (!existing || (!Array.isArray(existing.models) || existing.models.length === 0)) {
-        const text = settings.fallbackModelsText.trim();
-        const entries = text.split(/\r?\n|;/).map((line) => line.trim()).filter(Boolean);
-        if (entries.length >= 1) {
-          const parsed = parseFallbackModel({ id: SYSTEM_FALLBACK_ROUTE_ID, modelsText: text }, { allowShort: true });
-          if (parsed.ok) {
-            fallbackModelStore[SYSTEM_FALLBACK_ROUTE_ID] = cloneFallbackModel(parsed.model);
-          }
-        }
-      }
+    if (applyRouterSettingsToStore()) {
+      const sysRoute = fallbackModelStore[SYSTEM_FALLBACK_ROUTE_ID];
+      const stepCount = Array.isArray(sysRoute?.models) ? sysRoute!.models.length : 0;
+      console.log(`[config] router-settings.json is the single source of truth — applied (${stepCount} system chain step(s)).`);
     }
   } catch (error: any) {
     console.error('Failed to load persisted router settings:', sanitizeDiagnosticText(String(error?.message || error)));
   }
+}
+
+/**
+ * Watch router-settings.json so editing the file is the whole workflow:
+ * save the file → the running router picks it up within ~2s (no restart).
+ * Re-entrant writes from persistFallbackModels are ignored via snapshot
+ * comparison (content-addressed, not mtime-addressed).
+ */
+function watchRouterSettingsFile(): void {
+  if (process.env.LOCAL_ROUTER_WATCH_SETTINGS === 'false') return;
+  let debounce: NodeJS.Timeout | undefined;
+  fs.watchFile(ROUTER_SETTINGS_PATH, { interval: 2000 }, () => {
+    if (debounce) clearTimeout(debounce);
+    debounce = setTimeout(() => {
+      try {
+        if (!fs.existsSync(ROUTER_SETTINGS_PATH)) return;
+        const settings = loadRouterSettings();
+        const snapshot = JSON.stringify({
+          fallbackModelsText: typeof settings?.fallbackModelsText === 'string' ? settings.fallbackModelsText : '',
+          routes: Array.isArray((settings as any)?.routes) ? (settings as any).routes : []
+        });
+        if (snapshot === lastAppliedSettingsSnapshot) return; // our own write
+        if (applyRouterSettingsToStore()) {
+          persistFallbackModels();
+          const sysRoute = fallbackModelStore[SYSTEM_FALLBACK_ROUTE_ID];
+          const stepCount = Array.isArray(sysRoute?.models) ? sysRoute!.models.length : 0;
+          console.log(`[config] router-settings.json changed on disk — reloaded (${stepCount} system chain step(s)).`);
+        }
+      } catch (error: any) {
+        console.error('Failed to re-apply router settings:', sanitizeDiagnosticText(String(error?.message || error)));
+      }
+    }, 300);
+  });
 }
 
 function loadPersistedSystemPrompt(): void {
@@ -4111,6 +4187,7 @@ if (waferZdrEnabled) {
   console.log('[Wafer] ZDR enabled for GLM-5.1, Kimi-K2.6, deepseek-v4-pro');
 }
 loadPersistedRouterSettings();
+watchRouterSettingsFile();
 loadPersistedSystemPrompt();
 loadPersistedThinkingConfig();
 loadWaferConfig();
