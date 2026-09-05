@@ -8,6 +8,7 @@ import {
   getOAuthStatus,
   getOAuthState,
   getSuppressedHostSession,
+  clearLogoutMarker,
   initAntigravityLogin,
   isOAuthProvider,
   listOAuthProviders,
@@ -429,8 +430,11 @@ app.post('/api/oauth/login/:provider', async (req: Request, res: Response) => {
 
   if (providerName === 'cursor') {
     try {
-      // Suppression-aware lookup: after an explicit logout the still-signed-in
-      // IDE/CLI session is ignored (getOAuthState honors the logout marker).
+      // Cursor has no router-native login flow — its credential lives in the
+      // host IDE/CLI. An explicit login click IS consent to re-adopt that
+      // session, so clear the logout marker first; logout stays sticky for
+      // the passive paths (status/boot) until this explicit call.
+      clearLogoutMarker('cursor');
       const session = getOAuthState('cursor');
       if (session) {
         return res.json({
@@ -438,18 +442,8 @@ app.post('/api/oauth/login/:provider', async (req: Request, res: Response) => {
           provider: 'cursor',
           authType: 'oauth-pkce',
           configured: true,
-          message: `Detected active Cursor session for ${session.accountLabel || "user"}.`,
+          message: `Logged in to Cursor as ${session.accountLabel || "user"} (host session re-adopted).`,
           status: getOAuthStatus('cursor')
-        });
-      }
-      const suppressed = getSuppressedHostSession('cursor');
-      if (suppressed) {
-        return res.json({
-          success: true,
-          provider: 'cursor',
-          authType: 'oauth-pkce',
-          configured: false,
-          message: `You logged out of Cursor (${suppressed.accountLabel || "user"}) in Local Router, so that session is ignored. Sign out in the Cursor IDE/CLI and sign back in — the fresh session is detected automatically.`
         });
       }
       return res.json({
@@ -457,7 +451,7 @@ app.post('/api/oauth/login/:provider', async (req: Request, res: Response) => {
         provider: 'cursor',
         authType: 'oauth-pkce',
         configured: false,
-        message: "Log in via Cursor IDE or run agent login in terminal. Local Router automatically detects your session."
+        message: "No active Cursor session found. Sign in via the Cursor IDE or run `cursor-agent login` in a terminal — Local Router detects the session automatically."
       });
     } catch (error: any) {
       return res.status(500).json({ error: error?.message || "Failed to check Cursor authentication." });

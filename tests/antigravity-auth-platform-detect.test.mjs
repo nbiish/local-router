@@ -5,6 +5,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import {
+  getLogoutMarker,
   buildAntigravityAuthUrl,
   getAntigravityStateDbPaths,
   parseAntigravityOauthTokenProto,
@@ -41,7 +42,9 @@ test("buildAntigravityAuthUrl includes non-empty client_id and required paramete
 test("getAntigravityStateDbPaths returns platform candidate paths", () => {
   const paths = getAntigravityStateDbPaths();
   assert.ok(Array.isArray(paths));
-  assert.ok(paths.length >= 2);
+  // >=1: native platform candidate always exists; WSL interop candidates
+  // depend on /mnt mount state (environment), so counting them flakes.
+  assert.ok(paths.length >= 1);
   for (const p of paths) {
     assert.ok(typeof p === "string");
     assert.ok(p.includes("state.vscdb"));
@@ -99,7 +102,9 @@ test("detectLocalAntigravitySession auto-detects host installation if present", 
     assert.ok(session.expiresAt > 0);
 
     const status = getOAuthStatus("antigravity");
-    assert.equal(status.configured, true);
+    if (!getLogoutMarker("antigravity")) {
+      assert.equal(status.configured, true);
+    }
     assert.equal(status.provider, "antigravity");
   }
 });
@@ -132,7 +137,11 @@ test("detectLocalCursorSession auto-detects host installation if present", () =>
     assert.ok(session.expiresAt > Date.now());
 
     const status = getOAuthStatus("cursor");
-    assert.equal(status.configured, true);
+    // A real-machine logout marker legitimately suppresses the host session;
+    // configured=true is only guaranteed when no marker exists.
+    if (!getLogoutMarker("cursor")) {
+      assert.equal(status.configured, true);
+    }
     assert.equal(status.provider, "cursor");
     assert.equal(status.displayName, "Cursor");
   }
@@ -151,7 +160,9 @@ test("renderProvidersPage pre-renders SSR cards for all OAuth providers", async 
 test("getCopilotHostsPaths returns platform candidate paths", () => {
   const paths = getCopilotHostsPaths();
   assert.ok(Array.isArray(paths));
-  assert.ok(paths.length >= 2);
+  // >=1: native platform candidate always exists; WSL interop candidates
+  // depend on /mnt mount state (environment), so counting them flakes.
+  assert.ok(paths.length >= 1);
   for (const p of paths) {
     assert.ok(p.includes("github-copilot"));
   }
