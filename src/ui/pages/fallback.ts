@@ -36,17 +36,9 @@ export function renderFallbackPage(params: {
         </div>
         <div class="button-row">
           <button onclick="saveFallbackRoute()">Save Chain</button>
-          <button class="button-secondary" onclick="setFallbackDefault()" title="Copy this chain into the default fallback-models route (persists across restarts)">Set as Default</button>
-          <button class="button-secondary" onclick="unsetFallbackDefault()" title="Empty the default fallback-models route">Unset Default</button>
-          <button class="button-secondary" onclick="exportFallbackSettings()" title="Download all fallback routes as fallback-models.json">Export JSON</button>
-          <button class="button-secondary" onclick="document.getElementById('fallbackImportInput').click()" title="Import fallback routes from a JSON file">Import JSON</button>
-          <input id="fallbackImportInput" type="file" accept="application/json" style="display:none" onchange="importFallbackSettings(event)">
-          <button class="button-secondary" onclick="clearFallbackRouteForm()">Clear Form</button>
-          <button class="button-secondary" onclick="resetFallbackSettings()">Reset Settings</button>
-          <button class="button-secondary" onclick="applyFallbackDefaults()">Reset Fallback Defaults</button>
           <button class="button-secondary" onclick="configureVSCodePicker()">Refresh VS Code Picker</button>
         </div>
-        <p class="muted" style="margin:6px 0 0;">Chains persist across shutdowns (fallback-models.json). The ✕ button removes a model from the chain entirely; the checkbox only disables it. <strong>Set as Default</strong> copies this chain into <code>local-router/fallback-models</code> — the safety net used when direct models fail.</p>
+        <p class="muted" style="margin:6px 0 0;">Edits auto-save and sync into the single source <code>~/.config/local-router/router-settings.json</code> (applied at boot, watched live). The ✕ button removes a model from the chain entirely; the checkbox only disables it. The <strong>fallback-models</strong> route is the safety net used when direct models fail.</p>
         <div style="margin-top:14px;">
           <label>Fallback Order (drag to reorder · click toggle to enable/disable a model)</label>
           <div id="fallbackCandidateList" class="router-candidate-list">

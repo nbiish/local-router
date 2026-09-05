@@ -208,26 +208,23 @@ test('router settings export/import/reset persists fallback routes and settings'
   assert.deepEqual(sysRouteReset?.models, []);
 });
 
-test('stale router-settings.json does not overwrite active fallback-models.json at boot', async () => {
-  const catalog = await requestJson('/api/provider-models?catalog=active');
-  const catalogIds = (catalog.body?.data || [])
-    .flatMap((entry) => entry.models || [])
-    .map((model) => model.id)
-    .filter((id) => typeof id === 'string' && id);
-  const [modelA] = catalogIds;
-
+test('router-settings.json is authoritative over the derived fallback-models.json cache at boot', async () => {
+  // Single-source contract (2026-09-04): router-settings.json is THE chain
+  // definition; fallback-models.json is a derived cache. The file wins at
+  // boot even when the cache disagrees — that drift (file 23 models, cache
+  // 1) is exactly what this guards against.
   await stopServer();
 
   const configDir = join(testHome, '.config', 'local-router');
   mkdirSync(configDir, { recursive: true });
 
-  // Active fallback-models.json has modelA
+  // Derived cache has an outdated chain
   writeFileSync(join(configDir, 'fallback-models.json'), JSON.stringify({
     version: 1,
-    routes: [{ id: 'fallback-models', models: [modelA] }]
+    routes: [{ id: 'fallback-models', models: ['stale-model-1'] }]
   }, null, 2));
 
-  // Stale router-settings.json has an old obsolete chain
+  // The single source carries the real chain
   writeFileSync(join(configDir, 'router-settings.json'), JSON.stringify({
     fallbackModelsText: 'stale-model-1\nstale-model-2'
   }, null, 2));
@@ -237,5 +234,5 @@ test('stale router-settings.json does not overwrite active fallback-models.json 
 
   const routes = await requestJson('/api/fallback-models');
   const sysRoute = (routes.body?.data || []).find((r) => r.routeId === 'fallback-models');
-  assert.deepEqual(sysRoute?.models, [modelA], 'must not overwrite active fallback-models.json with stale router-settings.json');
+  assert.deepEqual(sysRoute?.models, ['stale-model-1', 'stale-model-2'], 'router-settings.json must be applied at boot over the derived cache');
 });

@@ -7,6 +7,8 @@ export const ROUTER_SETTINGS_PATH = path.join(LOCAL_ROUTER_CONFIG_DIR, 'router-s
 
 export type RouterSettings = {
   fallbackModelsText?: string;
+  /** Named chain routes (single-source mirror of the runtime chain set). */
+  routes?: Array<{ id: string; models: string[]; disabledModels?: string[] }>;
 };
 
 export function loadRouterSettings(): RouterSettings {

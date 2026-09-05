@@ -974,18 +974,6 @@ export function renderLayout(
           selectFallbackRouteToEdit(NEW_FALLBACK_CHAIN_VALUE);
         }
 
-        async function applyFallbackDefaults() {
-          var sel = document.getElementById('fallbackRouteSelect');
-          if (sel && fallbackRoutes.some(function(r) { return r.id === 'local-router/fallback-models'; })) {
-            activeFallbackRouteId = 'local-router/fallback-models';
-            sel.value = 'local-router/fallback-models';
-            selectFallbackRouteToEdit('local-router/fallback-models');
-          }
-          document.getElementById('fallbackModelsText').value = DEFAULT_FALLBACK_MODELS_TEXT;
-          applyFallbackTextareaToStore();
-          await saveFallbackRoute();
-        }
-
         function availabilityBadgeHtml(modelId) {
           var entry = modelAvailabilityCache[modelId];
           if (!entry) return '';
@@ -1161,112 +1149,6 @@ export function renderLayout(
           }
           await loadFallbackRoutes();
           await loadCatalog();
-        }
-
-        async function exportFallbackSettings() {
-          const res = await fetch('/api/fallback-models');
-          const payload = await res.json().catch(() => ({}));
-          const exportPayload = {
-            version: 1,
-            exportedAt: new Date().toISOString(),
-            routes: Array.isArray(payload?.routes) ? payload.routes : (Array.isArray(payload) ? payload : [])
-          };
-          const blob = new Blob([JSON.stringify(exportPayload, null, 2)], { type: 'application/json' });
-          const url = URL.createObjectURL(blob);
-          const a = document.createElement('a');
-          a.href = url;
-          a.download = 'fallback-models.json';
-          a.click();
-          URL.revokeObjectURL(url);
-          setMessage('Exported fallback-models.json (' + exportPayload.routes.length + ' route(s)).', 'success');
-        }
-
-        async function setFallbackDefault() {
-          const target = currentFallbackEditTarget();
-          if (!target.id || target.mode === 'new') {
-            setMessage('Save the chain first, then set it as default.', 'error');
-            return;
-          }
-          const res = await fetch('/api/fallback-models/set-default', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ id: target.id })
-          });
-          const payload = await res.json().catch(() => ({}));
-          if (!res.ok) {
-            setMessage(payload?.error || 'Failed to set default chain.', 'error');
-            return;
-          }
-          setMessage('Default chain set: ' + target.id + ' (' + (payload.steps || 0) + ' steps) — persists across restarts.', 'success');
-          await loadFallbackRoutes();
-        }
-
-        async function unsetFallbackDefault() {
-          if (!window.confirm('Unset the default chain? The system fallback-models route will be emptied (direct-model cascade will have no safety net).')) return;
-          const res = await fetch('/api/fallback-models/unset-default', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({})
-          });
-          const payload = await res.json().catch(() => ({}));
-          if (!res.ok) {
-            setMessage(payload?.error || 'Failed to unset default chain.', 'error');
-            return;
-          }
-          setMessage('Default chain unset (' + (payload.removedSteps || 0) + ' steps removed).', 'success');
-          await loadFallbackRoutes();
-        }
-
-        async function importFallbackSettings(event) {
-          const file = event.target.files && event.target.files[0];
-          if (!file) return;
-          try {
-            const text = await file.text();
-            const payload = JSON.parse(text);
-            const routes = Array.isArray(payload?.routes) ? payload.routes : null;
-            if (routes) {
-              let imported = 0;
-              for (const route of routes) {
-                if (!route || typeof route.id !== 'string' || !route.id.trim()) continue;
-                const models = Array.isArray(route.models) ? route.models : [];
-                const disabled = Array.isArray(route.disabledModels) ? new Set(route.disabledModels) : new Set();
-                const modelsText = models.map(function(m) {
-                  return disabled.has(m) ? (m + ' disabled') : m;
-                }).join('\\n');
-                const res = await fetch('/api/fallback-models', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ id: route.id, modelsText: modelsText, allowShort: true, origin: 'ui', force: true })
-                });
-                if (res.ok) imported += 1;
-              }
-              setMessage('Imported ' + imported + ' fallback route(s) from fallback-models.json.', 'success');
-              await loadFallbackRoutes();
-            } else {
-              const res = await fetch('/api/router-settings', {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload)
-              });
-              if (!res.ok) throw new Error('HTTP ' + res.status);
-              setMessage('Router settings imported and saved.', 'success');
-              await loadFallbackRoutes();
-            }
-          } catch (e) {
-            setMessage('Failed to import fallback settings: ' + (e?.message || e), 'error');
-          }
-          event.target.value = '';
-        }
-
-        async function resetFallbackSettings() {
-          if (!window.confirm('Reset router settings to defaults?')) return;
-          const res = await fetch('/api/router-settings', { method: 'DELETE' });
-          if (res.ok) {
-            setMessage('Router settings reset to defaults.', 'success');
-            await loadFallbackRoutes();
-          } else {
-            setMessage('Failed to reset router settings.', 'error');
-          }
         }
 
         // ── Visual Builder Dropdown ──
