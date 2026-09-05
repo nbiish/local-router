@@ -18,8 +18,6 @@ import { ollamaBackendVersionUrl } from '../ollama-backend';
 import { renderProvidersPage } from '../ui/pages/providers';
 import { renderFallbackPage } from '../ui/pages/fallback';
 import { renderThinkingPage } from '../ui/pages/thinking';
-import { renderChatPage } from '../ui/pages/chat';
-import { detectInstalledAgents, executeAgentChain, AgentChoice } from '../agent-executor';
 import {
   ProviderSummary,
   CustomProviderRecord,
@@ -263,50 +261,12 @@ export function registerConfigApiRoutes(app: express.Express, deps: ConfigApiDep
     res.send(html);
   });
 
-  app.get('/config/chat', (req: Request, res: Response) => {
-    const html = renderChatPage({
-      defaultFallbackModelsText: DEFAULT_FALLBACK_MODELS_TEXT
-    });
-    res.setHeader('Cache-Control', 'no-store');
-    res.send(html);
-  });
-
-  app.get('/api/chat/agents', (_req: Request, res: Response) => {
-    const agents = detectInstalledAgents();
-    res.json({
-      agents,
-      model: 'local-router/fallback-models',
-      fallbackChain: ['free-claude-code', 'omp', 'trae-cli']
-    });
-  });
-
-  app.post('/api/chat/action', async (req: Request, res: Response) => {
-    const { prompt, agent, fleet, cwd } = req.body;
-    if (!prompt || typeof prompt !== 'string') {
-      return res.status(400).json({ error: 'prompt is required and must be a string.' });
-    }
-
-    const agentChoice = (agent as AgentChoice) || 'auto';
-    const fleetEnabled = fleet !== false;
-
-    try {
-      const outcome = await executeAgentChain({
-        prompt: prompt.trim(),
-        agentChoice,
-        fleetEnabled,
-        cwd: typeof cwd === 'string' && cwd.trim() ? cwd.trim() : undefined
-      });
-      res.json(outcome);
-    } catch (err: any) {
-      res.status(500).json({
-        ok: false,
-        agentUsed: agentChoice,
-        output: err.message || String(err),
-        trace: ['error: ' + (err.message || String(err))],
-        durationMs: 0
-      });
-    }
-  });
+  // The /config/chat section was removed (2026-09-04): Local Router stays a
+  // focused single source for provider keys, model catalog, and fallback
+  // chains. Fleet/headless agent orchestration lives in wtf-is-going-on-mcp
+  // (.agents/skills/wtf**). The cursor-auto / github-copilot-auto PROVIDERS
+  // remain fully served — see src/cli-auto-bridge.ts (cursor-agent / copilot
+  // CLI bridges driving their auto models).
 
 app.post('/api/keys', async (req: Request, res: Response) => {
   const { provider, apiKey, groq, openrouter } = req.body;

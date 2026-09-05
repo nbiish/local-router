@@ -13,7 +13,6 @@ const pages = [
   { name: 'providers', load: () => import('../build/ui/pages/providers.js'), render: (m) => m.renderProvidersPage({ defaultFallbackModelsText: 'modal-proxy-a' }) },
   { name: 'fallback', load: () => import('../build/ui/pages/fallback.js'), render: (m) => m.renderFallbackPage({ defaultFallbackModelsText: 'modal-proxy-a' }) },
   { name: 'thinking', load: () => import('../build/ui/pages/thinking.js'), render: (m) => m.renderThinkingPage({ defaultFallbackModelsText: 'modal-proxy-a' }) },
-  { name: 'chat', load: () => import('../build/ui/pages/chat.js'), render: (m) => m.renderChatPage({ defaultFallbackModelsText: 'modal-proxy-a' }) }
 ];
 
 for (const page of pages) {
