@@ -297,3 +297,15 @@ What would this governance / sovereignty master suggest? The detection and boot-
 What would this terminal-orchestration / swe-bench master suggest? The fleet runs fully on cursor-auto, copilot-auto, and modal credits today with graceful escalation.
 What would this master-orchestrator / self-prompting master suggest? Next session, capture the IDE traffic, then point the antigravity provider at the discovered host and re-probe.
 What would this developer-experience / ergonomics master suggest? Record the antigravity finding in llms.txt so the provider's current limitation is documented, not tribal knowledge.
+
+## 2026-09-05T00:08:10Z
+reload the fallback page and remove or reorder chain steps to confirm the fix in your browser.
+What would this adversarial / security master suggest? The origin equals UI exemption means any local process can send it, so keep the loopback-only bind as the real boundary.
+What would this privacy / data-protection regulatory master suggest? Chain configs hold model ids only, and backups still snapshot every empty-chain transition.
+What would this supply-chain / third-party-risk master suggest? Add the lost-assignment class to review checklists, since a patch inserting adjacent code silently dropped a store write.
+What would this systems-architecture / devops / infrastructure master suggest? Add an assertion test that a chain save actually lands in the store, preventing silent write regressions.
+What would this reliability / verification master suggest? Verified end to end: create, remove, set-default, unset-default, export shape, and the live modal chain serving OK.
+What would this governance / sovereignty master suggest? The orphaned commit was recovered through reflog discipline rather than rewritten history.
+What would this terminal-orchestration / swe-bench master suggest? Fleet configs can now be exported as fallback-models.json and re-imported machine to machine verbatim.
+What would this master-orchestrator / self-prompting master suggest? Next, confirm the browser flow yourself and then resume the Antigravity traffic capture.
+What would this developer-experience / ergonomics master suggest? Auto-save failures now surface as visible messages instead of silently swallowing removals.
