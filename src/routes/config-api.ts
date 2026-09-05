@@ -1293,12 +1293,15 @@ app.post('/api/fallback-models', (req: Request, res: Response) => {
   // class of incident. Snapshots are taken by persistFallbackModels.
   const previousChain = Array.isArray(previousModel?.models) ? previousModel.models : [];
   const nextChain = Array.isArray(parsed.model.models) ? parsed.model.models : [];
-  if (previousChain.length >= 3 && nextChain.length === 0 && req.body?.force !== true) {
+  const uiOriginated = req.body?.origin === 'ui';
+  if (previousChain.length >= 3 && nextChain.length === 0 && req.body?.force !== true && !uiOriginated) {
     return res.status(409).json({
       error: `Fallback merge guard: this write would empty the "${parsed.model.id}" chain (${previousChain.length} steps). Re-send with "force": true if intentional.`,
       previousStepCount: previousChain.length
     });
   }
+
+  fallbackModelStore[parsed.model.id] = cloneFallbackModel(parsed.model);
 
   try {
     persistFallbackModels();
@@ -1354,6 +1357,50 @@ app.delete('/api/fallback-models', (req: Request, res: Response) => {
   }
 
   return res.json({ success: true, persisted: true, removed: fallbackPresentedModelId(id), routeId: id });
+});
+
+const SYSTEM_FALLBACK_ROUTE = 'fallback-models';
+
+// Set the default system chain: copies the named route's steps into the
+// `fallback-models` route that the `local-router/fallback-models` alias and
+// the direct-model cascade use. Persists across shutdowns via
+// fallback-models.json.
+app.post('/api/fallback-models/set-default', (req: Request, res: Response) => {
+  const id = normalizeFallbackRouteId(String(req.body?.id || '').trim());
+  const source = fallbackModelStore[id];
+  if (!source) {
+    return res.status(404).json({ error: `Fallback route not found: ${id}` });
+  }
+  if (id === SYSTEM_FALLBACK_ROUTE) {
+    return res.json({ success: true, alreadyDefault: true, id });
+  }
+  const sysRoute = fallbackModelStore[SYSTEM_FALLBACK_ROUTE] || { id: SYSTEM_FALLBACK_ROUTE, models: [], disabledModels: [] };
+  sysRoute.models = [...(Array.isArray(source.models) ? source.models : [])];
+  sysRoute.disabledModels = [...(Array.isArray(source.disabledModels) ? source.disabledModels : [])];
+  fallbackModelStore[SYSTEM_FALLBACK_ROUTE] = sysRoute;
+  persistFallbackModels();
+  return res.json({
+    success: true,
+    defaultRoute: SYSTEM_FALLBACK_ROUTE,
+    steps: sysRoute.models.length,
+    models: sysRoute.models
+  });
+});
+
+// Unset the default system chain: empties `fallback-models`. The route
+// itself remains (always present as the cascade target).
+app.post('/api/fallback-models/unset-default', (_req: Request, res: Response) => {
+  const sysRoute = fallbackModelStore[SYSTEM_FALLBACK_ROUTE];
+  if (!sysRoute) {
+    fallbackModelStore[SYSTEM_FALLBACK_ROUTE] = { id: SYSTEM_FALLBACK_ROUTE, models: [], disabledModels: [] };
+    persistFallbackModels();
+    return res.json({ success: true, unset: true });
+  }
+  const removed = Array.isArray(sysRoute.models) ? sysRoute.models.length : 0;
+  sysRoute.models = [];
+  sysRoute.disabledModels = [];
+  persistFallbackModels();
+  return res.json({ success: true, unset: true, removedSteps: removed });
 });
 
 app.post('/api/fallback-chain/toggle', (req: Request, res: Response) => {
