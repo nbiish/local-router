@@ -1233,7 +1233,7 @@ export function renderLayout(
                 const disabled = Array.isArray(route.disabledModels) ? new Set(route.disabledModels) : new Set();
                 const modelsText = models.map(function(m) {
                   return disabled.has(m) ? (m + ' disabled') : m;
-                }).join('\n');
+                }).join('\\n');
                 const res = await fetch('/api/fallback-models', {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
@@ -2911,7 +2911,11 @@ export function renderLayout(
                 setMessage(payload?.error || 'Logout failed.', 'error');
                 return;
               }
-              setMessage('Logged out of ' + provider + '.', 'success');
+              let message = 'Logged out of ' + provider + '.';
+              if (payload?.hostSessionRetained) {
+                message += ' Your IDE/CLI is still signed in as ' + (payload.accountLabel || 'that account') + ' — Local Router now ignores that session. Sign out there and log back in (new sessions are detected automatically), or use the Log in button below.';
+              }
+              setMessage(message, 'success');
               loadOAuthProviders();
             });
           });

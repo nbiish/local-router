@@ -6,8 +6,9 @@ import { ProxyProvider } from '../types';
 import {
   clearOAuthCredentials,
   getOAuthStatus,
+  getOAuthState,
+  getSuppressedHostSession,
   initAntigravityLogin,
-  detectLocalCursorSession,
   isOAuthProvider,
   listOAuthProviders,
   startCopilotLogin,
@@ -468,7 +469,9 @@ app.post('/api/oauth/login/:provider', async (req: Request, res: Response) => {
 
   if (providerName === 'cursor') {
     try {
-      const session = detectLocalCursorSession();
+      // Suppression-aware lookup: after an explicit logout the still-signed-in
+      // IDE/CLI session is ignored (getOAuthState honors the logout marker).
+      const session = getOAuthState('cursor');
       if (session) {
         return res.json({
           success: true,
@@ -477,6 +480,16 @@ app.post('/api/oauth/login/:provider', async (req: Request, res: Response) => {
           configured: true,
           message: `Detected active Cursor session for ${session.accountLabel || "user"}.`,
           status: getOAuthStatus('cursor')
+        });
+      }
+      const suppressed = getSuppressedHostSession('cursor');
+      if (suppressed) {
+        return res.json({
+          success: true,
+          provider: 'cursor',
+          authType: 'oauth-pkce',
+          configured: false,
+          message: `You logged out of Cursor (${suppressed.accountLabel || "user"}) in Local Router, so that session is ignored. Sign out in the Cursor IDE/CLI and sign back in — the fresh session is detected automatically.`
         });
       }
       return res.json({
@@ -563,7 +576,17 @@ app.delete('/api/oauth/credentials/:provider', async (req: Request, res: Respons
     return res.status(400).json({ error: `Provider "${providerName}" is not an OAuth provider.` });
   }
   clearOAuthCredentials(providerName as OAuthProviderId);
-  return res.json({ success: true, provider: providerName, configured: false });
+  // Tell the UI when the host IDE/CLI itself is still signed in: the router
+  // now ignores that exact session (logout marker), but a fresh vendor-side
+  // login will be picked up automatically.
+  const retained = getSuppressedHostSession(providerName as OAuthProviderId);
+  return res.json({
+    success: true,
+    provider: providerName,
+    configured: false,
+    hostSessionRetained: Boolean(retained),
+    accountLabel: retained?.accountLabel
+  });
 });
 
 app.get('/api/model-source', (req: Request, res: Response) => {

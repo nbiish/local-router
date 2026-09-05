@@ -73,6 +73,32 @@ export type OAuthProviderSummary = {
 const OAUTH_STORE_DIR = path.join(os.homedir(), '.config', 'local-router');
 export const OAUTH_STORE_PATH = path.join(OAUTH_STORE_DIR, 'oauth-credentials.json');
 
+/**
+ * Logout markers make "Log out" stick against host-session re-detection.
+ * The Antigravity IDE, Cursor IDE, and Copilot CLI keep their own signed-in
+ * state on this machine; without a marker, `getOAuthState()` re-hydrates
+ * that same session right after `clearOAuthCredentials()` wipes the store,
+ * so the UI flips straight back to "Logged in" and the login buttons never
+ * reappear. The marker records a fingerprint (SHA-256 prefix — never the
+ * token itself) of the session that was logged out. That exact session
+ * stays ignored; a host re-login that yields a DIFFERENT fingerprint is
+ * treated as a fresh login and adopted (marker dropped). Explicit env-var
+ * credentials (CURSOR_TOKEN / GITHUB_COPILOT_TOKEN, accountId `-env`) are
+ * operator wiring and are never suppressed. Markers persist at 0600.
+ */
+export const OAUTH_LOGOUT_MARKERS_PATH = path.join(OAUTH_STORE_DIR, 'oauth-logout-markers.json');
+
+export type LogoutMarker = {
+  /** Unix-ms timestamp of the logout. */
+  at: number;
+  /** SHA-256 prefix (16 hex chars) of the logged-out access token. */
+  fingerprint: string;
+  /** Account label captured at logout time, for UI messaging. */
+  accountLabel?: string;
+};
+
+type LogoutMarkerStore = Partial<Record<OAuthProviderId, LogoutMarker>>;
+
 /** Public, well-known OAuth client IDs. Antigravity is Google's own
  *  publicly-distributed desktop client; Copilot's is the same VS Code
  *  Copilot Chat client that GitHub ships, reused by every third-party
@@ -468,7 +494,9 @@ export function detectLocalAntigravitySession(): OAuthProviderState | null {
     try {
       const store = loadStore();
       const existing = store.antigravity;
-      if (!existing || !existing.accessToken || (existing.expiresAt < parsed.expiresAt)) {
+      // Do not re-persist a host session the user explicitly logged out of;
+      // isSessionSuppressed drops the marker itself for a genuinely fresh login.
+      if (!isSessionSuppressed("antigravity", state) && (!existing || !existing.accessToken || (existing.expiresAt < parsed.expiresAt))) {
         store.antigravity = state;
         saveStore(store);
       }
@@ -581,7 +609,9 @@ export function detectLocalCursorSession(): OAuthProviderState | null {
     try {
       const store = loadStore();
       const existing = store.cursor;
-      if (!existing || !existing.accessToken || (existing.expiresAt < expiresAt)) {
+      // Do not re-persist a host session the user explicitly logged out of;
+      // isSessionSuppressed drops the marker itself for a genuinely fresh login.
+      if (!isSessionSuppressed("cursor", state) && (!existing || !existing.accessToken || (existing.expiresAt < expiresAt))) {
         store.cursor = state;
         saveStore(store);
       }
@@ -690,6 +720,97 @@ function saveStore(store: OAuthStore): void {
   }
 }
 
+// ── Logout markers ───────────────────────────────────────────────────────────
+
+function fingerprintAccessToken(accessToken: string): string {
+  return createHash('sha256').update(accessToken, 'utf8').digest('hex').slice(0, 16);
+}
+
+function loadLogoutMarkers(): LogoutMarkerStore {
+  try {
+    if (!fs.existsSync(OAUTH_LOGOUT_MARKERS_PATH)) return {};
+    const parsed = JSON.parse(fs.readFileSync(OAUTH_LOGOUT_MARKERS_PATH, 'utf8'));
+    if (parsed && typeof parsed === 'object') return parsed as LogoutMarkerStore;
+  } catch (error) {
+    console.error('[oauth] failed to load logout markers', error);
+  }
+  return {};
+}
+
+function saveLogoutMarkers(markers: LogoutMarkerStore): void {
+  fs.mkdirSync(OAUTH_STORE_DIR, { recursive: true, mode: 0o700 });
+  fs.writeFileSync(OAUTH_LOGOUT_MARKERS_PATH, JSON.stringify(markers, null, 2), { mode: 0o600 });
+  try {
+    fs.chmodSync(OAUTH_LOGOUT_MARKERS_PATH, 0o600);
+  } catch {
+    /* best-effort, not all platforms support chmod */
+  }
+}
+
+export function getLogoutMarker(provider: OAuthProviderId): LogoutMarker | undefined {
+  return loadLogoutMarkers()[provider];
+}
+
+export function clearLogoutMarker(provider: OAuthProviderId): void {
+  const markers = loadLogoutMarkers();
+  if (!markers[provider]) return;
+  delete markers[provider];
+  saveLogoutMarkers(markers);
+}
+
+/** Env-var-provided sessions are explicit operator wiring — never suppressed. */
+function isEnvOriginSession(state: OAuthProviderState): boolean {
+  return state.accountId === 'cursor-env' || state.accountId === 'copilot-env';
+}
+
+/**
+ * True when `state` is the exact host session the user logged out of.
+ * A different fingerprint means the host produced a NEW session (fresh
+ * IDE/CLI login): the marker is dropped and the fresh session is adopted.
+ */
+function isSessionSuppressed(provider: OAuthProviderId, state: OAuthProviderState): boolean {
+  const marker = getLogoutMarker(provider);
+  if (!marker || isEnvOriginSession(state)) return false;
+  if (fingerprintAccessToken(state.accessToken) !== marker.fingerprint) {
+    clearLogoutMarker(provider);
+    return false;
+  }
+  return true;
+}
+
+/** Fingerprint the effective session (store first, then host detection). */
+function rememberLogout(provider: OAuthProviderId): void {
+  let state: OAuthProviderState | undefined = loadStore()[provider];
+  if (!state && provider === 'antigravity') state = detectLocalAntigravitySession() || undefined;
+  if (!state && provider === 'cursor') state = detectLocalCursorSession() || undefined;
+  if (!state && provider === 'github-copilot') state = detectLocalCopilotSession() || undefined;
+  const markers = loadLogoutMarkers();
+  if (state && state.accessToken) {
+    markers[provider] = {
+      at: Date.now(),
+      fingerprint: fingerprintAccessToken(state.accessToken),
+      accountLabel: state.accountLabel
+    };
+  } else {
+    delete markers[provider];
+  }
+  saveLogoutMarkers(markers);
+}
+
+/**
+ * The host-side session (if any) that is currently ignored because the user
+ * logged it out. Lets the logout API tell the user that their IDE/CLI is
+ * still signed in on this machine.
+ */
+export function getSuppressedHostSession(provider: OAuthProviderId): OAuthProviderState | null {
+  let detected: OAuthProviderState | null = null;
+  if (provider === 'antigravity') detected = detectLocalAntigravitySession();
+  else if (provider === 'cursor') detected = detectLocalCursorSession();
+  else if (provider === 'github-copilot') detected = detectLocalCopilotSession();
+  if (detected && isSessionSuppressed(provider, detected)) return detected;
+  return null;
+}
+
 function sanitizeProviderId(input: string): OAuthProviderId {
   const trimmed = String(input || '').trim().toLowerCase();
   if (trimmed === 'antigravity' || trimmed === 'github-copilot' || trimmed === 'cursor') {
@@ -718,11 +839,11 @@ export function getOAuthState(provider: OAuthProviderId): OAuthProviderState | u
   }
   if (provider === "antigravity") {
     const detected = detectLocalAntigravitySession();
-    if (detected) return detected;
+    if (detected && !isSessionSuppressed(provider, detected)) return detected;
   }
   if (provider === "cursor") {
     const detected = detectLocalCursorSession();
-    if (detected) return detected;
+    if (detected && !isSessionSuppressed(provider, detected)) return detected;
   }
   return undefined;
 }
@@ -749,9 +870,14 @@ function persistState(state: OAuthProviderState): void {
   const store = loadStore();
   store[state.provider] = state;
   saveStore(store);
+  // A persisted state is a fresh (router-native) login: re-adopt the provider.
+  clearLogoutMarker(state.provider);
 }
 
 export function clearOAuthCredentials(provider: OAuthProviderId): void {
+  // Record WHICH session is being logged out before wiping it, so host
+  // re-detection cannot silently resurrect the exact same login.
+  rememberLogout(provider);
   const store = loadStore();
   delete store[provider];
   saveStore(store);
