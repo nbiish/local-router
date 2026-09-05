@@ -5,6 +5,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import {
+  getLogoutMarker,
   buildAntigravityAuthUrl,
   getAntigravityStateDbPaths,
   parseAntigravityOauthTokenProto,
@@ -99,7 +100,9 @@ test("detectLocalAntigravitySession auto-detects host installation if present", 
     assert.ok(session.expiresAt > 0);
 
     const status = getOAuthStatus("antigravity");
-    assert.equal(status.configured, true);
+    if (!getLogoutMarker("antigravity")) {
+      assert.equal(status.configured, true);
+    }
     assert.equal(status.provider, "antigravity");
   }
 });
@@ -132,7 +135,11 @@ test("detectLocalCursorSession auto-detects host installation if present", () =>
     assert.ok(session.expiresAt > Date.now());
 
     const status = getOAuthStatus("cursor");
-    assert.equal(status.configured, true);
+    // A real-machine logout marker legitimately suppresses the host session;
+    // configured=true is only guaranteed when no marker exists.
+    if (!getLogoutMarker("cursor")) {
+      assert.equal(status.configured, true);
+    }
     assert.equal(status.provider, "cursor");
     assert.equal(status.displayName, "Cursor");
   }

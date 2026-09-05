@@ -27,4 +27,4 @@
 | pioneer | API key | https://api.pioneer.ai/v1 | https://api.pioneer.ai/v1/models | https://api.pioneer.ai/v1/chat/completions | PIONEER_API_KEY | missing | 0 | — |
 | nous-portal | API key | https://inference-api.nousresearch.com/v1 | https://inference-api.nousresearch.com/v1/models | https://inference-api.nousresearch.com/v1/chat/completions | NOUS_API_KEY | missing | 0 | — |
 
-_Generated 2026-09-05T03:28:31.685Z._
+_Generated 2026-09-05T03:30:35.323Z._
