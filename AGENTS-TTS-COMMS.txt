@@ -309,3 +309,15 @@ What would this governance / sovereignty master suggest? The orphaned commit was
 What would this terminal-orchestration / swe-bench master suggest? Fleet configs can now be exported as fallback-models.json and re-imported machine to machine verbatim.
 What would this master-orchestrator / self-prompting master suggest? Next, confirm the browser flow yourself and then resume the Antigravity traffic capture.
 What would this developer-experience / ergonomics master suggest? Auto-save failures now surface as visible messages instead of silently swallowing removals.
+
+## 2026-09-05T01:55:38Z
+open the config UI, log out and re-login Antigravity, Cursor, and Copilot, then confirm each serves models.
+What would this adversarial / security master suggest? Keep the loopback-only bind as the real boundary and rotate the Cursor and Copilot sessions after relogin if this router is ever shared.
+What would this privacy / data-protection regulatory master suggest? Logout markers store only a SHA-256 fingerprint, never token material, and stay chmod 600.
+What would this supply-chain / third-party-risk master suggest? Re-verify the pinned CLI bridge behavior after each Cursor or Copilot CLI self-update before trusting the auto models.
+What would this systems-architecture / devops / infrastructure master suggest? The watchdog now points at the durable main-repo CLI and enforces 11434 every five minutes; consider a build-stamp check so ensure restarts stale builds.
+What would this reliability / verification master suggest? Two test files guard the fixes: logout suppression against a fake IDE database and vm parse checks on every rendered page script.
+What would this governance / sovereignty master suggest? Main is clean at a single head, the ledger carries checkin through checkout, and no worktrees remain.
+What would this terminal-orchestration / swe-bench master suggest? Fleet dispatch now lives solely in wtf-is-going-on-mcp chat_run under the local-router fallback chain.
+What would this master-orchestrator / self-prompting master suggest? Verify the three relogins in the UI, then re-probe provider models to confirm the student and free tiers serve.
+What would this developer-experience / ergonomics master suggest? The sidebar now has three focused pages: Providers and Models, Fallback Routes, and Prompt and Thinking.
