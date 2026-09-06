@@ -321,3 +321,41 @@ What would this governance / sovereignty master suggest? Main is clean at a sing
 What would this terminal-orchestration / swe-bench master suggest? Fleet dispatch now lives solely in wtf-is-going-on-mcp chat_run under the local-router fallback chain.
 What would this master-orchestrator / self-prompting master suggest? Verify the three relogins in the UI, then re-probe provider models to confirm the student and free tiers serve.
 What would this developer-experience / ergonomics master suggest? The sidebar now has three focused pages: Providers and Models, Fallback Routes, and Prompt and Thinking.
+
+## 2026-09-05T03:55:51Z
+press Log in with Cursor in the UI to confirm on your side, then drag your fallback chain into the order you want.
+What would this adversarial / security master suggest? Keep the logout marker fingerprint-only at 0600 and treat explicit login clicks as the only re-adoption path.
+What would this privacy / data-protection regulatory master suggest? No token material touched the logs or the ledger during this cycle.
+What would this supply-chain / third-party-risk master suggest? Watch for a Cursor CLI update changing the IDE state DB key names that detection relies on.
+What would this systems-architecture / devops / infrastructure master suggest? One writer, one file, one watcher — consider a boot log line asserting router-settings.json was applied.
+What would this reliability / verification master suggest? A regression test now covers logout, re-adoption, and fresh-login, and every rendered page script must parse.
+What would this governance / sovereignty master suggest? Two branches merged through the ledger with receipts, worktrees and branches cleaned, main is single-headed.
+What would this terminal-orchestration / swe-bench master suggest? The wtf fleet keeps dispatching through the unchanged cursor-auto and copilot-auto bridges.
+What would this master-orchestrator / self-prompting master suggest? Confirm the cursor relogin in the browser, then drag your preferred chain order and watch it persist across a restart.
+What would this developer-experience / ergonomics master suggest? The fallback page now pairs a quick drag editor with a visible pointer to the single JSON source.
+
+## 2026-09-06T00:42:49Z
+verified fallback system on first-model auth failure and prepared escalating retry refinement. Next step: approve the implementation plan to apply the 2-model escalating wraparound fix and unit tests
+What would this adversarial / security master suggest? Upstream 401 and authentication errors must remain non-retryable within the individual stage so dead keys never stall cascading.
+What would this privacy / data-protection regulatory master suggest? Request bodies and failed authorization responses are sanitized before diagnostic logging in expert logs and attempts.
+What would this supply-chain / third-party-risk master suggest? Multi-provider fallback chains maintain high availability even when primary vendors revoke tokens or experience upstream downtime.
+What would this systems-architecture / devops / infrastructure master suggest? Ensure the escalating wraparound plan deterministically restarts after two failures regardless of total chain length.
+What would this reliability / verification master suggest? Live chat completions verified graceful fallback from 401 modal-proxy to 200 zai without client interruption.
+What would this governance / sovereignty master suggest? Worktree isolation on feat/router-fallback-retry-algorithm preserves pristine git reflog and auditability.
+What would this terminal-orchestration / swe-bench master suggest? Terminal harnesses routing to local-router/fallback-models seamlessly absorb upstream model failures.
+What would this master-orchestrator / self-prompting master suggest? Execute the plan once approved and run the complete test suite.
+What would this developer-experience / ergonomics master suggest? Clear attempt logs with skipped and failover error classifications make fallback cascading completely observable.
+
+
+## 2026-09-06T00:44:51Z
+verified fallback system on first-model auth failure and committed 2-model escalating wraparound repeat pass. Next step: ask operator to confirm merge of feat/router-fallback-retry-algorithm into main
+What would this adversarial / security master suggest? Invalid API keys fail closed in preflight and proxy attempts without leaking credentials in error responses.
+What would this privacy / data-protection regulatory master suggest? User prompts and provider error previews remain sanitized in attempt logs.
+What would this supply-chain / third-party-risk master suggest? The escalating wraparound retry algorithm protects harnesses from transient provider downtime and revoked keys.
+What would this systems-architecture / devops / infrastructure master suggest? The 2-model repeat pass ensures uniform retry semantics across short and long chains alike.
+What would this reliability / verification master suggest? Unit tests for 2, 3, and 4 model plans pass and live completions verify smooth 401 failover.
+What would this governance / sovereignty master suggest? All changes committed in isolated worktree branch with audit trail in the team ledger.
+What would this terminal-orchestration / swe-bench master suggest? Coding agents and harnesses can rely on local-router/fallback-models without manual intervention.
+What would this master-orchestrator / self-prompting master suggest? Await operator confirmation before merging branch to main and rebuilding.
+What would this developer-experience / ergonomics master suggest? Deterministic retry behavior makes fallback ordering intuitive and predictable.
+

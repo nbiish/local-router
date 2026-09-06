@@ -4,6 +4,18 @@ import { buildEscalatingWraparoundPlan } from '../build/execution-plan.js';
 import { sanitizeProviderRequestBody } from '../build/reasoning.js';
 import { stripCliStats, promptFromBody } from '../build/cli-auto-bridge.js';
 
+test('escalating wraparound: 2 models repeats before exhaustion', () => {
+  const plan = buildEscalatingWraparoundPlan(['A', 'B']);
+  const models = plan.map((s) => s.model);
+  assert.deepEqual(models, ['A', 'B', 'A', 'B']);
+});
+
+test('escalating wraparound: 3 models escalates from 2 to 3', () => {
+  const plan = buildEscalatingWraparoundPlan(['A', 'B', 'C']);
+  const models = plan.map((s) => s.model);
+  assert.deepEqual(models, ['A', 'B', 'A', 'B', 'C']);
+});
+
 test('escalating wraparound: restart after 2 fallbacks, then 3, then full traversal', () => {
   const plan = buildEscalatingWraparoundPlan(['A', 'B', 'C', 'D']);
   const models = plan.map((s) => s.model);

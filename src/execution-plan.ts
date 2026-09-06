@@ -116,7 +116,7 @@ export function buildEscalatingWraparoundPlan(models: string[]): ExecutionStage[
     failuresInCycle += 1;
     index += 1;
 
-    if (failuresInCycle >= threshold && threshold < models.length) {
+    if (failuresInCycle >= threshold && (threshold < models.length || (models.length === 2 && pass === 1))) {
       // Usage-reset retry: start over from the top of the chain.
       pass += 1;
       index = 0;
