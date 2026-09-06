@@ -6,3 +6,19 @@
 
 - [x] checkout: 2026-09-05T21:00:35-04:00 feat/router-fallback-retry-algorithm merged into main; live 401 failover verified, 2-model escalating wraparound repeat pass implemented, test suite green (parent: operator)
 
+- [x] checkin start: 2026-09-05T21:05:50-04:00 feat/caching-maximum-provider-caching - investigate and implement maximum caching across all providers for local-router and fallback-models (parent: operator)
+
+- [x] update: 2026-09-05T21:15:20-04:00 feat/caching-maximum-provider-caching committed 24264a0 - 19/19 prompt caching tests green, regression tests green, live cache hit on port 11436 verified (parent: operator)
+
+- [x] intent-merge: 2026-09-05T21:15:30-04:00 feat/caching-maximum-provider-caching -> main (parent: operator)
+
+- [x] checkout: 2026-09-05T21:20:10-04:00 feat/caching-maximum-provider-caching merged into main; maximum prompt/context caching active across all 21 providers, tools cached, stable hash key active, test suites green (parent: operator)
+
+- [x] checkin start: 2026-09-05T21:29:15-04:00 chore/cleanup-agent-runtime - audit and remove leftover agent execution/runtime code ensuring local-router is strictly a single-source router/proxy (parent: operator)
+
+- [x] update: 2026-09-05T23:52:30-04:00 chore/cleanup-agent-runtime committed ea2ab71, 7740fd5, ffad969 - excised agent configs (livesweagent.yaml, oh-my-openagent.jsonc); fixed test-hanging background timers; fixed hyphenated model resolution; resolved test suite regressions (138/138 integration tests passing in 58s) (parent: operator)
+
+- [x] intent-merge: 2026-09-05T23:53:00-04:00 chore/cleanup-agent-runtime -> main - operator approved (parent: operator)
+
+- [x] checkout: 2026-09-06T00:12:45-04:00 chore/cleanup-agent-runtime merged into main; agent configs purged, test-hanging timers resolved, model prefix resolution enhanced, test suites green (138/138 passing in 58s), worktree cleaned up, server verified green on main (parent: operator)
+
