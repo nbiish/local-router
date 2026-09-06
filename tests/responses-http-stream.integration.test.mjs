@@ -256,7 +256,8 @@ test('thinking level applies when system prompt is disabled', async () => {
   assert.equal(response.status, 200);
 
   const forwarded = upstreamRequests.at(-1)?.body;
-  assert.equal(forwarded?.enable_thinking, true);
+  // Pure passthrough (2026-09-04): proxy never injects thinking default
+  assert.equal(Boolean(forwarded?.enable_thinking), false);
 
   await fetch(`${baseUrl}/api/thinking-level`, {
     method: 'PUT',

@@ -282,7 +282,8 @@ test('model curation lifecycle: port all, curate subset, filter serving, persist
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       enabled: true,
-      selectedKeys: [`${group.provider}::${keepModel.model}`]
+      selectedKeys: [`${group.provider}::${keepModel.model}`],
+      force: true
     })
   });
   assert.equal(curate.response.status, 200);
@@ -353,7 +354,7 @@ test('per-provider curation: refresh, seed catalog matches, key auto-discovery, 
   const reset = await requestJson('/api/model-curation', {
     method: 'PUT',
     headers,
-    body: JSON.stringify({ selectedKeys: [] })
+    body: JSON.stringify({ selectedKeys: [], force: true })
   });
   assert.equal(reset.response.status, 200);
   assert.equal(reset.body?.selectedCount, 0);
@@ -425,25 +426,22 @@ test('per-provider curation: refresh, seed catalog matches, key auto-discovery, 
   assert.equal(refreshAgain.response.status, 200);
   assert.equal(
     refreshAgain.body?.deselectedCount,
-    probeKeys.length,
-    'Refresh reports exactly the picks it turned off'
+    0,
+    'Refresh preserves curation so deselectedCount is 0'
   );
 
-  const backupDir = join(testHome, '.config', 'local-router', 'curation-backups');
-  const backupFiles = readdirSync(backupDir)
-    .filter((name) => name.startsWith(`curation-${providerName}-`))
-    .sort();
-  const backupFile = backupFiles[backupFiles.length - 1];
-  assert.ok(backupFile, 'Refresh must snapshot the previous selection before clearing');
-  const backupPayload = JSON.parse(readFileSync(join(backupDir, backupFile), 'utf8'));
-  assert.equal(backupPayload.provider, providerName);
-  assert.deepEqual(new Set(backupPayload.keys), new Set(probeKeys));
-
-  const curatedAfterOff = await requestJson('/api/model-curation');
+  const curatedAfterSecondRefresh = await requestJson('/api/model-curation');
   assert.ok(
-    !(curatedAfterOff.body?.selectedKeys || []).some((key) => key.startsWith(providerPrefix)),
-    'All models of the provider must be toggled off after refresh'
+    probeKeys.every((key) => (curatedAfterSecondRefresh.body?.selectedKeys || []).includes(key)),
+    'Serving set preserves user curated models across refresh'
   );
+
+  // Clear picks before key save to verify key save does not toggle models on.
+  await requestJson('/api/model-curation', {
+    method: 'PUT',
+    headers,
+    body: JSON.stringify({ selectedKeys: [], force: true })
+  });
 
   // Saving a key auto-discovers that provider's live models — also off-by-default.
   const keySave = await requestJson('/api/keys', {
@@ -481,7 +479,8 @@ test('per-provider curation: refresh, seed catalog matches, key auto-discovery, 
     headers,
     body: JSON.stringify({
       activate: true,
-      selectedKeys: [`${providerName}::${keep.model}`]
+      selectedKeys: [`${providerName}::${keep.model}`],
+      force: true
     })
   });
   assert.equal(activate.response.status, 200);

@@ -29,18 +29,24 @@ function jwtLikeToken(payload) {
 }
 
 function writeCursorDb({ accessToken, email, membership }) {
-  const dbDir = join(testHome, '.config', 'Cursor', 'User', 'globalStorage');
-  mkdirSync(dbDir, { recursive: true });
-  const dbPath = join(dbDir, 'state.vscdb');
-  rmSync(dbPath, { force: true });
-  const db = new DatabaseSync(dbPath);
-  db.exec('CREATE TABLE ItemTable (key TEXT PRIMARY KEY, value TEXT)');
-  const insert = db.prepare('INSERT INTO ItemTable (key, value) VALUES (?, ?)');
-  insert.run('cursorAuth/accessToken', accessToken);
-  insert.run('cursorAuth/refreshToken', 'rt-test');
-  insert.run('cursorAuth/cachedEmail', email);
-  insert.run('cursorAuth/stripeMembershipType', membership);
-  db.close();
+  const dirs = [
+    join(testHome, '.config', 'Cursor', 'User', 'globalStorage'),
+    join(testHome, 'AppData', 'Roaming', 'Cursor', 'User', 'globalStorage'),
+    join(testHome, 'Library', 'Application Support', 'Cursor', 'User', 'globalStorage')
+  ];
+  for (const dbDir of dirs) {
+    mkdirSync(dbDir, { recursive: true });
+    const dbPath = join(dbDir, 'state.vscdb');
+    rmSync(dbPath, { force: true });
+    const db = new DatabaseSync(dbPath);
+    db.exec('CREATE TABLE ItemTable (key TEXT PRIMARY KEY, value TEXT)');
+    const insert = db.prepare('INSERT INTO ItemTable (key, value) VALUES (?, ?)');
+    insert.run('cursorAuth/accessToken', accessToken);
+    insert.run('cursorAuth/refreshToken', 'rt-test');
+    insert.run('cursorAuth/cachedEmail', email);
+    insert.run('cursorAuth/stripeMembershipType', membership);
+    db.close();
+  }
 }
 
 function readJson(pathname, options) {
@@ -65,6 +71,7 @@ async function startServer(extraEnv = {}) {
       ...process.env,
       HOME: testHome,
       USERPROFILE: testHome,
+      APPDATA: join(testHome, 'AppData', 'Roaming'),
       PORT: port,
       LOCAL_ROUTER_SKIP_PQC_LOAD: 'true',
       LOCAL_ROUTER_SKIP_OLLAMA_ENSURE: 'true',

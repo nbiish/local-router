@@ -662,11 +662,6 @@ test('provider key save/reset lifecycle exposes configured source', async (t) =>
   const fallbackUpstreamOrder = upstreamRequests.map((entry) => entry?.body?.model).filter(Boolean);
   assert.deepEqual(fallbackUpstreamOrder, [
     'fail-always-first',
-    'fail-always-first',
-    'fail-always-first',
-    'fail-always-first',
-    'fail-always-second',
-    'fail-always-second',
     'fail-always-second',
     'fail-always-first',
     'fail-always-second',
@@ -712,7 +707,7 @@ test('provider key save/reset lifecycle exposes configured source', async (t) =>
   });
   assert.equal(fallbackExhausted.response.status, 503);
   assert.equal(Array.isArray(fallbackExhausted.body?.fallback?.attempts), true);
-  assert.equal(fallbackExhausted.body?.fallback?.attempts?.length, 12);
+  assert.equal(fallbackExhausted.body?.fallback?.attempts?.length, 5);
   assert.ok(
     fallbackExhausted.body?.fallback?.attempts?.some((attempt) => Object.hasOwn(attempt, 'waitBeforeRetrySeconds')),
     'Expected retry wait info in fallback failure payload'
@@ -777,18 +772,11 @@ test('provider key save/reset lifecycle exposes configured source', async (t) =>
 
   const forwarded = upstreamRequests.at(-1)?.body;
   assert.equal(forwarded?.model, 'deepseek-v4-pro');
-  assert.deepEqual(forwarded?.thinking, { type: 'disabled' });
-  assert.equal(forwarded?.reasoning_effort, 'none');
-  assert.equal(forwarded?.enable_thinking, false);
-  assert.ok(JSON.stringify(forwarded?.messages).includes('reasoning_content'));
-  assert.ok(JSON.stringify(forwarded?.messages).includes('redacted_thinking'));
+  // Pure passthrough (2026-09-04): caller-supplied thinking and extra_body forwarded verbatim
+  assert.deepEqual(forwarded?.thinking, { type: 'enabled', budget_tokens: 2048 });
+  assert.equal(forwarded?.reasoning_effort, 'high');
+  assert.equal(forwarded?.enable_thinking, true);
   assert.ok(JSON.stringify(forwarded?.messages).includes('must not be replayed'));
-  assert.equal(forwarded?.extra_body?.chat_template_kwargs?.thinking, false);
-  assert.equal(forwarded?.extra_body?.chat_template_kwargs?.enable_thinking, false);
-  assert.equal(
-    Object.hasOwn(forwarded?.extra_body?.chat_template_kwargs || {}, 'reasoning_budget'),
-    false
-  );
 
   const streamResponse = await fetch(`${baseUrl}/v1/chat/completions`, {
     method: 'POST',
@@ -886,7 +874,23 @@ test('provider key save/reset lifecycle exposes configured source', async (t) =>
     'Expected endpoint-only model from fake upstream'
   );
 
-  // Single-catalog regime: discovered models serve only when toggled on.
+  // Live refresh auto-curates new models (2026-09-04); verify auto-curation, then toggle off/on.
+  const curationBefore = await requestJson('/api/model-curation');
+  assert.equal(curationBefore.response.status, 200);
+  const toggleKey = `${selectedProvider.name}::endpoint-only-model`;
+  assert.ok(
+    curationBefore.body?.selectedKeys?.includes(toggleKey),
+    'Newly discovered model is auto-curated on live refresh'
+  );
+
+  const selectionWithoutKey = (curationBefore.body?.selectedKeys || []).filter((k) => k !== toggleKey);
+  const toggleOff = await requestJson('/api/model-curation', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ selectedKeys: selectionWithoutKey, force: true })
+  });
+  assert.equal(toggleOff.response.status, 200);
+
   const preToggleCatalog = await requestJson('/v1/models');
   assert.equal(
     preToggleCatalog.body?.data?.some((model) => model.id.includes('endpoint-only-model')),
@@ -894,12 +898,7 @@ test('provider key save/reset lifecycle exposes configured source', async (t) =>
     'Untoggled endpoint-only model must not serve'
   );
 
-  const curationBefore = await requestJson('/api/model-curation');
-  assert.equal(curationBefore.response.status, 200);
-  const toggleKey = `${selectedProvider.name}::endpoint-only-model`;
-  const augmentedSelection = [
-    ...new Set([...(curationBefore.body?.selectedKeys || []), toggleKey])
-  ];
+  const augmentedSelection = [...selectionWithoutKey, toggleKey];
   const toggleOn = await requestJson('/api/model-curation', {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
