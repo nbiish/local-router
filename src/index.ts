@@ -322,6 +322,22 @@ export function canonicalProviderSlug(providerName: string): string {
   const trimmed = String(providerName || '').trim();
   return LEGACY_PROVIDER_SLUG_ALIASES[trimmed] || trimmed;
 }
+function isMainModule(): boolean {
+  const entry = process.argv[1];
+  if (!entry) return false;
+  try {
+    return fs.realpathSync(__filename) === fs.realpathSync(path.resolve(entry));
+  } catch {
+    return false;
+  }
+}
+
+// Serve only when run as the process entrypoint (node build/index.js,
+// tsx src/index.ts, bin/local-router.js child). Library consumers — e.g.
+// tests importing build/index.js for pure helpers — bind nothing so the
+// importing process can exit when its work is done.
+export const shouldServe = isMainModule() || process.env.LOCAL_ROUTER_FORCE_SERVE === 'true';
+
 const parsedPort = Number.parseInt(process.env.PORT || String(DEFAULT_PORT), 10);
 const PORT = Number.isInteger(parsedPort) && parsedPort > 0 && parsedPort <= 65535
   ? parsedPort
@@ -1396,6 +1412,7 @@ function loadPersistedRouterSettings() {
  * comparison (content-addressed, not mtime-addressed).
  */
 function watchRouterSettingsFile(): void {
+  if (!shouldServe || process.env.LOCAL_ROUTER_WATCH_SETTINGS === 'false') return;
   if (process.env.LOCAL_ROUTER_WATCH_SETTINGS === 'false') return;
   let debounce: NodeJS.Timeout | undefined;
   fs.watchFile(ROUTER_SETTINGS_PATH, { interval: 2000 }, () => {
@@ -2022,7 +2039,7 @@ function endpointCurationActive(): boolean {
  * custom-mode model lists are unaffected.
  */
 function applyEndpointCuration(models: ProviderModel[]): ProviderModel[] {
-  if (!endpointCurationActive()) return models;
+  if (!endpointCurationActive() || !modelSourceConfig.filterConfigured) return models;
   const curatedKeys = new Set(modelSourceConfig.curatedEndpointModelKeys);
   if (curatedKeys.size === 0) {
     // Local ollama backend stays discoverable even when nothing is curated.
@@ -2824,7 +2841,7 @@ function activeProviderModelList(): ProviderModel[] {
 }
 
 function resolveModelTarget(modelName: string): ModelTarget | null {
-  const configuredModel = findProviderModel(modelName);
+  const configuredModel = findProviderModel(modelName) || findCatalogModel(modelName);
   if (configuredModel) {
     return {
       providerName: configuredModel.provider,
@@ -2835,14 +2852,30 @@ function resolveModelTarget(modelName: string): ModelTarget | null {
 
   const [rawProviderName, ...actualModelParts] = modelName.split('/');
   const actualModel = actualModelParts.join('/');
-  if (!rawProviderName || !actualModel) {
-    return null;
+  if (rawProviderName && actualModel) {
+    return {
+      providerName: canonicalProviderSlug(rawProviderName),
+      actualModel
+    };
   }
 
-  return {
-    providerName: canonicalProviderSlug(rawProviderName),
-    actualModel
-  };
+  for (const provider of catalogProviderSummaries()) {
+    const prefix = providerPresentationPrefix(provider.name);
+    if (prefix && modelName.startsWith(prefix + '-')) {
+      return {
+        providerName: provider.name,
+        actualModel: modelName.slice(prefix.length + 1)
+      };
+    }
+    if (modelName.startsWith(provider.name + '-')) {
+      return {
+        providerName: provider.name,
+        actualModel: modelName.slice(provider.name.length + 1)
+      };
+    }
+  }
+
+  return null;
 }
 
 function fallbackModelPresentation(model: FallbackModel): ProviderModel {
@@ -4179,7 +4212,9 @@ if (modelSourceConfig.defaultCurationConfig) {
 loadEndpointModelsCache();
 loadPersistedProviderModels();
 seedRegistryBaselines();
-startCatalogHealthMonitor();
+if (shouldServe) {
+  startCatalogHealthMonitor();
+}
 mergeBaselineProviderModelOverrides();
 seedRegistryCatalogIfNeeded();
 loadPersistedFallbackModels();
@@ -4187,7 +4222,9 @@ if (waferZdrEnabled) {
   console.log('[Wafer] ZDR enabled for GLM-5.1, Kimi-K2.6, deepseek-v4-pro');
 }
 loadPersistedRouterSettings();
-watchRouterSettingsFile();
+if (shouldServe) {
+  watchRouterSettingsFile();
+}
 loadPersistedSystemPrompt();
 loadPersistedThinkingConfig();
 loadWaferConfig();
@@ -4631,6 +4668,7 @@ function runCatalogHealthCheck(): void {
 }
 
 function startCatalogHealthMonitor(): void {
+  if (!shouldServe) return;
   runCatalogHealthCheck();
   const timer = setInterval(() => {
     runCatalogHealthCheck();
@@ -4732,10 +4770,12 @@ function candidateAvailability(modelName: string) {
   const providerName = target?.providerName || '';
   const keyConfigured = providerName ? providerHasConfiguredKey(providerName) : false;
   let status: 'ready' | 'no_key' | 'unavailable';
-  if (!target || !resolved || isLocalRouterProviderName(providerName)) {
+  if (!target || isLocalRouterProviderName(providerName)) {
     status = 'unavailable';
   } else if (!keyConfigured) {
     status = 'no_key';
+  } else if (!resolved) {
+    status = 'unavailable';
   } else {
     status = 'ready';
   }
@@ -5900,11 +5940,13 @@ async function executeFallbackRoute(
         providerErrorPreview: sanitizeDiagnosticText(result.error.responseText || '', 280)
       };
 
-      if (attempt < stage.attempts) {
-        const waitSeconds = fallbackRetryDelaySeconds(attempt);
+      if (attempt < stage.attempts || stageIndex < plan.length - 1) {
+        const waitSeconds = attempt < stage.attempts ? fallbackRetryDelaySeconds(attempt) : 0;
         entry.waitBeforeRetrySeconds = waitSeconds;
         attemptLog.push(entry);
-        await waitMs(waitSeconds * 1000);
+        if (waitSeconds > 0) {
+          await waitMs(waitSeconds * 1000);
+        }
       } else {
         attemptLog.push(entry);
       }
@@ -6731,23 +6773,11 @@ function seedRegistryBaselines(): void {
     console.error('[catalog] Registry baseline seed failed:', sanitizeDiagnosticText(String(error?.message || error)));
   }
 }
-writeProviderEndpointsDoc();
-
-function isMainModule(): boolean {
-  const entry = process.argv[1];
-  if (!entry) return false;
-  try {
-    return fs.realpathSync(__filename) === fs.realpathSync(path.resolve(entry));
-  } catch {
-    return false;
-  }
+if (shouldServe) {
+  writeProviderEndpointsDoc();
 }
 
-// Serve only when run as the process entrypoint (node build/index.js,
-// tsx src/index.ts, bin/local-router.js child). Library consumers — e.g.
-// tests importing build/index.js for pure helpers — bind nothing so the
-// importing process can exit when its work is done.
-const shouldServe = isMainModule() || process.env.LOCAL_ROUTER_FORCE_SERVE === 'true';
+// shouldServe and isMainModule defined at top
 
 const bindHost = process.env.LOCAL_ROUTER_BIND_ALL === 'true' ? '0.0.0.0' : '127.0.0.1';
 const server = shouldServe ? app.listen(PORT, bindHost, () => {
