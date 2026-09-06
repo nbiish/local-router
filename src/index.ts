@@ -4887,35 +4887,82 @@ export function buildFailoverPreservedBody(body: any, preservedModel: string): a
   return prepared;
 }
 
-export function stripCacheControl(body: any): any {
-  if (!body || !Array.isArray(body.messages)) return body;
-  const newBody = { ...body };
-  newBody.messages = newBody.messages.map((msg: any) => {
-    if (!msg) return msg;
-    if (Array.isArray(msg.content)) {
-      const cleanedContent = msg.content.map((part: any) => {
-        if (part && typeof part === 'object') {
-          const { cache_control, ...rest } = part;
-          return rest;
+export function extractMessageText(content: any): string {
+  if (!content) return '';
+  if (typeof content === 'string') return content;
+  if (Array.isArray(content)) {
+    return content
+      .map((part: any) => {
+        if (!part) return '';
+        if (typeof part === 'string') return part;
+        if (typeof part === 'object') {
+          if (typeof part.text === 'string') return part.text;
+          if (part.type === 'text' && typeof part.text === 'string') return part.text;
         }
-        return part;
-      });
-      if (cleanedContent.length === 1 && cleanedContent[0]?.type === 'text' && typeof cleanedContent[0]?.text === 'string') {
-        return { ...msg, content: cleanedContent[0].text };
+        return '';
+      })
+      .filter(Boolean)
+      .join('\n');
+  }
+  return '';
+}
+
+export function stripCacheControl(body: any): any {
+  if (!body) return body;
+  const newBody = { ...body };
+  if (Array.isArray(newBody.messages)) {
+    newBody.messages = newBody.messages.map((msg: any) => {
+      if (!msg) return msg;
+      if (Array.isArray(msg.content)) {
+        const cleanedContent = msg.content.map((part: any) => {
+          if (part && typeof part === 'object') {
+            const { cache_control, ...rest } = part;
+            return rest;
+          }
+          return part;
+        });
+        if (cleanedContent.length === 1 && cleanedContent[0]?.type === 'text' && typeof cleanedContent[0]?.text === 'string') {
+          return { ...msg, content: cleanedContent[0].text };
+        }
+        return { ...msg, content: cleanedContent };
       }
-      return { ...msg, content: cleanedContent };
-    }
-    return msg;
-  });
+      return msg;
+    });
+  }
+  if (Array.isArray(newBody.tools)) {
+    newBody.tools = newBody.tools.map((tool: any) => {
+      if (tool && typeof tool === 'object' && 'cache_control' in tool) {
+        const { cache_control, ...rest } = tool;
+        return rest;
+      }
+      return tool;
+    });
+  }
   return newBody;
 }
 
-export function getPromptCacheKey(messages: any[]): string | undefined {
+export function getPromptCacheKey(messages: any[], existingKey?: string): string | undefined {
+  if (existingKey && typeof existingKey === 'string' && existingKey.trim()) {
+    return existingKey.trim();
+  }
   if (!Array.isArray(messages) || messages.length === 0) return undefined;
-  const firstSystem = messages.find(m => m?.role === 'system')?.content;
-  const firstUser = messages.find(m => m?.role === 'user')?.content;
-  const contentToHash = String(firstSystem || '') + '|' + String(firstUser || '');
+
+  // Filter out any synthetic failover notifications
+  const realMessages = messages.filter((m: any) => {
+    if (!m || typeof m !== 'object') return false;
+    const txt = extractMessageText(m.content);
+    return !txt.includes('local_router.failover');
+  });
+
+  const firstSystemMsg = realMessages.find((m: any) => m?.role === 'system');
+  const firstUserMsg = realMessages.find((m: any) => m?.role === 'user');
+
+  const firstSystem = firstSystemMsg ? extractMessageText(firstSystemMsg.content) : '';
+  const firstUser = firstUserMsg ? extractMessageText(firstUserMsg.content) : '';
+
+  const contentToHash = firstSystem + '|' + firstUser;
   if (!contentToHash.trim()) return undefined;
+
   let hash = 0;
   for (let i = 0; i < contentToHash.length; i++) {
     const char = contentToHash.charCodeAt(i);
@@ -4926,7 +4973,7 @@ export function getPromptCacheKey(messages: any[]): string | undefined {
 }
 
 export function injectPromptCaching(body: any, providerName: string): any {
-  const newBody = { ...body };
+  let newBody = { ...body };
 
   // 1. Prevent any tool/IDE from disabling caching via body flags
   const cacheOverrideKeys = ['cache', 'use_cache', 'no_cache', 'bypass_cache'];
@@ -4951,6 +4998,11 @@ export function injectPromptCaching(body: any, providerName: string): any {
     }
   }
 
+  const cacheKey = getPromptCacheKey(
+    newBody.messages,
+    newBody.prompt_cache_key || newBody.session_id
+  );
+
   const modelLower = String(newBody.model || '').toLowerCase();
   const isOpenAiFamily = modelLower.startsWith('gpt-') || 
                          modelLower.startsWith('o1-') || 
@@ -4959,15 +5011,26 @@ export function injectPromptCaching(body: any, providerName: string): any {
                          modelLower.includes('gpt-4') ||
                          modelLower.includes('gpt-5');
 
+  // Preserve thinking tokens in context for Z.ai GLM models
+  if (providerName === 'zai' || modelLower.includes('glm')) {
+    newBody.clear_thinking = false;
+  }
+
+  // Ollama: set default keep_alive to '24h' if omitted so in-memory KV cache stays resident
+  if (providerName === 'ollama' && newBody.keep_alive === undefined) {
+    newBody.keep_alive = '24h';
+  }
+
+  // OpenAI-family models: clean cache_control from messages and tools, set 24h retention and prompt_cache_key
   if (isOpenAiFamily) {
     const cleanedBody = stripCacheControl(newBody);
-    cleanedBody.prompt_cache_retention = "24h";
-    const cacheKey = getPromptCacheKey(cleanedBody.messages);
+    cleanedBody.prompt_cache_retention = '24h';
     if (cacheKey) {
       cleanedBody.prompt_cache_key = cacheKey;
     }
     return cleanedBody;
   }
+
   const supportsExplicitCacheControl = [
     'zenmux',
     'opencode-go',
@@ -4982,37 +5045,81 @@ export function injectPromptCaching(body: any, providerName: string): any {
     'kilo'
   ].includes(providerName);
 
+  // Providers not supporting Anthropic explicit cache_control markers:
+  // strip cache_control from messages & tools so upstream schema validation does not reject them.
   if (!supportsExplicitCacheControl) {
-    return stripCacheControl(newBody);
+    newBody = stripCacheControl(newBody);
+
+    if (cacheKey) {
+      if (
+        providerName === 'nebius' ||
+        providerName === 'moonshot' ||
+        providerName === 'modal-proxy' ||
+        providerName === 'modal' ||
+        providerName === 'nvidia-nim' ||
+        providerName === 'zai' ||
+        modelLower.includes('kimi') ||
+        modelLower.includes('moonshot')
+      ) {
+        newBody.prompt_cache_key = cacheKey;
+      }
+    }
+    return newBody;
   }
 
+  // Explicit caching providers:
   const cacheControlValue = { type: 'ephemeral', ttl: '1h' };
-  if (providerName === 'zai') {
-    newBody.clear_thinking = false;
+
+  // 1. Tool Caching: cache tool schemas on the last tool definition
+  if (Array.isArray(newBody.tools) && newBody.tools.length > 0) {
+    const tools = newBody.tools.map((t: any, idx: number) => {
+      if (idx === newBody.tools.length - 1) {
+        return { ...t, cache_control: cacheControlValue };
+      }
+      return t;
+    });
+    newBody.tools = tools;
   }
+
+  // 2. Message Caching: system prompt + preceding conversation turn
   if (Array.isArray(newBody.messages) && newBody.messages.length > 0) {
     const newMessages = [...newBody.messages];
 
-    if (newMessages[0] && newMessages[0].role === 'system') {
-      const msg = { ...newMessages[0] };
+    // System prompt breakpoint
+    const systemIdx = newMessages.findIndex((m: any) => m && m.role === 'system');
+    if (systemIdx !== -1 && newMessages[systemIdx]) {
+      const msg = { ...newMessages[systemIdx] };
       if (typeof msg.content === 'string') {
         msg.content = [{ type: 'text', text: msg.content, cache_control: cacheControlValue }];
-      } else if (Array.isArray(msg.content) && msg.content[0]) {
+      } else if (Array.isArray(msg.content) && msg.content.length > 0) {
+        const lastPartIdx = msg.content.length - 1;
         msg.content = msg.content.map((part: any, idx: number) => 
-          idx === 0 ? { ...part, cache_control: cacheControlValue } : part
+          idx === lastPartIdx ? { ...part, cache_control: cacheControlValue } : part
         );
       }
-      newMessages[0] = msg;
+      newMessages[systemIdx] = msg;
     }
 
-    const targetIdx = newMessages.length - 2;
-    if (targetIdx > 0 && newMessages[targetIdx]) {
+    // Find the last real user message index (ignoring synthetic failovers)
+    let lastUserIdx = -1;
+    for (let i = newMessages.length - 1; i >= 0; i--) {
+      const m = newMessages[i];
+      if (m && m.role === 'user') {
+        lastUserIdx = i;
+        break;
+      }
+    }
+
+    // Multi-turn breakpoint: mark the message preceding the latest user turn
+    const targetIdx = lastUserIdx > 0 ? lastUserIdx - 1 : newMessages.length - 2;
+    if (targetIdx > 0 && newMessages[targetIdx] && targetIdx !== systemIdx) {
       const msg = { ...newMessages[targetIdx] };
       if (typeof msg.content === 'string') {
         msg.content = [{ type: 'text', text: msg.content, cache_control: cacheControlValue }];
-      } else if (Array.isArray(msg.content) && msg.content[0]) {
+      } else if (Array.isArray(msg.content) && msg.content.length > 0) {
+        const lastPartIdx = msg.content.length - 1;
         msg.content = msg.content.map((part: any, idx: number) => 
-          idx === 0 ? { ...part, cache_control: cacheControlValue } : part
+          idx === lastPartIdx ? { ...part, cache_control: cacheControlValue } : part
         );
       }
       newMessages[targetIdx] = msg;
@@ -5021,11 +5128,14 @@ export function injectPromptCaching(body: any, providerName: string): any {
     newBody.messages = newMessages;
   }
 
-  if (modelLower.includes('kimi') || modelLower.includes('moonshot')) {
-    const cacheKey = getPromptCacheKey(newBody.messages);
+  // OpenRouter sticky routing: session_id and prompt_cache_key for all models
+  if (providerName === 'openrouter' || providerName === 'openrouter-presets') {
     if (cacheKey) {
+      newBody.session_id = cacheKey;
       newBody.prompt_cache_key = cacheKey;
     }
+  } else if (cacheKey) {
+    newBody.prompt_cache_key = cacheKey;
   }
 
   return newBody;
@@ -5254,6 +5364,18 @@ async function proxyModelAttempt(
   }
   if (target.providerName === 'openrouter' || target.providerName === 'openrouter-presets') {
     providerHeaders['X-OpenRouter-Cache'] = 'true';
+    const cacheKey = getPromptCacheKey(body?.messages, body?.prompt_cache_key || body?.session_id);
+    if (cacheKey) {
+      providerHeaders['X-Session-Id'] = cacheKey;
+    }
+  }
+  if (target.providerName === 'modal-proxy') {
+    if (!providerHeaders['Modal-Session-ID']) {
+      const cacheKey = getPromptCacheKey(body?.messages, body?.prompt_cache_key || body?.session_id);
+      if (cacheKey) {
+        providerHeaders['Modal-Session-ID'] = cacheKey;
+      }
+    }
   }
 
   const requestBody = {
@@ -5719,7 +5841,9 @@ async function executeFallbackRoute(
       continue;
     }
 
-    const preservedBody = buildFailoverPreservedBody(body, stage.model);
+    const preservedBody = stage.primary
+      ? { ...body, model: stage.model }
+      : buildFailoverPreservedBody(body, stage.model);
 
     for (let attempt = 1; attempt <= stage.attempts; attempt += 1) {
       const fallbackData = {
@@ -5894,11 +6018,24 @@ app.post(['/v1/messages', '/messages'], async (req: Request, res: Response) => {
   if (typeof body.system === 'string' && body.system.trim()) {
     messages.push({ role: 'system', content: body.system });
   } else if (Array.isArray(body.system)) {
-    const systemText = body.system
-      .map((part: any) => (typeof part === 'string' ? part : part.text || ''))
-      .join('\n');
-    if (systemText.trim()) {
-      messages.push({ role: 'system', content: systemText });
+    const hasCacheControl = body.system.some((part: any) => part && typeof part === 'object' && part.cache_control);
+    if (hasCacheControl) {
+      const parts = body.system.map((part: any) => {
+        if (typeof part === 'string') return { type: 'text', text: part };
+        return {
+          type: 'text',
+          text: part.text || '',
+          ...(part.cache_control ? { cache_control: part.cache_control } : {})
+        };
+      });
+      messages.push({ role: 'system', content: parts });
+    } else {
+      const systemText = body.system
+        .map((part: any) => (typeof part === 'string' ? part : part.text || ''))
+        .join('\n');
+      if (systemText.trim()) {
+        messages.push({ role: 'system', content: systemText });
+      }
     }
   }
 
@@ -5909,7 +6046,11 @@ app.post(['/v1/messages', '/messages'], async (req: Request, res: Response) => {
       if (Array.isArray(content)) {
         content = content.map((part: any) => {
           if (part.type === 'text') {
-            return { type: 'text', text: part.text };
+            return {
+              type: 'text',
+              text: part.text,
+              ...(part.cache_control ? { cache_control: part.cache_control } : {})
+            };
           } else if (part.type === 'image') {
             const url = part.source?.data ? `data:${part.source.media_type};base64,${part.source.data}` : '';
             return {
@@ -5947,7 +6088,8 @@ app.post(['/v1/messages', '/messages'], async (req: Request, res: Response) => {
         name: t.name,
         description: t.description || '',
         parameters: t.input_schema
-      }
+      },
+      ...(t.cache_control ? { cache_control: t.cache_control } : {})
     }));
   }
 

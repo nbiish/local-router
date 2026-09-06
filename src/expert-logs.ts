@@ -454,8 +454,21 @@ export class LogEntryTracker {
           this.log.cachedTokens = d.cached_tokens;
         }
       }
+      if (typeof u.cached_tokens === 'number') {
+        this.log.cachedTokens = u.cached_tokens;
+      }
+      if (typeof u.cache_read_input_tokens === 'number') {
+        this.log.cachedTokens = u.cache_read_input_tokens;
+      }
       if (typeof u.cache_write_tokens === 'number') {
         this.log.cacheWriteTokens = u.cache_write_tokens;
+      }
+      if (typeof u.cache_creation_input_tokens === 'number') {
+        this.log.cacheWriteTokens = u.cache_creation_input_tokens;
+      }
+      const inputDetails = u.input_tokens_details as Record<string, unknown> | undefined;
+      if (inputDetails && typeof inputDetails.cached_tokens === 'number') {
+        this.log.cachedTokens = inputDetails.cached_tokens;
       }
     }
 
