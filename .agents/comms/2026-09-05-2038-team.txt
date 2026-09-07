@@ -22,3 +22,4 @@
 
 - [x] checkout: 2026-09-06T00:12:45-04:00 chore/cleanup-agent-runtime merged into main; agent configs purged, test-hanging timers resolved, model prefix resolution enhanced, test suites green (138/138 passing in 58s), worktree cleaned up, server verified green on main (parent: operator)
 
+- [x] checkin start: 2026-09-07T15:27:54-04:00 feat/local-backends-always-available - llama.cpp/unsloth/ollama registered offline-tolerant at boot; loopback models stay discoverable; 11434 OpenAI+Anthropic resilient (parent: orchestrator)
