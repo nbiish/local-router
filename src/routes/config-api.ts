@@ -101,6 +101,7 @@ export interface ConfigApiDeps {
   findPresentedNameConflict: (provider: string, name: string) => any;
   parseCustomProviderPayload: (payload: any, options?: any) => any;
   persistCustomProviders: () => void;
+  tombstoneLocalBackend: (slug: string) => void;
   isCustomProvider: (id: string) => boolean;
   providerReferencedInRouting: (id: string) => string[];
   cloneFallbackModel: (model: FallbackModel) => FallbackModel;
@@ -189,6 +190,7 @@ export function registerConfigApiRoutes(app: express.Express, deps: ConfigApiDep
     findPresentedNameConflict,
     parseCustomProviderPayload,
     persistCustomProviders,
+    tombstoneLocalBackend,
     isCustomProvider,
     providerReferencedInRouting,
     fallbackModelStore,
@@ -1167,6 +1169,8 @@ app.delete('/api/providers/:id', (req: Request, res: Response) => {
 
   state.customProviderStore = state.customProviderStore.filter((entry) => entry.name !== providerId);
   persistCustomProviders();
+  // A deleted standard local backend stays deleted across boots (tombstone).
+  tombstoneLocalBackend(providerId);
 
   const unsetKey = String(req.query.unsetKey || '').toLowerCase() === 'true';
   if (unsetKey) {
