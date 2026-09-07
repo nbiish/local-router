@@ -129,6 +129,11 @@ export type CustomProviderRecord = {
   keyEnvVar: string;
   defaultTool: string;
   createdAt: string;
+  /** Registered model names for this provider. Loopback local backends
+   *  (llama.cpp `llama-server`, Unsloth) keep their models discoverable
+   *  even while the backend is offline — connection state is a health
+   *  concern, not a configuration concern. */
+  models?: string[];
 };
 
 export type ProviderModelParseResult =
@@ -568,6 +573,9 @@ function parseCustomProviderPayload(
   const defaultTool = String(body?.defaultTool || 'OpenAI Compatible').trim() || 'OpenAI Compatible';
   const existing = customProviderStore.find((entry) => entry.name === slugResult.slug);
 
+  const models = sanitizeCustomProviderModels(body?.models)
+    ?? (existing?.models ? [...existing.models] : undefined);
+
   return {
     ok: true,
     record: {
@@ -576,9 +584,134 @@ function parseCustomProviderPayload(
       endpoint: endpointResult.endpoint,
       keyEnvVar: keyEnvVarResult.keyEnvVar,
       defaultTool,
-      createdAt: existing?.createdAt || new Date().toISOString()
+      createdAt: existing?.createdAt || new Date().toISOString(),
+      ...(models && models.length > 0 ? { models } : {})
     }
   };
+}
+
+/** Operator-registered model names for a custom provider (deduped strings). */
+function sanitizeCustomProviderModels(raw: unknown): string[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const models = [...new Set(raw
+    .map((entry) => String(entry || '').trim())
+    .filter(Boolean))];
+  return models.length > 0 ? models : undefined;
+}
+
+// ── Standard local backends (offline-tolerant) ──────────────────────────────
+// llama.cpp `llama-server`, Unsloth, and ollama are first-class loopback
+// endpoints. llama.cpp + unsloth register idempotently at boot (keyless —
+// the local HTTP endpoint has no auth) so the CONNECTION exists even when
+// the binary is down; ollama is a built-in provider served from 11435.
+// Registration state is a configuration fact, not a liveness fact: models
+// stay discoverable while a backend is offline, and requests fail over
+// gracefully. Deleting a standard backend through the API tombstones it so
+// boot does not resurrect it.
+const STANDARD_LOCAL_BACKENDS: Array<{
+  slug: string;
+  displayName: string;
+  port: number;
+  portEnvVar: string;
+  keyEnvVar: string;
+}> = [
+  { slug: 'llama-cpp', displayName: 'llama.cpp (local llama-server)', port: 8080, portEnvVar: 'LLAMA_CPP_PORT', keyEnvVar: 'LLAMA_CPP_API_KEY' },
+  { slug: 'unsloth', displayName: 'Unsloth (local)', port: 8000, portEnvVar: 'UNSLOTH_PORT', keyEnvVar: 'UNSLOTHER_API_KEY' }
+];
+
+function standardLocalBackendPort(backend: (typeof STANDARD_LOCAL_BACKENDS)[number]): number {
+  const parsed = Number.parseInt(process.env[backend.portEnvVar] || '', 10);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : backend.port;
+}
+
+function dismissedLocalBackends(): Set<string> {
+  try {
+    if (!fs.existsSync(CUSTOM_PROVIDERS_PATH)) return new Set();
+    const parsed = JSON.parse(fs.readFileSync(CUSTOM_PROVIDERS_PATH, 'utf8'));
+    return new Set(Array.isArray(parsed?.dismissedLocalBackends) ? parsed.dismissedLocalBackends.map(String) : []);
+  } catch {
+    return new Set();
+  }
+}
+
+function tombstoneLocalBackend(slug: string): void {
+  if (!STANDARD_LOCAL_BACKENDS.some((backend) => backend.slug === slug)) return;
+  const dismissed = dismissedLocalBackends();
+  dismissed.add(slug);
+  persistCustomProviderExtras({ dismissedLocalBackends: [...dismissed].sort() });
+}
+
+/** Persist the extras envelope (dismissed tombstones) around the provider list. */
+function persistCustomProviderExtras(extras: { dismissedLocalBackends?: string[] }): void {
+  try {
+    const parsed = fs.existsSync(CUSTOM_PROVIDERS_PATH)
+      ? JSON.parse(fs.readFileSync(CUSTOM_PROVIDERS_PATH, 'utf8'))
+      : {};
+    parsed.version = 1;
+    parsed.providers = customProviderStore.map((record) => ({ ...record }));
+    if (extras.dismissedLocalBackends) parsed.dismissedLocalBackends = extras.dismissedLocalBackends;
+    const temporaryPath = `${CUSTOM_PROVIDERS_PATH}.${process.pid}.tmp`;
+    fs.writeFileSync(temporaryPath, `${JSON.stringify(parsed, null, 2)}
+`, { encoding: 'utf8', mode: 0o600 });
+    fs.renameSync(temporaryPath, CUSTOM_PROVIDERS_PATH);
+  } catch (error: any) {
+    console.error('Failed to persist custom provider extras:', sanitizeDiagnosticText(String(error?.message || error)));
+  }
+}
+
+function ensureStandardLocalBackends(): void {
+  if (process.env.LOCAL_ROUTER_AUTO_REGISTER_LOCAL_BACKENDS === 'false') return;
+  const dismissed = dismissedLocalBackends();
+  let registered = 0;
+  for (const backend of STANDARD_LOCAL_BACKENDS) {
+    if (dismissed.has(backend.slug)) continue;
+    if (customProviderStore.some((entry) => entry.name === backend.slug)) continue;
+    const port = standardLocalBackendPort(backend);
+    customProviderStore.push({
+      name: backend.slug,
+      displayName: backend.displayName,
+      endpoint: `http://127.0.0.1:${port}/v1`,
+      keyEnvVar: backend.keyEnvVar,
+      defaultTool: 'OpenAI Compatible',
+      createdAt: new Date().toISOString()
+    });
+    registered++;
+  }
+  if (registered > 0) {
+    customProviderStore.sort((a, b) => a.name.localeCompare(b.name));
+    persistCustomProviders();
+    console.log(`[backends] registered ${registered} local backend endpoint(s) (offline-tolerant): ${STANDARD_LOCAL_BACKENDS.map((b) => b.slug).join(', ')}`);
+  }
+}
+
+/**
+ * Loopback custom providers keep their registered models discoverable even
+ * while the backend is offline: connection state is a health concern, not a
+ * configuration concern. Rows use the same presentation pipeline as a live
+ * probe so ids stay identical when the backend comes back.
+ */
+function localLoopbackRegisteredModels(): ProviderModel[] {
+  const rows: ProviderModel[] = [];
+  for (const record of customProviderStore) {
+    if (!isLocalLoopbackProvider(record.name) || !Array.isArray(record.models)) continue;
+    for (const modelName of record.models) {
+      const id = defaultPresentedModelName(record.name, modelName);
+      rows.push({
+        id,
+        provider: record.name,
+        model: modelName,
+        display: `${record.displayName || record.name}: ${modelName}`,
+        contextLength: DEFAULT_CONTEXT_LENGTH,
+        outputTokens: DEFAULT_OUTPUT_TOKENS,
+        supportsTools: false,
+        supportsImages: false,
+        supportsCache: false,
+        supportsReasoning: false,
+        tier: 'local'
+      });
+    }
+  }
+  return rows;
 }
 
 function loadCustomProviders(): void {
@@ -598,13 +731,15 @@ function loadCustomProviders(): void {
         if (!name || !endpointResult.ok || !PROVIDER_KEY_ENV_PATTERN.test(keyEnvVar)) {
           return null;
         }
+        const models = sanitizeCustomProviderModels(raw?.models);
         return {
           name,
           displayName: String(raw?.displayName || name).trim() || name,
           endpoint: endpointResult.endpoint,
           keyEnvVar,
           defaultTool: String(raw?.defaultTool || 'OpenAI Compatible').trim() || 'OpenAI Compatible',
-          createdAt: String(raw?.createdAt || new Date().toISOString())
+          createdAt: String(raw?.createdAt || new Date().toISOString()),
+          ...(models ? { models } : {})
         } satisfies CustomProviderRecord;
       })
       .filter((entry: CustomProviderRecord | null): entry is CustomProviderRecord => Boolean(entry));
@@ -2797,6 +2932,26 @@ function providerCatalogModels(): ProviderModel[] {
     const key = endpointModelCurationKey(model);
     if (!byKey.has(key)) byKey.set(key, model);
   }
+  // Local loopback backends (llama.cpp/unsloth): registered models stay in
+  // the catalog even while the backend is offline (2026-09-07). First-sight
+  // keys auto-curate, matching the auto-curate-new-discoveries behavior.
+  const loopbackRows = localLoopbackRegisteredModels();
+  const newlyCurated: string[] = [];
+  for (const model of loopbackRows) {
+    const key = endpointModelCurationKey(model);
+    byKey.set(key, model);
+    if (!modelSourceConfig.curatedEndpointModelKeys.includes(key)) {
+      modelSourceConfig.curatedEndpointModelKeys.push(key);
+      newlyCurated.push(key);
+    }
+  }
+  if (newlyCurated.length > 0) {
+    modelSourceConfig.curatedEndpointModelKeys.sort();
+    try {
+      persistModelSourceConfig();
+      console.log(`[backends] auto-curated ${newlyCurated.length} local backend model(s).`);
+    } catch { /* curation persistence is best-effort */ }
+  }
   return applyEndpointCuration([...byKey.values()]);
 }
 
@@ -4028,6 +4183,7 @@ const configApiDeps = {
   findPresentedNameConflict,
   parseCustomProviderPayload,
   persistCustomProviders,
+  tombstoneLocalBackend,
   isCustomProvider,
   providerReferencedInRouting,
   fallbackModelStore,
@@ -4092,7 +4248,14 @@ async function loadProvider(name: string): Promise<ProxyProvider | null> {
     return {
       name: summary.name,
       baseUrl: providerBaseUrl(summary),
-      getHeaders: () => {
+      getHeaders: (): Record<string, string> => {
+        // Local loopback backends (llama.cpp `llama-server`, Unsloth) are
+        // keyless by design — their localhost endpoint has no auth. Sending
+        // no Authorization header is correct; throwing broke offline-tolerant
+        // registration (2026-09-07).
+        if (isLocalLoopbackProvider(summary.name)) {
+          return { 'Content-Type': 'application/json' };
+        }
         const key = keyStore[summary.name] || providerEnvKeyValue(summary.keyEnvVar);
         if (!key) {
           throw new Error(`${summary.keyEnvVar} is not set for ${summary.name}`);
@@ -4153,6 +4316,11 @@ function allCatalogModels(): ProviderModel[] {
     byKey.set(`${model.provider}::${model.model}`, model);
   }
   for (const model of endpointModelsCache) {
+    byKey.set(`${model.provider}::${model.model}`, model);
+  }
+  // Local loopback backends: registered models resolve for routing, chain
+  // authoring, and validation even while the backend is offline.
+  for (const model of localLoopbackRegisteredModels()) {
     byKey.set(`${model.provider}::${model.model}`, model);
   }
   return Array.from(byKey.values()).sort((a, b) => a.id.localeCompare(b.id));
@@ -4217,6 +4385,7 @@ if (shouldServe) {
 }
 mergeBaselineProviderModelOverrides();
 seedRegistryCatalogIfNeeded();
+ensureStandardLocalBackends();
 loadPersistedFallbackModels();
 if (waferZdrEnabled) {
   console.log('[Wafer] ZDR enabled for GLM-5.1, Kimi-K2.6, deepseek-v4-pro');
