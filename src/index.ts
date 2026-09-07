@@ -727,9 +727,17 @@ function loadCustomProviders(): void {
       .map((raw: any) => {
         const name = String(raw?.name || '').trim().toLowerCase();
         const endpointResult = normalizeCustomProviderEndpoint(raw?.endpoint || '');
-        const keyEnvVar = String(raw?.keyEnvVar || '').trim();
-        if (!name || !endpointResult.ok || !PROVIDER_KEY_ENV_PATTERN.test(keyEnvVar)) {
+        if (!name || !endpointResult.ok) {
           return null;
+        }
+        // Tolerant keyEnvVar (2026-09-07): hand-registered keyless loopback
+        // providers may carry no/invalid keyEnvVar (e.g. apiKey "none").
+        // Dropping the whole record silently DELETED the operator's
+        // registered provider + models at first persist. Synthesize a valid
+        // env var name instead; loopback providers never read it.
+        let keyEnvVar = String(raw?.keyEnvVar || '').trim();
+        if (!PROVIDER_KEY_ENV_PATTERN.test(keyEnvVar)) {
+          keyEnvVar = `${name.toUpperCase().replace(/[^A-Z0-9]/g, '_')}_API_KEY`;
         }
         const models = sanitizeCustomProviderModels(raw?.models);
         return {
