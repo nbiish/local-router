@@ -106,6 +106,36 @@ Troubleshooting quick checks:
 
 The private key is written mode `0600` and never leaves the machine; TLS is transport-only — provider API keys remain in the PQC secrets bundle.
 
+### When the tool itself rejects non-public addresses (SSRF egress guards)
+
+Field signature (Warp custom providers, 2026-09-08):
+
+```text
+Post "https://local-router.localtest.me:11443/v1/chat/completions":
+Invalid request: host "local-router.localtest.me" resolved to non-public address "::1"
+```
+
+**This is not a router fault** — the router is serving verified TLS on loopback the whole time. The tool (or the backend it routes inference requests through) resolves your hostname, sees a loopback/private address, and refuses to connect by policy. No loopback trick can pass this class of guard:
+
+| Rejected approach | Why it fails |
+|---|---|
+| `local-router.localtest.me` | public DNS but resolves to `127.0.0.1` / `::1` — non-public |
+| hosts-file names (`local-router.local` → `127.0.0.1`) | resolves to loopback on the requesting host |
+| LAN IP (`192.168.x.x` etc.) | RFC 1918 private — non-public |
+| loopback-resolving cert services (localhost.direct) | the cert was never the blocker; the resolved address is |
+
+If the tool proxies requests through its own cloud backend, even your real public IP is unreachable from here — the only workable shape is a **public HTTPS URL that tunnels to your machine**. The tunnel edge terminates TLS with a real certificate, so no client-side trust setup is needed either:
+
+| Tunnel option | Sketch | Tradeoffs |
+|---|---|---|
+| Cloudflare quick tunnel (no account) | `cloudflared tunnel --url http://localhost:11434` → `https://<random>.trycloudflare.com` | Up in seconds; URL is random — treat it as a secret and restart to rotate; traffic transits Cloudflare |
+| Cloudflare named tunnel (your domain) | `cloudflared tunnel create/login …` | Stable URL on your own domain; same transit tradeoff |
+| Tailscale Funnel | `tailscale funnel 11434` | Public via Tailscale's edge; requires a tailnet with Funnel enabled |
+
+Then point the tool at the tunnel base URL (`https://…/v1` for OpenAI-style clients).
+
+⚠️ **Security:** local-router has no inbound authentication — a tunnel makes it reachable by anyone who learns the URL, and every request they send spends *your* provider credits. Prefer run-when-needed tunnels (start before a session, tear down after), treat the URL as a secret, and never publish it. The loopback URLs earlier in this section remain the right answer for tools that merely block the *strings* `http`/`localhost`/`127.0.0.1` but still allow loopback resolution; this subsection applies only to tools enforcing public-address egress.
+
 ## Standalone Desktop GUI & Browser Configuration
 
 Local Router can be run either as a **standalone desktop application** or as a **headless background daemon** managed in any web browser:
