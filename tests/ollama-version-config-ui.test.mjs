@@ -44,7 +44,9 @@ function stripForeignProviderKeys(env) {
 }
 
 async function waitForServerReady() {
-  for (let attempt = 0; attempt < 80; attempt += 1) {
+  // 20s window: cold boots on slow filesystems (e.g. WSL /mnt/d) can take
+  // >8s to finish module load; a crashed child still aborts immediately.
+  for (let attempt = 0; attempt < 200; attempt += 1) {
     if (serverProcess?.exitCode !== null) {
       throw new Error(`Server exited before becoming ready.\nLogs:\n${serverLogs}`);
     }

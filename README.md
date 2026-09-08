@@ -75,7 +75,7 @@ local-router start
 **Recommended recipe for Warp-style tools** (their input rejects `http` and `localhost` strings):
 
 1. `local-router tls setup` (once).
-2. Add `LOCAL_ROUTER_TLS=true` to the repo-root `.env` and start/restart the daemon.
+2. Add `LOCAL_ROUTER_TLS=true` to the repo-root `.env` and start/restart the daemon — `local-router start` now prints the HTTP and HTTPS connection URLs for you (the same block appears when the server is already running).
 3. Point the tool at `https://local-router.localtest.me:11443` (append `/v1` for OpenAI-style clients; any non-empty API key string is accepted).
 4. If the tool fails TLS verification, apply one of the trust options below.
 

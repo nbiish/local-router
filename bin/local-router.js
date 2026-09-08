@@ -316,11 +316,16 @@ function writeStateFile(filePath, value) {
   fs.writeFileSync(filePath, `${JSON.stringify(value, null, 2)}\n`, 'utf8');
 }
 
-async function waitForLocalRouterReady(host, port, attempts = 40, intervalMs = 250) {
+async function waitForLocalRouterReady(host, port, attempts = 120, intervalMs = 250, isAborted = null) {
   for (let i = 0; i < attempts; i += 1) {
     const state = await probeServer(host, port);
     if (state.running && state.kind === 'local-router') {
       return true;
+    }
+    // A crashed child (e.g. port stolen at bind time) must fail fast instead
+    // of burning the whole readiness window.
+    if (isAborted && isAborted()) {
+      return false;
     }
     await new Promise((resolve) => setTimeout(resolve, intervalMs));
   }
@@ -334,6 +339,19 @@ async function cmdStart(options) {
       const pids = findPidsOnPort(options.port);
       const pidStr = pids.length > 0 ? ` (PID: ${pids.join(', ')})` : '';
       console.log(`\n✓ Local Router is already running at ${current.baseUrl}${pidStr}\n`);
+      const tlsSettings = resolveTlsBannerSettings();
+      const tlsProbeHost = options.host === '0.0.0.0' ? '127.0.0.1' : options.host;
+      const tlsLive = await probeTcpPort(tlsSettings.port, tlsProbeHost);
+      console.log('  Connections:');
+      for (const line of buildConnectionLines({
+        httpBaseUrl: current.baseUrl,
+        tlsLive,
+        tlsPort: tlsSettings.port,
+        tlsHostname: tlsSettings.hostname
+      })) {
+        console.log(line);
+      }
+      console.log('');
       console.log('  Web Dashboard & Management:');
       console.log(`    ► Open Dashboard:   ${current.baseUrl}/config`);
       console.log(`    ► Manage Providers: ${current.baseUrl}/config/providers`);
@@ -387,7 +405,15 @@ async function cmdStart(options) {
   });
   child.unref();
 
-  const started = await waitForLocalRouterReady(options.host, options.port);
+  // Cold boots (registry seeding, OAuth host detection) can legitimately take
+  // ~30s; the isAborted hook keeps genuine crash failures fast.
+  const started = await waitForLocalRouterReady(
+    options.host,
+    options.port,
+    120,
+    250,
+    () => child.exitCode !== null || child.signalCode !== null
+  );
   if (!started) {
     try {
       process.kill(child.pid, 'SIGTERM');
@@ -410,6 +436,22 @@ async function cmdStart(options) {
   console.log(`Local Router started at http://${options.host}:${options.port}`);
   console.log(`PID: ${child.pid}`);
   console.log(`Log: ${logPath}`);
+  const tlsSettings = resolveTlsBannerSettings();
+  const tlsProbeHost = options.host === '0.0.0.0' ? '127.0.0.1' : options.host;
+  const tlsLive = tlsSettings.enabled
+    ? await waitForTlsLive(tlsProbeHost, tlsSettings.port)
+    : await probeTcpPort(tlsSettings.port, tlsProbeHost);
+  console.log('');
+  console.log('  Connections:');
+  for (const line of buildConnectionLines({
+    httpBaseUrl: `http://${options.host}:${options.port}`,
+    tlsLive,
+    tlsPort: tlsSettings.port,
+    tlsHostname: tlsSettings.hostname,
+    tlsEnabledButNotLive: tlsSettings.enabled && !tlsLive
+  })) {
+    console.log(line);
+  }
   return 0;
 }
 
@@ -1788,16 +1830,77 @@ function tlsPaths() {
   };
 }
 
-function tlsEnvDefaults() {
-  const port = Number.parseInt(process.env.LOCAL_ROUTER_TLS_PORT || '', 10);
-  const rawHost = String(process.env.LOCAL_ROUTER_TLS_HOSTNAME || '').trim().toLowerCase();
+function tlsEnvDefaults(env = process.env) {
+  const port = Number.parseInt(env.LOCAL_ROUTER_TLS_PORT || '', 10);
+  const rawHost = String(env.LOCAL_ROUTER_TLS_HOSTNAME || '').trim().toLowerCase();
   return {
-    enabled: ['true', '1', 'yes'].includes(String(process.env.LOCAL_ROUTER_TLS || '').toLowerCase()),
+    enabled: ['true', '1', 'yes'].includes(String(env.LOCAL_ROUTER_TLS || '').toLowerCase()),
     port: Number.isInteger(port) && port > 0 && port <= 65535 ? port : DEFAULT_TLS_PORT,
     hostname: /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*$/.test(rawHost)
       ? rawHost
       : DEFAULT_TLS_HOSTNAME
   };
+}
+
+/**
+ * Read the LOCAL_ROUTER_TLS* keys from the repo-root .env (the same file the
+ * daemon loads via dotenv), so the start banner tells the truth about a
+ * daemon that enables HTTPS through .env even when the invoking shell does
+ * not export the flag. Returns only recognized LOCAL_ROUTER_TLS* keys.
+ */
+function readRepoDotEnvTls(dotEnvPath) {
+  try {
+    const out = {};
+    for (const line of fs.readFileSync(dotEnvPath, 'utf8').split(/\r?\n/)) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith('#')) continue;
+      const match = /^(LOCAL_ROUTER_TLS[A-Z_]*)\s*=\s*(.*)$/.exec(trimmed);
+      if (match) out[match[1]] = match[2].replace(/^["']|["']$/g, '');
+    }
+    return out;
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * Shell env wins over repo-root .env values; the result feeds the banner and
+ * the TLS liveness probe so both branches of `local-router start` print the
+ * same HTTPS picture the daemon actually serves.
+ */
+function resolveTlsBannerSettings(dotEnvPath = path.resolve(__dirname, '..', '.env'), env = process.env) {
+  const merged = {
+    ...readRepoDotEnvTls(dotEnvPath),
+    ...Object.fromEntries(Object.entries(env).filter(([key, value]) => key.startsWith('LOCAL_ROUTER_TLS') && value !== undefined))
+  };
+  return tlsEnvDefaults(merged);
+}
+
+/**
+ * Pure builder for the `local-router start` Connections block (both the
+ * already-running dashboard banner and the fresh-start success output).
+ */
+function buildConnectionLines({ httpBaseUrl, tlsLive, tlsPort, tlsHostname, tlsEnabledButNotLive = false }) {
+  const lines = [`    ► HTTP    ${httpBaseUrl}   (drop-in Ollama & OpenAI compatible)`];
+  if (tlsLive) {
+    lines.push(`    ► HTTPS   https://localhost:${tlsPort}`);
+    lines.push(`    ► HTTPS   https://${ZERO_CONFIG_HOSTNAME}:${tlsPort}   (strict tooling — public DNS to loopback)`);
+    lines.push(`    ► HTTPS   https://${tlsHostname}:${tlsPort}   (hosts entry: 127.0.0.1 ${tlsHostname})`);
+  } else if (tlsEnabledButNotLive) {
+    lines.push(`    ► HTTPS   enabled but not detected yet — check the daemon log`);
+  } else {
+    lines.push(`    ► HTTPS   disabled — enable with LOCAL_ROUTER_TLS=true (see 'local-router tls setup')`);
+  }
+  return lines;
+}
+
+/** Grace window for the TLS listener, which comes up just after HTTP (cert generation). */
+async function waitForTlsLive(host, port, attempts = 12, intervalMs = 250) {
+  for (let i = 0; i < attempts; i += 1) {
+    if (await probeTcpPort(port, host)) return true;
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+  }
+  return probeTcpPort(port, host);
 }
 
 function tlsUrls(port, hostname) {
@@ -2064,7 +2167,20 @@ async function main() {
   throw new Error(`Unknown command: ${command}`);
 }
 
-main().catch((error) => {
-  console.error(error.message || String(error));
-  process.exitCode = 1;
-});
+// Exported for tests (guarded main keeps `node bin/local-router.js` behavior
+// identical while letting test runners require this file safely).
+module.exports = {
+  buildConnectionLines,
+  resolveTlsBannerSettings,
+  readRepoDotEnvTls,
+  tlsEnvDefaults,
+  tlsPaths,
+  probeTcpPort
+};
+
+if (require.main === module) {
+  main().catch((error) => {
+    console.error(error.message || String(error));
+    process.exitCode = 1;
+  });
+}
