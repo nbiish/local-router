@@ -49,6 +49,14 @@ Configuration UI:
 http://127.0.0.1:11434/config
 ```
 
+Strict tooling that refuses `http://`, `localhost`, or `127.0.0.1` base URLs (Warp custom providers, some mobile clients):
+
+```text
+https://local-router.localtest.me:11443
+```
+
+The HTTPS listener is optional (enable it once — see [HTTPS Serving](#https-serving-strict-tooling)); the plain-HTTP endpoints above always keep working.
+
 ## HTTPS Serving (strict tooling)
 
 Some client tooling refuses to accept base URLs containing `http://`, `localhost`, or `127.0.0.1`. Local Router can additionally serve **HTTPS on a dedicated port** (default `11443`) while the plain-HTTP endpoints above keep working unchanged — both listeners host the same router.
@@ -58,9 +66,18 @@ Some client tooling refuses to accept base URLs containing `http://`, `localhost
 # local-router.localtest.me, 127.0.0.1, ::1, and this machine's LAN IPs)
 local-router tls setup
 
-# enable the HTTPS listener
-LOCAL_ROUTER_TLS=true local-router start
+# enable the HTTPS listener (persist across restarts via the gitignored .env
+# in the repo root — dotenv picks it up at every boot, no secrets in there)
+echo 'LOCAL_ROUTER_TLS=true' >> .env
+local-router start
 ```
+
+**Recommended recipe for Warp-style tools** (their input rejects `http` and `localhost` strings):
+
+1. `local-router tls setup` (once).
+2. Add `LOCAL_ROUTER_TLS=true` to the repo-root `.env` and start/restart the daemon.
+3. Point the tool at `https://local-router.localtest.me:11443` (append `/v1` for OpenAI-style clients; any non-empty API key string is accepted).
+4. If the tool fails TLS verification, apply one of the trust options below.
 
 Point strict tooling at any of these (all verify against the generated cert):
 
@@ -71,7 +88,7 @@ Point strict tooling at any of these (all verify against the generated cert):
 | `https://local-router.local:11443` | add a hosts entry: `127.0.0.1 local-router.local` (+ `::1 local-router.local`) |
 | `https://<lan-ip>:11443` | direct LAN IP SAN — for tools running on another device |
 
-Customize with `LOCAL_ROUTER_TLS_PORT` and `LOCAL_ROUTER_TLS_HOSTNAME` (extra DNS SAN baked into the cert). Bring your own certificate via `LOCAL_ROUTER_TLS_CERT` / `LOCAL_ROUTER_TLS_KEY` (e.g. mkcert PEMs). Inspect state any time with `local-router tls status`.
+Customize with `LOCAL_ROUTER_TLS_PORT` and `LOCAL_ROUTER_TLS_HOSTNAME` (extra DNS SAN baked into the cert). Bring your own certificate via `LOCAL_ROUTER_TLS_CERT` / `LOCAL_ROUTER_TLS_KEY` (e.g. mkcert PEMs). Inspect state any time with `local-router tls status` — it reports your shell env config and the **live listener** (TCP probe of the TLS port) separately, so it stays truthful when the daemon enables TLS via `.env`.
 
 Getting clients to trust the self-signed cert — pick what the tool supports:
 
@@ -79,6 +96,13 @@ Getting clients to trust the self-signed cert — pick what the tool supports:
 2. Node.js-based tools: `NODE_EXTRA_CA_CERTS=~/.config/local-router/tls/local-router-cert.pem`.
 3. System trust store: `sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain <cert>` (macOS), copy to `/usr/local/share/ca-certificates/` + `sudo update-ca-certificates` (Linux), `certutil -addstore -f Root <cert>` (Windows admin).
 4. Use mkcert instead: `mkcert -install && mkcert -cert-file ... -key-file ...` and point `LOCAL_ROUTER_TLS_CERT`/`LOCAL_ROUTER_TLS_KEY` at the output.
+5. Tool ignores the system trust store (some Rust/rustls apps): get a **publicly-trusted** cert for a loopback-resolving name from [localhost.direct](https://github.com/Upinel/localhost.direct) and point `LOCAL_ROUTER_TLS_CERT`/`LOCAL_ROUTER_TLS_KEY` at those PEMs — then no client-side trust setup is needed at all.
+
+Troubleshooting quick checks:
+
+- **Tool can't connect at all** → `local-router tls status` shows whether the listener is live; confirm `LOCAL_ROUTER_TLS=true` reached the daemon (`.env` or shell) and the boot log printed `[TLS]` lines.
+- **TLS/SSL error in the tool** → apply a trust option above; the cert's SANs (shown by `tls status`) must include the exact hostname you typed.
+- **URL resolves elsewhere** → `local-router.localtest.me` is public DNS (needs working DNS); `local-router.local` needs the hosts entry.
 
 The private key is written mode `0600` and never leaves the machine; TLS is transport-only — provider API keys remain in the PQC secrets bundle.
 
@@ -186,6 +210,8 @@ Local Router writes non-secret route files (chains, catalogs, provider metadata)
 ```
 
 (`~` is your macOS/Linux home directory, or your Ubuntu/WSL home on Windows.) It reads legacy `~/.config/fvs-code` files when the new files do not exist yet. Provider API keys are never written to these JSON files.
+
+The `tls/` subdirectory holds the HTTPS listener material when enabled: `local-router-cert.pem` (self-signed, mode 0644), `local-router-key.pem` (mode 0600, never leaves the machine), and `tls-meta.json` (SAN/regeneration metadata). Override the location with `LOCAL_ROUTER_TLS_DIR`, or supply your own PEMs via `LOCAL_ROUTER_TLS_CERT`/`LOCAL_ROUTER_TLS_KEY`.
 
 ## Security Notes
 
