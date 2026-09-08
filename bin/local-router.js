@@ -1814,12 +1814,27 @@ function tlsUrls(port, hostname) {
   return urls;
 }
 
-function cmdTlsStatus() {
+const net = require('net');
+
+function probeTcpPort(port, host, timeoutMs = 600) {
+  return new Promise((resolve) => {
+    const socket = net.connect({ host, port });
+    const done = (result) => { socket.destroy(); resolve(result); };
+    socket.setTimeout(timeoutMs);
+    socket.once('connect', () => done(true));
+    socket.once('timeout', () => done(false));
+    socket.once('error', () => done(false));
+  });
+}
+
+async function cmdTlsStatus() {
   const defaults = tlsEnvDefaults();
   const paths = tlsPaths();
+  const live = await probeTcpPort(defaults.port, '127.0.0.1');
   console.log('Local Router TLS status');
   console.log('');
-  console.log(`  Listener:        ${defaults.enabled ? 'ENABLED' : 'disabled'} (set LOCAL_ROUTER_TLS=true to enable)`);
+  console.log(`  Env config:      ${defaults.enabled ? 'ENABLED (LOCAL_ROUTER_TLS set in this shell)' : 'not set in this shell — daemon may still enable via .env'}`);
+  console.log(`  Live listener:   ${live ? `YES — serving on 127.0.0.1:${defaults.port}` : `no listener detected on 127.0.0.1:${defaults.port}`}`);
   console.log(`  HTTPS port:      ${defaults.port} (LOCAL_ROUTER_TLS_PORT)`);
   console.log(`  Hostname:        ${defaults.hostname} (LOCAL_ROUTER_TLS_HOSTNAME)`);
   console.log(`  Cert:            ${paths.cert}${fs.existsSync(paths.cert) ? '' : '  (missing)'}`);
@@ -1962,7 +1977,7 @@ async function main() {
       return;
     }
     if (subcommand === 'status') {
-      process.exitCode = cmdTlsStatus();
+      process.exitCode = await cmdTlsStatus();
       return;
     }
     throw new Error(`Unknown tls subcommand: ${subcommand}`);
