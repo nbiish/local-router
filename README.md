@@ -49,6 +49,39 @@ Configuration UI:
 http://127.0.0.1:11434/config
 ```
 
+## HTTPS Serving (strict tooling)
+
+Some client tooling refuses to accept base URLs containing `http://`, `localhost`, or `127.0.0.1`. Local Router can additionally serve **HTTPS on a dedicated port** (default `11443`) while the plain-HTTP endpoints above keep working unchanged — both listeners host the same router.
+
+```bash
+# one-time: generate a self-signed cert (SANs: localhost, local-router.local,
+# local-router.localtest.me, 127.0.0.1, ::1, and this machine's LAN IPs)
+local-router tls setup
+
+# enable the HTTPS listener
+LOCAL_ROUTER_TLS=true local-router start
+```
+
+Point strict tooling at any of these (all verify against the generated cert):
+
+| URL | How it resolves |
+|-----|-----------------|
+| `https://localhost:11443` | loopback (contains "localhost" — for tools that only block `http`) |
+| `https://local-router.localtest.me:11443` | **public wildcard DNS → loopback, zero configuration** (no "localhost"/loopback strings) |
+| `https://local-router.local:11443` | add a hosts entry: `127.0.0.1 local-router.local` (+ `::1 local-router.local`) |
+| `https://<lan-ip>:11443` | direct LAN IP SAN — for tools running on another device |
+
+Customize with `LOCAL_ROUTER_TLS_PORT` and `LOCAL_ROUTER_TLS_HOSTNAME` (extra DNS SAN baked into the cert). Bring your own certificate via `LOCAL_ROUTER_TLS_CERT` / `LOCAL_ROUTER_TLS_KEY` (e.g. mkcert PEMs). Inspect state any time with `local-router tls status`.
+
+Getting clients to trust the self-signed cert — pick what the tool supports:
+
+1. An "insecure/skip TLS verification" toggle in the tool (simplest).
+2. Node.js-based tools: `NODE_EXTRA_CA_CERTS=~/.config/local-router/tls/local-router-cert.pem`.
+3. System trust store: `sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain <cert>` (macOS), copy to `/usr/local/share/ca-certificates/` + `sudo update-ca-certificates` (Linux), `certutil -addstore -f Root <cert>` (Windows admin).
+4. Use mkcert instead: `mkcert -install && mkcert -cert-file ... -key-file ...` and point `LOCAL_ROUTER_TLS_CERT`/`LOCAL_ROUTER_TLS_KEY` at the output.
+
+The private key is written mode `0600` and never leaves the machine; TLS is transport-only — provider API keys remain in the PQC secrets bundle.
+
 ## Standalone Desktop GUI & Browser Configuration
 
 Local Router can be run either as a **standalone desktop application** or as a **headless background daemon** managed in any web browser:
