@@ -29,6 +29,7 @@ import {
   startCopilotLogin,
   cancelCopilotLogin
 } from './oauth-providers';
+import { createTlsServers, resolveTlsSettings, ZERO_CONFIG_HOSTNAME } from './tls';
 
 /** Bridge helper for places that have a `string` and need to check
  *  whether it's one of our OAuth provider slugs. */
@@ -6994,6 +6995,51 @@ serverV6?.on('error', (err: any) => {
   console.warn('[Security] IPv6 loopback bind failed; continuing IPv4-only:',
     sanitizeDiagnosticText(String(err?.message || err)));
 });
+
+// TLS / HTTPS listener (2026-09-07): strict client tooling that refuses plain
+// HTTP or loopback URL strings (`http`, `localhost`, `127.0.0.1`) can
+// additionally be pointed at an `https://` URL with a friendly hostname. The
+// plain-HTTP listeners above stay untouched so every existing drop-in client
+// keeps working. Surface: LOCAL_ROUTER_TLS, LOCAL_ROUTER_TLS_PORT (default
+// 11443), LOCAL_ROUTER_TLS_HOSTNAME, LOCAL_ROUTER_TLS_CERT/KEY — see
+// src/tls.ts and the llms.txt "TLS / HTTPS Listener Contract".
+const tlsSettings = resolveTlsSettings();
+if (shouldServe && tlsSettings.enabled) {
+  void (async () => {
+    try {
+      const tls = await createTlsServers(app, tlsSettings);
+      if (!tls) {
+        return;
+      }
+      const [tlsServerV4, tlsServerV6] = tls.servers;
+      tlsServerV4.listen(tlsSettings.port, bindHost, () => {
+        console.log(`[TLS] HTTPS listener running on https://localhost:${tlsSettings.port} (same app as http://localhost:${PORT})`);
+        console.log(`[TLS] Strict-tooling URL (public DNS -> loopback): https://${ZERO_CONFIG_HOSTNAME}:${tlsSettings.port}`);
+        console.log(`[TLS] Custom hostname URL: https://${tlsSettings.hostname}:${tlsSettings.port} (hosts entry: "127.0.0.1 ${tlsSettings.hostname}")`);
+        console.log(`[TLS] Cert: ${tls.material.certPath} (${tls.material.generated ? 'generated self-signed' : 'operator-supplied'}${tls.material.validTo ? `, valid to ${tls.material.validTo.slice(0, 10)}` : ''}) — trust via NODE_EXTRA_CA_CERTS or see 'local-router tls status'`);
+      });
+      tlsServerV4.on('error', (err: any) => {
+        console.error(`[TLS] HTTPS bind failed on ${bindHost}:${tlsSettings.port}:`,
+          sanitizeDiagnosticText(String(err?.message || err)));
+      });
+      if (bindHost === '127.0.0.1') {
+        tlsServerV6.listen(tlsSettings.port, '::1', () => {
+          console.log('[TLS] HTTPS also bound to ::1 (IPv6 loopback — dual-stack)');
+        });
+        tlsServerV6.on('error', (err: any) => {
+          console.warn('[TLS] HTTPS IPv6 loopback bind failed; continuing IPv4-only:',
+            sanitizeDiagnosticText(String(err?.message || err)));
+        });
+      }
+      // Codex-style WebSocket clients must also work over wss://.
+      tlsServerV4.on('upgrade', handleHttpUpgrade);
+      tlsServerV6.on('upgrade', handleHttpUpgrade);
+    } catch (error: any) {
+      console.error('[TLS] HTTPS listener startup failed (HTTP serving continues):',
+        sanitizeDiagnosticText(String(error?.message || error)));
+    }
+  })();
+}
 
 const wss = new WebSocketServer({ noServer: true });
 
