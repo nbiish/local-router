@@ -1,0 +1,33 @@
+# Team Ledger 2026-09-08-0140
+
+## checkin — feat/start-connection-printout
+- start: 2026-09-08T01:40:00Z
+- agent: orchestrator (local-router main session)
+- branch: feat/start-connection-printout
+- worktree: /mnt/d/Code/start-connection-printout (from main @ 61de926)
+- task: `local-router start` prints HTTP + HTTPS connection URLs on both paths (fresh start and already-running dashboard banner)
+- scope: bin/local-router.js CLI output (+ pure helper + test + doc touches); server src untouched; peer worktree docs/critical-standards-compliance active and untouched
+- end: 2026-09-08T02:25:00Z
+
+## intent-merge — feat/start-connection-printout
+- start: 2026-09-08T02:25:00Z
+- commits: 74b910d feat(cli) Connections printout + readiness hardening; e914139 test(cli) suite (6); da15a0d test(robustness) 20s boot window; 1a5b84e docs(tls)
+- verification: start-printout 6/6, tls 5/5 (in 19/19 targeted run), cli-auto-bridge 8/8, ollama-version-config-ui 6/6 after window fix (was 0/6 on /mnt/d cold boots, 15.8s measured to listen); live smokes: already-running banner + fresh-start (TLS on 12443 isolated, disabled-hint path) both print Connections correctly; production 11434/11443 untouched throughout
+- incident note: two pgrep/pkill -f self-match traps killed my own shell (no data loss); recovered via ss-PID + pgrep -x targeting — reminder to future agents: never pattern-match your own command line
+- requesting operator confirmation to merge feat/start-connection-printout -> main
+- end: 2026-09-08T02:45:00Z (operator APPROVED)
+
+## update — merge + checkout receipt
+- start: 2026-09-08T02:45:00Z
+- merged: d05c5e3 (--no-ff) -> main; live-verified from main CLI against production (Connections block renders with all three HTTPS identities)
+- cleanup: worktree /mnt/d/Code/start-connection-printout removed, branch deleted (merged + unclaimed + idle verified)
+- shim note: ~/.local/bin/local-router symlinks to /mnt/d/Code/local-router/bin/local-router.js — operator gets the new printout with zero reinstall
+- CLI+tests+docs only -> no-rebuild-needed (production PID 215556 continues; not restarted this cycle)
+- peer: docs/critical-standards-compliance advanced to 58284cc — still untouched, reconcile note from prior ledger entry stands (main advanced again)
+- checkout: feat/start-connection-printout session scope closed
+- end: 2026-09-08T02:50:00Z
+
+## update — remote sync
+- start: 2026-09-08T03:00:00Z
+- pushed: main (d05c5e3 + this ledger chore) to origin; remote contained only main (no stale branches)
+- end: 2026-09-08T03:00:00Z

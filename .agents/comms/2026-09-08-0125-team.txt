@@ -1,0 +1,50 @@
+# Team Ledger 2026-09-08-0125
+
+## checkin — docs/tls-serving-docs
+- start: 2026-09-08T01:25:00Z
+- agent: orchestrator (local-router main session)
+- branch: docs/tls-serving-docs
+- worktree: /mnt/d/Code/tls-serving-docs (from main @ c0d70a3)
+- task: harden documentation of the TLS/HTTPS serving feature in llms.txt + README.md (deployment state, Warp recipe, status live-probe, trust fallbacks, CLI cheat sheet, release lineage)
+- scope: docs only — no code edits, no rebuild expected (no-rebuild-needed)
+- git tree/diff checks: main had operator-owned AGENTS-TTS-COMMS.txt + PROVIDER_ENDPOINTS.md mods and untracked .config/ + prior ledger — all untouched; worktree branched clean
+- note: first worktree-add attempt hit /mnt/d I/O 60s timeout; repaired via prune + rmdir + re-add (documented here for the next agent hitting slow /mnt/d worktree ops)
+- end: 2026-09-08T01:55:00Z
+
+## intent-merge — docs/tls-serving-docs
+- start: 2026-09-08T01:55:00Z
+- commit: 592ffb2 docs(tls) — README +32/-3 (Endpoints URL, Warp recipe, localhost.direct fallback, troubleshooting, tls/ storage), llms.txt +7/-1 (contract additions, cheat sheet, 3 troubleshooting entries, pending release row)
+- verification: all documented claims checked against live system (status probe output, verified https URL + /v1/models, key 0600/cert 0644, .env present in production checkout); docs-only change → no-rebuild-needed; scope = 2 files, no code touched
+- requesting operator confirmation to merge docs/tls-serving-docs -> main
+- end: 2026-09-08T02:05:00Z (operator APPROVED)
+
+## checkin — docs/critical-standards-compliance
+- start: 2026-09-08T01:35:49Z
+- agent: orchestrator (local-router main session)
+- parent: operator direct request ("run through critical.md and get latest version implemented")
+- branch: docs/critical-standards-compliance
+- worktree: /mnt/d/Code/critical-standards-compliance (from main @ c0d70a3)
+- task: critical.md v2.0.0 compliance — self-update doc from canonical origin, fetch legal framework (working-LICENSE/CONTRIBUTING/Terms-of-Service/Privacy-Policy), ensure README citation + donation block + .github/FUNDING.yml + copyright notice
+- scope: docs/compliance only — no server code touched, no-rebuild-needed
+- git tree/diff checks: main has operator-owned mods (AGENTS-TTS-COMMS.txt, PROVIDER_ENDPOINTS.md) + untracked critical.md/assets/.config/FUNDING.yml from a prior session — all preserved; peer intent-merge docs/tls-serving-docs open, untouched
+- end: (open)
+
+## update — merge + checkout receipt (docs/tls-serving-docs session)
+- start: 2026-09-08T02:05:00Z
+- merged: 61de926 (--no-ff) — docs/tls-serving-docs (592ffb2) -> main; main @ 61de926
+- docs-only merge -> no-rebuild-needed (production PID 215556 untouched; TLS endpoints re-verified green this session)
+- cleanup: worktree /mnt/d/Code/tls-serving-docs removed, branch docs/tls-serving-docs deleted (merged + unclaimed + idle verified)
+- peer note for docs/critical-standards-compliance: main advanced c0d70a3 -> 61de926 (docs-only: llms.txt + README.md TLS sections) — reconcile before your intent-merge; your worktree files llms.txt/README.md may conflict textually
+- peer observation honored: your worktree and open checkin left untouched
+- checkout: docs/tls-serving-docs session scope closed
+- end: 2026-09-08T02:10:00Z
+
+## intent-merge — docs/critical-standards-compliance
+- start: 2026-09-08T01:41:28Z
+- commit: 58284cc docs(compliance) — critical.md v2.0.0 implemented: canonical refresh (byte-identical), LICENSE/CONTRIBUTING/Terms-of-Service/Privacy-Policy fetched from canonical main, README +42 (support block, License + Citation w/ local-router2026 BibTeX, copyright), .github/FUNDING.yml, 2 donation assets, package.json license ISC -> SEE LICENSE IN LICENSE
+- verification: canonical critical.md == local copy; assets byte-identical to prior session's; secret scan clean on all fetched files; package.json parses; scope proof = exactly 10 intended files in commit
+- deviations: (1) GitNexus detect-changes unavailable — local-router not in backend registry (only wtf-is-going-on-mcp); docs-only commit, zero code symbols touched; (2) no tsc/npm test in worktree (fresh worktree lacks node_modules; no code changed); (3) llms.txt release-lineage row intentionally not added — peer owns open llms.txt edit in docs/tls-serving-docs intent-merge, conflict avoidance
+- merge note: main checkout holds untracked byte-identical critical.md/assets//.github/FUNDING.yml from a prior session — must be cleared before/during merge or git will refuse the checkout
+- server rebuild: no-rebuild-needed (docs-only)
+- requesting operator confirmation to merge docs/critical-standards-compliance -> main
+- end: (open — awaiting operator)

@@ -1,0 +1,39 @@
+# Team Ledger 2026-09-07-2348
+
+## checkin — feat/tls-https-serving
+- start: 2026-09-07T23:48:00Z
+- agent: orchestrator (local-router main session)
+- branch: feat/tls-https-serving
+- worktree: /mnt/d/Code/tls-https-serving (from main @ b1828eb)
+- task: HTTPS/TLS serving for local-router so strict tooling (blocks http/localhost/127.0.0.1) can reach the ollama-compatible proxy
+- plan: src/tls.ts (auto self-signed cert w/ SANs: localhost, local-router.local, local-router.localtest.me, 127.0.0.1, ::1, LAN IPs), https dual-stack listener in src/index.ts, `local-router tls status|setup` CLI, tests, llms.txt + README contracts
+- deps: selfsigned@5.5.0 pinned in package.json + lockfile
+- gitnexus note: graph CLI cannot resolve this repo (impact/query unavailable) — containment proven by inspection: listen block is top-level module-init, change additive
+- Git tree/diff checks: main had only operator-owned AGENTS-TTS-COMMS.txt mod + untracked .config/ — untouched; worktree branched clean
+- end: 2026-09-08T01:20:00Z
+
+## update — feat/tls-https-serving
+- start: 2026-09-08T01:20:00Z
+- agent: orchestrator (local-router main session)
+- gates: tsc clean; tests/tls.test.mjs 5/5; incident-affected files re-verified green (responses-websocket-anthropic 3/3, headroom-integration 1/1, responses-http-stream 5/5, cli-auto-bridge 8/8); remaining suite files passed in-run (only 2 failures in the polluted run, both websocket-anthropic, both flaky-port, now green)
+- live smoke (isolated HOME, ports 12434/12443): HTTP drop-in OK; https insecure+verified via localhost SAN / localtest.me public DNS over ::1 / custom-hostname SNI OK; wss:// upgrade + response.created OK; key 0600 / meta 0600 / cert 644
+- commits: e5d8deb feat(tls), e3bcb80 feat(cli), d95ed1b test(tls), fef3aa6 docs(tls)
+- audit: no key material in commits; TLS = transport-only standard crypto (PQC untouched); no secrets in ledger/tasks
+- gitnexus: graph CLI cannot resolve this repo (2 attempts: impact/query, both failed/timed out) — containment argued by inspection + full gates; detect-changes N/A for same reason
+- incident note: a hung headroom-integration child (~40min, spawned via .hermes node wrapper with inspector flags) blocked the first suite run; PID-targeted cleanup (210920/210928); one self-matching pkill -f killed my own shell (no data impact, ports verified free after)
+- end: 2026-09-08T01:25:00Z
+
+## intent-merge — feat/tls-https-serving
+- start: 2026-09-08T01:25:00Z
+- end: 2026-09-08T02:20:00Z (operator APPROVED merge + TLS enablement; target tool identified: Warp terminal, Windows side)
+
+## update — merge, rebuild & enablement receipt
+- start: 2026-09-08T02:20:00Z
+- merged: 52fc6a0 (feature, --no-ff) + c0d70a3 (fix-forward: tls status live-listener probe, 464face) -> main
+- enablement: cert generated at ~/.config/local-router/tls/ (SANs: localhost, local-router.local, local-router.localtest.me, 127.0.0.1, ::1, 172.30.170.141; valid 2028-12-11; key 0600); LOCAL_ROUTER_TLS=true persisted via gitignored .env in repo root
+- rebuild: stale prod server 148931 stopped (PID-targeted, env replicated); fresh main build started detached, PID 215556 — dual-stack 11434 (http drop-in) + 11443 (https)
+- green smoke (production): http://127.0.0.1:11434/api/version OK; https verified via localhost SAN, via local-router.localtest.me (public DNS -> ::1), /v1/models serves catalog over TLS
+- flagged, untouched: PID 142106 (main-repo cwd, PORT=27996, LOCAL_ROUTER_DEV/DSH env — harness-spawned dev lane, active-session lineage; owner should reap it)
+- cleanup: worktree /mnt/d/Code/tls-https-serving removed (merged+unclaimed+idle verified), branch feat/tls-https-serving deleted, prune+rm completed after a /mnt/d I/O timeout
+- checkout: orchestrator, all scopes closed
+- end: 2026-09-08T02:30:00Z
