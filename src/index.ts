@@ -617,11 +617,12 @@ const STANDARD_LOCAL_BACKENDS: Array<{
   keyEnvVar: string;
 }> = [
   { slug: 'llama-cpp', displayName: 'llama.cpp (local llama-server)', port: 8080, portEnvVar: 'LLAMA_CPP_PORT', keyEnvVar: 'LLAMA_CPP_API_KEY' },
-  { slug: 'unsloth', displayName: 'Unsloth (local)', port: 8000, portEnvVar: 'UNSLOTH_PORT', keyEnvVar: 'UNSLOTHER_API_KEY' }
+  { slug: 'unsloth', displayName: 'Unsloth (local)', port: 8888, portEnvVar: 'UNSLOTH_PORT', keyEnvVar: 'UNSLOTH_API_KEY' }
 ];
 
 function standardLocalBackendPort(backend: (typeof STANDARD_LOCAL_BACKENDS)[number]): number {
-  const parsed = Number.parseInt(process.env[backend.portEnvVar] || '', 10);
+  const envVal = process.env[backend.portEnvVar] || (backend.slug === 'unsloth' ? process.env.UNSLOTHER_PORT : '');
+  const parsed = Number.parseInt(envVal || '', 10);
   return Number.isInteger(parsed) && parsed > 0 ? parsed : backend.port;
 }
 
@@ -666,17 +667,23 @@ function ensureStandardLocalBackends(): void {
   let registered = 0;
   for (const backend of STANDARD_LOCAL_BACKENDS) {
     if (dismissed.has(backend.slug)) continue;
-    if (customProviderStore.some((entry) => entry.name === backend.slug)) continue;
+    const existing = customProviderStore.find((entry) => entry.name === backend.slug);
     const port = standardLocalBackendPort(backend);
-    customProviderStore.push({
-      name: backend.slug,
-      displayName: backend.displayName,
-      endpoint: `http://127.0.0.1:${port}/v1`,
-      keyEnvVar: backend.keyEnvVar,
-      defaultTool: 'OpenAI Compatible',
-      createdAt: new Date().toISOString()
-    });
-    registered++;
+    if (!existing) {
+      customProviderStore.push({
+        name: backend.slug,
+        displayName: backend.displayName,
+        endpoint: `http://127.0.0.1:${port}/v1`,
+        keyEnvVar: backend.keyEnvVar,
+        defaultTool: 'OpenAI Compatible',
+        createdAt: new Date().toISOString()
+      });
+      registered++;
+    } else if (backend.slug === 'unsloth' && existing.endpoint === 'http://127.0.0.1:8000/v1' && port === 8888) {
+      existing.endpoint = `http://127.0.0.1:${port}/v1`;
+      existing.keyEnvVar = backend.keyEnvVar;
+      registered++;
+    }
   }
   if (registered > 0) {
     customProviderStore.sort((a, b) => a.name.localeCompare(b.name));

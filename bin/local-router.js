@@ -55,8 +55,8 @@ const SERVICE_TARGETS = [
     providerSlug: 'unsloth',
     keyEnvVar: 'UNSLOTH_API_KEY',
     displayName: 'Unsloth (local)',
-    backendPort: 8000,
-    serveSubcommands: ['serve', 'server'],
+    backendPort: 8888,
+    serveSubcommands: ['serve', 'server', 'start', 'run'],
     // Always install the shim even when the real binary is not on PATH yet:
     // the shim resolves the binary lazily at invocation time, so `unsloth
     // serve` still boots Local Router and registers the provider, and the
@@ -1253,6 +1253,40 @@ function resolveRealServiceBinary(serviceTarget) {
     }
   }
 
+    if (serviceTarget.command === 'unsloth') {
+    const fallbacks = [
+      path.join(os.homedir(), '.unsloth', 'studio', 'bin', IS_WIN ? 'unsloth.exe' : 'unsloth'),
+      path.join(os.homedir(), '.unsloth', 'studio', 'bin', 'unsloth.cmd'),
+      path.join(os.homedir(), '.local', 'bin', 'unsloth-real'),
+      '/usr/local/bin/unsloth',
+      '/usr/bin/unsloth'
+    ];
+    if (IS_WIN) {
+      if (process.env.USERPROFILE) {
+        fallbacks.push(path.join(process.env.USERPROFILE, '.unsloth', 'studio', 'bin', 'unsloth.exe'));
+        fallbacks.push(path.join(process.env.USERPROFILE, '.unsloth', 'studio', 'bin', 'unsloth.cmd'));
+      }
+      if (process.env.LOCALAPPDATA) {
+        fallbacks.push(path.join(process.env.LOCALAPPDATA, 'Programs', 'Unsloth', 'unsloth.exe'));
+      }
+    } else {
+      try {
+        const mntUsers = '/mnt/c/Users';
+        if (fs.existsSync(mntUsers)) {
+          for (const userDir of fs.readdirSync(mntUsers)) {
+            fallbacks.push(path.join(mntUsers, userDir, '.unsloth', 'studio', 'bin', 'unsloth.exe'));
+            fallbacks.push(path.join(mntUsers, userDir, '.unsloth', 'studio', 'bin', 'unsloth.cmd'));
+          }
+        }
+      } catch {}
+    }
+    for (const fb of fallbacks) {
+      if (fb && fs.existsSync(fb) && !shimFileContainsMarker(fb)) {
+        return fb;
+      }
+    }
+  }
+
   return null;
 }
 
@@ -1266,10 +1300,10 @@ function pushProviderRegistration(lines, serviceTarget, routerHost, routerPort) 
     '# and refresh its model list once it has had time to boot.',
     `SERVICE_PORT=${serviceTarget.backendPort}`,
     'for ((i=1; i<=$#; i++)); do',
-    '  if [[ "${!i}" == "--port" ]]; then',
+    '  if [[ "${!i}" == "--port" ]] || [[ "${!i}" == "-p" ]]; then',
     '    __next=$((i+1)); SERVICE_PORT="${!__next}"',
-    '  elif [[ "${!i}" == --port=* ]]; then',
-    '    SERVICE_PORT="${!i#--port=}"',
+    '  elif [[ "${!i}" == --port=* ]] || [[ "${!i}" == -p=* ]]; then',
+    '    __val="${!i}"; SERVICE_PORT="${__val#*=}"',
     '  fi',
     'done',
     '(',
@@ -1310,6 +1344,25 @@ function renderServiceShim(serviceTarget, realPath, routeTarget) {
       'fi',
       ''
     );
+    lines.push(
+      `if [[ -z "$${realVar}" ]] || [[ ! -x "$${realVar}" ]]; then`,
+      '  for __fb in \\',
+      '    "$HOME/.unsloth/studio/bin/unsloth" \\',
+      '    "$HOME/.unsloth/studio/bin/unsloth.exe" \\',
+      '    "$HOME/.local/bin/unsloth-real" \\',
+      '    /usr/local/bin/unsloth \\',
+      '    /mnt/c/Users/*/.unsloth/studio/bin/unsloth.exe \\',
+      '    /mnt/c/Users/*/.unsloth/studio/bin/unsloth.cmd \\',
+      '    /c/Users/*/.unsloth/studio/bin/unsloth.exe \\',
+      '    /c/Users/*/.unsloth/studio/bin/unsloth.cmd; do',
+      `    if [[ -x "$__fb" ]] && [[ ! "$__fb" -ef "$0" ]] && ! grep -q ${bashSingleQuote(SERVICE_SHIM_MARKER)} "$__fb" 2>/dev/null; then`,
+      `      ${realVar}="$__fb"`,
+      '      break',
+      '    fi',
+      '  done',
+      'fi',
+      ''
+    );
   }
 
   lines.push(
@@ -1346,6 +1399,16 @@ function renderServiceShim(serviceTarget, realPath, routeTarget) {
     lines.push(`  ${line}`);
   }
   lines.push(
+    '    ;;',
+    '  studio)',
+    '    if [[ "${2:-}" == "run" ]]; then',
+    `      "\$LOCAL_ROUTER_BIN" ${startArgs} >/dev/null 2>&1 || true`
+  );
+  for (const line of registration) {
+    lines.push(`    ${line}`);
+  }
+  lines.push(
+    '    fi',
     '    ;;',
     'esac',
     ''

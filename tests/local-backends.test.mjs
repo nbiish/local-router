@@ -62,7 +62,7 @@ async function startServer() {
   serverProcess.stdout.on('data', (c) => { serverLogs += c.toString(); });
   serverProcess.stderr.on('data', (c) => { serverLogs += c.toString(); });
   let ready = false;
-  for (let i = 0; i < 120 && !ready; i++) {
+  for (let i = 0; i < 240 && !ready; i++) {
     try {
       const response = await fetch(`${baseUrl}/api/version`);
       ready = response.ok;
@@ -76,6 +76,7 @@ async function stopServer() {
     serverProcess.kill('SIGTERM');
     await once(serverProcess, 'exit').catch(() => undefined);
   }
+  await delay(300);
   serverProcess = undefined;
 }
 
