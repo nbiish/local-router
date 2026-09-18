@@ -2271,7 +2271,8 @@ function mapLiveRawModelsToCatalog(
       'top_provider.context_length',
       'model_info.context_length',
       'limits.context_length',
-      'info.context_length'
+      'info.context_length',
+      'wafer.context_length'
     );
   const outputHint = (raw: Record<string, unknown>): number | undefined =>
     numberHintKeys(
@@ -2286,7 +2287,8 @@ function mapLiveRawModelsToCatalog(
       raw,
       'top_provider.max_completion_tokens',
       'limits.max_output_tokens',
-      'info.max_output_tokens'
+      'info.max_output_tokens',
+      'wafer.max_output_tokens'
     );
 
   const usedPresentedIds = new Set<string>();
@@ -2298,27 +2300,11 @@ function mapLiveRawModelsToCatalog(
       (baseline) => baseline.provider === providerName && baseline.model === modelId
     );
 
-    if (matchingBaseline) {
-      // Live metadata wins over the registry baseline (2026-09-04): a cached
-      // context/output value is only kept when upstream publishes none.
-      providerModels.push({
-        ...matchingBaseline,
-        id: presentedId,
-        contextLength: contextHint(raw) ?? matchingBaseline.contextLength ?? DEFAULT_CONTEXT_LENGTH,
-        outputTokens: outputHint(raw) ?? matchingBaseline.outputTokens ?? DEFAULT_OUTPUT_TOKENS
-      });
-      continue;
-    }
-
-    const numberHint = (...keys: string[]): number | undefined => {
-      for (const key of keys) {
-        const value = (raw as Record<string, unknown>)[key];
-        if (typeof value === 'number' && Number.isFinite(value) && value > 0) return value;
-      }
-      return undefined;
+    const booleanHint = (key: string, fallback: boolean): boolean => {
+      const value = (raw as Record<string, unknown>)[key];
+      return typeof value === 'boolean' ? value : fallback;
     };
-    // Nested lookup (e.g. OpenRouter's top_provider.max_completion_tokens).
-    const numberHintPath = (...paths: string[]): number | undefined => {
+    const booleanHintPath = (...paths: string[]): boolean | undefined => {
       for (const path of paths) {
         let value: unknown = raw;
         for (const segment of path.split('.')) {
@@ -2326,18 +2312,54 @@ function mapLiveRawModelsToCatalog(
             ? (value as Record<string, unknown>)[segment]
             : undefined;
         }
-        if (typeof value === 'number' && Number.isFinite(value) && value > 0) return value;
+        if (typeof value === 'boolean') return value;
       }
       return undefined;
-    };
-    const booleanHint = (key: string, fallback: boolean): boolean => {
-      const value = (raw as Record<string, unknown>)[key];
-      return typeof value === 'boolean' ? value : fallback;
     };
     const stringHint = (key: string): string | undefined => {
       const value = (raw as Record<string, unknown>)[key];
       return typeof value === 'string' && value.length > 0 ? value : undefined;
     };
+    const stringHintPath = (...paths: string[]): string | undefined => {
+      for (const path of paths) {
+        let value: unknown = raw;
+        for (const segment of path.split('.')) {
+          value = (value && typeof value === 'object' && !Array.isArray(value))
+            ? (value as Record<string, unknown>)[segment]
+            : undefined;
+        }
+        if (typeof value === 'string' && value.length > 0) return value;
+      }
+      return undefined;
+    };
+
+    const resolvedSupportsImages = booleanHint('supportsImages', false)
+      || booleanHint('supports_vision', false)
+      || (booleanHintPath('wafer.capabilities.vision') ?? false);
+    const resolvedSupportsReasoning = booleanHint('supportsReasoning', false)
+      || (booleanHintPath('wafer.capabilities.reasoning') ?? false);
+    const resolvedSupportsTools = booleanHint('supportsTools', true)
+      ?? booleanHintPath('wafer.capabilities.tools')
+      ?? true;
+
+    if (matchingBaseline) {
+      // Live metadata wins over the registry baseline (2026-09-04): a cached
+      // context/output value is only kept when upstream publishes none.
+      providerModels.push({
+        ...matchingBaseline,
+        id: presentedId,
+        contextLength: contextHint(raw) ?? matchingBaseline.contextLength ?? DEFAULT_CONTEXT_LENGTH,
+        outputTokens: outputHint(raw) ?? matchingBaseline.outputTokens ?? DEFAULT_OUTPUT_TOKENS,
+        supportsImages: resolvedSupportsImages || Boolean(matchingBaseline.supportsImages),
+        supportsReasoning: resolvedSupportsReasoning || Boolean(matchingBaseline.supportsReasoning),
+        supportsTools: resolvedSupportsTools && (matchingBaseline.supportsTools ?? true)
+      });
+      continue;
+    }
+
+    const rawTier = stringHint('tier') || stringHintPath('wafer.tier');
+    const tier = rawTier === 'serverless_only' ? 'paid' : rawTier;
+
     providerModels.push({
       id: presentedId,
       provider: providerName,
@@ -2345,12 +2367,12 @@ function mapLiveRawModelsToCatalog(
       display: providerModelDisplay(providerName, modelId),
       contextLength: contextHint(raw) ?? DEFAULT_CONTEXT_LENGTH,
       outputTokens: outputHint(raw) ?? DEFAULT_OUTPUT_TOKENS,
-      tier: stringHint('tier'),
+      tier,
       sourceUrl: stringHint('sourceUrl'),
-      supportsTools: booleanHint('supportsTools', true),
-      supportsImages: booleanHint('supportsImages', false),
+      supportsTools: resolvedSupportsTools,
+      supportsImages: resolvedSupportsImages,
       supportsCache: booleanHint('supportsCache', false),
-      supportsReasoning: booleanHint('supportsReasoning', false)
+      supportsReasoning: resolvedSupportsReasoning
     });
   }
 
@@ -2438,21 +2460,20 @@ async function fetchLiveProviderModels(providerName: string): Promise<LiveModels
     note
   });
 
-  const key = keyStore[summary.name] || providerEnvKeyValue(summary.keyEnvVar);
-  const isLocalService = isLocalLoopbackProvider(providerName);
-
-  if (!key && !isLocalService) {
-    return registryOnly
-      ? registryResult('No API key saved — showing curated registry; save the key to enable serving.')
-      : catalogResult(
-          providerRegistryModels(summary.name),
-          'No API key saved — showing curated registry catalog.'
-        );
-  }
-
   if (registryOnly) {
     return registryResult(
       `${summary.name} publishes no models-list API — curated registry (catalog rows + verified additions).`
+    );
+  }
+
+  const key = keyStore[summary.name] || providerEnvKeyValue(summary.keyEnvVar);
+  const isLocalService = isLocalLoopbackProvider(providerName);
+  const isOpenCatalogProvider = summary.name === 'wafer-serverless' || summary.name === 'commandcode';
+
+  if (!key && !isLocalService && !isOpenCatalogProvider) {
+    return catalogResult(
+      providerRegistryModels(summary.name),
+      'No API key saved — showing curated registry catalog.'
     );
   }
 
@@ -2462,10 +2483,28 @@ async function fetchLiveProviderModels(providerName: string): Promise<LiveModels
     if (key) {
       headers.Authorization = `Bearer ${key}`;
     }
-    const response = await safeFetch(`${url}/models`, {
+    let response = await safeFetch(`${url}/models`, {
       headers,
       signal: AbortSignal.timeout(6000)
     });
+
+    // Public catalog fallback (2026-09-18): providers like wafer-serverless,
+    // commandcode, openrouter, and zenmux publish public, unauthenticated /models
+    // catalogs. If an invalid or ambient test key in the environment returns
+    // 401/403, retry without Authorization header before giving up.
+    if (!response.ok && (response.status === 401 || response.status === 403) && key && (isOpenCatalogProvider || summary.name === 'openrouter' || summary.name === 'zenmux')) {
+      try {
+        const publicResponse = await safeFetch(`${url}/models`, {
+          signal: AbortSignal.timeout(6000)
+        });
+        if (publicResponse.ok) {
+          response = publicResponse;
+        }
+      } catch {
+        // Retain original response
+      }
+    }
+
     if (response.ok) {
       const data = await response.json();
       const list = Array.isArray(data?.data)
@@ -2492,11 +2531,25 @@ async function fetchLiveProviderModels(providerName: string): Promise<LiveModels
         `Upstream /models returned no recognizable model list — showing curated registry catalog.`
       );
     }
+
+    if (!key && !isLocalService) {
+      return catalogResult(
+        providerRegistryModels(summary.name),
+        'No API key saved — showing curated registry catalog.'
+      );
+    }
+
     return catalogResult(
       providerRegistryModels(summary.name),
       `Upstream /models fetch failed (HTTP ${response.status}) — showing curated registry catalog.`
     );
   } catch (error: any) {
+    if (!key && !isLocalService) {
+      return catalogResult(
+        providerRegistryModels(summary.name),
+        'No API key saved — showing curated registry catalog.'
+      );
+    }
     console.error(`Failed to fetch models from endpoint for provider ${providerName}:`, error);
     return catalogResult(
       rawProviderCacheModels(summary.name).map((model) => ({
@@ -5646,7 +5699,18 @@ async function proxyModelAttempt(
   }
 
   // Inject Wafer AI ZDR header for eligible models
-  const ZDR_ELIGIBLE_MODELS = new Set(['GLM-5.1', 'Kimi-K2.6', 'deepseek-v4-pro']);
+  const ZDR_ELIGIBLE_MODELS = new Set([
+    'GLM-5.1',
+    'Kimi-K2.6',
+    'deepseek-v4-pro',
+    'DeepSeek-V4.1-Flash',
+    'deepseek-v4.1-flash',
+    'GLM-5.2',
+    'GLM-5.3',
+    'GLM-5.3-Flash',
+    'Kimi-K3',
+    'DeepSeek-V4-Flash-0731-Fast'
+  ]);
   if (target.providerName === 'wafer-serverless' && waferZdrEnabled && ZDR_ELIGIBLE_MODELS.has(target.actualModel)) {
     providerHeaders['Wafer-ZDR'] = 'required';
   }

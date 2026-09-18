@@ -1310,6 +1310,8 @@ export const PROVIDER_MODEL_REGISTRY: Record<string, RegistryModelEntry[]> = {
     { id: 'nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-BF16', contextLength: 8192, outputTokens: 4096, tier: 'paid', note: '$0.5/$0.5 per 1M' },
   ],
   'wafer-serverless': [
+    { id: 'DeepSeek-V4.1-Flash', contextLength: 1048576, outputTokens: 384000, supportsTools: true, supportsImages: true, supportsReasoning: true, tier: 'paid', note: 'Wafer fleet self-hosted MoE (552B); ZDR supported' },
+    { id: 'deepseek-v4.1-flash', contextLength: 1048576, outputTokens: 384000, supportsTools: true, supportsImages: true, supportsReasoning: true, tier: 'paid' },
     { id: 'GLM-5.3-Flash', contextLength: 1048576, supportsTools: true, tier: 'paid' },
     { id: 'glm-5.3-flash', contextLength: 1048576, supportsTools: true, tier: 'paid' },
     { id: 'glm-5.3', contextLength: 1048576, supportsTools: true, tier: 'paid' },

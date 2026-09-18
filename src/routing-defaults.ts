@@ -33,6 +33,7 @@ export const DEFAULT_FALLBACK_ORDERED_IDS: readonly string[] = [
   'opencode-go-deepseek-v4-pro',
   'nebius-nemotron-3-ultra-550b-a55b',
   'commandcode-deepseek-v4-pro',
+  'wafer-ai-deepseek-v4.1-flash',
   'wafer-ai-deepseek-v4-flash',
   'kilo-minimax-minimax-m3-paid',
   'cline-deepseek-deepseek-v4-pro-paid',

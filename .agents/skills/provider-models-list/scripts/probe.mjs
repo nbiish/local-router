@@ -63,17 +63,30 @@ function parseArgs(argv) {
 
 async function fetchProviderModels(provider, signal) {
   const key = process.env[provider.envVar];
-  if (!key) {
-    return { ok: false, reason: `no key (${provider.envVar} not in env)`, models: [] };
-  }
   const url = `${provider.baseUrl.replace(/\/+$/, '')}${provider.modelsPath}`;
   try {
-    const res = await fetch(url, {
+    const headers = key ? { Authorization: `Bearer ${key}` } : {};
+    let res = await fetch(url, {
       method: 'GET',
-      headers: { Authorization: `Bearer ${key}` },
+      headers,
       signal
     });
+    // Public catalog fallback: if auth failed (401/403) and a key was sent,
+    // or if no key was configured, retry unauthenticated for public catalogs.
+    if ((!res.ok && (res.status === 401 || res.status === 403) && key) || (!key && !res.ok)) {
+      try {
+        const publicRes = await fetch(url, { method: 'GET', signal });
+        if (publicRes.ok) {
+          res = publicRes;
+        }
+      } catch {
+        // Keep original
+      }
+    }
     if (!res.ok) {
+      if (!key) {
+        return { ok: false, reason: `no key (${provider.envVar} not in env)`, models: [] };
+      }
       return { ok: false, reason: `HTTP ${res.status}`, models: [] };
     }
     const body = await res.json();
@@ -87,13 +100,21 @@ async function fetchProviderModels(provider, signal) {
         id: String(id),
         context: typeof m.context_length === 'number' ? m.context_length
               : typeof m.max_context_length === 'number' ? m.max_context_length
+              : typeof m.max_model_len === 'number' ? m.max_model_len
+              : typeof m.wafer?.context_length === 'number' ? m.wafer.context_length
               : null,
-        pricing: m.pricing || null,
+        pricing: m.pricing || (m.wafer?.pricing ? {
+          prompt: typeof m.wafer.pricing.input_cents_per_million === 'number' ? String(m.wafer.pricing.input_cents_per_million / 100) : null,
+          completion: typeof m.wafer.pricing.output_cents_per_million === 'number' ? String(m.wafer.pricing.output_cents_per_million / 100) : null
+        } : null),
         raw: m
       };
     });
     return { ok: true, reason: null, models };
   } catch (err) {
+    if (!key) {
+      return { ok: false, reason: `no key (${provider.envVar} not in env)`, models: [] };
+    }
     return { ok: false, reason: err.message || 'fetch failed', models: [] };
   }
 }
@@ -147,7 +168,7 @@ async function readBaselineModels() {
   return [];
 }
 
-function renderComparison(results) {
+async function renderComparison(results) {
   const baseline = await readBaselineModels();
   const baselineMap = new Map();
   for (const b of baseline) {
@@ -230,7 +251,7 @@ async function main() {
     clearTimeout(timer);
 
     if (opts.compare) {
-      console.log(renderComparison(results));
+      console.log(await renderComparison(results));
       return;
     }
 
