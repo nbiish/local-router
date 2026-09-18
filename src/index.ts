@@ -3713,11 +3713,55 @@ function defaultChildPathEnv(): string {
   return '/usr/local/bin:/usr/bin:/bin';
 }
 
+function getPqcConfigDirCandidates(): string[] {
+  if (process.env.PQC_CONFIG_DIR) return [process.env.PQC_CONFIG_DIR];
+  const candidates: string[] = [];
+  const home = os.homedir();
+  const noDot = path.join(home, 'config', 'pqc-secrets');
+  if (fs.existsSync(noDot)) candidates.push(noDot);
+  const dot = path.join(home, '.config', 'pqc-secrets');
+  if (fs.existsSync(dot) && !candidates.includes(dot)) candidates.push(dot);
+
+  // WSL interop (2026-09-18): when running under WSL, inspect Windows host user directories
+  // (/mnt/<drive>/Users/<user>/.config/pqc-secrets) so Windows-managed PQC keys load seamlessly.
+  try {
+    if (fs.existsSync('/proc/version') && fs.readFileSync('/proc/version', 'utf8').toLowerCase().includes('microsoft')) {
+      if (fs.existsSync('/mnt')) {
+        for (const driveRoot of fs.readdirSync('/mnt')) {
+          const usersRoot = path.join('/mnt', driveRoot, 'Users');
+          if (!fs.existsSync(usersRoot)) continue;
+          for (const user of fs.readdirSync(usersRoot)) {
+            if (user === 'Public' || user === 'Default' || user.startsWith('.')) continue;
+            const winDot = path.join(usersRoot, user, '.config', 'pqc-secrets');
+            if (fs.existsSync(winDot) && !candidates.includes(winDot)) candidates.push(winDot);
+            const winNoDot = path.join(usersRoot, user, 'config', 'pqc-secrets');
+            if (fs.existsSync(winNoDot) && !candidates.includes(winNoDot)) candidates.push(winNoDot);
+          }
+        }
+      }
+    }
+  } catch {
+    /* WSL interop probe unavailable */
+  }
+
+  if (candidates.length === 0) {
+    candidates.push(dot);
+  }
+  return candidates;
+}
+
 function getPqcConfigDir(): string {
   if (process.env.PQC_CONFIG_DIR) return process.env.PQC_CONFIG_DIR;
-  const noDot = path.join(os.homedir(), 'config', 'pqc-secrets');
-  if (fs.existsSync(noDot)) return noDot;
-  return path.join(os.homedir(), '.config', 'pqc-secrets');
+  const candidates = getPqcConfigDirCandidates();
+  for (const candidate of candidates) {
+    if (fs.existsSync(path.join(candidate, 'secrets.bundle.json'))) {
+      return candidate;
+    }
+  }
+  for (const candidate of candidates) {
+    if (fs.existsSync(candidate)) return candidate;
+  }
+  return candidates[0] || path.join(os.homedir(), '.config', 'pqc-secrets');
 }
 
 function getPqcBundlePath(): string {
@@ -3864,24 +3908,68 @@ function syncKeysFromPqcBundle(options: { force?: boolean } = {}): PqcBundleSync
 
   const bin = getPqcBinPath();
   if (!bin) return { ok: false, error: 'pqc-secrets binary not found' };
-  const bundlePath = getPqcBundlePath();
-  if (!fs.existsSync(bundlePath)) {
+
+  const candidates = getPqcConfigDirCandidates();
+  const bundleDirs = candidates.filter((dir) => fs.existsSync(path.join(dir, 'secrets.bundle.json')));
+
+  if (bundleDirs.length === 0) {
+    const defaultDir = getPqcConfigDir();
+    const defaultBundle = path.join(defaultDir, 'secrets.bundle.json');
     if (Object.keys(keyStore).some((k) => k !== 'ollama' && keyStore[k])) {
       persistPqcSecrets();
     }
-    if (!fs.existsSync(bundlePath)) {
-      return { ok: false, error: `no bundle at ${bundlePath}` };
+    if (!fs.existsSync(defaultBundle)) {
+      return { ok: false, error: `no bundle at ${defaultBundle}` };
+    }
+    bundleDirs.push(defaultDir);
+  }
+
+  const loaded: string[] = [];
+  const skipped: string[] = [];
+  let anySuccess = false;
+  let lastError: unknown = null;
+
+  for (const dir of bundleDirs) {
+    let output: string | null = null;
+    try {
+      output = execPqcBin(['export'], { env: { PQC_CONFIG_DIR: dir }, timeout: 120000 });
+      anySuccess = true;
+    } catch (err) {
+      lastError = err;
+      continue;
+    }
+    if (!output) continue;
+
+    for (const rawLine of output.split(/\r?\n/)) {
+      const line = rawLine.trim();
+      const match = line.match(/^export\s+([A-Z0-9_]+)=(.+)$/);
+      if (!match) continue;
+      const fullName = match[1];
+      let value = match[2].trim().replace(/^["']|["']$/g, '').trim();
+      if (value.startsWith('Authorization: Bearer ')) {
+        value = value.slice('Authorization: Bearer '.length).trim();
+      }
+      const envVar = fullName.startsWith('LOCALROUTER_') ? fullName.slice('LOCALROUTER_'.length) : fullName;
+      process.env[localRouterEnvVarName(envVar)] = value;
+      process.env[envVar] = value;
+      const providers = providerSummariesForEnvVar(envVar);
+      if (providers.length > 0) {
+        for (const provider of providers) {
+          keyStore[provider.name] = value;
+          pqcBundleProviders.add(provider.name);
+          if (!loaded.includes(provider.name)) {
+            loaded.push(provider.name);
+          }
+        }
+      } else {
+        if (!skipped.includes(fullName)) {
+          skipped.push(fullName);
+        }
+      }
     }
   }
 
-  let output: string | null = null;
-  let lastError: unknown = null;
-  try {
-    output = execPqcBin(['export'], { timeout: 120000 });
-  } catch (err) {
-    lastError = err;
-  }
-  if (output === null) {
+  if (!anySuccess && bundleDirs.length > 0) {
     const stderr = (() => {
       const candidate = (lastError as { stderr?: unknown } | null)?.stderr;
       if (typeof candidate === 'string') return candidate.trim();
@@ -3892,31 +3980,6 @@ function syncKeysFromPqcBundle(options: { force?: boolean } = {}): PqcBundleSync
     return { ok: false, error: `export failed: ${message}${stderr ? ` — stderr: ${sanitizeDiagnosticText(stderr).slice(0, 300)}` : ''}` };
   }
 
-  const loaded: string[] = [];
-  const skipped: string[] = [];
-  for (const rawLine of output.split(/\r?\n/)) {
-    const line = rawLine.trim();
-    const match = line.match(/^export\s+([A-Z0-9_]+)=(.+)$/);
-    if (!match) continue;
-    const fullName = match[1];
-    let value = match[2].trim().replace(/^["']|["']$/g, '').trim();
-    if (value.startsWith('Authorization: Bearer ')) {
-      value = value.slice('Authorization: Bearer '.length).trim();
-    }
-    const envVar = fullName.startsWith('LOCALROUTER_') ? fullName.slice('LOCALROUTER_'.length) : fullName;
-    process.env[localRouterEnvVarName(envVar)] = value;
-    process.env[envVar] = value;
-    const providers = providerSummariesForEnvVar(envVar);
-    if (providers.length > 0) {
-      for (const provider of providers) {
-        keyStore[provider.name] = value;
-        pqcBundleProviders.add(provider.name);
-        loaded.push(provider.name);
-      }
-    } else {
-      skipped.push(fullName);
-    }
-  }
   if (process.env.MODAL_PROXY_TOKEN_ID && process.env.MODAL_PROXY_TOKEN_SECRET) {
     const combined = `${process.env.MODAL_PROXY_TOKEN_ID}.${process.env.MODAL_PROXY_TOKEN_SECRET}`;
     keyStore['modal-proxy'] = combined;
