@@ -76,3 +76,36 @@
 - status: merged to main, fresh main rebuilt, live server and test suites clean
 - cleanup: branch deleted, working tree clean on main
 - end: 2026-09-18T17:43:00Z
+
+## checkin — feat/agents-proxy
+- start: 2026-09-18T18:45:00Z
+- agent: orchestrator
+- branch: feat/agents-proxy
+- worktree: D:/Code/local-router-agents-proxy (branch feat/agents-proxy)
+- task: add 'Agents' configuration page under Prompt & Thinking with Claude Code model proxy interception & slot remapping
+- triage: now
+- scope: Agents UI page, /api/agents-proxy endpoints, Claude Code model slot mapping, /v1/messages remapping, CLI shims, and system environment integration
+- end: 2026-09-18T18:46:00Z
+
+## update — feat/agents-proxy
+- start: 2026-09-18T18:46:00Z
+- agent: orchestrator
+- findings:
+  1. Claude Code CLI routes requests via Anthropic Messages API (`/v1/messages` and `/messages`) using internal models ('Default', 'Opus (1M context)', 'Sonnet', 'Sonnet 5 (1M context)', 'Haiku').
+  2. Implemented `Agents` configuration page under 'Prompt & Thinking' in sidebar navigation with active path highlighting.
+  3. Created `renderAgentsPage` with master toggle, 5 model slot dropdowns populated with currently served/checked-on models and fallback routes, test connection button, and system environment sync controls.
+  4. Added `remapClaudeCodeModel` in `src/index.ts` to transparently rewrite `chatBody.model` in `/v1/messages` and preserve requested model envelope in responses.
+  5. Added `AgentProxyConfig` persistence (`~/.config/local-router/agent-proxy-config.json`) and `/api/agents-proxy` GET/PUT endpoints.
+  6. Added cross-platform CLI shims (`bin/claude.cmd`, `bin/claude`, `bin/lib/claude-runner.js`) and environment variable synchronization (`ANTHROPIC_BASE_URL="http://127.0.0.1:11434"`).
+- verification:
+  - `npm run build` clean.
+  - `tests/ui-page-scripts-parse.test.mjs` passes for all 4 pages including `agents`.
+  - `tests/agent-proxy-interception.test.mjs` passes 5/5 tests.
+  - `npm test` 159/159 tests pass cleanly across 32 suites.
+- end: 2026-09-18T18:54:30Z
+
+## intent-merge — feat/agents-proxy
+- start: 2026-09-18T18:54:30Z
+- branch: feat/agents-proxy -> main
+- autonomous merge approved by 159/159 green gates
+- end: 2026-09-18T18:55:00Z

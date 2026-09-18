@@ -19,6 +19,7 @@ import { ollamaBackendVersionUrl } from '../ollama-backend';
 import { renderProvidersPage } from '../ui/pages/providers';
 import { renderFallbackPage } from '../ui/pages/fallback';
 import { renderThinkingPage } from '../ui/pages/thinking';
+import { renderAgentsPage } from '../ui/pages/agents';
 import {
   ProviderSummary,
   CustomProviderRecord,
@@ -27,11 +28,20 @@ import {
   ProviderModel,
   ProviderModelParseResult
 } from '../index';
-import type { RouterSettings } from '../config-persistence';
-import { loadCurationConfigs, loadRouterSettings, saveCurationConfigs, saveRouterSettings } from '../config-persistence';
+import type { RouterSettings, AgentProxyConfig } from '../config-persistence';
+import {
+  loadCurationConfigs,
+  loadRouterSettings,
+  saveCurationConfigs,
+  saveRouterSettings,
+  loadAgentProxyConfig,
+  saveAgentProxyConfig
+} from '../config-persistence';
+import { syncSystemAgentEnv } from '../agent-env-sync';
 import { getExpertLogs, importExpertLogs, clearExpertLogs, analyzeLogs } from '../expert-logs';
 
 export interface ConfigApiDeps {
+  agentProxyConfig?: AgentProxyConfig;
   state: {
     customProviderStore: CustomProviderRecord[];
     thinkingProxyEnabled: boolean;
@@ -257,6 +267,15 @@ export function registerConfigApiRoutes(app: express.Express, deps: ConfigApiDep
 
   app.get('/config/thinking', (req: Request, res: Response) => {
     const html = renderThinkingPage({
+      defaultFallbackModelsText: DEFAULT_FALLBACK_MODELS_TEXT
+    });
+    // Config pages are live state (keys, catalog, routes) — never cacheable.
+    res.setHeader('Cache-Control', 'no-store');
+    res.send(html);
+  });
+
+  app.get('/config/agents', (req: Request, res: Response) => {
+    const html = renderAgentsPage({
       defaultFallbackModelsText: DEFAULT_FALLBACK_MODELS_TEXT
     });
     // Config pages are live state (keys, catalog, routes) — never cacheable.
@@ -1765,6 +1784,71 @@ app.put('/api/headroom-config', (req: Request, res: Response) => {
   }
   persistHeadroomConfig();
   return res.json(headroomApiPayload());
+});
+
+// ── Agent Proxy Config API ─────────────────────────────────────────────────
+app.get('/api/agents-proxy', (req: Request, res: Response) => {
+  const config = loadAgentProxyConfig();
+  const rawModels = activeProviderModelList();
+  const configuredModels = filterConfiguredModels(rawModels);
+
+  const fallbackRoutesList = Object.values(fallbackModelStore).map((fm) => ({
+    id: fm.id,
+    models: fm.models
+  }));
+
+  return res.json({
+    config,
+    availableModels: configuredModels.map((m) => ({
+      id: m.id,
+      model: m.model,
+      display: m.display,
+      provider: m.provider
+    })),
+    fallbackRoutes: fallbackRoutesList
+  });
+});
+
+app.put('/api/agents-proxy', (req: Request, res: Response) => {
+  const current = loadAgentProxyConfig();
+  const incoming = req.body ?? {};
+
+  if (incoming.claudeCode) {
+    if (typeof incoming.claudeCode.enabled === 'boolean') {
+      current.claudeCode.enabled = incoming.claudeCode.enabled;
+    }
+    if (incoming.claudeCode.models && typeof incoming.claudeCode.models === 'object') {
+      for (const slot of ['default', 'opus1m', 'sonnet', 'sonnet5_1m', 'haiku'] as const) {
+        if (typeof incoming.claudeCode.models[slot] === 'string') {
+          current.claudeCode.models[slot] = incoming.claudeCode.models[slot].trim();
+        }
+      }
+    }
+  }
+
+  saveAgentProxyConfig(current);
+  if (deps.agentProxyConfig) {
+    deps.agentProxyConfig.claudeCode = current.claudeCode;
+  }
+  if (current.claudeCode.enabled) {
+    syncSystemAgentEnv();
+  }
+
+  return res.json({
+    ok: true,
+    config: current
+  });
+});
+
+app.post('/api/agents-proxy/sync-env', (req: Request, res: Response) => {
+  const result = syncSystemAgentEnv();
+  if (!result.ok) {
+    return res.status(500).json({ error: result.error || 'Failed to synchronize environment' });
+  }
+  return res.json({
+    ok: true,
+    syncedAt: new Date().toISOString()
+  });
 });
 
 // IDE version-probe compatibility (VS Code Copilot Chat requires ollama >=

@@ -80,3 +80,72 @@ export function saveCurationConfigs(configs: CurationConfig[]): void {
     throw error;
   }
 }
+
+// ── Agent Proxy Config ──────────────────────────────────────────────────────
+export const AGENT_PROXY_CONFIG_PATH = path.join(LOCAL_ROUTER_CONFIG_DIR, 'agent-proxy-config.json');
+
+export type ClaudeModelSlotMappings = {
+  default?: string;
+  opus1m?: string;
+  sonnet?: string;
+  sonnet5_1m?: string;
+  haiku?: string;
+};
+
+export type AgentProxyConfig = {
+  claudeCode: {
+    enabled: boolean;
+    models: ClaudeModelSlotMappings;
+  };
+};
+
+export const DEFAULT_AGENT_PROXY_CONFIG: AgentProxyConfig = {
+  claudeCode: {
+    enabled: false,
+    models: {
+      default: 'local-router/fallback-models',
+      opus1m: 'local-router/fallback-models',
+      sonnet: 'local-router/fallback-models',
+      sonnet5_1m: 'local-router/fallback-models',
+      haiku: 'local-router/fallback-models'
+    }
+  }
+};
+
+export function loadAgentProxyConfig(): AgentProxyConfig {
+  try {
+    if (!fs.existsSync(AGENT_PROXY_CONFIG_PATH)) {
+      return JSON.parse(JSON.stringify(DEFAULT_AGENT_PROXY_CONFIG));
+    }
+    const raw = fs.readFileSync(AGENT_PROXY_CONFIG_PATH, 'utf8');
+    const parsed = JSON.parse(raw);
+    const claude = parsed?.claudeCode;
+    return {
+      claudeCode: {
+        enabled: Boolean(claude?.enabled),
+        models: {
+          default: typeof claude?.models?.default === 'string' ? claude.models.default : DEFAULT_AGENT_PROXY_CONFIG.claudeCode.models.default,
+          opus1m: typeof claude?.models?.opus1m === 'string' ? claude.models.opus1m : DEFAULT_AGENT_PROXY_CONFIG.claudeCode.models.opus1m,
+          sonnet: typeof claude?.models?.sonnet === 'string' ? claude.models.sonnet : DEFAULT_AGENT_PROXY_CONFIG.claudeCode.models.sonnet,
+          sonnet5_1m: typeof claude?.models?.sonnet5_1m === 'string' ? claude.models.sonnet5_1m : DEFAULT_AGENT_PROXY_CONFIG.claudeCode.models.sonnet5_1m,
+          haiku: typeof claude?.models?.haiku === 'string' ? claude.models.haiku : DEFAULT_AGENT_PROXY_CONFIG.claudeCode.models.haiku
+        }
+      }
+    };
+  } catch (error) {
+    console.error('[config] failed to load agent proxy config', error);
+    return JSON.parse(JSON.stringify(DEFAULT_AGENT_PROXY_CONFIG));
+  }
+}
+
+export function saveAgentProxyConfig(config: AgentProxyConfig): void {
+  try {
+    fs.mkdirSync(path.dirname(AGENT_PROXY_CONFIG_PATH), { recursive: true, mode: 0o700 });
+    fs.writeFileSync(AGENT_PROXY_CONFIG_PATH, JSON.stringify(config, null, 2), { encoding: 'utf8', mode: 0o600 });
+    fs.chmodSync(AGENT_PROXY_CONFIG_PATH, 0o600);
+  } catch (error) {
+    console.error('[config] failed to save agent proxy config', error);
+    throw error;
+  }
+}
+
