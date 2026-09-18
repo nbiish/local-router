@@ -1,0 +1,33 @@
+# Team Ledger 2026-09-18
+
+## checkin — fix/security-pqc-keys
+- start: 2026-09-18T15:44:00Z
+- agent: orchestrator
+- branch: fix/security-pqc-keys
+- worktree: D:/Code/local-router (branch fix/security-pqc-keys)
+- task: investigate PQC keys detection in local-router; verify keys presence on disk and check why local-router is not detecting them
+- triage: now
+- scope: investigation and resolution of PQC secrets detection under WSL
+- end: 2026-09-18T15:45:00Z
+
+## update — fix/security-pqc-keys
+- start: 2026-09-18T15:45:00Z
+- agent: orchestrator
+- findings:
+  1. Windows host `C:\Users\kenwa\.config\pqc-secrets\secrets.bundle.json` contains 15 valid provider keys (verified via Windows `bin/pqc-secrets.cmd export`).
+  2. The running router process on port 11434 was running inside WSL (Ubuntu) via systemd user unit `local-router-ensure.service`.
+  3. Inside WSL, `local-router` evaluated `os.homedir()`, finding `/home/nanoboozhoo/.config/pqc-secrets/secrets.bundle.json` which only contained `LOCAL_ROUTER_DOT_COM_ADMIN_TOKEN` and zero provider keys.
+- fix:
+  - Added `getPqcConfigDirCandidates()` to probe Windows host `/mnt/<drive>/Users/<user>/.config/pqc-secrets` when running under WSL (mirroring the existing OAuth WSL interop pattern in `oauth-providers.ts`).
+  - Updated `syncKeysFromPqcBundle()` to scan across candidate bundle directories, preserving non-provider keys while aggregating provider keys across environments.
+- verification:
+  - `npm run build` green; 25/25 unit & integration tests pass.
+  - Server restarted in WSL (PID 3170); verified log: `[PQC] Loaded 15 provider key(s) from bundle: cline, commandcode, kilo, modal-proxy, moonshot, nebius, nous-portal, nvidia-nim, opencode-zen, openrouter, pioneer, wafer-serverless, xiaomi-mimo, zai, zenmux`.
+  - Verified `GET /api/provider-configs` live via curl/REST: all 15 providers show `configured: true`, `configuredSource: "pqc"`.
+- end: 2026-09-18T15:53:00Z
+
+## intent-merge — fix/security-pqc-keys
+- start: 2026-09-18T15:53:00Z
+- branch: fix/security-pqc-keys -> main
+- autonomous merge approved by green gates and live verification
+- end: 2026-09-18T15:53:30Z
