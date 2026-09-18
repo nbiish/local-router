@@ -76,3 +76,13 @@
 - status: merged to main, fresh main rebuilt, live server and test suites clean
 - cleanup: branch deleted, working tree clean on main
 - end: 2026-09-18T17:43:00Z
+
+## checkin — feat/agents-proxy
+- start: 2026-09-18T18:45:00Z
+- agent: orchestrator
+- branch: feat/agents-proxy
+- worktree: D:/Code/local-router-agents-proxy (branch feat/agents-proxy)
+- task: add 'Agents' configuration page under Prompt & Thinking with Claude Code model proxy interception & slot remapping
+- triage: now
+- scope: Agents UI page, /api/agents-proxy endpoints, Claude Code model slot mapping, /v1/messages remapping, CLI shims, and system environment integration
+- end: 2026-09-18T18:46:00Z

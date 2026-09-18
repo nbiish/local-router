@@ -76,7 +76,7 @@ import {
   providerHasNoLiveModelList
 } from './provider-model-registries';
 import { catalogProviderSummaries } from './provider-registry';
-import { loadCurationConfigs, loadRouterSettings, ROUTER_SETTINGS_PATH, saveRouterSettings } from './config-persistence';
+import { loadCurationConfigs, loadRouterSettings, ROUTER_SETTINGS_PATH, saveRouterSettings, loadAgentProxyConfig, AgentProxyConfig } from './config-persistence';
 import { normalizeGatewayChatCompletionBody } from './gateway-response';
 import {
   DEFAULT_FALLBACK_ORDERED_IDS,
@@ -4274,6 +4274,60 @@ const configState = {
   set endpointModelsCache(val) { endpointModelsCache = val; }
 };
 
+export const agentProxyConfig: AgentProxyConfig = loadAgentProxyConfig();
+
+export function remapClaudeCodeModel(originalModel: string, config?: AgentProxyConfig): string {
+  const cfg = config || agentProxyConfig;
+  if (!cfg?.claudeCode?.enabled) return originalModel;
+
+  const models = cfg.claudeCode.models || {};
+  const lower = String(originalModel || '').toLowerCase().trim();
+
+  const resolveTarget = (target?: string) => {
+    if (!target) return undefined;
+    const t = target.trim();
+    if (t === '' || t === 'passthrough') return undefined;
+    return t;
+  };
+
+  // 1. Sonnet 5 (1M context) slot
+  if (lower.includes('sonnet-5') || lower.includes('sonnet 5')) {
+    if (models.sonnet5_1m === 'passthrough') return originalModel;
+    const target = resolveTarget(models.sonnet5_1m);
+    if (target) return target;
+  }
+
+  // 2. Opus (1M context) slot
+  if (lower.includes('opus')) {
+    if (models.opus1m === 'passthrough') return originalModel;
+    const target = resolveTarget(models.opus1m);
+    if (target) return target;
+  }
+
+  // 3. Haiku slot
+  if (lower.includes('haiku')) {
+    if (models.haiku === 'passthrough') return originalModel;
+    const target = resolveTarget(models.haiku);
+    if (target) return target;
+  }
+
+  // 4. Sonnet slot
+  if (lower.includes('sonnet')) {
+    if (models.sonnet === 'passthrough') return originalModel;
+    const target = resolveTarget(models.sonnet);
+    if (target) return target;
+  }
+
+  // 5. Default slot
+  if (models.default === 'passthrough') return originalModel;
+  const defaultTarget = resolveTarget(models.default);
+  if (defaultTarget && (lower === 'default' || lower === '' || lower.includes('claude'))) {
+    return defaultTarget;
+  }
+
+  return originalModel;
+}
+
 const configApiDeps = {
   state: configState,
   keyStore,
@@ -4327,6 +4381,7 @@ const configApiDeps = {
   configureVSCodeModelPicker,
   systemPromptConfig,
   persistSystemPrompt,
+  agentProxyConfig,
   thinkingLevelApiPayload,
   thinkingLevelStore,
   persistThinkingConfig,
@@ -6299,7 +6354,7 @@ app.post(['/v1/chat/completions', '/chat/completions'], async (req: Request, res
   await handleChatCompletion(req, res);
 });
 
-function chatCompletionToAnthropicResponse(chatData: any): any {
+function chatCompletionToAnthropicResponse(chatData: any, requestedModel?: string): any {
   const choice = chatData?.choices?.[0] || {};
   const message = choice.message || {};
   const content: any[] = [];
@@ -6311,24 +6366,26 @@ function chatCompletionToAnthropicResponse(chatData: any): any {
     });
   }
 
-  if (Array.isArray(message.tool_calls) && message.tool_calls.length > 0) {
+  if (Array.isArray(message.tool_calls)) {
     for (const tc of message.tool_calls) {
-      let input = {};
-      try {
-        input = JSON.parse(tc.function?.arguments || '{}');
-      } catch {
-        input = { value: tc.function?.arguments };
+      if (tc.function) {
+        let inputObj = {};
+        try {
+          inputObj = JSON.parse(tc.function.arguments || '{}');
+        } catch (e) {
+          inputObj = { raw: tc.function.arguments };
+        }
+        content.push({
+          type: 'tool_use',
+          id: tc.id || `toolu_${cryptoRandomId()}`,
+          name: tc.function.name,
+          input: inputObj
+        });
       }
-      content.push({
-        type: 'tool_use',
-        id: tc.id,
-        name: tc.function?.name,
-        input
-      });
     }
   }
 
-  let stopReason: string | null = 'end_turn';
+  let stopReason = 'end_turn';
   if (choice.finish_reason === 'length') stopReason = 'max_tokens';
   else if (choice.finish_reason === 'tool_calls') stopReason = 'tool_use';
   else if (choice.finish_reason === 'stop') stopReason = 'end_turn';
@@ -6339,7 +6396,7 @@ function chatCompletionToAnthropicResponse(chatData: any): any {
     id: `msg_${chatData?.id || cryptoRandomId()}`,
     type: 'message',
     role: 'assistant',
-    model: chatData?.model || 'claude-3-5-sonnet',
+    model: requestedModel || chatData?.model || 'claude-3-5-sonnet',
     content,
     stop_reason: stopReason,
     stop_sequence: null,
@@ -6359,8 +6416,14 @@ app.post(['/v1/messages', '/messages'], async (req: Request, res: Response) => {
     });
   }
 
+  const requestedModel = body.model;
+  const effectiveModel = remapClaudeCodeModel(requestedModel);
+  if (effectiveModel !== requestedModel) {
+    console.log(`[claude-proxy] Remapped Claude Code model "${requestedModel}" -> "${effectiveModel}"`);
+  }
+
   const chatBody: any = {
-    model: body.model,
+    model: effectiveModel,
     max_tokens: body.max_tokens,
     temperature: body.temperature,
     top_p: body.top_p,
@@ -6491,7 +6554,7 @@ app.post(['/v1/messages', '/messages'], async (req: Request, res: Response) => {
                   id: `msg_${data.id || cryptoRandomId()}`,
                   type: 'message',
                   role: 'assistant',
-                  model: data.model || 'claude-3-5-sonnet',
+                  model: requestedModel || data.model || 'claude-3-5-sonnet',
                   content: [],
                   stop_reason: null,
                   stop_sequence: null,
@@ -6626,7 +6689,7 @@ app.post(['/v1/messages', '/messages'], async (req: Request, res: Response) => {
         if (fakeRes.statusCode >= 400 || data.error) {
           res.status(fakeRes.statusCode).json(data);
         } else {
-          const anthropicMsg = chatCompletionToAnthropicResponse(data);
+          const anthropicMsg = chatCompletionToAnthropicResponse(data, requestedModel);
           res.json(anthropicMsg);
         }
       }

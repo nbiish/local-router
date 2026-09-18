@@ -81,6 +81,10 @@ if (isWin) {
   if (!fs.existsSync(ollamaCmd)) {
     fs.writeFileSync(ollamaCmd, `@echo off\r\nnode "%~dp0local-router.js" %*\r\n`, "utf8");
   }
+  const claudeCmd = path.join(binDir, "claude.cmd");
+  if (!fs.existsSync(claudeCmd)) {
+    fs.writeFileSync(claudeCmd, `@echo off\r\nnode "%~dp0lib\\claude-runner.js" %*\r\n`, "utf8");
+  }
 
   console.log("✓ Windows batch wrappers ready in " + binDir);
   try {
@@ -100,7 +104,7 @@ if (isWin) {
   const userBin = path.join(homeDir, ".local", "bin");
   fs.mkdirSync(userBin, { recursive: true });
 
-  for (const b of ["local-router", "localrouter", "pqc-secrets"]) {
+  for (const b of ["local-router", "localrouter", "pqc-secrets", "claude"]) {
     const targetLink = path.join(userBin, b);
     const sourceBin = b === "local-router" || b === "localrouter" ? path.join(binDir, "local-router.js") : path.join(binDir, b);
     try {
