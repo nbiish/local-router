@@ -1,0 +1,11 @@
+{"type": "entity", "name": "local-router", "entityType": "service", "observations": ["Singular inference proxy and fallback routing engine on 127.0.0.1:11434", "Manages multi-provider fallback chains and model curation"]}
+{"type": "entity", "name": "repo-memory", "entityType": "substrate", "observations": ["Three-MCP persistent memory plane: memorix, reference_memory, engram", "Git-tracked memory layer at .agents/memories/"]}
+{"type": "entity", "name": "gitnexus", "entityType": "code-graph-engine", "observations": ["AST code-symbol knowledge graph in LadybugDB", "Provides 360-degree symbol context, caller/callee trees, and diff change detection"]}
+{"type": "entity", "name": "Function:src/ssrf-guard.ts:safeFetch", "entityType": "code-symbol", "observations": ["SSRF egress guard enforcing HTTPS and IP prefix blocks", "Manually follows redirects and re-validates every hop"]}
+{"type": "entity", "name": "Function:src/index.ts:proxyModelAttempt", "entityType": "code-symbol", "observations": ["Core dispatch function executing fallback cascades and model routing", "Calls safeFetch for all outbound provider requests"]}
+{"type": "entity", "name": "Module:src/reasoning.ts", "entityType": "code-symbol", "observations": ["Normalizes thinking parameters and strips reasoning_content for client safety"]}
+{"type": "relation", "from": "local-router", "to": "repo-memory", "relationType": "uses"}
+{"type": "relation", "from": "local-router", "to": "gitnexus", "relationType": "analyzed_by"}
+{"type": "relation", "from": "Function:src/index.ts:proxyModelAttempt", "to": "Function:src/ssrf-guard.ts:safeFetch", "relationType": "calls"}
+{"type": "relation", "from": "Function:src/index.ts:proxyModelAttempt", "to": "Module:src/reasoning.ts", "relationType": "calls"}
+{"type": "relation", "from": "gitnexus", "to": "repo-memory", "relationType": "scopes_recall_for"}

@@ -266,8 +266,7 @@ export function registerConfigApiRoutes(app: express.Express, deps: ConfigApiDep
 
   // The /config/chat section was removed (2026-09-04): Local Router stays a
   // focused single source for provider keys, model catalog, and fallback
-  // chains. Fleet/headless agent orchestration lives in wtf-is-going-on-mcp
-  // (.agents/skills/wtf**). The cursor-auto / github-copilot-auto PROVIDERS
+  // chains. The cursor-auto / github-copilot-auto PROVIDERS
   // remain fully served — see src/cli-auto-bridge.ts (cursor-agent / copilot
   // CLI bridges driving their auto models).
 

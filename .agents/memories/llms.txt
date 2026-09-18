@@ -1,0 +1,25 @@
+# .agents/memories — Repo-Local Memory Layer
+
+This folder is the **singular, git-tracked home of this repository's memory data**: every memory server's exportable state plus one curated digest, side by side with the other \.agents/\ coordination folders (\comms/\, \	asks/\, \skills/\). Parent rules live in the root \llms.txt\ and \AGENTS.md\ \<REPO_MEMORY>\; this file is the local contract for the folder.
+
+## Layout
+
+| Path | What | Who writes it |
+|---|---|---|
+| \MEMORY.md\ | Curated, human/agent-readable digest — durable facts worth carrying across machines and sessions | Agents, at session close (one typed entry per fact; newest first per section) |
+| \xports/engram.json\ | Engram curated store export (\ngram export <file>\) | Agents, at session close / memory milestones |
+| \xports/memorix.local-router.json\ | Memorix per-project snapshot (\memorix transfer export --format json --out <file>\) | Agents, at session close / memory milestones |
+| \xports/reference-graph.jsonl\ | Reference Memory knowledge graph copy (entity-relation graph) | Agents, at session close / memory milestones |
+
+## Rules
+
+1. **Exports are snapshots, not the source of truth.** The servers' live stores own the data; this folder makes it inspectable, diffable, and portable. Never hand-edit \xports/*\ — regenerate with the export commands (see \.agents/skills/repo-memory/SKILL.md\ §8).
+2. **\MEMORY.md\ is curated.** One entry per durable fact: \- [YYYY-MM-DD] <fact> *(source: <server>, <tool>)*\. Update in place; prune what §REPO_MEMORY rule 3 retired. Facts recorded in a parent \llms.txt\ are contracts, not memories — do not duplicate them here.
+3. **Commit on the task branch; travels with push.** Memory exports merge to \main\ like any other artifact, so other machines clone the knowledge.
+4. **Hygiene before commit:** scrub operator identifiers, credentials, and trajectories from exports and digest entries (root \<REPO_MEMORY>\ rule 4 / packet hygiene). \<private>\ spans must never survive into this folder.
+5. **Recall fallback:** when a memory server is unreachable, read \MEMORY.md\ and grep \xports/\ — this folder is the offline memory of record.
+6. **Boundary with the triad:** \.agents/comms|tasks|handoffs/\ remain the coordination system of record (claims, lifecycle, receipts). This folder holds knowledge, never task claims or lifecycle state.
+
+## Update After Editing
+
+Any change to memory tooling, layout, or rules updates this file in the same task. Regenerate exports whenever the live stores moved meaningfully.

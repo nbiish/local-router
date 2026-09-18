@@ -1,0 +1,40 @@
+# Team Ledger 2026-09-08-0220
+
+## checkin — docs/ssrf-guard-tooling
+- start: 2026-09-08T02:20:00Z
+- agent: orchestrator (local-router main session)
+- branch: docs/ssrf-guard-tooling
+- worktree: /mnt/d/Code/ssrf-guard-tooling (from main @ e4dc990)
+- task: document the Warp field failure `Invalid request: host "local-router.localtest.me" resolved to non-public address "::1"` — SSRF egress guard class; remedy = public tunnel (cloudflared/Tailscale Funnel); loopback aliases are a dead end for this tool class
+- scope: docs only (README + llms.txt troubleshooting); no code, no rebuild
+- facts verified: local-router.localtest.me = A 127.0.0.1 + AAAA ::1 (both loopback); router serving verified TLS on loopback all session; tunnel binaries not installed locally (documented as setup steps, not live-smoked)
+- end: 2026-09-08T02:35:00Z
+
+## intent-merge — docs/ssrf-guard-tooling
+- start: 2026-09-08T02:35:00Z
+- commit: fa7a8af docs(tls) — README +30 (SSRF guard subsection: signature, dead-end table, tunnel options, security warning), llms.txt +3/-1 (troubleshooting anchor + cross-link from the localtest.me bullet)
+- verification: DNS records re-verified (dig); router endpoints re-verified serving; docs-only -> no-rebuild-needed; push to origin requested by operator alongside merge
+- requesting operator confirmation to merge docs/ssrf-guard-tooling -> main and push
+- end: 2026-09-08T02:45:00Z (operator APPROVED merge + push)
+
+## update — merge + push + checkout receipt
+- start: 2026-09-08T02:45:00Z
+- merged: 529bc81 (--no-ff) -> main; pushed origin (e4dc990..529bc81); local/remote verified in sync
+- cleanup: worktree /mnt/d/Code/ssrf-guard-tooling removed, branch deleted (merged + unclaimed + idle verified)
+- docs-only -> no-rebuild-needed; production PID 215556 continues serving 11434/11443
+- open operator thread: install cloudflared (`cloudflared tunnel --url http://localhost:11434`) and point Warp at the printed trycloudflare.com URL + /v1; treat tunnel URL as secret (router has no inbound auth)
+- checkout: docs/ssrf-guard-tooling session scope closed
+- end: 2026-09-08T02:50:00Z
+
+## checkin — feat/providers-tokenhub-intl
+- start: 2026-09-08T13:10:00Z
+- agent: orchestrator (local-router main session)
+- branch: feat/providers-tokenhub-intl
+- worktree: D:/Code/local-router-tokenhub-intl (from main @ 529bc81)
+- task: add Tencent Cloud TokenHub Coding Plan (intl/Singapore) as provider `tokenhub-intl` @ https://tokenhub-intl.tencentcloudmaas.com/plan/v3, key env `TOKENHUB_INTL_API_KEY`
+- facts verified live (curl, no key): POST /plan/v3/chat/completions -> 401 (route exists); GET /plan/v3/models -> 404 "page not found" (no /models route on the plan surface); GET /v1/models on the same host -> 401 (metered TokenHub API, different key class: sk- not sk-sp-); identical results on tokenhub-intl.tencentmaas.com / .cn / .tencentcloudmaas.com
+- curated catalog (Coding Plan doc 1823/130092): tc-code-latest (Auto), glm-5, glm-5-0 — all tier subscription, plan models are text-only (no multimodal)
+- scope: src/provider-registry.ts (+1 entry), src/provider-model-registries.ts (+3 rows, +slug in PROVIDERS_WITHOUT_LIVE_MODEL_LIST, header source line), src/routing-defaults.ts (system chain 24->25, performance preset 18->19), src/index.ts (PROVIDER_ENDPOINTS.md generator prints "none (curated registry...)" instead of a 404 /models URL), llms.txt (catalog row, counts, subscription band, changelog), ROUTER.md (chain counts)
+- gov/ToS note raised to operator: Coding Plan terms (doc 1823/130092) restrict the sk-sp- key to interactive coding tools and forbid API/scripted/non-interactive use — routing it through local-router is the operator's call
+- env note: git in this session could not create loose refs under .git/refs/heads/<subdir>/ (silently reverted); branch was registered via .git/packed-refs instead. Pre-existing branch docs/critical-standards-compliance was lost to the same failure and restored at 58284cc from its reflog
+- end: (pending — awaiting merge confirmation)

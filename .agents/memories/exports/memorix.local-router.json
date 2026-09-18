@@ -1,0 +1,84 @@
+{
+  "version": "0.9.0",
+  "exportedAt": "2026-09-10T02:57:15.677Z",
+  "projectId": "nbiish/local-router",
+  "observations": [
+    {
+      "id": 3,
+      "entityName": "general",
+      "type": "gotcha",
+      "title": "SSRF Guard Upstream HTTPS Requirement",
+      "narrative": "Non-loopback upstreams strictly require HTTPS; loopback HTTP is allowed only for registered local service backends (llama-server, unsloth); other HTTP is dev-mode only (LOCAL_ROUTER_DEV=true)",
+      "facts": [],
+      "filesModified": [],
+      "concepts": [],
+      "tokens": 49,
+      "createdAt": "2026-09-10T02:56:11.198Z",
+      "projectId": "nbiish/local-router",
+      "hasCausalLanguage": false,
+      "topicKey": "discovery/ssrf-guard-upstream-https-requirement",
+      "revisionCount": 1,
+      "status": "active",
+      "source": "manual",
+      "visibility": "project",
+      "writeGeneration": 3
+    },
+    {
+      "id": 4,
+      "entityName": "general",
+      "type": "what-changed",
+      "title": "Thinking Level Resolution Order",
+      "narrative": "Thinking level defaults to medium (DEFAULT_THINKING_LEVEL in src/reasoning.ts). Resolution order: (1) explicit opt-out disables unconditionally, (2) explicit opt-in passes through normalized, (3) configured global/per-provider level applies.",
+      "facts": [],
+      "filesModified": [
+        "src/reasoning.ts"
+      ],
+      "concepts": [
+        "reasoning"
+      ],
+      "tokens": 61,
+      "createdAt": "2026-09-10T02:56:13.831Z",
+      "projectId": "nbiish/local-router",
+      "hasCausalLanguage": false,
+      "topicKey": "general/thinking-level-resolution-order",
+      "revisionCount": 1,
+      "status": "active",
+      "source": "manual",
+      "visibility": "project",
+      "writeGeneration": 4
+    },
+    {
+      "id": 5,
+      "entityName": "routing-engine",
+      "type": "reasoning",
+      "title": "Graceful Cascade on Preflight Failures",
+      "narrative": "Preflight failures (unknown model, no provider, no key/credits, allowlist reject) log skipped: true, stageAttempts: 0 and advance immediately to the next fallback stage without burning retry timeouts. The chain only fails on total cascade exhaustion.",
+      "facts": [
+        "Decision: Graceful Cascade on Preflight Failures"
+      ],
+      "filesModified": [],
+      "concepts": [],
+      "tokens": 69,
+      "createdAt": "2026-09-10T02:56:35.720Z",
+      "projectId": "nbiish/local-router",
+      "hasCausalLanguage": false,
+      "revisionCount": 1,
+      "status": "active",
+      "source": "manual",
+      "relatedCommits": [],
+      "relatedEntities": [],
+      "visibility": "project",
+      "writeGeneration": 5
+    }
+  ],
+  "sessions": [],
+  "stats": {
+    "observationCount": 3,
+    "sessionCount": 0,
+    "typeBreakdown": {
+      "gotcha": 1,
+      "what-changed": 1,
+      "reasoning": 1
+    }
+  }
+}

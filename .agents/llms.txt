@@ -28,5 +28,7 @@ Operator task files, agent skills, and research artifacts.
 
 ## Child DOX Index
 
+- [memories/llms.txt](memories/llms.txt) — Persistent repo memory graph and snapshot digest.
 - [skills/pqc-secrets/llms.txt](skills/pqc-secrets/llms.txt) — PQC secrets skill.
 - [skills/pqc-signatures-security/llms.txt](skills/pqc-signatures-security/llms.txt) — PQC signatures skill.
+- [skills/repo-memory-graph-intelligence/SKILL.md](skills/repo-memory-graph-intelligence/SKILL.md) — Repo memory graph intelligence skill.

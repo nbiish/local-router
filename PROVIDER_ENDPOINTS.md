@@ -5,7 +5,7 @@
 
 | Provider | Auth | Base URL | Models Endpoint | Chat Endpoint | Key Env Var | Key Status | Curated Models | CLI Auto Bridge |
 |---|---|---|---|---|---|---|---|
-| wafer-serverless | API key | https://pass.wafer.ai/v1 | https://pass.wafer.ai/v1/models | https://pass.wafer.ai/v1/chat/completions | WAFER_SERVERLESS_API_KEY | missing | 1 | — |
+| wafer-serverless | API key | https://pass.wafer.ai/v1 | https://pass.wafer.ai/v1/models | https://pass.wafer.ai/v1/chat/completions | WAFER_SERVERLESS_API_KEY | configured | 1 | — |
 | zenmux | API key | https://zenmux.ai/api/v1 | https://zenmux.ai/api/v1/models | https://zenmux.ai/api/v1/chat/completions | ZENMUX_API_KEY | missing | 0 | — |
 | nebius | API key | https://api.tokenfactory.nebius.com/v1 | https://api.tokenfactory.nebius.com/v1/models | https://api.tokenfactory.nebius.com/v1/chat/completions | NEBIUS_API_KEY | missing | 0 | — |
 | moonshot | API key | https://api.moonshot.ai/v1 | https://api.moonshot.ai/v1/models | https://api.moonshot.ai/v1/chat/completions | MOONSHOT_API_KEY | missing | 0 | — |
@@ -26,7 +26,7 @@
 | cursor | OAuth (signed in) | https://api2.cursor.sh/v1 | https://api2.cursor.sh/v1/models | https://api2.cursor.sh/v1/chat/completions | CURSOR_API_KEY | token active | 0 | CLI not found |
 | pioneer | API key | https://api.pioneer.ai/v1 | https://api.pioneer.ai/v1/models | https://api.pioneer.ai/v1/chat/completions | PIONEER_API_KEY | missing | 0 | — |
 | nous-portal | API key | https://inference-api.nousresearch.com/v1 | https://inference-api.nousresearch.com/v1/models | https://inference-api.nousresearch.com/v1/chat/completions | NOUS_API_KEY | missing | 0 | — |
-| llama-cpp | API key (custom) | http://127.0.0.1:8080/v1 | http://127.0.0.1:8080/v1/models | http://127.0.0.1:8080/v1/chat/completions | LLAMA_CPP_API_KEY | configured | 2 | — |
-| mock-local | API key (custom) | http://127.0.0.1:39735/v1 | http://127.0.0.1:39735/v1/models | http://127.0.0.1:39735/v1/chat/completions | MOCK_LOCAL_API_KEY | configured | 1 | — |
+| llama-cpp | API key (custom) | http://127.0.0.1:8080/v1 | http://127.0.0.1:8080/v1/models | http://127.0.0.1:8080/v1/chat/completions | LLAMA_CPP_API_KEY | configured | 0 | — |
+| unsloth | API key (custom) | http://127.0.0.1:8888/v1 | http://127.0.0.1:8888/v1/models | http://127.0.0.1:8888/v1/chat/completions | UNSLOTH_API_KEY | configured | 0 | — |
 
-_Generated 2026-09-10T03:37:22.305Z._
+_Generated 2026-09-18T02:50:25.073Z._
