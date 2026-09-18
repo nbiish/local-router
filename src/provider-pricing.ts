@@ -40,6 +40,13 @@ export const BASELINE_PROVIDER_PRICING: Record<string, ProviderPricingEntry> = {
     label: 'Wafer serverless DeepSeek V4 Pro (ZDR enhanced inference, 2026-06-12)',
     sourceUrl: 'https://pass.wafer.ai/v1/models'
   },
+  'wafer-ai-deepseek-v4.1-flash': {
+    inputPricePerM: 0.20,
+    outputPricePerM: 0.60,
+    cacheReadPricePerM: 0.01,
+    label: 'Wafer serverless DeepSeek V4.1 Flash (ZDR enhanced inference, 2026-09-18)',
+    sourceUrl: 'https://pass.wafer.ai/v1/models'
+  },
   'zenmux-minimax-m3': {
     inputPricePerM: 0.3,
     outputPricePerM: 1.2,

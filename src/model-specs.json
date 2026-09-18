@@ -19,6 +19,14 @@
       "reasoning": true,
       "source": "deepseek.com API docs (April 2026)"
     },
+    "deepseek-v4.1-flash": {
+      "context": 1048576,
+      "output": 384000,
+      "tools": true,
+      "vision": true,
+      "reasoning": true,
+      "source": "Wafer Serverless API / DeepSeek docs (September 2026)"
+    },
     "deepseek-chat": {
       "context": 128000,
       "output": 16000,

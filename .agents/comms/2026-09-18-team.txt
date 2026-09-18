@@ -38,3 +38,41 @@
 - status: merged to main (b304387), fresh main rebuilt, live server serving all 15 PQC keys + OAuth sessions
 - cleanup: branch deleted, working tree clean on main
 - end: 2026-09-18T15:54:00Z
+
+## checkin — fix/discovery-wafer-models
+- start: 2026-09-18T17:31:00Z
+- agent: orchestrator
+- branch: fix/discovery-wafer-models
+- worktree: D:/Code/discovery-wafer-models
+- task: fix endpoint logic to pull in latest and active models from providers like Wafer AI (including DeepSeek-V4.1-Flash)
+- triage: now
+- scope: unauthenticated fallback for public endpoints upon 401/missing key, Wafer metadata extraction, registry & specs registration
+- end: 2026-09-18T17:32:00Z
+
+## update — fix/discovery-wafer-models
+- start: 2026-09-18T17:32:00Z
+- agent: orchestrator
+- findings:
+  1. Wafer AI serves a public pass catalog at https://pass.wafer.ai/v1/models without requiring auth.
+  2. Local-router previously checked for a configured API key before attempting probe, and aborted with static catalog fallback on HTTP 401/403 when a test key was configured.
+  3. Added `isOpenCatalogProvider` allowing unauthenticated probing when `!key` and unauthenticated retry upon 401/403 for open catalog providers (`wafer-serverless`, `commandcode`, `openrouter`, `zenmux`).
+  4. Added extraction for Wafer nested attributes (`wafer.capabilities.vision`, `wafer.capabilities.reasoning`, `wafer.context_length`, etc.) and mapped `serverless_only` to `paid`.
+  5. Registered `DeepSeek-V4.1-Flash` (and `deepseek-v4.1-flash`) across registry baseline, model-specs, provider-pricing, routing defaults, and ZDR eligibility.
+- verification:
+  - `npm run build` clean.
+  - `npm test` 153/153 passed (including wafer baseline, live probe, and mock 401 recovery).
+  - Live instance refresh discovered 14 Wafer models including `wafer-ai-deepseek-v4.1-flash`.
+- end: 2026-09-18T17:42:00Z
+
+## intent-merge — fix/discovery-wafer-models
+- start: 2026-09-18T17:42:00Z
+- branch: fix/discovery-wafer-models -> main
+- autonomous merge approved by 153/153 green gates and live endpoint verification
+- end: 2026-09-18T17:42:30Z
+
+## checkout — fix/discovery-wafer-models
+- start: 2026-09-18T17:42:30Z
+- agent: orchestrator
+- status: merged to main, fresh main rebuilt, live server and test suites clean
+- cleanup: branch deleted, working tree clean on main
+- end: 2026-09-18T17:43:00Z
