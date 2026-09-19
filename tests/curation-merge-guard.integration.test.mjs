@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { once } from 'node:events';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -217,5 +217,53 @@ test('curation seeding: a deliberately cleared provider is not re-seeded by acti
   assert.ok(
     !(readModelSourceConfig().operatorClearedProviders || []).includes('zai'),
     'Re-selecting a model must lift the operator-cleared mark'
+  );
+});
+
+test('catalog migration: an operator-cleared provider survives a catalog version bump', async () => {
+  // Stage a deliberate clear.
+  const refresh = await requestJson('/api/provider-models/zai/refresh', { method: 'POST' });
+  assert.equal(refresh.response.status, 200);
+  const zaiModels = (refresh.body?.data || []).map((model) => model.model);
+  assert.ok(zaiModels.length >= 2, 'Need at least two zai models to stage a clear');
+
+  // Mixed baseline so clearing zai is a single-provider edit and the migration
+  // still has other providers left to seed.
+  const zaiKeys = zaiModels.slice(0, 2).map((model) => `zai::${model}`);
+  const keepKey = 'nebius::deepseek-v4.1-flash';
+  await putJson('/api/model-curation', {
+    enabled: true,
+    selectedKeys: [...zaiKeys, keepKey],
+    force: true
+  });
+  await putJson('/api/model-curation', { enabled: true, selectedKeys: [keepKey], force: true });
+  assert.ok(
+    (readModelSourceConfig().operatorClearedProviders || []).includes('zai'),
+    'Precondition: zai must be marked operator-cleared'
+  );
+
+  // Force seedRegistryCatalogIfNeeded() to run again with an empty endpoint
+  // cache, so the migration has registry models to pre-check.
+  const configDir = join(testHome, '.config', 'local-router');
+  const configPath = join(configDir, 'model-source-config.json');
+  await stopServer();
+  const staged = JSON.parse(readFileSync(configPath, 'utf8'));
+  staged.catalogMigrationVersion = 0;
+  writeFileSync(configPath, JSON.stringify(staged, null, 2));
+  writeFileSync(join(configDir, 'endpoint-models-cache.json'), '[]');
+  await startServer();
+
+  const after = await requestJson('/api/model-curation');
+  const keys = selectedKeysOf(after.body);
+  const clearedProviders = readModelSourceConfig().operatorClearedProviders || [];
+  assert.ok(clearedProviders.length > 0, 'Precondition: at least one provider is operator-cleared');
+  assert.ok(keys.length > 0, 'Migration must still seed the catalog for other providers');
+  // The migration pre-checks every model it newly unions into the cache, so any
+  // key belonging to a cleared provider means it repopulated one.
+  const repopulated = keys.filter((key) => clearedProviders.includes(key.split('::')[0]));
+  assert.deepEqual(
+    repopulated,
+    [],
+    'Catalog migration must not repopulate operator-cleared providers'
   );
 });

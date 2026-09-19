@@ -173,3 +173,7 @@ src/**/*.d.ts.map
 src/**/*.js
 src/**/*.js.map
 
+# Local assistant working memory — machine-local, not shared. Repo memory that
+# travels with git belongs in .agents/memories/ (see the AGENTS.md contract).
+.workbuddy-ai/
+

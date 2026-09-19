@@ -1868,8 +1868,14 @@ function seedRegistryCatalogIfNeeded(): void {
     );
     // Pre-check only models the store has never seen: existing entries keep
     // the user's explicit toggle choices (untoggled ≠ undiscovered).
+    // Providers the operator has deliberately cleared are skipped as well — a
+    // catalog version bump must not silently repopulate them (2026-09-19).
     const curated = new Set(modelSourceConfig.curatedEndpointModelKeys);
-    for (const model of addedModels) curated.add(endpointModelCurationKey(model));
+    const operatorCleared = new Set(modelSourceConfig.operatorClearedProviders);
+    for (const model of addedModels) {
+      if (operatorCleared.has(model.provider)) continue;
+      curated.add(endpointModelCurationKey(model));
+    }
     modelSourceConfig.curatedEndpointModelKeys = [...curated].sort().slice(0, MAX_CURATED_ENDPOINT_MODEL_KEYS);
     modelSourceConfig.source = 'endpoints';
     modelSourceConfig.curationEnabled = true;
