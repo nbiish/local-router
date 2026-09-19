@@ -41,12 +41,92 @@
   2. `git add AGENTS.md` fails: `error: open("AGENTS.md"): Function not implemented` / `unable to index file`.
   3. `git diff --stat` and `git diff HEAD` abort on the same error, so broad diff/stat commands are unreliable until resolved.
   4. Committing explicit paths still works (this session's commit succeeded).
-- action-needed: operator decision — restore the tracked regular file, or remove AGENTS.md from the index and gitignore it so the symlink can live on disk.
-- end: 2026-09-19T22:23:00Z
+- resolution: NOT a misconfiguration. The symlink target is the canonical, centrally
+  governed contract and carries an explicit notice: "THIS AGENTS.md IS A CENTRALLY
+  GOVERNED SYMLINK FROM ainish-coder. NEVER EDIT, TRUNCATE, OVERWRITE, OR COMMIT THIS
+  FILE IN DOWNSTREAM REPOS. ALL REPOSITORY-SPECIFIC PRD DIRECTIVES & RULES BELONG IN
+  llms.txt." The contract states every target repo is deployed as a live symlink and
+  downstream repos are write-protected at git level.
+- attempted fix (REVERTED): `git rm --cached AGENTS.md` + `/AGENTS.md` in `.gitignore`,
+  which would have restored `git diff --stat`. The `.git/hooks/pre-commit` guard
+  installed 2026-09-19T15:29 blocks it:
+  `[ERROR] AGENTS.md is a protected canonical symlink managed by ainish-coder.
+  Modifying or committing AGENTS.md in downstream repositories is forbidden.`
+  The guard matches any staged AGENTS.md change, including the deletion, so untracking
+  it is not possible without `--no-verify`. Hook not bypassed; the untrack was reverted
+  and the index entry restored (blob 6d0d7e7).
+- status: UNRESOLVED — the guard and the symlink are both working as designed, but the
+  combination leaves `git diff --stat` / `git diff HEAD` permanently aborting with
+  `error: open("AGENTS.md"): Function not implemented`, and `git add -A` unusable.
+  Needs an operator decision: allow the untrack in the guard, exclude AGENTS.md from
+  the guard's match, or accept the limitation and always scope diffs to explicit paths.
+- end: 2026-09-19T22:33:00Z
+
+## update — fix/curation-seed-repopulation (latent same-class defect)
+- start: 2026-09-19T22:24:00Z
+- agent: orchestrator
+- branch: main (direct commit)
+- findings:
+  1. `seedCurationDefaultsForProvider()` bailed out only if the provider already had a
+     curated key. A provider with zero keys was therefore indistinguishable from one
+     never seeded, so `ensureCurationDefaultsForCache()` (reachable via
+     `PUT /api/model-curation { activate: true }`) re-populated its entire catalog and
+     silently undid a deliberate deselect — the same bug class as the reported symptom.
+  2. Reproduced: with the new guard removed, the new test fails at
+     "activate must not re-seed a provider the operator deliberately cleared".
+- fix:
+  - New `operatorClearedProviders: string[]` on the persisted model source config
+    (loader defaults to `[]`; backwards compatible with existing files).
+  - `reconcileOperatorClearedProviders(previousKeys, nextKeys)` records providers that
+    lose every key in an explicit curation write and lifts the mark once a provider has
+    any key again. Wired into `PUT /api/model-curation`,
+    `POST /api/curation-configs/load`, `deselectProviderCurationKeys` (off-by-default
+    refresh), and `ensureCuratedOverrideSelection`.
+  - `seedCurationDefaultsForProvider` skips operator-cleared providers.
+- verification:
+  - `npm run build` clean.
+  - New test `curation seeding: a deliberately cleared provider is not re-seeded by
+    activate` — passes with the fix, fails without it.
+  - Full suite `npm run test:integration`: 151/151 pass, 0 fail.
+- commit: 66507bf
+- end: 2026-09-19T22:39:00Z
+
+## fix — test runs were clobbering PROVIDER_ENDPOINTS.md
+- start: 2026-09-19T22:39:00Z
+- agent: orchestrator
+- findings:
+  1. `writeProviderEndpointsDoc()` resolves its output as `path.resolve(__dirname, '..', 'PROVIDER_ENDPOINTS.md')` — repo-relative, not scoped to HOME — and runs from FIVE call sites: server boot plus four route handlers (provider add, key save, explicit regenerate).
+  2. Integration tests spawn servers with a throwaway HOME, so every suite run overwrote
+     the committed doc with sandbox state: antigravity and cursor flipped from
+     `OAuth (signed in)` / `token active` to `OAuth (not signed in)`, plus a fresh
+     generated timestamp.
+  3. First attempt gated only the boot call site on `LOCAL_ROUTER_DEV` — incomplete:
+     ~20 test files never set that flag, and six of them (`agent-proxy-interception`,
+     `fallback-content-classifier`, `fallback-context-multimodal`,
+     `fallback-disabled-execution-plan`, `fallback-disabled-models`, `prompt-caching`)
+     do not override HOME at all because they `import('../build/index.js')` in-process
+     instead of spawning. One of those was still rewriting the doc from the real config
+     after the first gate, producing a diff with the live curated counts
+     (openrouter 441, nous-portal 60).
+- fix: guard inside `writeProviderEndpointsDoc()` itself — covering all five call sites —
+  returning early when `LOCAL_ROUTER_DEV === 'true'`, `NODE_ENV === 'development'`, or
+  `NODE_TEST_CONTEXT` is set (the node:test runner sets the last one, and it is inherited
+  by both spawned servers and in-process imports of the build). The live host and the
+  release path still regenerate the doc.
+- verification: full suite 151/151 green and `git status` shows `PROVIDER_ENDPOINTS.md`
+  clean after the run.
+- end: 2026-09-19T22:44:00Z
 
 ## followup — deferred
 - start: 2026-09-19T22:23:00Z
 - items:
-  1. `seedCurationDefaultsForProvider` (src/index.ts) treats "provider has zero curated keys" as "never seeded" and re-seeds the provider's entire catalog. A deliberate full deselect is indistinguishable from a fresh provider. Only reachable via `activate: true`, which the UI never sends, so it is latent rather than the active cause — but it is the same bug class and should be hardened.
-  2. Live router process (WSL systemd unit `local-router-ensure.service`, port 11434) is still running pre-fix code and needs a restart to serve this fix.
-- end: 2026-09-19T22:23:30Z
+  1. Live router process (WSL systemd unit `local-router-ensure.service`, port 11434) is
+     still running pre-fix code and needs a restart to serve this work. `wsl.exe` is on
+     the sandbox program blacklist, so it could not be restarted from this session.
+  2. Resolve the AGENTS.md guard/symlink conflict (see blocker entry) — `git diff --stat`,
+     `git diff HEAD` and `git add -A` remain unusable in this repo until then.
+  3. `PROVIDER_ENDPOINTS.md` in the working tree was regenerated by test runs during this
+     session and restored with `git checkout`; if the live host's provider state has moved
+     on, regenerate it from the live server rather than trusting the committed copy.
+- end: 2026-09-19T22:47:00Z
+
