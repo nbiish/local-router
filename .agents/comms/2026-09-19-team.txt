@@ -1,0 +1,52 @@
+# Team Ledger 2026-09-19
+
+## checkin — fix/curation-single-provider-deselect
+- start: 2026-09-19T22:05:00Z
+- agent: orchestrator
+- branch: main (direct commit 61267f2)
+- worktree: D:/Code/local-router
+- task: openrouter provider list keeps reselecting models after deselect + navigate away + return
+- triage: now
+- scope: curation merge guard false positive on single-provider deselection; auto-curation re-add after deliberate deselect
+- note: WIP inherited uncommitted from prior session (src/index.ts, src/ui/pages/layout.ts, new integration test, unregistered)
+- end: 2026-09-19T22:20:00Z
+
+## update — fix/curation-single-provider-deselect
+- start: 2026-09-19T22:05:00Z
+- agent: orchestrator
+- findings:
+  1. Symptom reproduced and root-caused: `PUT /api/model-curation` is gated by `evaluateCurationShrink` (>=90% shrink of a >=10-key catalog => block). Deselecting OpenRouter (447 curated models of 466 total) is a 95.9% shrink, so the write returned HTTP 409, was never persisted, and the next page load re-fetched the old server-side selection — the "models keep coming back" report.
+  2. Verified empirically: with the single-provider exemption disabled, a 20-of-22 single-provider clear returns 409 instead of 200 (test failure reproduced).
+  3. Live config corroborated the scale: `~/.config/local-router/curation-backups/curation-full-2026-09-19T21-58-19-925Z.json` holds 466 keys with 447 openrouter, reason `PUT /api/model-curation (forced)`; the 21:51 snapshot holds 226 keys with 203 zenmux (ratio 0.889 — just under the 0.9 block threshold, so it snapshotted but did not block).
+  4. Secondary defect: `refreshProviderEndpointModels({preserveCuration:true})` auto-curated newly discovered models unconditionally, undoing a deliberate full-provider deselect on the next automated refresh.
+  5. UI had no recovery path for 409 on the debounced autosave path — the failure was silent (silent:true), so the selection reverted with no visible cause.
+- fix:
+  - `evaluateCurationShrink`: exempt targeted single-provider edits (providersBefore.size > 1 && removedProviders.size === 1 && remainingProviders.size >= 1) from the block. Whole-catalog wipes still blocked.
+  - `refreshProviderEndpointModels`: gate new-discovery auto-curation on the provider having curated keys before the refresh.
+  - `layout.ts`: provider "Deselect all" autosaves with `force: true`; 409 responses render an inline "Force Save" button and, on non-silent saves, a confirm() prompt.
+  - Safety net retained: `guardCurationReplacement` still snapshots whenever a write removes >= half the catalog.
+- verification:
+  - `npm run build` clean.
+  - New `tests/curation-merge-guard.integration.test.mjs`: single-provider clear 200, whole-catalog wipe 409, forced wipe 200 — passes.
+  - Registered the new test in `package.json` `test:integration` (it was untracked and unregistered in the inherited WIP).
+  - Full suite `npm run test:integration`: 150/150 pass, 0 fail.
+- commit: 61267f2
+- end: 2026-09-19T22:22:00Z
+
+## blocker — AGENTS.md symlink breaks git index operations
+- start: 2026-09-19T22:20:00Z
+- agent: orchestrator
+- findings:
+  1. `AGENTS.md` is tracked as a regular file (mode 100644, blob 6d0d7e7) but on disk it is now a symlink to `/d/Code/ainish-coder/AGENTS.md` (created 2026-09-19 17:01).
+  2. `git add AGENTS.md` fails: `error: open("AGENTS.md"): Function not implemented` / `unable to index file`.
+  3. `git diff --stat` and `git diff HEAD` abort on the same error, so broad diff/stat commands are unreliable until resolved.
+  4. Committing explicit paths still works (this session's commit succeeded).
+- action-needed: operator decision — restore the tracked regular file, or remove AGENTS.md from the index and gitignore it so the symlink can live on disk.
+- end: 2026-09-19T22:23:00Z
+
+## followup — deferred
+- start: 2026-09-19T22:23:00Z
+- items:
+  1. `seedCurationDefaultsForProvider` (src/index.ts) treats "provider has zero curated keys" as "never seeded" and re-seeds the provider's entire catalog. A deliberate full deselect is indistinguishable from a fresh provider. Only reachable via `activate: true`, which the UI never sends, so it is latent rather than the active cause — but it is the same bug class and should be hardened.
+  2. Live router process (WSL systemd unit `local-router-ensure.service`, port 11434) is still running pre-fix code and needs a restart to serve this fix.
+- end: 2026-09-19T22:23:30Z
