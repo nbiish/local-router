@@ -393,7 +393,14 @@ const modelSourceConfig: {
   curationEnabled: boolean;
   curatedEndpointModelKeys: string[];
   defaultCurationConfig?: string;
-} = { source: 'custom', filterConfigured: true, curationEnabled: false, curatedEndpointModelKeys: [] };
+  operatorClearedProviders: string[];
+} = {
+  source: 'custom',
+  filterConfigured: true,
+  curationEnabled: false,
+  curatedEndpointModelKeys: [],
+  operatorClearedProviders: []
+};
 const MAX_CURATED_ENDPOINT_MODEL_KEYS = 5000;
 let endpointModelsCache: ProviderModel[] = [];
 const DEFAULT_CHAIN_OF_DRAFT_PROMPT = `Think step by step, but only keep a minimum draft for each thinking step, with 5 words at most. Return the answer after your thinking.`;
@@ -862,7 +869,9 @@ function ensureCuratedOverrideSelection(providerName: string): void {
     }
   }
   if (!changed) return;
+  const previousAll = modelSourceConfig.curatedEndpointModelKeys;
   modelSourceConfig.curatedEndpointModelKeys = [...existing].slice(0, MAX_CURATED_ENDPOINT_MODEL_KEYS);
+  reconcileOperatorClearedProviders(previousAll, modelSourceConfig.curatedEndpointModelKeys);
   persistModelSourceConfig();
 }
 
@@ -1901,6 +1910,12 @@ function loadModelSourceConfig(): void {
     if (typeof parsed.defaultCurationConfig === 'string' && parsed.defaultCurationConfig.trim()) {
       modelSourceConfig.defaultCurationConfig = parsed.defaultCurationConfig.trim();
     }
+    if (Array.isArray(parsed.operatorClearedProviders)) {
+      const clearedProviders: string[] = parsed.operatorClearedProviders
+        .map((provider: unknown) => String(provider || '').trim())
+        .filter((provider: string) => provider.length > 0);
+      modelSourceConfig.operatorClearedProviders = Array.from(new Set(clearedProviders)).sort();
+    }
   } catch (error: any) {
     console.error('Failed to load persisted model source config:', sanitizeDiagnosticText(String(error?.message || error)));
   }
@@ -2394,11 +2409,39 @@ function mergeProviderEndpointModels(providerName: string, models: ProviderModel
 }
 
 /**
+ * Record which providers the operator has deliberately emptied through an
+ * explicit curation write.
+ *
+ * (2026-09-19) A provider with zero curated keys used to be indistinguishable
+ * from a provider that had never been seeded at all, so any later
+ * `ensureCurationDefaultsForCache()` call re-populated its entire catalog and
+ * silently undid a deliberate deselect. Tracking the operator's clears lets
+ * bootstrap seeding skip those providers. Re-selecting any model of a provider
+ * clears the mark, so the provider becomes seedable again.
+ */
+function reconcileOperatorClearedProviders(previousKeys: string[], nextKeys: string[]): void {
+  const providersOf = (keys: string[]) =>
+    new Set(keys.map((key) => key.split('::')[0]).filter(Boolean));
+  const before = providersOf(previousKeys);
+  const after = providersOf(nextKeys);
+  const cleared = new Set(modelSourceConfig.operatorClearedProviders);
+  for (const provider of before) {
+    if (!after.has(provider)) cleared.add(provider);
+  }
+  for (const provider of after) {
+    cleared.delete(provider);
+  }
+  modelSourceConfig.operatorClearedProviders = Array.from(cleared).sort();
+}
+
+/**
  * First-fetch seeding: pre-check (select) every discovered model that already
  * exists in the curated toggle-store catalog so serving continuity is kept.
- * Providers that already have any selection are left untouched.
+ * Providers that already have any selection are left untouched, as are
+ * providers the operator has explicitly cleared.
  */
 function seedCurationDefaultsForProvider(providerName: string, models: ProviderModel[]): number {
+  if (modelSourceConfig.operatorClearedProviders.includes(providerName)) return 0;
   const existing = new Set(modelSourceConfig.curatedEndpointModelKeys);
   if (models.some((model) => existing.has(endpointModelCurationKey(model)))) return 0;
   const catalogModels = new Set(
@@ -2478,8 +2521,12 @@ function deselectProviderCurationKeys(providerName: string): number {
   const previous = modelSourceConfig.curatedEndpointModelKeys.filter((key) => key.startsWith(prefix));
   if (previous.length === 0) return 0;
   snapshotProviderCurationBackup(providerName, previous);
+  const previousAll = modelSourceConfig.curatedEndpointModelKeys;
   modelSourceConfig.curatedEndpointModelKeys = modelSourceConfig.curatedEndpointModelKeys
     .filter((key) => !key.startsWith(prefix));
+  // Off-by-default is an intentional empty state: mark the provider so a later
+  // bootstrap seeding pass cannot undo it.
+  reconcileOperatorClearedProviders(previousAll, modelSourceConfig.curatedEndpointModelKeys);
   persistModelSourceConfig();
   return previous.length;
 }
@@ -4121,6 +4168,7 @@ const configApiDeps = {
   queryAllProviderEndpoints,
   refreshProviderEndpointModels,
   ensureCurationDefaultsForCache,
+  reconcileOperatorClearedProviders,
   deselectAllProviderCurationKeys,
   snapshotFullCurationBackup,
   scheduleRecheckForFallbackReferences,
@@ -4802,6 +4850,20 @@ function startCatalogHealthMonitor(): void {
 }
 
 function writeProviderEndpointsDoc(): void {
+  // PROVIDER_ENDPOINTS.md is a release artifact describing the real host's
+  // provider state. Dev runs and test runs use throwaway (or absent) config
+  // dirs, so writing there would overwrite the committed doc with sandbox state
+  // — e.g. flipping OAuth providers to "not signed in" and stamping a bogus
+  // generated-at time. NODE_TEST_CONTEXT is set by the node:test runner and is
+  // inherited by in-process imports of the build. Guarding here covers every
+  // call site (boot, provider add, key save, explicit regenerate).
+  if (
+    process.env.LOCAL_ROUTER_DEV === 'true'
+    || process.env.NODE_ENV === 'development'
+    || process.env.NODE_TEST_CONTEXT
+  ) {
+    return;
+  }
   try {
     const outPath = path.resolve(__dirname, '..', 'PROVIDER_ENDPOINTS.md');
     const lines: string[] = [

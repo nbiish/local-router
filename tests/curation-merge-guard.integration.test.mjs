@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { once } from 'node:events';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -30,6 +30,15 @@ function putJson(pathname, payload) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload)
   });
+}
+
+function readModelSourceConfig() {
+  const path = join(testHome, '.config', 'local-router', 'model-source-config.json');
+  return JSON.parse(readFileSync(path, 'utf8'));
+}
+
+function selectedKeysOf(body) {
+  return body?.selectedKeys || [];
 }
 
 async function startServer() {
@@ -145,4 +154,68 @@ test('curation merge guard: single-provider clear succeeds without 409, whole-ca
   });
   assert.equal(wipeWithForce.response.status, 200);
   assert.equal(wipeWithForce.body?.selectedCount, 0);
+});
+
+test('curation seeding: a deliberately cleared provider is not re-seeded by activate', async () => {
+  // Populate the endpoint cache so the seeding path has a catalog to work with.
+  const refresh = await requestJson('/api/provider-models/zai/refresh', { method: 'POST' });
+  assert.equal(refresh.response.status, 200);
+  const zaiModels = (refresh.body?.data || []).map((model) => model.model);
+  assert.ok(zaiModels.length >= 2, 'Need at least two zai models to stage a clear');
+
+  const zaiKeys = zaiModels.slice(0, 2).map((model) => `zai::${model}`);
+
+  // A provider refresh auto-clears picks, so select two models back to lift the
+  // operator-cleared mark.
+  const select = await putJson('/api/model-curation', {
+    enabled: true,
+    selectedKeys: zaiKeys,
+    force: true
+  });
+  assert.equal(select.response.status, 200);
+  assert.equal(select.body?.selectedCount, 2);
+  assert.ok(
+    !(readModelSourceConfig().operatorClearedProviders || []).includes('zai'),
+    'Selecting models must clear the operator-cleared mark'
+  );
+
+  // Deliberately clear the provider.
+  const clear = await putJson('/api/model-curation', {
+    enabled: true,
+    selectedKeys: [],
+    force: true
+  });
+  assert.equal(clear.response.status, 200);
+  assert.equal(clear.body?.selectedCount, 0);
+  assert.ok(
+    (readModelSourceConfig().operatorClearedProviders || []).includes('zai'),
+    'Clearing a provider must record it as operator-cleared'
+  );
+
+  // activate runs ensureCurationDefaultsForCache(): it must NOT re-seed the
+  // provider the operator just cleared.
+  const activate = await putJson('/api/model-curation', { activate: true });
+  assert.equal(activate.response.status, 200);
+  assert.ok(
+    !selectedKeysOf(activate.body).some((key) => key.startsWith('zai::')),
+    'activate must not re-seed a provider the operator deliberately cleared'
+  );
+
+  const verify = await requestJson('/api/model-curation');
+  assert.ok(
+    !selectedKeysOf(verify.body).some((key) => key.startsWith('zai::')),
+    'Cleared provider must stay cleared after a bootstrap seeding pass'
+  );
+
+  // Re-selecting lifts the mark so normal seeding resumes for that provider.
+  const reselect = await putJson('/api/model-curation', {
+    enabled: true,
+    selectedKeys: [zaiKeys[0]],
+    force: true
+  });
+  assert.equal(reselect.response.status, 200);
+  assert.ok(
+    !(readModelSourceConfig().operatorClearedProviders || []).includes('zai'),
+    'Re-selecting a model must lift the operator-cleared mark'
+  );
 });

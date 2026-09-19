@@ -79,6 +79,7 @@ export interface ConfigApiDeps {
     note?: string;
   }>;
   ensureCurationDefaultsForCache: () => void;
+  reconcileOperatorClearedProviders: (previousKeys: string[], nextKeys: string[]) => void;
   deselectAllProviderCurationKeys: () => number;
   scheduleRecheckForFallbackReferences: () => void;
   writeProviderEndpointsDoc: () => void;
@@ -166,6 +167,7 @@ export function registerConfigApiRoutes(app: express.Express, deps: ConfigApiDep
     queryAllProviderEndpoints,
     refreshProviderEndpointModels,
     ensureCurationDefaultsForCache,
+    reconcileOperatorClearedProviders,
     deselectAllProviderCurationKeys,
     scheduleRecheckForFallbackReferences,
     writeProviderEndpointsDoc,
@@ -656,6 +658,7 @@ app.put('/api/model-curation', (req: Request, res: Response) => {
         removedKeysPreview: guard.blocked.removedKeys.slice(0, 25)
       });
     }
+    reconcileOperatorClearedProviders(modelSourceConfig.curatedEndpointModelKeys, nextKeys);
     modelSourceConfig.curatedEndpointModelKeys = nextKeys;
   }
 
@@ -753,6 +756,7 @@ app.post('/api/curation-configs/load', (req: Request, res: Response) => {
   }
   modelSourceConfig.source = 'endpoints';
   modelSourceConfig.curationEnabled = true;
+  reconcileOperatorClearedProviders(modelSourceConfig.curatedEndpointModelKeys, nextKeys);
   modelSourceConfig.curatedEndpointModelKeys = nextKeys;
   try {
     persistModelSourceConfig();
