@@ -2442,14 +2442,18 @@ export function renderLayout(
         // selection silently lost on reload was the 2026-08-24 "checked but
         // nothing shows up in VS Code" report.
         let curationSaveTimer = null;
+        let pendingCurationForce = false;
 
-        function scheduleCurationAutoSave() {
+        function scheduleCurationAutoSave(force) {
+          if (force) pendingCurationForce = true;
           if (curationSaveTimer) clearTimeout(curationSaveTimer);
           const statusEl = document.getElementById('curationStatus');
           if (statusEl) statusEl.innerText = 'Saving curation selection…';
           curationSaveTimer = setTimeout(function() {
             curationSaveTimer = null;
-            saveCuration({ silent: true });
+            const forceFlag = pendingCurationForce;
+            pendingCurationForce = false;
+            saveCuration({ silent: true, force: forceFlag });
           }, 600);
         }
 
@@ -2487,7 +2491,7 @@ export function renderLayout(
             if (key.startsWith(prefix)) curationSelectedKeys.delete(key);
           }
           renderCurationCatalog(provider);
-          scheduleCurationAutoSave();
+          scheduleCurationAutoSave(true);
         }
 
         // ── Named curation configs ──
@@ -2657,17 +2661,35 @@ export function renderLayout(
 
         async function saveCuration(options) {
           const silent = Boolean(options && options.silent);
+          const force = Boolean(options && options.force);
           try {
+            const reqPayload = {
+              enabled: curationEnabled,
+              selectedKeys: Array.from(curationSelectedKeys)
+            };
+            if (force) reqPayload.force = true;
             const res = await fetch('/api/model-curation', {
               method: 'PUT',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                enabled: curationEnabled,
-                selectedKeys: Array.from(curationSelectedKeys)
-              })
+              body: JSON.stringify(reqPayload)
             });
             const data = await res.json().catch(() => ({}));
             if (!res.ok) {
+              if (res.status === 409 && data && typeof data.removedCount === 'number') {
+                const statusEl = document.getElementById('curationStatus');
+                if (statusEl) {
+                  statusEl.innerHTML = '<span style="color: #f59e0b; font-weight: 500;">⚠️ Merge guard: '
+                    + escapeHtml(data.error || ('removing ' + data.removedCount + ' models'))
+                    + '</span> <button type="button" class="button-secondary" onclick="saveCuration({ force: true })" style="padding: 1px 8px; font-size: 11px; margin-left: 6px;">Force Save</button>';
+                }
+                if (!silent) {
+                  if (window.confirm((data.error || 'Curation merge guard: large removal detected.') + ' Do you want to force save this selection?')) {
+                    return saveCuration({ force: true });
+                  }
+                }
+                setMessage(data?.error || 'Failed to save curation.', 'error');
+                return;
+              }
               setMessage(data?.error || 'Failed to save curation.', 'error');
               return;
             }

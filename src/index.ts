@@ -2530,7 +2530,21 @@ function evaluateCurationShrink(nextKeys: string[]): {
   const removedKeys = current.filter((key) => !next.has(key));
   const removedCount = removedKeys.length;
   const ratio = current.length === 0 ? 0 : removedCount / current.length;
-  const blocked = current.length >= CURATION_GUARD_MIN_SIZE
+
+  // Single-provider curation protection:
+  // When an operator clears or trims a single provider (e.g. OpenRouter with 400+
+  // models) while other providers remain active in the curated catalog, this is a
+  // targeted provider selection, NOT an accidental whole-catalog wipe.
+  const providersBefore = new Set(current.map((k) => k.split('::')[0]).filter(Boolean));
+  const removedProviders = new Set(removedKeys.map((k) => k.split('::')[0]).filter(Boolean));
+  const remainingProviders = new Set(nextKeys.map((k) => k.split('::')[0]).filter(Boolean));
+
+  const isSingleProviderEdit = providersBefore.size > 1
+    && removedProviders.size === 1
+    && remainingProviders.size >= 1;
+
+  const blocked = !isSingleProviderEdit
+    && current.length >= CURATION_GUARD_MIN_SIZE
     && removedCount >= CURATION_GUARD_MIN_SIZE
     && ratio >= CURATION_GUARD_SHRINK_RATIO;
   return { blocked, removedCount, removedKeys, currentCount: current.length, nextCount: nextKeys.length };
@@ -2576,19 +2590,27 @@ async function refreshProviderEndpointModels(providerName: string, options?: { p
   // (e.g. a provider ships a new flash model) is served immediately instead
   // of waiting for a manual check — that is the whole point of a live
   // refresh. Existing selections are untouched.
+  // Exception: if the operator has intentionally deselected this provider
+  // (zero models curated for providerName), newly discovered models must NOT
+  // be auto-curated, preserving the operator's deliberate off selection.
   if (options?.preserveCuration) {
-    let curated = 0;
-    for (const model of fetched.models) {
-      const key = endpointModelCurationKey(model);
-      if (!knownKeysBefore.has(key) && !modelSourceConfig.curatedEndpointModelKeys.includes(key)) {
-        modelSourceConfig.curatedEndpointModelKeys.push(key);
-        curated += 1;
+    const providerCuratedBefore = modelSourceConfig.curatedEndpointModelKeys.some(
+      (key) => key.startsWith(`${providerName}::`)
+    );
+    if (providerCuratedBefore) {
+      let curated = 0;
+      for (const model of fetched.models) {
+        const key = endpointModelCurationKey(model);
+        if (!knownKeysBefore.has(key) && !modelSourceConfig.curatedEndpointModelKeys.includes(key)) {
+          modelSourceConfig.curatedEndpointModelKeys.push(key);
+          curated += 1;
+        }
       }
-    }
-    if (curated > 0) {
-      modelSourceConfig.curatedEndpointModelKeys.sort();
-      persistModelSourceConfig();
-      console.log(`[catalog] Auto-curated ${curated} newly discovered ${providerName} model(s).`);
+      if (curated > 0) {
+        modelSourceConfig.curatedEndpointModelKeys.sort();
+        persistModelSourceConfig();
+        console.log(`[catalog] Auto-curated ${curated} newly discovered ${providerName} model(s).`);
+      }
     }
   }
   return { models: fetched.models, deselectedCount, source: fetched.source, note: fetched.note };
