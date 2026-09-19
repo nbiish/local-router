@@ -210,3 +210,7 @@
 [2026-09-19T23:34:28Z] update Hermes (win-strix)
   AGENTS.md migrated symlink->tracked copy (merge 5e1b9eb); blocking guard replaced by warn-only guard; .gitleaksignore FP triage merged and main pushed (af94a7b..3af1091); gitleaks: no leaks found; CI-failing tests pass locally (platform-detect 15/15, oauth-logout 2/2)
   start: 2026-09-19T23:34:28Z
+
+[2026-09-19T23:57:35Z] update Hermes (win-strix)
+  CI fix merged+pushed cdcee10: state-db candidate builders (env-independent tests) + CI matrix Node 24 (node:sqlite unflagged). CI/CD Pipeline GREEN run 35477268242 (3/3 jobs). Security Audit green (35476499114). Both failure-email sources closed.
+  start: 2026-09-19T23:57:35Z
