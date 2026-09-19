@@ -161,8 +161,8 @@ audit.log.*
 # Project-specific patterns (preserved from existing .gitignore)
 # ═══════════════════════════════════════════════════════════════════════════
 
-.opencode/
 .config/
+.opencode/
 example-repos/
 node_modules
 router-settings.json

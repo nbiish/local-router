@@ -20,6 +20,7 @@ import { renderProvidersPage } from '../ui/pages/providers';
 import { renderFallbackPage } from '../ui/pages/fallback';
 import { renderThinkingPage } from '../ui/pages/thinking';
 import { renderAgentsPage } from '../ui/pages/agents';
+import { renderEfficiencyPage } from '../ui/pages/efficiency';
 import {
   ProviderSummary,
   CustomProviderRecord,
@@ -46,8 +47,6 @@ export interface ConfigApiDeps {
     customProviderStore: CustomProviderRecord[];
     thinkingProxyEnabled: boolean;
     waferZdrEnabled: boolean;
-    headroomEnabled: boolean;
-    headroomProxyUrl: string;
     endpointModelsCache: ProviderModel[];
   };
   keyStore: Record<string, string>;
@@ -126,16 +125,6 @@ export interface ConfigApiDeps {
   persistThinkingConfig: () => void;
   persistWaferConfig: () => void;
   waferZdrApiPayload: () => { zdrEnabled: boolean };
-  persistHeadroomConfig: () => void;
-  headroomApiPayload: () => {
-    enabled: boolean;
-    proxyUrl: string;
-    healthy?: boolean;
-    circuitState?: string;
-    lastCheckedAt?: number;
-    lastError?: string | null;
-  };
-  probeHeadroom: (proxyUrl?: string) => Promise<{ ok: boolean; status: string; latencyMs: number; error?: string }>;
   DEFAULT_FALLBACK_MODELS_TEXT: string;
   DEFAULT_CHAIN_OF_DRAFT_PROMPT: string;
   DEFAULT_THINKING_LEVEL: ThinkingLevel;
@@ -217,9 +206,6 @@ export function registerConfigApiRoutes(app: express.Express, deps: ConfigApiDep
     persistThinkingConfig,
     persistWaferConfig,
     waferZdrApiPayload,
-    persistHeadroomConfig,
-    headroomApiPayload,
-    probeHeadroom,
     DEFAULT_FALLBACK_MODELS_TEXT,
     DEFAULT_CHAIN_OF_DRAFT_PROMPT,
     DEFAULT_THINKING_LEVEL,
@@ -276,6 +262,15 @@ export function registerConfigApiRoutes(app: express.Express, deps: ConfigApiDep
 
   app.get('/config/agents', (req: Request, res: Response) => {
     const html = renderAgentsPage({
+      defaultFallbackModelsText: DEFAULT_FALLBACK_MODELS_TEXT
+    });
+    // Config pages are live state (keys, catalog, routes) — never cacheable.
+    res.setHeader('Cache-Control', 'no-store');
+    res.send(html);
+  });
+
+  app.get('/config/efficiency', (req: Request, res: Response) => {
+    const html = renderEfficiencyPage({
       defaultFallbackModelsText: DEFAULT_FALLBACK_MODELS_TEXT
     });
     // Config pages are live state (keys, catalog, routes) — never cacheable.
@@ -1753,38 +1748,6 @@ app.put('/api/wafer-config', (req: Request, res: Response) => {
   return res.json(waferZdrApiPayload());
 });
 
-// ── Headroom Compression Config API ────────────────────────────────────────
-app.get('/api/headroom-config', (req: Request, res: Response) => {
-  return res.json(headroomApiPayload());
-});
-
-app.post('/api/headroom-config/probe', async (req: Request, res: Response) => {
-  const targetUrl = typeof req.body?.proxyUrl === 'string' && req.body.proxyUrl.trim()
-    ? req.body.proxyUrl.trim()
-    : undefined;
-  const probeResult = await probeHeadroom(targetUrl);
-  return res.json({
-    ...headroomApiPayload(),
-    probe: probeResult
-  });
-});
-
-app.put('/api/headroom-config', (req: Request, res: Response) => {
-  if (req.body?.enabled !== undefined && typeof req.body.enabled !== 'boolean') {
-    return res.status(400).json({ error: 'enabled must be a boolean.' });
-  }
-  if (req.body?.proxyUrl !== undefined && typeof req.body.proxyUrl !== 'string') {
-    return res.status(400).json({ error: 'proxyUrl must be a string.' });
-  }
-  if (typeof req.body?.enabled === 'boolean') {
-    state.headroomEnabled = req.body.enabled;
-  }
-  if (typeof req.body?.proxyUrl === 'string' && req.body.proxyUrl.trim()) {
-    state.headroomProxyUrl = req.body.proxyUrl.trim();
-  }
-  persistHeadroomConfig();
-  return res.json(headroomApiPayload());
-});
 
 // ── Agent Proxy Config API ─────────────────────────────────────────────────
 app.get('/api/agents-proxy', (req: Request, res: Response) => {

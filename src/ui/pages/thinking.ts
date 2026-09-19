@@ -73,30 +73,6 @@ export function renderThinkingPage(params: {
           </label>
         </div>
       </div>
-      <div class="card">
-        <div class="catalog-meta">
-          <div>
-            <h2>Headroom Context Compression</h2>
-            <p class="muted">Intelligent context compression layer utilizing the <code>headroom-ai</code> SDK to compress prompt histories before forwarding upstream, optimizing token caching and cost.</p>
-          </div>
-          <div class="muted" id="headroomStatus">Loading...</div>
-        </div>
-        <div style="margin-top:12px;">
-          <label style="display:inline-flex;align-items:center;gap:8px;font-weight:bold;cursor:pointer;">
-            <input type="checkbox" id="headroomToggle" onchange="toggleHeadroom()"> Enable Headroom context compression
-          </label>
-        </div>
-        <div id="headroomFields" style="margin-top:12px; display:none;">
-          <div class="form-group">
-            <label for="headroomProxyUrlInput">Headroom Proxy URL</label>
-            <input type="text" id="headroomProxyUrlInput" placeholder="http://localhost:8787" style="width:100%;max-width:400px;" />
-          </div>
-          <div class="button-row" style="display:flex;gap:8px;align-items:center;">
-            <button onclick="saveHeadroomProxyUrl()">Save</button>
-            <button id="headroomTestBtn" onclick="testHeadroomConnection()" style="background:#222;border:1px solid #444;color:#fff;padding:6px 12px;border-radius:4px;cursor:pointer;">Test Connection</button>
-          </div>
-        </div>
-      </div>
 `;
   return renderLayout('Prompt & Thinking Level', body, params);
 }

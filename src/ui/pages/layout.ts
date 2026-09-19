@@ -497,6 +497,7 @@ export function renderLayout(
         <a href="/config/fallback" class="nav-link">Fallback Routes</a>
         <a href="/config/thinking" class="nav-link">Prompt &amp; Thinking</a>
         <a href="/config/agents" class="nav-link">Agents</a>
+        <a href="/config/efficiency" class="nav-link">Token Efficiency</a>
       </nav>
       <div class="sidebar-footer">
         <div class="theme-panel-compact">
@@ -1653,113 +1654,6 @@ export function renderLayout(
           const statusEl = document.getElementById('waferZdrStatus');
           if (statusEl) statusEl.textContent = waferZdrEnabled ? 'ZDR active for GLM-5.1 and Kimi-K2.6' : 'ZDR disabled';
           setMessage('Wafer ZDR enhancement ' + (waferZdrEnabled ? 'enabled' : 'disabled') + '.', 'success');
-        }
-        let headroomEnabled = true;
-        let headroomProxyUrl = 'http://localhost:8787';
-
-        function renderHeadroomStatus(data) {
-          const statusEl = document.getElementById('headroomStatus');
-          if (!statusEl) return;
-          if (!data || !data.enabled) {
-            statusEl.innerHTML = '<span style="color:var(--text-muted, #888);font-size:12px;">Context compression disabled</span>';
-            return;
-          }
-          if (data.healthy) {
-            statusEl.innerHTML = '<span style="color:#10b981;font-weight:600;font-size:12px;">● Connected</span> <span style="color:var(--text-muted, #888);font-size:12px;">(' + escapeHtml(data.proxyUrl || headroomProxyUrl) + ')</span>';
-          } else if (data.circuitState === 'OPEN') {
-            statusEl.innerHTML = '<span style="color:#f59e0b;font-weight:600;font-size:12px;">⚠ Proxy Offline</span> <span style="color:var(--text-muted, #888);font-size:12px;">(Circuit open — failing open, 0ms delay)</span>';
-          } else if (data.circuitState === 'HALF_OPEN') {
-            statusEl.innerHTML = '<span style="color:#3b82f6;font-weight:600;font-size:12px;">↻ Probing Recovery</span> <span style="color:var(--text-muted, #888);font-size:12px;">(' + escapeHtml(data.proxyUrl || headroomProxyUrl) + ')</span>';
-          } else {
-            statusEl.innerHTML = '<span style="color:var(--text-muted, #888);font-size:12px;">Active (' + escapeHtml(data.proxyUrl || headroomProxyUrl) + ')</span>';
-          }
-        }
-
-        async function loadHeadroomConfig() {
-          try {
-            const res = await fetch('/api/headroom-config');
-            if (!res.ok) throw new Error('HTTP ' + res.status);
-            const data = await res.json();
-            headroomEnabled = Boolean(data.enabled);
-            headroomProxyUrl = data.proxyUrl || 'http://localhost:8787';
-            const toggleEl = document.getElementById('headroomToggle');
-            const fieldsEl = document.getElementById('headroomFields');
-            const urlInputEl = document.getElementById('headroomProxyUrlInput');
-            if (toggleEl) toggleEl.checked = headroomEnabled;
-            if (fieldsEl) fieldsEl.style.display = headroomEnabled ? 'block' : 'none';
-            if (urlInputEl) urlInputEl.value = headroomProxyUrl;
-            renderHeadroomStatus(data);
-          } catch (err) {
-            console.error('loadHeadroomConfig failed:', err);
-            const statusEl = document.getElementById('headroomStatus');
-            if (statusEl) statusEl.textContent = 'Failed to load';
-          }
-        }
-        async function toggleHeadroom() {
-          const toggleEl = document.getElementById('headroomToggle');
-          const fieldsEl = document.getElementById('headroomFields');
-          const enabled = Boolean(toggleEl?.checked);
-          if (fieldsEl) fieldsEl.style.display = enabled ? 'block' : 'none';
-          const res = await fetch('/api/headroom-config', {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ enabled })
-          });
-          const payload = await res.json().catch(() => ({}));
-          if (!res.ok) {
-            setMessage(payload?.error || 'Failed to update Headroom config.', 'error');
-            if (toggleEl) toggleEl.checked = !enabled;
-            if (fieldsEl) fieldsEl.style.display = !enabled ? 'block' : 'none';
-            return;
-          }
-          headroomEnabled = payload.enabled;
-          renderHeadroomStatus(payload);
-          setMessage('Headroom context compression ' + (headroomEnabled ? 'enabled' : 'disabled') + '.', 'success');
-        }
-        async function saveHeadroomProxyUrl() {
-          const urlInputEl = document.getElementById('headroomProxyUrlInput');
-          const proxyUrl = urlInputEl?.value?.trim();
-          if (!proxyUrl) {
-            setMessage('Proxy URL cannot be empty.', 'error');
-            return;
-          }
-          const res = await fetch('/api/headroom-config', {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ proxyUrl })
-          });
-          const payload = await res.json().catch(() => ({}));
-          if (!res.ok) {
-            setMessage(payload?.error || 'Failed to update Headroom proxy URL.', 'error');
-            return;
-          }
-          headroomProxyUrl = payload.proxyUrl;
-          renderHeadroomStatus(payload);
-          setMessage('Headroom proxy URL updated successfully.', 'success');
-        }
-        async function testHeadroomConnection() {
-          const testBtn = document.getElementById('headroomTestBtn');
-          if (testBtn) { testBtn.disabled = true; testBtn.textContent = 'Testing...'; }
-          try {
-            const urlInputEl = document.getElementById('headroomProxyUrlInput');
-            const proxyUrl = urlInputEl?.value?.trim() || undefined;
-            const res = await fetch('/api/headroom-config/probe', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ proxyUrl })
-            });
-            const data = await res.json();
-            renderHeadroomStatus(data);
-            if (data.probe?.ok) {
-              setMessage('Headroom proxy healthy (' + data.probe.latencyMs + 'ms).', 'success');
-            } else {
-              setMessage('Headroom probe failed: ' + (data.probe?.error || 'unreachable') + '. Failing open safely.', 'error');
-            }
-          } catch (err) {
-            setMessage('Failed to probe Headroom proxy: ' + (err.message || err), 'error');
-          } finally {
-            if (testBtn) { testBtn.disabled = false; testBtn.textContent = 'Test Connection'; }
-          }
         }
 
         let agentProxyConfig = null;
@@ -2918,7 +2812,6 @@ export function renderLayout(
         loadSystemPrompt();
         loadThinkingConfig();
         loadWaferZdrConfig();
-        loadHeadroomConfig();
         loadModelSource();
         safeInit('updateActiveNavLinks', updateActiveNavLinks);
         safeInit('loadAgentProxyConfig', loadAgentProxyConfig);

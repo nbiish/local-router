@@ -1,6 +1,6 @@
 ---
 name: repo-memory-graph-intelligence
-description: Dual-substrate codebase intelligence and persistent repo-memory (GitNexus AST code graph + Memorix/Reference-Memory/Engram persistent memory). MANDATORY FIRST STEP for any non-trivial coding task: inspect call-chains and blast-radius with GitNexus ("WHERE") and recall architectural decisions, gotchas, and invariants from Repo-Memory ("WHY") BEFORE touching code. Records post-edit architectural facts into persistent memory and updates the .agents/memories/ digest. Trigger on: any code navigation, "how does X work", "what calls Y", "what breaks if I change Z", blast radius, architectural decisions, gotchas, or before editing unfamiliar code.
+description: Dual-substrate codebase intelligence and persistent repo-memory (GitNexus AST code graph + Memorix/Reference-Memory/Engram persistent memory). MANDATORY FIRST STEP for any non-trivial coding task: inspect call-chains and blast-radius with GitNexus ("WHERE") and recall architectural decisions, gotchas, and invariants from Repo-Memory ("WHY") BEFORE touching code. Continuously executes the active memory CRUD lifecycle (Make, Update, Delete/Resolve) across chat sessions and tasks, anchoring durable facts to AST symbols and updating the .agents/memories/ digest and exports. Trigger on: any code navigation, "how does X work", "what calls Y", "what breaks if I change Z", blast radius, architectural decisions, gotchas, or before editing unfamiliar code.
 ---
 
 # Dual-Substrate Codebase Intelligence & Persistent Repo-Memory
@@ -306,20 +306,28 @@ While SQLite and JSONL MCP servers provide instantaneous per-machine querying, t
     └── engram.json              # Exported Engram curated session summaries
 ```
 
-### Session Open Protocol (Offline Fallback)
-If MCP servers are unreachable or when starting in a fresh environment:
-1. Read `.agents/memories/MEMORY.md` immediately after reading repo `llms.txt`.
-2. Grep `.agents/memories/exports/` for specific symbol or keyword history.
+### The Continuous Session & Task Memory Lifecycle Protocol
 
-### Session Close Protocol (Mandatory Before PR / Merge)
-1. **Update Digest:** Add newly verified architectural decisions and gotchas into `.agents/memories/MEMORY.md`.
+Memory is active, not passive. In every chat turn and every task, agents execute the three-phase loop:
+
+#### Phase A: Turn & Session Inception (Orient)
+1. Query local memory stores immediately upon receiving instructions: `memorix_project_context`, `mem_context`.
+2. Offline fallback: If MCP servers are offline, read `.agents/memories/MEMORY.md` and grep `.agents/memories/exports/`.
+3. Check for existing invariants or gotchas relating to the current prompt, target symbols, or subsystem before writing code.
+
+#### Phase B: In-Flight CRUD Mutation (Act)
+1. **Make:** As new architectural insights, gotchas, or decisions emerge, immediately inscribe them in `memorix` (`memorix_store`) and `engram` (`mem_save`), anchored to canonical AST symbols.
+2. **Update:** When code modifications change existing behavior, ports, signatures, or configurations, update existing memory records in place (`mem_update`, `memorix_store` with matching topicKey). Never leave obsolete statements in place.
+3. **Delete / Resolve:** When dead symbols are removed or bugs are permanently fixed, immediately call `memorix_resolve`, `mem_delete`, or `delete_observations`.
+
+#### Phase C: Task Verification & Session Wrap-up (Consolidate)
+1. **Update Digest:** Add or update verified facts in `.agents/memories/MEMORY.md` with explicit status tags (`[ACTIVE]`, `[UPDATED YYYY-MM-DD]`, `[RESOLVED YYYY-MM-DD]`).
 2. **Refresh Snapshots:**
    ```bash
-   # Export local MCP stores into repo snapshots
    memorix export > .agents/memories/exports/memorix.$(basename "$PWD").json 2>/dev/null || true
    engram export > .agents/memories/exports/engram.json 2>/dev/null || true
    ```
-3. **Commit on Branch:** Commit changes in `.agents/memories/` alongside code changes on the task branch.
+3. **Commit on Branch:** Commit changes in `.agents/memories/` alongside code changes on the task branch before merge.
 
 ---
 
@@ -331,6 +339,81 @@ When tasked with any non-trivial code modification, follow this deterministic ch
 - [ ] **2. RECALL (WHY):** Run `memorix_search <target_symbol>` and `mem_search <target_symbol>` (or read `.agents/memories/MEMORY.md`) for known failure modes, invariants, and historical rationale.
 - [ ] **3. IMPACT CHECK:** Run `gitnexus impact <target_symbol>` to establish the exact blast-radius boundary.
 - [ ] **4. IMPLEMENT:** Apply minimal, surgical edits respecting established invariants.
-- [ ] **5. VERIFY:** Run targeted tests flagged in the GitNexus impact analysis.
-- [ ] **6. INSCRIBE:** Store any newly discovered gotcha, fix, or architectural fact into `memorix` and `engram`.
-- [ ] **7. SYNC MEMORY:** Update `.agents/memories/MEMORY.md` and commit alongside code changes.
+- [ ] **5. MUTATE MEMORY (IN-FLIGHT):**
+  - Inscribe new gotchas or decisions (`memorix_store`, `mem_save`).
+  - Update changed contracts (`mem_update`, `memorix_store` with same topicKey).
+  - Resolve/delete obsolete gotchas or dead symbols (`memorix_resolve`, `mem_delete`, `delete_observations`).
+- [ ] **6. VERIFY:** Run targeted tests flagged in the GitNexus impact analysis; confirm no memory regressions.
+- [ ] **7. SYNC MEMORY DIGEST:** Update `.agents/memories/MEMORY.md` with lifecycle tags and commit alongside code changes.
+
+---
+
+## 7. The Memory CRUD Lifecycle Engine: Chat Session & Task Integration
+
+Persistent memory functions as an active operating substrate. Every agent turn and task must participate in the continuous CRUD lifecycle:
+
+### 7.1 The Three Lifecycle Planes
+
+```
+ ┌─────────────────────────┐     ┌─────────────────────────┐     ┌─────────────────────────┐
+ │   CHAT SESSION PLANE    │     │       TASK PLANE        │     │    MEMORY CRUD PLANE    │
+ ├─────────────────────────┤     ├─────────────────────────┤     ├─────────────────────────┤
+ │ • Turn Start (Orient)   │ ──► │ • Task Claim (checkin)  │ ──► │ • MAKE (Inscribe)       │
+ │ • In-Flight Execution   │     │ • Dual-Recon Loop       │     │ • UPDATE (Revise)       │
+ │ • Turn Close (Summary)  │     │ • Pre-Merge & Checkout  │     │ • DELETE/RESOLVE (Retire)│
+ └─────────────────────────┘     └─────────────────────────┘     └─────────────────────────┘
+```
+
+### 7.2 The Make (Create / Inscribe) Protocol
+- **When to Inscribe:**
+  1. A non-obvious bug fix or gotcha is identified (e.g. platform-specific flag behavior, undocumented port requirement).
+  2. A core architectural decision is finalized (e.g. choice of crypto algorithm, data store design).
+  3. A new service, subsystem, or component relationship is established.
+- **Required Inscription Metadata:**
+  - `task_ref`: Task file name (e.g. `2026-09-19.memory-lifecycle-task.md`) or branch slug.
+  - `ast_symbol`: Exact AST symbol name resolved via `gitnexus context <symbol>`.
+  - `kind`: `fact` | `decision` | `gotcha`.
+  - `topic_key`: Namespaced unique identifier (e.g. `auth:token-rotation`).
+- **Tool Invocations:**
+  - Memorix: `memorix_store(entityName, type, title, narrative, topicKey, scope, facts)`
+  - Reference Memory: `create_entities(entities=[...])`, `create_relations(relations=[...])`
+  - Engram: `mem_save(title, type, content, topic_key, scope)`
+
+### 7.3 The Update (Revise / Evolve) Protocol
+- **When to Update:**
+  1. A subsystem port, configuration flag, or default parameter is altered.
+  2. An API signature or return type is updated.
+  3. A previously recorded invariant is modified to support new requirements.
+- **Protocol:**
+  1. Locate the existing entry: `memorix_search <query>` or `mem_search <query>`.
+  2. Overwrite in place:
+     - Memorix: Re-call `memorix_store` with the **same `topicKey`** to update the narrative and facts.
+     - Engram: Call `mem_update(id=..., title=..., content=..., type=...)`.
+     - Reference Memory: Call `add_observations` on the target entity.
+  3. In `.agents/memories/MEMORY.md`, update the entry in place and append the update tag:
+     `- [2026-09-10] [UPDATED 2026-09-19] New behavior description... *(source: feat/branch, ast: symbol)*`
+
+### 7.4 The Delete / Resolve (Retire / Invalidate) Protocol
+- **When to Delete / Resolve:**
+  1. A dead function, class, or module is removed or superseded.
+  2. A temporary workaround or gotcha is rendered obsolete by a permanent code fix.
+  3. An architectural pattern is deprecated and completely removed from the codebase.
+- **Protocol:**
+  1. Locate target record ID: `memorix_search` or `mem_search`.
+  2. Delete or mark resolved in MCP stores:
+     - Memorix: `memorix_resolve(fact_id="...")` marks the fact resolved.
+     - Engram: `mem_delete(observation_id=...)` purges the obsolete observation.
+     - Reference Memory: `delete_observations(...)` or `delete_entities(...)`.
+  3. In `.agents/memories/MEMORY.md`, move the item from `## Active *` to `## Resolved / Retired Archive`:
+     `- [2026-09-10] [RESOLVED 2026-09-19] Stale gotcha text... — RESOLUTION: Superseded by upstream POSIX fix in feat/branch.`
+- **Zero-Tolerance Rule:** Never allow obsolete constraints to remain active. Stale memory corrupts downstream agent reasoning.
+
+### 7.5 Turn-by-Turn Chat Session Playbook
+When an operator gives instructions in a conversation turn:
+1. **Turn Inception:** Check `.agents/memories/MEMORY.md` or call `memorix_project_context`. If the user asks about a specific feature, immediately query memory for known constraints.
+2. **During the Turn:** If the turn introduces or resolves an architectural fact, immediately record or update the corresponding memory.
+3. **Turn Conclusion:**
+   - Save turn milestone to Engram: `mem_session_summary(summary="...")`.
+   - Update `.agents/memories/MEMORY.md` with any newly verified facts.
+   - Append masters' review to `.agents/suggestions/{date}-suggestions.md`.
+   - See detailed schema matrix in `references/memory-crud-matrix.md`.

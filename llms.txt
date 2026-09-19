@@ -42,7 +42,7 @@ Clients (VS Code, Claude Code, Codex, Cline, scripts)
 Local Router is the **singular model system** for the operator's agent fleet: every harness on every machine routes through the fallback chain, so model changes happen in one place (`/config/fallback`) and every lane picks them up.
 
 - **Wired harnesses (all verified end-to-end):** OhMyPy (`omp` — custom provider `local-router` in `models.yml` + all six `modelRoles` → `local-router/local-router/fallback-models`), Hermes (`model.provider local-router`, `base_url http://localhost:11434/v1`, `model.default local-router/fallback-models`), FreeClaudeCode (`MODEL=ollama/local-router/fallback-models`, verified through its Anthropic shim `POST /v1/messages`), and the real `ollama` CLI (NDJSON stream fix on windows). Receipts: OMP/HERMES/FCC-ROUTER-OK (mac), OMP3/HERMES3/FCC3/OLLAMA3-OK (windows). Reasoning-model note: the chain's GLM hops need `max_tokens` ≥ ~500.
-- **Windows refinements (2026-09-01, post-port):** (1) NDJSON newline fix in `createOllamaStreamTransform` — the shim pushed a literal `\n` escape so every stream chunk landed on one line; real ollama CLI parses now (receipts: OLLAMA3-OK, rc=0 ×3). (2) Graceful cascade — preflight failures (unknown model / no provider / no key-credits / allowlist) log `skipped: true, stageAttempts: 0` and move to the next stage with zero retries; chain fails only on total exhaustion (branch fix/fallback-graceful). (3) Always-route shim — branch fix/shim-always-route: ANY ollama.cli invocation probes the router, auto-starts it detached if down (≤10s), sets OLLAMA_HOST to the router, and `ollama serve` makes real ollama the BACKEND on 11435. (4) Headroom proxy circuit breaker — fast timeout and fail-open. (5) Keys/configs managed cross-platform via PQC envelope (ML-KEM-768 + ML-DSA-65).
+- **Windows refinements (2026-09-01, post-port):** (1) NDJSON newline fix in `createOllamaStreamTransform` — the shim pushed a literal `\n` escape so every stream chunk landed on one line; real ollama CLI parses now (receipts: OLLAMA3-OK, rc=0 ×3). (2) Graceful cascade — preflight failures (unknown model / no provider / no key-credits / allowlist) log `skipped: true, stageAttempts: 0` and move to the next stage with zero retries; chain fails only on total exhaustion (branch fix/fallback-graceful). (3) Always-route shim — branch fix/shim-always-route: ANY ollama.cli invocation probes the router, auto-starts it detached if down (≤10s), sets OLLAMA_HOST to the router, and `ollama serve` makes real ollama the BACKEND on 11435. (4) Clean pipeline — third-party compression decoupled to preserve lean router core. (5) Keys/configs managed cross-platform via PQC envelope (ML-KEM-768 + ML-DSA-65).
 - **Coding engines:** `trae-cli` (ByteDance) and `mini` 2.4.6 verified end-to-end through `local-router/fallback-models`. `mini` is zero-config via `~/.config/mini-swe-agent/.env` — `MSWEA_MODEL_NAME` MUST carry the litellm provider prefix (`openai/local-router/fallback-models`) and `MSWEA_COST_TRACKING=ignore_errors` (no price entry for local-router models). Real Ollama upgraded in place at `~/.local/opt/ollama`; ensure watchdog emits `KillMode=process` so the timer-spawned 11435 backend survives oneshot runs.
 - **Operational rule:** a harness lane failing is a ROUTER troubleshooting item (chain, keys, upstream) — never a reason to repoint a harness at a raw provider.
 
@@ -318,7 +318,6 @@ Setting files reside at `~/.config/local-router/` (or legacy `~/.config/fvs-code
 | `fallback-models.json` | No | local JSON | Fallback chain ordered routes |
 || `thinking-config.json` | No | local JSON | Thinking levels (none/low/medium/high/xhigh) |
 || `wafer-config.json` | No | local JSON | Wafer AI ZDR enhancement toggle (enabled by default) |
-|| `headroom-config.json` | No | local JSON | Headroom context compression toggle and proxy URL (enabled by default, proxy at `http://localhost:8787`) |
 | `system-prompt.json` | No | local JSON | User system prompt injection configuration |
 | `model-source-config.json` | No | local JSON | Configured source: `custom` vs `endpoints`, plus endpoint model curation (`curationEnabled`, `curatedEndpointModelKeys`, max 5000 `provider::model` keys) |
 | `endpoint-models-cache.json` | No | local JSON | Cached upstream `/models` query data (per-provider refresh replaces only that provider's section) |
@@ -385,11 +384,11 @@ As of June 2026, Local Router enforces universal caching across all providers an
 - **Maximum Caching Length (non-OpenAI):** For all non-OpenAI models, prompt cache breakpoints are injected (`cache_control: { type: "ephemeral", ttl: "1h" }`) on the system message and the second-to-last message to maximize prefix cache hits.
 - **Maximum Caching Duration (OpenAI):** OpenAI family models are configured with maximum retention (`prompt_cache_retention: "24h"`).
 
-##### Headroom Context Compression (pre-caching optimization)
-Local Router integrates [Headroom](https://github.com/chopratejas/headroom) (`headroom-ai` npm package) as an optional context compression layer that runs **before** prompt caching injection. When enabled (default), outgoing requests are compressed via the Headroom proxy (`POST /v1/compress` at `http://localhost:8787`), reducing token counts by 60–95% while preserving answer quality. The compression pipeline: `sanitize → headroom compress → cache inject → provider formatBody`.
-- **Toggle:** `PUT /api/headroom-config { enabled: true|false, proxyUrl: "http://..." }`. Persisted to `~/.config/local-router/headroom-config.json`.
-- **Graceful degradation:** If the Headroom proxy is unreachable, requests pass through uncompressed — headroom is an optimization layer and never blocks the pipeline.
-- **Cache synergy:** Headroom's CacheAligner stabilizes message prefixes, improving cache hit rates from downstream provider caching (`cache_control`, `prompt_cache_retention`). The two layers are complementary: Headroom compresses content, then Local Router's `injectPromptCaching` adds provider-specific cache directives on the already-compressed messages.
+##### Token Efficiency Tooling (Decoupled Reference Page)
+Local Router keeps its core proxy pipeline lean, deterministic, and tool-agnostic (focusing strictly on multi-provider aggregation and fallback routes). Instead of embedding in-process compression proxy layers that risk timeout stalls, token efficiency is decoupled into a dedicated reference page (`/config/efficiency`) providing installation and execution guides for:
+- **Ponytail** (`dietrichgebert/ponytail`): Agent logic & code minimization ladder (~54% less code, -20% cost, 100% safe).
+- **Headroom** (`headroomlabs-ai/headroom`): Local standalone context compression proxy (`headroom proxy --port 8787`) and agent wrapping (`headroom wrap`).
+- **RTK** (`rtk-ai/rtk`): Rust Token Killer high-performance shell output interceptor (cutting up to 90% of bash output read by agents).
 
 ##### OpenAI (`openrouter`, plus any direct OpenAI candidate)
 - **Mode:** Automatic — no code changes required to enable.
@@ -799,7 +798,7 @@ npm test             # executes all unit and integration tests (90 cases, 17 fil
 - `tests/gateway-response.test.mjs`: Cline gateway data envelope unwrap translation.
 - `tests/prompt-caching.test.mjs`: Universal cache directive injection across all 15 providers — OpenAI 24h retention, Anthropic ephemeral breakpoints (1h/5m TTL), Gemini implicit/explicit, DeepSeek automatic prefix, OpenRouter sticky routing, Moonshot K2 series (50% cache hit discount), Groq 50% discount + 2h expiry, Xiaomi MiMo GCache (93–95% hit rate), Z.ai implicit, plus cross-provider failover contract.
 - `tests/router-disabled-candidates.test.mjs`: Router disabled-candidate pruning, scoring, and execution plan integration.
-- `tests/headroom-compression.test.mjs`: Headroom context compression toggle config validation, pipeline position (after sanitize, before caching), graceful degradation on proxy unavailable, config payload shape contract.
+- `tests/token-efficiency-page.test.mjs`: Token Efficiency page rendering, section validation (Ponytail, Headroom, RTK), repository links, copy-code triggers, and script syntax correctness.
 
 ### Operator Manual Verification Script
 Run the verification tool and inspect the bootsrapped fallback routes:
