@@ -1,0 +1,13 @@
+# Gitleaks false positives — triaged 2026-09-19 by Hermes (win-strix)
+# 1. src/oauth-providers.ts: vendor-public installed-app OAuth client constant.
+#    Shipped by Google's own SDKs and dozens of public antigravity auth clients
+#    (CLIProxyAPI, opencode-antigravity-auth, ...); RFC 8252 native-app client
+#    secrets are not confidential. Env-overridable at runtime.
+# 2. Remaining five: test fixtures and documentation placeholders (pqc-secrets
+#    skill docs, wafer discovery test).
+dc32dbd0d6ca7de522998d153d12d7d08ab1b010:tests/wafer-discovery.test.mjs:generic-api-key:29
+07291858f76928b54a92be3032fc9c15eff7b021:.agents/skills/pqc-secrets/tests/test_vault_parity.py:generic-api-key:59
+3ff4c82dd14fa8483ea62de42888219b653393fe:src/oauth-providers.ts:generic-api-key:73
+69e8183bc90d7951e5db005d9112ebf6e04cb0f4:.agents/skills/pqc-secrets/references/agent-integration.md:generic-api-key:115
+69e8183bc90d7951e5db005d9112ebf6e04cb0f4:.agents/skills/pqc-secrets/SKILL.md:generic-api-key:769
+69e8183bc90d7951e5db005d9112ebf6e04cb0f4:.agents/skills/pqc-secrets/SKILL.md:generic-api-key:805
