@@ -288,7 +288,7 @@ function ensureAntigravityCallbackServer(): void {
  * Cross-platform detection paths for Antigravity IDE and Antigravity state database.
  * Supports Windows, macOS, and Linux installations.
  */
-export function getAntigravityStateDbPaths(): string[] {
+export function getAntigravityStateDbCandidatePaths(): string[] {
   const isWin = process.platform === "win32";
   const isMac = process.platform === "darwin";
   const home = os.homedir();
@@ -332,7 +332,15 @@ export function getAntigravityStateDbPaths(): string[] {
       /* interop probe unavailable — native paths only */
     }
   }
-  return candidates.filter((candidate) => fs.existsSync(candidate));
+  return candidates;
+}
+
+/**
+ * Antigravity state DB paths that actually exist on this machine.
+ * Pure discovery helper: returns only candidates present on disk.
+ */
+export function getAntigravityStateDbPaths(): string[] {
+  return getAntigravityStateDbCandidatePaths().filter((candidate) => fs.existsSync(candidate));
 }
 
 /**
@@ -513,7 +521,7 @@ export function detectLocalAntigravitySession(): OAuthProviderState | null {
  * Cross-platform detection paths for Cursor state database and CLI credentials.
  * Supports Windows, macOS, and Linux installations.
  */
-export function getCursorStateDbPaths(): string[] {
+export function getCursorStateDbCandidatePaths(): string[] {
   const isWin = process.platform === "win32";
   const isMac = process.platform === "darwin";
   const home = os.homedir();
@@ -551,7 +559,15 @@ export function getCursorStateDbPaths(): string[] {
       /* interop probe unavailable */
     }
   }
-  return candidates.filter((candidate) => fs.existsSync(candidate));
+  return candidates;
+}
+
+/**
+ * Cursor state DB paths that actually exist on this machine.
+ * Pure discovery helper: returns only candidates present on disk.
+ */
+export function getCursorStateDbPaths(): string[] {
+  return getCursorStateDbCandidatePaths().filter((candidate) => fs.existsSync(candidate));
 }
 
 /**
