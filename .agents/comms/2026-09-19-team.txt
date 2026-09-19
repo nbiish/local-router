@@ -206,3 +206,7 @@
      only changed the cache — a pointless write, harmless but worth tidying.
 - end: 2026-09-19T23:05:00Z
 
+
+[2026-09-19T23:34:28Z] update Hermes (win-strix)
+  AGENTS.md migrated symlink->tracked copy (merge 5e1b9eb); blocking guard replaced by warn-only guard; .gitleaksignore FP triage merged and main pushed (af94a7b..3af1091); gitleaks: no leaks found; CI-failing tests pass locally (platform-detect 15/15, oauth-logout 2/2)
+  start: 2026-09-19T23:34:28Z
