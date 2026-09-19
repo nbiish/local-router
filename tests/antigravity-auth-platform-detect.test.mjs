@@ -8,9 +8,11 @@ import {
   getLogoutMarker,
   buildAntigravityAuthUrl,
   getAntigravityStateDbPaths,
+  getAntigravityStateDbCandidatePaths,
   parseAntigravityOauthTokenProto,
   detectLocalAntigravitySession,
   getCursorStateDbPaths,
+  getCursorStateDbCandidatePaths,
   detectLocalCursorSession,
   getCopilotHostsPaths,
   detectLocalCopilotSession,
@@ -39,14 +41,30 @@ test("buildAntigravityAuthUrl includes non-empty client_id and required paramete
   assert.ok(url.searchParams.get("scope").includes("cclog"));
 });
 
-test("getAntigravityStateDbPaths returns platform candidate paths", () => {
+test("getAntigravityStateDbCandidatePaths returns platform-shaped candidates", () => {
+  const candidates = getAntigravityStateDbCandidatePaths();
+  assert.ok(Array.isArray(candidates));
+  // Native platform candidates are emitted unconditionally; WSL interop
+  // candidates depend on /mnt mount state (environment), so never count them.
+  assert.ok(candidates.length >= 2);
+  for (const p of candidates) {
+    assert.ok(typeof p === "string");
+    assert.ok(p.includes("state.vscdb"));
+  }
+  if (process.platform === "linux") {
+    assert.ok(candidates.some((p) => p.includes(path.join(".config", "Antigravity IDE"))));
+  } else if (process.platform === "darwin") {
+    assert.ok(candidates.some((p) => p.includes(path.join("Library", "Application Support", "Antigravity IDE"))));
+  } else {
+    assert.ok(candidates.some((p) => p.includes(path.join("AppData", "Roaming"))));
+  }
+});
+
+test("getAntigravityStateDbPaths filters candidates to existing databases", () => {
   const paths = getAntigravityStateDbPaths();
   assert.ok(Array.isArray(paths));
-  // >=1: native platform candidate always exists; WSL interop candidates
-  // depend on /mnt mount state (environment), so counting them flakes.
-  assert.ok(paths.length >= 1);
   for (const p of paths) {
-    assert.ok(typeof p === "string");
+    assert.ok(fs.existsSync(p), "filtered result must exist on disk");
     assert.ok(p.includes("state.vscdb"));
   }
 });
@@ -118,11 +136,31 @@ test("listOAuthProviders includes antigravity, github-copilot, and cursor", () =
   assert.equal(isOAuthProvider("unknown"), false);
 });
 
-test("getCursorStateDbPaths returns valid platform paths", () => {
+test("getCursorStateDbCandidatePaths returns platform-shaped candidates", () => {
+  const candidates = getCursorStateDbCandidatePaths();
+  assert.ok(Array.isArray(candidates));
+  assert.ok(candidates.length >= 1);
+  for (const p of candidates) {
+    assert.ok(typeof p === "string");
+    assert.ok(p.includes("Cursor"));
+    assert.ok(p.includes("state.vscdb"));
+  }
+  if (process.platform === "linux") {
+    assert.ok(candidates.some((p) => p.includes(path.join(".config", "Cursor"))));
+  } else if (process.platform === "darwin") {
+    assert.ok(candidates.some((p) => p.includes(path.join("Library", "Application Support", "Cursor"))));
+  } else {
+    assert.ok(candidates.some((p) => p.includes(path.join("AppData", "Roaming"))));
+  }
+});
+
+test("getCursorStateDbPaths filters candidates to existing databases", () => {
   const paths = getCursorStateDbPaths();
   assert.ok(Array.isArray(paths));
-  assert.ok(paths.length >= 1);
-  assert.ok(paths[0].includes("Cursor"));
+  for (const p of paths) {
+    assert.ok(fs.existsSync(p), "filtered result must exist on disk");
+    assert.ok(p.includes("state.vscdb"));
+  }
 });
 
 test("detectLocalCursorSession auto-detects host installation if present", () => {

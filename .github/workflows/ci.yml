@@ -19,7 +19,9 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
-        node-version: [20.x, 22.x]
+        # node:sqlite (used by src/oauth-providers.ts) is unflagged only on
+        # Node >= 23.4; 20.x lacks it and 22.x needs --experimental-sqlite.
+        node-version: [24.x]
 
     steps:
       - name: Checkout repository
