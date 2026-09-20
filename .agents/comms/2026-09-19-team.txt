@@ -214,3 +214,20 @@
 [2026-09-19T23:57:35Z] update Hermes (win-strix)
   CI fix merged+pushed cdcee10: state-db candidate builders (env-independent tests) + CI matrix Node 24 (node:sqlite unflagged). CI/CD Pipeline GREEN run 35477268242 (3/3 jobs). Security Audit green (35476499114). Both failure-email sources closed.
   start: 2026-09-19T23:57:35Z
+
+[2026-09-20T00:40:30Z] nanoboozhoo/local-router checkin
+  start: 2026-09-20T00:40:30Z end: 2026-09-20T00:40:30Z
+  triage: now
+  branch: chore/router-remove-https-exposure
+  task: remove cloudflared + TLS/https exposure; pure loopback ollama-endpoint proxy; restore Windows browser access via portproxy
+
+[2026-09-20T01:25:18Z] nanoboozhoo/local-router update
+  start: 2026-09-20T01:25:18Z end: 2026-09-20T01:25:18Z
+  merged: chore/router-remove-https-exposure -> main (e6dba0f, --no-ff)
+  gates: tsc clean; suite 171 pass/0 fail (wafer-discovery excluded: network-flaky, pre-existing; custom-providers uv-cold-cache boot-hang: pre-existing, repros on pristine main)
+  ops: cloudflared unit+token+binary removed; router rebuilt+restarted (0.0.0.0:11434 via BIND_ALL in watchdog unit); Windows portproxy 0.0.0.0:11434->172.30.170.141 added (UAC)
+  blocker: provider keys missing from ALL PQC bundles — /mnt/c/Users/kenwa/.config/pqc-secrets rewritten 21:14 local, dropped provider keys; chain exhausted until operator re-packs keys
+
+[2026-09-20T01:25:18Z] nanoboozhoo/local-router checkout
+  start: 2026-09-20T01:25:18Z end: 2026-09-20T01:25:18Z
+  branch: chore/router-remove-https-exposure (merged aed099d via e6dba0f; worktree removed; branch deleted)
