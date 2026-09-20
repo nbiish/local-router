@@ -109,7 +109,7 @@ The PQC secrets system consists of a dual-implementation architecture to ensure 
 
 | Surface | Engine | Coverage | Status |
 |---|---|---|---|
-| Linux / WSL / generic (Windows: Ubuntu/WSL terminal) | **Python** (`pyca/cryptography>=45`, native ML-KEM-768, FIPS 203 seed form) via `uv run` | keygen, pack, export, verify, **list**, **rename**, migrate, setup, version | **Canonical** — resolves to the newest `cryptography` on first run |
+| Linux / WSL / generic (Windows: Ubuntu/WSL terminal) | **Python** (`pyca/cryptography>=45`, native ML-KEM-768, FIPS 203 seed form) via `uv run` | keygen, pack, export, verify, **list**, **rename**, **sync**, migrate, setup, version | **Canonical** — resolves to the newest `cryptography` on first run |
 | darwin/arm64 | **Python** (same engine, same path) | all commands | Canonical |
 | darwin/arm64 | Rust `bin/pqc-secrets.darwin-arm64` | keygen, pack, export only | **Fast-path**, v1.1.0 (2026-08-30) — seed-form + legacy expanded stores both supported |
 
@@ -270,6 +270,54 @@ record. Daemons and long-lived agents must treat TTL expiry as an expected
 failure mode — see §10.4 (post-migration operational reality) and §7.1.
 
 ---
+
+### 2.2 Cross-machine sync (`sync`, v1.3.0) — WSL / Linux / macOS / Windows
+
+Every store dir is a **self-contained identity**: its `machine.kek` +
+`private.key.enc` (or `vault.pqc`) decapsulates only its own
+`secrets.bundle.json`. No store can ever read another store's bundle —
+that is the design, and it is why "copy the bundle file" across machines
+**does not work**. The same plaintext must be re-encrypted under EACH
+store's identity. `sync` does exactly that, values in process memory only:
+
+```bash
+# Local multi-store (WSL <-> Windows on the same disk, mounted drives):
+pqc-secrets sync --from ~/.config/pqc-secrets \
+    --to /mnt/c/Users/<you>/.config/pqc-secrets \
+    --to /mnt/d/<shared-store>/pqc-secrets --dry-run   # plan: names only
+pqc-secrets sync --from ~/.config/pqc-secrets \
+    --to /mnt/c/Users/<you>/.config/pqc-secrets        # real (backs up targets)
+
+# Remote machines (macOS / Linux hosts) — values cross exactly once,
+# transport-encrypted (standard SSH), packed on arrival, never on disk in transit:
+pqc-secrets sync --from ~/.config/pqc-secrets --stdout \
+    | ssh host 'pqc-secrets sync --stdin --to ~/.config/pqc-secrets'
+```
+
+Semantics and guarantees:
+
+| Property | Behavior |
+|---|---|
+| Identity | each target is re-encrypted under the **target dir's own** `recipient.pub`; no private key material ever crosses stores or the wire |
+| Merge | target-only secrets are **preserved**; source wins on name collisions |
+| Safety | existing target bundles are backed up alongside themselves (`*.bak.<UTC>`, 0600); `--dry-run` prints the per-target plan (names only) |
+| Failure | a target bundle unreadable under the target identity is **skipped** unless `--force` (which replaces it, backup kept) — this is the repair path for a clobbered/foreign bundle |
+| Values | never printed, never written to disk in plaintext; the remote ssh lane is the only wire format (`export KEY='value'` lines, operator-initiated) |
+
+Bootstrap rule for fresh machines: run `pqc-secrets setup` (or `keygen`)
+on the target FIRST — sync needs the target's `recipient.pub` to exist;
+it refuses otherwise.
+
+**Consumer integration (local-router):** the router scans candidate
+stores at boot — ambient `PQC_CONFIG_DIR`, `~/.config/pqc-secrets`, and
+(under WSL) every `/mnt/<drive>/Users/<user>/.config/pqc-secrets` — and
+merges keys from all of them (each opened with its own store identity).
+Extra stores can be added with `LOCAL_ROUTER_PQC_EXTRA_DIRS`
+(`:`-separated). After changing keys on any machine, run `sync` toward
+the scanned dirs — or simply keep one canonical store per OS synced by
+the commands above.
+
+
 
 ## 3. Cryptographic Standards (verified 2026-08-08)
 

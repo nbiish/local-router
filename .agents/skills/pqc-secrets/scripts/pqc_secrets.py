@@ -1041,9 +1041,254 @@ def cmd_rename(old_name: str, new_name: str) -> None:
     print(f"Renamed {old_name} -> {new_name} (backup: {backup})")
 
 
+class _ConfigDirScope:
+    """Temporarily re-point the module-level store paths at another config dir.
+
+    `sync` reads one store and writes others; every helper in this module
+    resolves paths from these globals at call time, so swapping them under a
+    context manager is the smallest safe override. Globals are always restored
+    on exit, including on exceptions.
+    """
+
+    _PATH_GLOBALS = (
+        "CONFIG_DIR", "PUBKEY_PATH", "BUNDLE_PATH",
+        "PRIVATE_KEY_ENC_PATH", "KEK_PATH", "VAULT_PATH",
+    )
+
+    def __init__(self, config_dir: Path) -> None:
+        self._dir = config_dir
+        self._saved: dict = {}
+
+    def __enter__(self) -> "_ConfigDirScope":
+        g = globals()
+        self._saved = {name: g[name] for name in self._PATH_GLOBALS}
+        g["CONFIG_DIR"] = self._dir
+        g["PUBKEY_PATH"] = self._dir / "recipient.pub"
+        g["BUNDLE_PATH"] = self._dir / "secrets.bundle.json"
+        g["PRIVATE_KEY_ENC_PATH"] = self._dir / "private.key.enc"
+        g["KEK_PATH"] = self._dir / "machine.kek"
+        g["VAULT_PATH"] = self._dir / "vault.pqc"
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        g = globals()
+        for name, value in self._saved.items():
+            g[name] = value
+
+
+def _shell_unquote(field: str) -> str:
+    """Exact inverse of _shell_quote for our own export format.
+
+    Accepts the single-quoted field produced by _shell_quote ('...') and
+    reverses the '\'' escape. Refuses anything else — sync never guesses.
+    """
+    if len(field) >= 2 and field.startswith("'") and field.endswith("'"):
+        inner = field[1:-1]
+        if "\\'" not in inner.replace("'\\''", ""):
+            return inner.replace("'\\''", "'")
+    raise ValueError("value is not in pqc-secrets export quoting format")
+
+
+_EXPORT_LINE_RE = re.compile(r"^export ([A-Z0-9_]+)=('(?:[^']|'\\'')*')$")
+
+
+def _parse_export_lines(text: str) -> dict[str, str]:
+    """Parse `export KEY='value'` lines (our own export format) into a mapping."""
+    entries: dict[str, str] = {}
+    for line in text.split("\n"):
+        line = line.strip()
+        if not line:
+            continue
+        match = _EXPORT_LINE_RE.match(line)
+        if not match:
+            print(
+                "ERROR: stdin is not in pqc-secrets export format "
+                "(expected: export KEY='value'). Refusing to guess.",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        entries[match.group(1)] = _shell_unquote(match.group(2))
+    if not entries:
+        print("ERROR: no export lines found on stdin.", file=sys.stderr)
+        sys.exit(1)
+    return entries
+
+
+def cmd_sync(argv: list[str]) -> None:
+    """Re-pack one store's secrets into other stores' bundles, per-identity.
+
+    Cross-machine flow — WSL <-> Windows mounted dirs, second Linux store:
+
+        pqc-secrets sync --from ~/.config/pqc-secrets \\
+            --to /mnt/c/Users/<you>/.config/pqc-secrets
+
+    Remote machines (macOS / Linux over ssh) — values cross exactly once,
+    transport-encrypted, packed at the destination, never written to disk
+    in transit:
+
+        pqc-secrets sync --from ~/.config/pqc-secrets --stdout \\
+            | ssh host 'pqc-secrets sync --stdin --to ~/.config/pqc-secrets'
+
+    Semantics:
+    - Each target bundle is re-encrypted under ITS OWN store identity
+      (the recipient.pub in the target dir). No private key material ever
+      crosses stores or the network.
+    - Merge: target-only secrets are preserved; source wins on name
+      collisions. Existing target bundles are backed up alongside
+      themselves (mode 0600) before rewrite.
+    - Values are never printed and never touch disk in plaintext.
+    """
+    source_dir: Path | None = None
+    targets: list[Path] = []
+    from_stdin = False
+    to_stdout = False
+    dry_run = False
+    force = False
+
+    it = iter(argv)
+    for arg in it:
+        if arg == "--from":
+            source_dir = Path(next(it, ""))
+        elif arg == "--to":
+            targets.append(Path(next(it, "")))
+        elif arg == "--stdin":
+            from_stdin = True
+        elif arg == "--stdout":
+            to_stdout = True
+        elif arg == "--dry-run":
+            dry_run = True
+        elif arg == "--force":
+            force = True
+        else:
+            print(f"ERROR: unknown sync argument: {arg}", file=sys.stderr)
+            print(_SYNC_USAGE, file=sys.stderr)
+            sys.exit(1)
+
+    if from_stdin and source_dir is not None:
+        print("ERROR: --stdin and --from are mutually exclusive.", file=sys.stderr)
+        sys.exit(1)
+    if to_stdout and targets:
+        print("ERROR: --stdout and --to are mutually exclusive.", file=sys.stderr)
+        sys.exit(1)
+
+    # ---- Source phase: resolve entries in memory, never printed ----------
+    if from_stdin:
+        entries = _parse_export_lines(sys.stdin.read())
+        source_label = "stdin"
+    else:
+        source = source_dir if source_dir is not None else CONFIG_DIR
+        if not source.exists():
+            print(f"ERROR: source store dir does not exist: {source}", file=sys.stderr)
+            sys.exit(1)
+        with _ConfigDirScope(source):
+            if not BUNDLE_PATH.exists():
+                print(
+                    f"ERROR: No secrets bundle at {BUNDLE_PATH}.\n"
+                    "Fresh store? First run:  pqc-secrets keygen\n"
+                    "Then add keys:           printf 'K=V\\n' | pqc-secrets pack",
+                    file=sys.stderr,
+                )
+                sys.exit(1)
+            entries = _read_entries()
+        source_label = str(source)
+
+    # ---- --stdout lane: emit export-format lines for a remote pipe -------
+    if to_stdout:
+        for key in sorted(entries):
+            print(f"export {key}={_shell_quote(entries[key])}")
+        return
+
+    if not targets:
+        print(_SYNC_USAGE, file=sys.stderr)
+        sys.exit(1)
+
+    # ---- Target phase: merge + re-encrypt per target identity ------------
+    if dry_run:
+        print(f"sync (dry-run): {len(entries)} key(s) from {source_label}")
+    for target in targets:
+        if source_label != "stdin" and target.resolve() == Path(source_label).resolve():
+            print(f"sync: skipping {target} (source and target are the same store)")
+            continue
+        if not target.exists():
+            print(f"sync: target store dir does not exist: {target} — skipped "
+                  "(run 'pqc-secrets keygen' there first)", file=sys.stderr)
+            continue
+
+        with _ConfigDirScope(target):
+            if not PUBKEY_PATH.exists():
+                print(f"sync: no recipient.pub in {target} — skipped "
+                      "(run 'pqc-secrets keygen' there first)", file=sys.stderr)
+                continue
+
+            existing: dict[str, str] = {}
+            readable = BUNDLE_PATH.exists()
+            if readable:
+                try:
+                    existing = _read_entries()
+                except SystemExit:
+                    raise
+                except Exception as err:
+                    readable = False
+                    if not force:
+                        print(
+                            f"sync: existing bundle in {target} is not readable "
+                            f"under this store's identity ({err}); skipped. "
+                            "Re-run with --force to replace it (backup kept).",
+                            file=sys.stderr,
+                        )
+                        continue
+
+            merged = dict(existing)
+            added = sorted(set(entries) - set(existing))
+            updated = sorted(set(entries) & set(existing))
+            for key, value in entries.items():
+                merged[key] = value
+
+            if dry_run:
+                print(f"sync (dry-run) -> {target}: {len(merged)} key(s) would be "
+                      f"packed (added {len(added)}, updated {len(updated)}, "
+                      f"kept {len(existing) - len(updated)})")
+                for key in added:
+                    print(f"  + {key}")
+                for key in updated:
+                    print(f"  ~ {key}")
+                continue
+
+            backup = None
+            if BUNDLE_PATH.exists():
+                backup = BUNDLE_PATH.with_name(
+                    BUNDLE_PATH.name + f".bak.{__import__('datetime').datetime.now(__import__('datetime').UTC).strftime('%Y%m%dT%H%M%SZ')}"
+                )
+                backup.write_text(BUNDLE_PATH.read_text())
+                backup.chmod(0o600)
+
+            _encrypt_entries_to_bundle(merged)
+            detail = (
+                f"added {len(added)}, updated {len(updated)}, "
+                f"kept {len(existing) - len(updated)}"
+                + ("" if readable else " [replaced unreadable bundle]")
+            )
+            print(f"synced {len(merged)} key(s) -> {target} ({detail})")
+            if backup is not None:
+                print(f"  backup: {backup}")
+    print(f"sync: {len(entries)} key(s) from {source_label} processed")
+
+
+_SYNC_USAGE = (
+    "Usage: pqc_secrets.py sync (--from <DIR> | --stdin) [--to <DIR>]... "
+    "[--stdout] [--dry-run] [--force]\n"
+    "  --from <DIR>   source store dir (default: ambient PQC_CONFIG_DIR / ~/.config/pqc-secrets)\n"
+    "  --stdin        read source entries as export-format lines from stdin\n"
+    "  --to <DIR>     target store dir (repeatable); re-packed under the target's own identity\n"
+    "  --stdout       emit export-format lines (for an ssh pipe) instead of packing\n"
+    "  --dry-run      print the per-target plan (names only) without writing\n"
+    "  --force        replace a target bundle that is unreadable under the target identity\n"
+    "Values never touch disk in plaintext and are never printed."
+)
+
 ENGINE_NAME = "py-native-mlkem"
 ENGINE_BUILD_DATE = "2026-08-29"
-ENGINE_COMMANDS = "keygen gen pack export verify list rename migrate setup version"
+ENGINE_COMMANDS = "keygen gen pack export verify list rename sync migrate setup version"
 BUNDLE_SCHEMA = "v1 (ML-KEM-768 keywrap + AES-256-GCM data, aad)"
 
 
@@ -1089,7 +1334,7 @@ def cmd_migrate() -> None:
     print(f"Migrated keychain entry: service={KEYCHAIN_SERVICE}, account={old_account} -> {new_account}")
 
 
-USAGE_LINE = "Usage: pqc_secrets.py <keygen|gen|pack|export|verify|list|rename|migrate|version>"
+USAGE_LINE = "Usage: pqc_secrets.py <keygen|gen|pack|export|verify|list|rename|sync|migrate|version>"
 NAMING_LINE = "Naming:  always prefix keys with the consuming tool's name - LOCALROUTER_*_API_KEY, AINISHCODER_*_API_KEY, ..."
 
 
@@ -1117,6 +1362,8 @@ def main() -> None:
             print("Usage: pqc_secrets.py rename <OLD_NAME> <NEW_NAME>", file=sys.stderr)
             sys.exit(1)
         cmd_rename(sys.argv[2], sys.argv[3])
+    elif cmd == "sync":
+        cmd_sync(sys.argv[2:])
     elif cmd == "migrate":
         cmd_migrate()
     elif cmd == "version":
