@@ -78,8 +78,6 @@ function usage() {
     '  local-router route custom <localhost:port>',
     '  local-router route unset',
     '  local-router route status',
-    '  local-router tls status',
-    '  local-router tls setup [--hostname local-router.local] [--port 11443] [--force]',
     '',
     'Behavior:',
     '  - start: launches proxy only when nothing else is listening on the target port.',
@@ -94,10 +92,6 @@ function usage() {
     '    service starts go through Local Router (preferred + provider model catalog).',
     '  - route custom: ollama shim only, but `ollama serve` starts Local Router on a custom localhost port.',
     '  - route unset: removes all Local Router service shims.',
-    '  - tls: HTTPS serving for strict tooling that blocks http/localhost/127.0.0.1 URLs.',
-    '    setup generates a self-signed cert (SANs: localhost, LOCAL_ROUTER_TLS_HOSTNAME,',
-    '    local-router.localtest.me, loopback + LAN IPs) and prints ready-to-use https:// URLs;',
-    '    enable the listener at runtime with LOCAL_ROUTER_TLS=true (port defaults to 11443).',
     '',
     'Compatibility:',
     '  - fvs-code remains available as a deprecated CLI alias for this release.',
@@ -339,18 +333,8 @@ async function cmdStart(options) {
       const pids = findPidsOnPort(options.port);
       const pidStr = pids.length > 0 ? ` (PID: ${pids.join(', ')})` : '';
       console.log(`\n✓ Local Router is already running at ${current.baseUrl}${pidStr}\n`);
-      const tlsSettings = resolveTlsBannerSettings();
-      const tlsProbeHost = options.host === '0.0.0.0' ? '127.0.0.1' : options.host;
-      const tlsLive = await probeTcpPort(tlsSettings.port, tlsProbeHost);
       console.log('  Connections:');
-      for (const line of buildConnectionLines({
-        httpBaseUrl: current.baseUrl,
-        tlsLive,
-        tlsPort: tlsSettings.port,
-        tlsHostname: tlsSettings.hostname
-      })) {
-        console.log(line);
-      }
+      console.log(`    ► HTTP    ${current.baseUrl}   (drop-in Ollama & OpenAI compatible)`);
       console.log('');
       console.log('  Web Dashboard & Management:');
       console.log(`    ► Open Dashboard:   ${current.baseUrl}/config`);
@@ -436,22 +420,9 @@ async function cmdStart(options) {
   console.log(`Local Router started at http://${options.host}:${options.port}`);
   console.log(`PID: ${child.pid}`);
   console.log(`Log: ${logPath}`);
-  const tlsSettings = resolveTlsBannerSettings();
-  const tlsProbeHost = options.host === '0.0.0.0' ? '127.0.0.1' : options.host;
-  const tlsLive = tlsSettings.enabled
-    ? await waitForTlsLive(tlsProbeHost, tlsSettings.port)
-    : await probeTcpPort(tlsSettings.port, tlsProbeHost);
   console.log('');
   console.log('  Connections:');
-  for (const line of buildConnectionLines({
-    httpBaseUrl: `http://${options.host}:${options.port}`,
-    tlsLive,
-    tlsPort: tlsSettings.port,
-    tlsHostname: tlsSettings.hostname,
-    tlsEnabledButNotLive: tlsSettings.enabled && !tlsLive
-  })) {
-    console.log(line);
-  }
+  console.log(`    ► HTTP    http://${options.host}:${options.port}   (drop-in Ollama & OpenAI compatible)`);
   return 0;
 }
 
@@ -1116,6 +1087,12 @@ function setupDesktopAndServiceAutostart(routeMode, target) {
         '[Service]',
         'Type=oneshot',
         'KillMode=process',
+        // Persist the operator's bind posture so watchdog-spawned daemons keep
+        // it across restarts (e.g. WSL deployments fronted by a Windows netsh
+        // portproxy need 0.0.0.0; loopback-only remains the default).
+        ...(process.env.LOCAL_ROUTER_BIND_ALL === 'true'
+          ? ['Environment=LOCAL_ROUTER_BIND_ALL=true']
+          : []),
         `ExecStart=${process.execPath} ${localRouterBin} ${ensureArgsStr}`,
         ''
       ].join('\n');
@@ -1874,259 +1851,6 @@ async function cmdUpdate(options) {
   return 1;
 }
 
-
-// ---- TLS (HTTPS serving for strict tooling) --------------------------------
-// Mirrors src/tls.ts defaults. `tls status` parses the cert directly with
-// node:crypto so it works even before a TypeScript build exists; `tls setup`
-// reuses build/tls.js so generation logic lives in exactly one place.
-
-const TLS_DIR = path.join(CONFIG_DIR, 'tls');
-const DEFAULT_TLS_PORT = 11443;
-const DEFAULT_TLS_HOSTNAME = 'local-router.local';
-const ZERO_CONFIG_HOSTNAME = 'local-router.localtest.me';
-
-function tlsPaths() {
-  const dir = process.env.LOCAL_ROUTER_TLS_DIR || TLS_DIR;
-  return {
-    cert: process.env.LOCAL_ROUTER_TLS_CERT || path.join(dir, 'local-router-cert.pem'),
-    key: process.env.LOCAL_ROUTER_TLS_KEY || path.join(dir, 'local-router-key.pem')
-  };
-}
-
-function tlsEnvDefaults(env = process.env) {
-  const port = Number.parseInt(env.LOCAL_ROUTER_TLS_PORT || '', 10);
-  const rawHost = String(env.LOCAL_ROUTER_TLS_HOSTNAME || '').trim().toLowerCase();
-  return {
-    enabled: ['true', '1', 'yes'].includes(String(env.LOCAL_ROUTER_TLS || '').toLowerCase()),
-    port: Number.isInteger(port) && port > 0 && port <= 65535 ? port : DEFAULT_TLS_PORT,
-    hostname: /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*$/.test(rawHost)
-      ? rawHost
-      : DEFAULT_TLS_HOSTNAME
-  };
-}
-
-/**
- * Read the LOCAL_ROUTER_TLS* keys from the repo-root .env (the same file the
- * daemon loads via dotenv), so the start banner tells the truth about a
- * daemon that enables HTTPS through .env even when the invoking shell does
- * not export the flag. Returns only recognized LOCAL_ROUTER_TLS* keys.
- */
-function readRepoDotEnvTls(dotEnvPath) {
-  try {
-    const out = {};
-    for (const line of fs.readFileSync(dotEnvPath, 'utf8').split(/\r?\n/)) {
-      const trimmed = line.trim();
-      if (!trimmed || trimmed.startsWith('#')) continue;
-      const match = /^(LOCAL_ROUTER_TLS[A-Z_]*)\s*=\s*(.*)$/.exec(trimmed);
-      if (match) out[match[1]] = match[2].replace(/^["']|["']$/g, '');
-    }
-    return out;
-  } catch {
-    return {};
-  }
-}
-
-/**
- * Shell env wins over repo-root .env values; the result feeds the banner and
- * the TLS liveness probe so both branches of `local-router start` print the
- * same HTTPS picture the daemon actually serves.
- */
-function resolveTlsBannerSettings(dotEnvPath = path.resolve(__dirname, '..', '.env'), env = process.env) {
-  const merged = {
-    ...readRepoDotEnvTls(dotEnvPath),
-    ...Object.fromEntries(Object.entries(env).filter(([key, value]) => key.startsWith('LOCAL_ROUTER_TLS') && value !== undefined))
-  };
-  return tlsEnvDefaults(merged);
-}
-
-/**
- * Pure builder for the `local-router start` Connections block (both the
- * already-running dashboard banner and the fresh-start success output).
- */
-function buildConnectionLines({ httpBaseUrl, tlsLive, tlsPort, tlsHostname, tlsEnabledButNotLive = false }) {
-  const lines = [`    ► HTTP    ${httpBaseUrl}   (drop-in Ollama & OpenAI compatible)`];
-  if (tlsLive) {
-    lines.push(`    ► HTTPS   https://localhost:${tlsPort}`);
-    lines.push(`    ► HTTPS   https://${ZERO_CONFIG_HOSTNAME}:${tlsPort}   (strict tooling — public DNS to loopback)`);
-    lines.push(`    ► HTTPS   https://${tlsHostname}:${tlsPort}   (hosts entry: 127.0.0.1 ${tlsHostname})`);
-  } else if (tlsEnabledButNotLive) {
-    lines.push(`    ► HTTPS   enabled but not detected yet — check the daemon log`);
-  } else {
-    lines.push(`    ► HTTPS   disabled — enable with LOCAL_ROUTER_TLS=true (see 'local-router tls setup')`);
-  }
-  return lines;
-}
-
-/** Grace window for the TLS listener, which comes up just after HTTP (cert generation). */
-async function waitForTlsLive(host, port, attempts = 12, intervalMs = 250) {
-  for (let i = 0; i < attempts; i += 1) {
-    if (await probeTcpPort(port, host)) return true;
-    await new Promise((resolve) => setTimeout(resolve, intervalMs));
-  }
-  return probeTcpPort(port, host);
-}
-
-function tlsUrls(port, hostname) {
-  const urls = [
-    `https://localhost:${port}`,
-    `https://${ZERO_CONFIG_HOSTNAME}:${port}`,
-    `https://${hostname}:${port}`
-  ];
-  for (const nets of Object.values(os.networkInterfaces())) {
-    for (const net of nets || []) {
-      if (net.family === 'IPv4' && !net.internal) urls.push(`https://${net.address}:${port}`);
-    }
-  }
-  return urls;
-}
-
-const net = require('net');
-
-function probeTcpPort(port, host, timeoutMs = 600) {
-  return new Promise((resolve) => {
-    const socket = net.connect({ host, port });
-    const done = (result) => { socket.destroy(); resolve(result); };
-    socket.setTimeout(timeoutMs);
-    socket.once('connect', () => done(true));
-    socket.once('timeout', () => done(false));
-    socket.once('error', () => done(false));
-  });
-}
-
-async function cmdTlsStatus() {
-  const defaults = tlsEnvDefaults();
-  const paths = tlsPaths();
-  const live = await probeTcpPort(defaults.port, '127.0.0.1');
-  console.log('Local Router TLS status');
-  console.log('');
-  console.log(`  Env config:      ${defaults.enabled ? 'ENABLED (LOCAL_ROUTER_TLS set in this shell)' : 'not set in this shell — daemon may still enable via .env'}`);
-  console.log(`  Live listener:   ${live ? `YES — serving on 127.0.0.1:${defaults.port}` : `no listener detected on 127.0.0.1:${defaults.port}`}`);
-  console.log(`  HTTPS port:      ${defaults.port} (LOCAL_ROUTER_TLS_PORT)`);
-  console.log(`  Hostname:        ${defaults.hostname} (LOCAL_ROUTER_TLS_HOSTNAME)`);
-  console.log(`  Cert:            ${paths.cert}${fs.existsSync(paths.cert) ? '' : '  (missing)'}`);
-  console.log(`  Key:             ${paths.key}${fs.existsSync(paths.key) ? '' : '  (missing)'}`);
-  if (fs.existsSync(paths.cert)) {
-    try {
-      const { X509Certificate } = require('crypto');
-      const cert = new X509Certificate(fs.readFileSync(paths.cert));
-      const validTo = new Date(cert.validTo);
-      const daysLeft = Math.round((validTo.getTime() - Date.now()) / 86400000);
-      console.log(`  Subject:         ${cert.subject.replace(/\n/g, ', ')}`);
-      console.log(`  Valid to:        ${cert.validTo} (${daysLeft} day${daysLeft === 1 ? '' : 's'} left)`);
-      console.log(`  SANs:            ${cert.subjectAltName || '(none)'}`);
-    } catch (err) {
-      console.error(`  ✗ Certificate unreadable: ${err.message}`);
-      return 1;
-    }
-  }
-  console.log('');
-  console.log('  Ready-made strict-tooling URLs (all served by the same router):');
-  for (const url of tlsUrls(defaults.port, defaults.hostname)) console.log(`    ${url}`);
-  console.log('');
-  console.log(`  Custom hostname resolution — add to /etc/hosts (Windows: \\System32\\drivers\\etc\\hosts):`);
-  console.log(`    127.0.0.1 ${defaults.hostname}`);
-  console.log(`    ::1       ${defaults.hostname}`);
-  console.log('');
-  console.log(`  Zero-config alternative (public DNS -> loopback, no hosts edit):`);
-  console.log(`    https://${ZERO_CONFIG_HOSTNAME}:${defaults.port}`);
-  return 0;
-}
-
-function cmdTlsSetup(args) {
-  let hostname = '';
-  let port = 0;
-  let force = false;
-  for (let i = 0; i < args.length; i += 1) {
-    const token = args[i];
-    if (token === '--hostname') {
-      hostname = String(args[i + 1] || '').trim().toLowerCase();
-      i += 1;
-    } else if (token && token.startsWith('--hostname=')) {
-      hostname = token.slice('--hostname='.length).trim().toLowerCase();
-    } else if (token === '--port') {
-      port = Number.parseInt(args[i + 1] || '', 10);
-      i += 1;
-    } else if (token && token.startsWith('--port=')) {
-      port = Number.parseInt(token.slice('--port='.length), 10);
-    } else if (token === '--force') {
-      force = true;
-    }
-  }
-  const defaults = tlsEnvDefaults();
-  if (hostname) {
-    if (!/^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*$/.test(hostname)) {
-      console.error(`✗ Invalid hostname: ${hostname}`);
-      return 1;
-    }
-    defaults.hostname = hostname;
-  }
-  if (Number.isInteger(port) && port > 0 && port <= 65535) defaults.port = port;
-
-  if (process.env.LOCAL_ROUTER_TLS_CERT && process.env.LOCAL_ROUTER_TLS_KEY) {
-    console.log('Operator-supplied LOCAL_ROUTER_TLS_CERT/KEY are set — nothing to generate.');
-    console.log(`  Cert: ${process.env.LOCAL_ROUTER_TLS_CERT}`);
-    console.log(`  Key:  ${process.env.LOCAL_ROUTER_TLS_KEY}`);
-    return cmdTlsStatus();
-  }
-
-  let tlsModule;
-  try {
-    tlsModule = require(path.join(__dirname, '..', 'build', 'tls.js'));
-  } catch (err) {
-    console.error('✗ build/tls.js not found — run `npm run build` (or reinstall) first.');
-    console.error(`  (${err.message})`);
-    return 1;
-  }
-
-  const paths = tlsPaths();
-  if (force) {
-    for (const file of [paths.cert, paths.key, path.join(TLS_DIR, 'tls-meta.json')]) {
-      try { fs.unlinkSync(file); } catch { /* absent is fine */ }
-    }
-  }
-
-  const settings = tlsModule.resolveTlsSettings({
-    ...process.env,
-    LOCAL_ROUTER_TLS_HOSTNAME: defaults.hostname,
-    LOCAL_ROUTER_TLS_PORT: String(defaults.port)
-  });
-
-  return tlsModule.ensureTlsMaterial(settings).then((material) => {
-    if (material.generated) {
-      console.log('✓ Generated self-signed TLS certificate');
-    } else {
-      console.log('✓ Reusing existing TLS certificate (use --force to regenerate)');
-    }
-    console.log(`  Cert:  ${material.certPath}`);
-    console.log(`  Key:   ${material.keyPath} (mode 0600)`);
-    console.log(`  SANs:  ${material.sans.join(', ')}`);
-    if (material.validTo) console.log(`  Valid to: ${material.validTo.slice(0, 10)}`);
-    console.log('');
-    console.log('  Enable the listener at runtime:');
-    console.log(`    LOCAL_ROUTER_TLS=true LOCAL_ROUTER_TLS_PORT=${defaults.port} local-router start`);
-    console.log('');
-    console.log('  Strict-tooling base URLs (then append /v1 or the Ollama path your tool wants):');
-    for (const url of tlsUrls(defaults.port, defaults.hostname)) console.log(`    ${url}`);
-    console.log('');
-    console.log('  Hostname resolution — pick one:');
-    console.log(`    a) Zero-config public DNS (resolves to loopback, no hosts edit): ${ZERO_CONFIG_HOSTNAME}`);
-    console.log(`    b) hosts file: "127.0.0.1 ${defaults.hostname}" and "::1 ${defaults.hostname}"`);
-    console.log('');
-    console.log('  Getting clients to TRUST the self-signed cert — pick what your tool supports:');
-    console.log('    1) Insecure-mode toggle in the tool (simplest for self-signed).');
-    console.log(`    2) Node.js-based tools:  NODE_EXTRA_CA_CERTS=${material.certPath}`);
-    console.log('    3) System trust store (browsers, Go/Python/many desktop tools):');
-    console.log(`         macOS:   sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain ${material.certPath}`);
-    console.log(`         Linux:   sudo cp ${material.certPath} /usr/local/share/ca-certificates/local-router.crt && sudo update-ca-certificates`);
-    console.log(`         Windows: certutil -addstore -f Root ${material.certPath}   (admin shell)`);
-    console.log('    4) mkcert instead: `mkcert -install` then point LOCAL_ROUTER_TLS_CERT/KEY at mkcert PEMs.');
-    return 0;
-  }).catch((err) => {
-    console.error(`✗ TLS setup failed: ${err.message}`);
-    return 1;
-  });
-}
-
 async function main() {
   const argv = process.argv.slice(2);
   const command = argv[0] || 'start';
@@ -2136,18 +1860,6 @@ async function main() {
     return;
   }
 
-  if (command === 'tls') {
-    const subcommand = argv[1] || 'status';
-    if (subcommand === 'setup') {
-      process.exitCode = await cmdTlsSetup(argv.slice(2));
-      return;
-    }
-    if (subcommand === 'status') {
-      process.exitCode = await cmdTlsStatus();
-      return;
-    }
-    throw new Error(`Unknown tls subcommand: ${subcommand}`);
-  }
 
   if (command === 'route') {
     const subcommand = argv[1] || 'status';
@@ -2229,17 +1941,6 @@ async function main() {
 
   throw new Error(`Unknown command: ${command}`);
 }
-
-// Exported for tests (guarded main keeps `node bin/local-router.js` behavior
-// identical while letting test runners require this file safely).
-module.exports = {
-  buildConnectionLines,
-  resolveTlsBannerSettings,
-  readRepoDotEnvTls,
-  tlsEnvDefaults,
-  tlsPaths,
-  probeTcpPort
-};
 
 if (require.main === module) {
   main().catch((error) => {
