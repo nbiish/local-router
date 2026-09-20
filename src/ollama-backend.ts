@@ -1,4 +1,4 @@
-import { spawn, spawnSync } from 'child_process';
+import { spawnSync } from 'child_process';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
@@ -14,9 +14,6 @@ const LEGACY_SHIM_MARKER = '# fvs-code ollama shim';
 // POSIX-only bash shim path (see bin/local-router.js renderOllamaShim). On Windows the shim is
 // never installed, so resolveRealOllamaBinary simply finds nothing here and moves on.
 const SHIM_PATH = path.join(os.homedir(), '.local/bin/ollama');
-
-let ollamaBackendProcess: ReturnType<typeof spawn> | null = null;
-let ollamaBackendShutdownRegistered = false;
 
 function whichAll(commandName: string): string[] {
   if (process.platform === 'win32') {
@@ -82,7 +79,7 @@ export function resolveRealOllamaBinary(): string | null {
   return null;
 }
 
-async function probeOllamaBackend(timeoutMs = 1500): Promise<boolean> {
+export async function probeOllamaBackend(timeoutMs = 1500): Promise<boolean> {
   try {
     const response = await fetch(OLLAMA_BACKEND_TAGS_URL, {
       signal: AbortSignal.timeout(timeoutMs)
@@ -93,37 +90,6 @@ async function probeOllamaBackend(timeoutMs = 1500): Promise<boolean> {
   }
 }
 
-async function waitForOllamaBackend(maxAttempts = 40, delayMs = 250): Promise<boolean> {
-  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
-    if (await probeOllamaBackend()) {
-      return true;
-    }
-    await new Promise((resolve) => setTimeout(resolve, delayMs));
-  }
-  return false;
-}
-
-function registerOllamaBackendShutdown(): void {
-  if (ollamaBackendShutdownRegistered) return;
-  ollamaBackendShutdownRegistered = true;
-
-  const stop = () => {
-    if (!ollamaBackendProcess || ollamaBackendProcess.killed) return;
-    ollamaBackendProcess.kill('SIGTERM');
-    ollamaBackendProcess = null;
-  };
-
-  process.on('exit', stop);
-  process.on('SIGINT', () => {
-    stop();
-    process.exit(130);
-  });
-  process.on('SIGTERM', () => {
-    stop();
-    process.exit(143);
-  });
-}
-
 export async function ensureOllamaBackend(): Promise<boolean> {
   if (process.env.LOCAL_ROUTER_SKIP_OLLAMA_ENSURE === 'true') {
     return false;
@@ -132,46 +98,17 @@ export async function ensureOllamaBackend(): Promise<boolean> {
   process.env.LOCAL_ROUTER_PROVIDER_OLLAMA_BASE_URL = OLLAMA_BACKEND_BASE_URL;
   process.env.OLLAMA_HOST = OLLAMA_BACKEND_HOST;
 
-  if (await probeOllamaBackend()) {
-    return true;
-  }
-
-  const binary = resolveRealOllamaBinary();
-  if (!binary) {
-    console.warn('[ollama] Real ollama binary not found; cloud models require `ollama serve` on 11435.');
-    return false;
-  }
-
-  ollamaBackendProcess = spawn(binary, ['serve'], {
-    detached: false,
-    stdio: 'ignore',
-    env: {
-      ...process.env,
-      OLLAMA_HOST: OLLAMA_BACKEND_HOST
-    }
-  });
-
-  ollamaBackendProcess.on('error', (error) => {
-    console.error('[ollama] Failed to start backend:', error.message);
-  });
-
-  ollamaBackendProcess.on('exit', (code, signal) => {
-    if (code !== 0 && code !== null) {
-      console.warn(`[ollama] Backend exited (code=${code}, signal=${signal || 'none'})`);
-    }
-    ollamaBackendProcess = null;
-  });
-
-  registerOllamaBackendShutdown();
-
-  const ready = await waitForOllamaBackend();
-  if (ready) {
-    console.log(`[ollama] Backend ready at ${OLLAMA_BACKEND_HOST}`);
+  // Detection-only (2026-09-20): local-router NEVER starts real ollama. The
+  // operator runs it (via the ollama shim, `ollama serve` binds 11435) and the
+  // router proxies to it while it is up. When it is down, ollama models are
+  // simply not served; every other provider keeps working.
+  const live = await probeOllamaBackend();
+  if (live) {
+    console.log(`[ollama] backend detected at ${OLLAMA_BACKEND_HOST} (operator-managed)`);
   } else {
-    console.warn(`[ollama] Backend did not become ready at ${OLLAMA_BACKEND_HOST}`);
+    console.log(`[ollama] no backend on ${OLLAMA_BACKEND_HOST} — ollama models are served only while real ollama is running`);
   }
-
-  return ready;
+  return live;
 }
 
 export async function pullOllamaCloudModels(modelTags: string[]): Promise<void> {

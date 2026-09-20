@@ -58,7 +58,7 @@ import {
   cryptoRandomId,
   formatResponsesSseEvent
 } from './responses-stream';
-import { ensureOllamaBackend, pullOllamaCloudModels } from './ollama-backend';
+import { ensureOllamaBackend, probeOllamaBackend, pullOllamaCloudModels } from './ollama-backend';
 import {
   filterOllamaCloudPullTags,
   isOllamaCloudPresentedIdBlocked
@@ -703,11 +703,97 @@ function ensureStandardLocalBackends(): void {
  * configuration concern. Rows use the same presentation pipeline as a live
  * probe so ids stay identical when the backend comes back.
  */
+// Local backend liveness cache (2026-09-20): llama.cpp / unsloth are DETECTED
+// at their own endpoints (never started, never shimmed). Their models are
+// listed only while the backend's /v1/models answers; rows refresh lazily
+// (stale-while-revalidate, 30s TTL) plus a 15s sweep at boot. Offline
+// backends contribute no catalog rows: detection state, not configuration.
+interface LocalBackendRuntimeState {
+  models: string[];
+  checkedAt: number;
+  live: boolean;
+}
+
+const localBackendRuntime: Partial<Record<string, LocalBackendRuntimeState>> = {};
+const LOCAL_BACKEND_PROBE_TTL_MS = 30_000;
+
+function refreshLocalBackendRuntime(slug: string): void {
+  const record = customProviderStore.find((entry) => entry.name === slug);
+  if (!record) return;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 1500);
+  void fetch(`${record.endpoint}/models`, { signal: controller.signal })
+    .then(async (response) => {
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const parsed: unknown = await response.json();
+      const rawIds = (parsed as { data?: unknown } | null)?.data;
+      const ids = Array.isArray(rawIds)
+        ? rawIds
+            .map((entry) => {
+              const id = (entry as { id?: unknown } | null)?.id;
+              const name = (entry as { name?: unknown } | null)?.name;
+              return typeof id === 'string' && id ? id : typeof name === 'string' ? name : '';
+            })
+            .filter(Boolean)
+        : [];
+      localBackendRuntime[slug] = { models: ids, checkedAt: Date.now(), live: true };
+    })
+    .catch(() => {
+      localBackendRuntime[slug] = { models: [], checkedAt: Date.now(), live: false };
+    })
+    .finally(() => clearTimeout(timer));
+}
+
+function refreshStaleLocalBackends(): void {
+  const now = Date.now();
+  const dismissed = dismissedLocalBackends();
+  const candidates = [
+    ...STANDARD_LOCAL_BACKENDS.map((backend) => backend.slug),
+    ...customProviderStore.map((entry) => entry.name)
+  ];
+  for (const slug of candidates) {
+    if (dismissed.has(slug)) continue;
+    if (!isLocalLoopbackProvider(slug)) continue;
+    const state = localBackendRuntime[slug];
+    if (!state || now - state.checkedAt > LOCAL_BACKEND_PROBE_TTL_MS) {
+      refreshLocalBackendRuntime(slug);
+    }
+  }
+}
+
+/**
+ * Loopback backend rows for llama.cpp / unsloth, detected-only: a backend
+ * contributes rows ONLY while its own endpoint answers /v1/models (ids come
+ * from that endpoint). When it is down, rows disappear; presentation is
+ * unchanged so ids stay identical when it comes back.
+ */
+// Ollama backend up-transition (2026-09-20): the backend on 11435 is
+// operator/tool-managed (shim shifts it there; the router never spawns it).
+// When it comes up AFTER router boot, refresh the ollama provider once so its
+// models appear in the providers page, configuration, and catalog without a
+// manual refresh.
+let ollamaBackendLastLive = false;
+async function pollOllamaBackendLiveness(): Promise<void> {
+  const live = await probeOllamaBackend();
+  if (live && !ollamaBackendLastLive) {
+    try {
+      await refreshProviderEndpointModels('ollama');
+      console.log('[ollama] backend detected — provider models refreshed');
+    } catch { /* best-effort; the next sweep retries */ }
+  }
+  ollamaBackendLastLive = live;
+}
+
 function localLoopbackRegisteredModels(): ProviderModel[] {
+  // Kick a lazy refresh when the cache is stale; serve the last live set.
+  refreshStaleLocalBackends();
   const rows: ProviderModel[] = [];
   for (const record of customProviderStore) {
     if (!isLocalLoopbackProvider(record.name) || !Array.isArray(record.models)) continue;
-    for (const modelName of record.models) {
+    const runtime = localBackendRuntime[record.name];
+    if (runtime?.live === false) continue; // probed offline -> hidden until it answers again
+    const modelNames = runtime && runtime.models.length > 0 ? runtime.models : record.models;
+    for (const modelName of modelNames) {
       const id = defaultPresentedModelName(record.name, modelName);
       rows.push({
         id,
@@ -2897,6 +2983,11 @@ function activeProviderModelList(): ProviderModel[] {
 
 function resolveModelTarget(modelName: string): ModelTarget | null {
   const configuredModel = findProviderModel(modelName) || findCatalogModel(modelName);
+  if (modelName.includes('mock')) {
+    let summaries = 'THREW';
+    try { summaries = String(catalogProviderSummaries().map((p2) => p2.name).length); } catch (e: any) { summaries = `threw: ${e?.message}`; }
+    console.error(`[debug2] configured=${JSON.stringify(configuredModel)} summariesCount=${summaries}`);
+  }
   if (configuredModel) {
     return {
       providerName: configuredModel.provider,
@@ -7035,13 +7126,19 @@ const server = shouldServe ? app.listen(PORT, bindHost, () => {
   }
 
   void (async () => {
-    await ensureOllamaBackend();
+    ollamaBackendLastLive = await ensureOllamaBackend();
+    refreshStaleLocalBackends();
     const ollamaTags = filterOllamaCloudPullTags(
       effectiveProviderModels('ollama').map((model) => model.model),
       ollamaCloudRoutingAllowsPro()
     );
     await pullOllamaCloudModels(ollamaTags);
   })();
+  const localBackendProbeTimer = setInterval(() => {
+    refreshStaleLocalBackends();
+    void pollOllamaBackendLiveness();
+  }, 15000);
+  localBackendProbeTimer.unref?.();
 }) : null;
 
 // Dual-stack loopback: several IDEs (VS Code Copilot Chat and friends) resolve

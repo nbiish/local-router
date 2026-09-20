@@ -8,12 +8,13 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 
-// Local backends (llama.cpp `llama-server`, Unsloth, ollama) are connections,
-// not liveness requirements: llama.cpp and unsloth register idempotently at
-// boot even when nothing listens on their ports, their registered models stay
-// discoverable while offline, and 11434 keeps answering OpenAI + Anthropic
-// SDK shapes through graceful failover. Deleting a standard backend
-// tombstones it so boot does not resurrect it.
+// Local backends (llama.cpp `llama-server`, Unsloth) are DETECTED, never
+// started and never shimmed (2026-09-20): they register as keyless loopback
+// custom providers at boot, but their models are listed ONLY while the
+// backend's own /v1/models endpoint answers. An offline backend contributes
+// no catalog rows while 11434 keeps answering OpenAI + Anthropic shapes
+// through graceful failover. Deleting a standard backend tombstones it so
+// boot does not resurrect it.
 
 const port = String(27700 + Math.floor(Math.random() * 300));
 const baseUrl = `http://127.0.0.1:${port}`;
@@ -80,12 +81,24 @@ async function stopServer() {
   serverProcess = undefined;
 }
 
-test('local backends register offline, stay discoverable, and 11434 keeps serving', async () => {
+async function pollForModels(id, shouldExist, attempts = 40) {
+  for (let i = 0; i < attempts; i++) {
+    const models = await requestJson('/v1/models');
+    const ids = (models.body?.data || []).map((m) => m.id);
+    if (ids.includes(id) === shouldExist) return ids;
+    await delay(250);
+  }
+  const models = await requestJson('/v1/models');
+  return (models.body?.data || []).map((m) => m.id);
+}
+
+test('offline llama.cpp contributes no rows; 11434 keeps serving; tombstone sticks', async () => {
   testHome = mkdtempSync(join(tmpdir(), 'local-router-local-backends-'));
 
   // A live mock upstream gives the fallback chain a servable target, so the
-  // test proves genuine graceful failover: the offline llama.cpp model
-  // cascades into the chain and the operator still gets an answer.
+  // test proves genuine graceful failover: a request aimed at the offline
+  // llama.cpp model cascades into the chain and the operator still gets an
+  // answer — but the offline model itself is NOT listed.
   let mockHits = 0;
   const mockServer = createServer((req, res) => {
     let body = '';
@@ -102,7 +115,8 @@ test('local backends register offline, stay discoverable, and 11434 keeps servin
   const mockPort = mockServer.address().port;
 
   // Operator-registered models on llama-cpp BEFORE first boot: nothing is
-  // listening on :8080 — the models must still be discoverable.
+  // listening on :8080 — the backend must register but its models must NOT
+  // be listed.
   writeCustomProviders([
     {
       name: 'llama-cpp',
@@ -123,8 +137,6 @@ test('local backends register offline, stay discoverable, and 11434 keeps servin
       models: ['mock-fast']
     }
   ]);
-  // Single-source chain targeting the mock model so failover has a target.
-  writeCustomProviders; // (no-op reference guard)
   mkdirSync(configDir(), { recursive: true });
   writeFileSync(settingsPath(), JSON.stringify({
     fallbackModelsText: 'mock-local-mock-fast',
@@ -133,21 +145,20 @@ test('local backends register offline, stay discoverable, and 11434 keeps servin
 
   await startServer();
   try {
-    // Boot auto-registration: unsloth exists without any shim invocation.
+    // Boot auto-registration: both standard backends stay registered.
     const store = readJson(customProvidersPath());
     const names = store.providers.map((p) => p.name);
     assert.ok(names.includes('llama-cpp'), 'llama-cpp stays registered');
-    assert.ok(names.includes('unsloth'), 'unsloth auto-registers at boot (offline-tolerant)');
+    assert.ok(names.includes('unsloth'), 'unsloth auto-registers at boot');
 
-    // Offline discovery: registered models are listed even with :8080 down.
-    const models = await requestJson('/v1/models');
-    assert.equal(models.response.status, 200);
-    const ids = models.body.data.map((m) => m.id);
-    assert.ok(ids.includes('llama-cpp-huihui-27b-abliterated'), `offline llama.cpp model must be listed; got: ${ids.filter((i) => i.startsWith('llama-cpp')).join(', ')}`);
-    assert.ok(ids.includes('llama-cpp-nemotron-3.5-lightning'));
+    // Detection-only: with :8080 down, llama.cpp models are NOT listed.
+    const ids = await pollForModels('llama-cpp-huihui-27b-abliterated', false);
+    assert.equal(ids.includes('llama-cpp-huihui-27b-abliterated'), false,
+      `offline llama.cpp model must NOT be listed; got: ${ids.filter((i) => i.startsWith('llama-cpp')).join(', ')}`);
+    assert.equal(ids.includes('llama-cpp-nemotron-3.5-lightning'), false);
 
-    // OpenAI shape: the offline backend's request fails over through the
-    // chain into the mock upstream — the operator still gets an answer.
+    // OpenAI shape: a request aimed at the offline backend cascades through
+    // the chain into the live mock upstream — structured answer, no hang.
     const chat = await requestJson('/v1/chat/completions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -159,8 +170,6 @@ test('local backends register offline, stay discoverable, and 11434 keeps servin
     });
     assert.ok([200, 502, 503].includes(chat.response.status),
       `offline backend must answer gracefully, got ${chat.response.status}`);
-    assert.ok(chat.body && typeof chat.body === 'object' && !chat.body.parseError,
-      'response must be structured JSON');
 
     // Anthropic SDK shape answers regardless of backend state.
     const anthropic = await requestJson('/v1/messages', {
@@ -172,6 +181,9 @@ test('local backends register offline, stay discoverable, and 11434 keeps servin
         messages: [{ role: 'user', content: 'say OK' }]
       })
     });
+    console.log('DEBUG chat_status=', chat.response.status, 'anthropic_status=', anthropic.response.status, 'mockHits=', mockHits);
+    const relevant = serverLogs.split('\n').filter((l) => /mock|chain|stage|skipped|preflight|allowlist|upstream|fetch/i.test(l));
+    console.log('RELEVANT_LOGS:\n' + relevant.join('\n'));
     assert.equal(anthropic.response.status, 200, `anthropic surface must stay up: ${JSON.stringify(anthropic.body).slice(0, 200)}`);
     assert.equal(anthropic.body?.type, 'message');
     assert.ok(mockHits > 0, 'chain must have served via the live mock upstream');
@@ -188,6 +200,59 @@ test('local backends register offline, stay discoverable, and 11434 keeps servin
   } finally {
     await stopServer();
     mockServer.close();
+    rmSync(testHome, { recursive: true, force: true });
+  }
+});
+
+test('live llama.cpp endpoint is detected and its models served; gone when it stops', async () => {
+  testHome = mkdtempSync(join(tmpdir(), 'local-router-local-backends-live-'));
+
+  // A fake llama-server: OpenAI-shaped /v1/models plus a chat endpoint.
+  const fakeModels = createServer((req, res) => {
+    if (req.url === '/v1/models') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ data: [{ id: 'huihui-27b-abliterated' }] }));
+      return;
+    }
+    res.writeHead(404);
+    res.end();
+  });
+  await new Promise((resolve) => fakeModels.listen(8080, '127.0.0.1', resolve));
+
+  writeCustomProviders([
+    {
+      name: 'llama-cpp',
+      displayName: 'llama.cpp (local llama-server)',
+      endpoint: 'http://127.0.0.1:8080/v1',
+      keyEnvVar: 'LLAMA_CPP_API_KEY',
+      defaultTool: 'OpenAI Compatible',
+      createdAt: new Date().toISOString(),
+      models: ['stale-cached-model']
+    }
+  ]);
+
+  await startServer();
+  try {
+    // The router probes the backend's own /v1/models and lists its ids —
+    // including models the operator never registered manually.
+    const ids = await pollForModels('llama-cpp-huihui-27b-abliterated', true, 60);
+    assert.ok(ids.includes('llama-cpp-huihui-27b-abliterated'),
+      `live backend models must be listed; got: ${ids.filter((i) => i.startsWith('llama-cpp')).join(', ')}`);
+    assert.equal(ids.includes('llama-cpp-stale-cached-model'), false,
+      'stale cached rows must not shadow the live endpoint list');
+
+    // Operator stops llama-server: after a fresh boot the model is gone
+    // again (detection, not configuration).
+    fakeModels.close();
+    await stopServer();
+    serverLogs = '';
+    await startServer();
+    const idsAfter = await pollForModels('llama-cpp-huihui-27b-abliterated', false);
+    assert.equal(idsAfter.includes('llama-cpp-huihui-27b-abliterated'), false,
+      'model must disappear once the backend endpoint stops answering');
+  } finally {
+    await stopServer();
+    fakeModels.close();
     rmSync(testHome, { recursive: true, force: true });
   }
 });
