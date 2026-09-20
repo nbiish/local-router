@@ -3628,6 +3628,20 @@ function getPqcConfigDirCandidates(): string[] {
     /* WSL interop probe unavailable */
   }
 
+  // Operator-added stores (2026-09-20): colon/semicolon-separated extra
+  // pqc-secrets dirs. Each store is its own identity; keys merge across all
+  // scanned stores. Point it at a shared-drive canonical store or any mounted
+  // machine's store.
+  const extra = process.env.LOCAL_ROUTER_PQC_EXTRA_DIRS;
+  if (extra) {
+    for (const raw of extra.split(/[;:]/)) {
+      const dir = raw.trim();
+      if (!dir) continue;
+      const resolved = path.resolve(dir);
+      if (fs.existsSync(resolved) && !candidates.includes(resolved)) candidates.push(resolved);
+    }
+  }
+
   if (candidates.length === 0) {
     candidates.push(dot);
   }
@@ -3810,6 +3824,7 @@ function syncKeysFromPqcBundle(options: { force?: boolean } = {}): PqcBundleSync
 
   const loaded: string[] = [];
   const skipped: string[] = [];
+  const perDir: { dir: string; secrets: number; providers: number }[] = [];
   let anySuccess = false;
   let lastError: unknown = null;
 
@@ -3820,10 +3835,16 @@ function syncKeysFromPqcBundle(options: { force?: boolean } = {}): PqcBundleSync
       anySuccess = true;
     } catch (err) {
       lastError = err;
+      perDir.push({ dir, secrets: 0, providers: 0 });
       continue;
     }
-    if (!output) continue;
+    if (!output) {
+      perDir.push({ dir, secrets: 0, providers: 0 });
+      continue;
+    }
 
+    let dirSecrets = 0;
+    let dirProviders = 0;
     for (const rawLine of output.split(/\r?\n/)) {
       const line = rawLine.trim();
       const match = line.match(/^export\s+([A-Z0-9_]+)=(.+)$/);
@@ -3836,8 +3857,10 @@ function syncKeysFromPqcBundle(options: { force?: boolean } = {}): PqcBundleSync
       const envVar = fullName.startsWith('LOCALROUTER_') ? fullName.slice('LOCALROUTER_'.length) : fullName;
       process.env[localRouterEnvVarName(envVar)] = value;
       process.env[envVar] = value;
+      dirSecrets += 1;
       const providers = providerSummariesForEnvVar(envVar);
       if (providers.length > 0) {
+        dirProviders += 1;
         for (const provider of providers) {
           keyStore[provider.name] = value;
           pqcBundleProviders.add(provider.name);
@@ -3851,6 +3874,17 @@ function syncKeysFromPqcBundle(options: { force?: boolean } = {}): PqcBundleSync
         }
       }
     }
+    perDir.push({ dir, secrets: dirSecrets, providers: dirProviders });
+  }
+
+  // Cross-store visibility (2026-09-20): names/counts only, never values —
+  // makes "keys aren't syncing" diagnosable from the boot log alone.
+  console.log(`[PQC] sync: ${candidates.length} candidate store(s) checked, ${bundleDirs.length} with bundle`);
+  for (const entry of perDir) {
+    console.log(`[PQC] sync: ${entry.dir}: ${entry.secrets} secret(s), ${entry.providers} provider-mapped`);
+  }
+  if (bundleDirs.length > 0 && loaded.length === 0) {
+    console.warn(`[PQC] sync: 0 provider keys across ${bundleDirs.length} store(s) — stores hold no provider-mapped keys; re-pack via 'pqc-secrets sync' or a /config/providers save`);
   }
 
   if (!anySuccess && bundleDirs.length > 0) {
