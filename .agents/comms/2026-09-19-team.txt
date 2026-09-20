@@ -231,3 +231,14 @@
 [2026-09-20T01:25:18Z] nanoboozhoo/local-router checkout
   start: 2026-09-20T01:25:18Z end: 2026-09-20T01:25:18Z
   branch: chore/router-remove-https-exposure (merged aed099d via e6dba0f; worktree removed; branch deleted)
+
+[2026-09-20T02:06:54Z] nanoboozhoo/local-router update
+  start: 2026-09-20T02:06:54Z end: 2026-09-20T02:06:54Z
+  merged: feat/pqc-multidir-sync-diagnostics -> main (acb89e4); ainish-coder feat/pqc-cross-machine-sync -> main (5eb880f)
+  feature: pqc-secrets sync v1.3.0 (per-identity re-pack, ssh lane) + router cross-store scan (LOCAL_ROUTER_PQC_EXTRA_DIRS) + per-store boot diagnostics
+  ops: real sync WSL->Windows executed (kept 1, added 1, backup .bak.20260920T020619Z); router restarted on merged build, diagnostics live
+  blocker: provider keys still absent from all stores — operator must re-enter once (config UI save or pqc-secrets pack), then sync to all stores
+
+[2026-09-20T02:06:55Z] nanoboozhoo/local-router checkout
+  start: 2026-09-20T02:06:55Z end: 2026-09-20T02:06:55Z
+  branches: feat/pqc-multidir-sync-diagnostics (merged e7a0310 via acb89e4); worktrees+branches cleaned both repos
