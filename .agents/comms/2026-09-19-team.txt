@@ -242,3 +242,16 @@
 [2026-09-20T02:06:55Z] nanoboozhoo/local-router checkout
   start: 2026-09-20T02:06:55Z end: 2026-09-20T02:06:55Z
   branches: feat/pqc-multidir-sync-diagnostics (merged e7a0310 via acb89e4); worktrees+branches cleaned both repos
+
+[2026-09-20T02:17:45Z] nanoboozhoo/local-router checkin
+  start: 2026-09-20T02:17:45Z end: 
+  triage: now
+  branch: feat/detection-only-local-backends
+  task: llama/unsloth detection-only (never started, listed only while live); router stops spawning ollama; shims reduced to ollama
+
+[2026-09-20T03:06:01Z] nanoboozhoo/local-router intent-merge+checkout
+  start: 2026-09-20T03:06:01Z end: 2026-09-20T03:06:01Z
+  merged: feat/detection-only-local-backends -> main (7388f8a via f9008cb, --no-ff; worktree+branch cleaned)
+  contract: llama/unsloth detection-only (listed only while live, never started/shimmed); ollama interception (11434 router, 11435 ollama, shim ollama-only, stale shims removed); ollama up-transition refresh feeds providers page
+  gates: tsc clean; suite 172/173 pass (1 fail = stale orig.test.mjs debug copy, removed; real tests green)
+  live: router 11434 up; only operator ollama on 11435 running; llama/unsloth rows correctly absent (offline); catalog 14 (keyless/oauth providers — full catalog returns when provider keys re-packed)
