@@ -16,8 +16,8 @@ const LEGACY_STATE_PATH = path.join(LEGACY_CONFIG_DIR, 'proxy-state.json');
 const ROUTING_STATE_PATH = path.join(CONFIG_DIR, 'tool-routing.json');
 const LEGACY_ROUTING_STATE_PATH = path.join(LEGACY_CONFIG_DIR, 'tool-routing.json');
 const SHIM_DIR = path.join(os.homedir(), '.local', 'bin');
-const OLLAMA_BACKEND_PORT = 11435;
 const OLLAMA_SHIM_PATH = path.join(SHIM_DIR, 'ollama');
+const OLLAMA_BACKEND_PORT = 11435;
 const SHIM_MARKER = '# local-router ollama shim';
 const LEGACY_SHIM_MARKER = '# fvs-code ollama shim';
 const SERVICE_SHIM_MARKER = '# local-router service shim';
@@ -31,39 +31,22 @@ const UNSLOTH_SHIM_PATH = path.join(SHIM_DIR, 'unsloth');
 // - ollama keeps its dedicated renderer: the SHIM_MARKER line in that file is
 //   what src/ollama-backend.ts resolveRealOllamaBinary() looks for when it
 //   needs to skip the shim and locate the real ollama install.
-// - llama-server (llama.cpp) always serves, so every invocation is treated as
-//   a service start; it also self-registers the `llama-cpp` custom provider.
-// - unsloth: only `serve`/`server` subcommands are treated as service starts;
-//   it self-registers the `unsloth` custom provider.
+// Service shims (2026-09-20): the OLLAMA application/CLI is the only binary
+// local-router shims — `ollama serve` starts real ollama on 11435 as the
+// router's backend, other invocations proxy through the router. llama-server
+// and unsloth are NEVER shimmed or started: they are detected at their own
+// default endpoints (8080 / 8888) and their models are listed only while
+// those endpoints answer.
 const SERVICE_TARGETS = [
   {
     command: 'ollama',
     shimPath: OLLAMA_SHIM_PATH
-  },
-  {
-    command: 'llama-server',
-    shimPath: LLAMA_SERVER_SHIM_PATH,
-    providerSlug: 'llama-cpp',
-    keyEnvVar: 'LLAMA_CPP_API_KEY',
-    displayName: 'llama.cpp (local llama-server)',
-    backendPort: 8080,
-    interceptAllArgs: true
-  },
-  {
-    command: 'unsloth',
-    shimPath: UNSLOTH_SHIM_PATH,
-    providerSlug: 'unsloth',
-    keyEnvVar: 'UNSLOTH_API_KEY',
-    displayName: 'Unsloth (local)',
-    backendPort: 8888,
-    serveSubcommands: ['serve', 'server', 'start', 'run'],
-    // Always install the shim even when the real binary is not on PATH yet:
-    // the shim resolves the binary lazily at invocation time, so `unsloth
-    // serve` still boots Local Router and registers the provider, and the
-    // shim transparently picks the binary up once unsloth is installed.
-    provisionWithoutBinary: true
   }
 ];
+
+// Stale drop-in shims from earlier releases (llama-server, unsloth) are
+// removed by route set/unset when they carry our marker.
+const LEGACY_SERVICE_SHIM_PATHS = [LLAMA_SERVER_SHIM_PATH, UNSLOTH_SHIM_PATH];
 
 function usage() {
   console.log([
@@ -86,10 +69,10 @@ function usage() {
     '    Same as LOCAL_ROUTER_ROUTES_CONFIG=<file>. Template: config/routes.example.json.',
     '  - ensure: idempotent contract enforcement — if a foreign ollama server holds the port,',
     '    its process tree is stopped (supervisor first, so Ollama.app does not respawn it) and',
-    '    Local Router is started in its place; ollama remains available as the router backend on',
-    '    port 11435 (the router spawns it automatically at boot). Pass --no-evict to only report.',
-    '  - route set: installs drop-in shims (ollama, llama-server, unsloth) in ~/.local/bin so',
-    '    service starts go through Local Router (preferred + provider model catalog).',
+    '    Local Router is started in its place. The router NEVER starts ollama or any other',
+    '    backend; real ollama on 11435 is operator-managed and detected while it runs.',
+    '  - route set: installs the ollama drop-in shim in ~/.local/bin so `ollama serve` starts',
+    '    real ollama on 11435 (the router backend) and the CLI proxies through the router.',
     '  - route custom: ollama shim only, but `ollama serve` starts Local Router on a custom localhost port.',
     '  - route unset: removes all Local Router service shims.',
     '',
@@ -661,9 +644,10 @@ async function ensureOllamaBackendOnPort(backendPort) {
 
 /**
  * Idempotently enforce the port contract on one machine: 11434 = Local Router,
- * 11435 = real ollama (the router spawns the backend itself at boot). Safe to
- * call from boot services, shell profiles, and shims on every invocation.
- * Exit codes: 0 router running, 1 router could not be started.
+ * 11435 = real ollama. When other tools attempt to start ollama (squatting
+ * 11434), it is evicted and shifted to 11435 while the router serves 11434.
+ * Safe to call from boot services, shell profiles, and shims on every
+ * invocation. Exit codes: 0 router running, 1 router could not be started.
  */
 async function cmdEnsure(options) {
   const current = await probeServer(options.host, options.port);
@@ -1267,151 +1251,6 @@ function resolveRealServiceBinary(serviceTarget) {
   return null;
 }
 
-function pushProviderRegistration(lines, serviceTarget, routerHost, routerPort) {
-  if (!serviceTarget.providerSlug) {
-    return;
-  }
-  const payloadFormat = `{"name":"${serviceTarget.providerSlug}","endpoint":"http://127.0.0.1:%s","keyEnvVar":"${serviceTarget.keyEnvVar}","displayName":"${serviceTarget.displayName}"}`;
-  lines.push(
-    '# Best-effort: register this backend as a Local Router custom provider',
-    '# and refresh its model list once it has had time to boot.',
-    `SERVICE_PORT=${serviceTarget.backendPort}`,
-    'for ((i=1; i<=$#; i++)); do',
-    '  if [[ "${!i}" == "--port" ]] || [[ "${!i}" == "-p" ]]; then',
-    '    __next=$((i+1)); SERVICE_PORT="${!__next}"',
-    '  elif [[ "${!i}" == --port=* ]] || [[ "${!i}" == -p=* ]]; then',
-    '    __val="${!i}"; SERVICE_PORT="${__val#*=}"',
-    '  fi',
-    'done',
-    '(',
-    '  sleep 3',
-    `  payload="$(printf ${bashSingleQuote(payloadFormat)} "$SERVICE_PORT")"`,
-    `  curl -sf -m 5 -X POST http://${routerHost}:${routerPort}/api/providers -H 'Content-Type: application/json' -d "$payload" >/dev/null 2>&1 \\`,
-    `    || curl -sf -m 5 -X PUT http://${routerHost}:${routerPort}/api/providers/${serviceTarget.providerSlug} -H 'Content-Type: application/json' -d "$payload" >/dev/null 2>&1 || true`,
-    '  sleep 12',
-    `  curl -sf -m 60 -X POST http://${routerHost}:${routerPort}/api/refresh-endpoint-models >/dev/null 2>&1 || true`,
-    ') >/dev/null 2>&1 &'
-  );
-}
-
-function renderServiceShim(serviceTarget, realPath, routeTarget) {
-  const host = routeTarget ? routeTarget.host : '127.0.0.1';
-  const port = routeTarget ? routeTarget.port : DEFAULT_PORT;
-  const startArgs = routeTarget ? `start --host ${host} --port ${port}` : 'start';
-  const realVar = `REAL_${serviceTarget.command.toUpperCase().replace(/-/g, '_')}`;
-
-  const lines = [
-    '#!/usr/bin/env bash',
-    'set -euo pipefail',
-    SERVICE_SHIM_MARKER,
-    `${realVar}=${bashSingleQuote(realPath || '')}`,
-    'LOCAL_ROUTER_BIN="${LOCAL_ROUTER_BIN:-${FVS_CODE_BIN:-local-router}}"'
-  ];
-
-  if (serviceTarget.provisionWithoutBinary && !realPath) {
-    // Pre-provisioned shim: resolve the real binary at invocation time so the
-    // shim keeps working (and self-upgrades) once the binary lands on PATH.
-    lines.push(
-      `if [[ -z "$${realVar}" ]] || [[ ! -x "$${realVar}" ]]; then`,
-      `  __cand="$(command -v ${serviceTarget.command} 2>/dev/null || true)"`,
-      '  # Never resolve to a Local Router shim (including this file): that would recurse.',
-      `  if [[ -n "$__cand" ]] && [[ ! "$__cand" -ef "$0" ]] && ! grep -q ${bashSingleQuote(SERVICE_SHIM_MARKER)} "$__cand" 2>/dev/null; then`,
-      `    ${realVar}="$__cand"`,
-      '  fi',
-      'fi',
-      ''
-    );
-    lines.push(
-      `if [[ -z "$${realVar}" ]] || [[ ! -x "$${realVar}" ]]; then`,
-      '  for __fb in \\',
-      '    "$HOME/.unsloth/studio/bin/unsloth" \\',
-      '    "$HOME/.unsloth/studio/bin/unsloth.exe" \\',
-      '    "$HOME/.local/bin/unsloth-real" \\',
-      '    /usr/local/bin/unsloth \\',
-      '    /mnt/c/Users/*/.unsloth/studio/bin/unsloth.exe \\',
-      '    /mnt/c/Users/*/.unsloth/studio/bin/unsloth.cmd \\',
-      '    /c/Users/*/.unsloth/studio/bin/unsloth.exe \\',
-      '    /c/Users/*/.unsloth/studio/bin/unsloth.cmd; do',
-      `    if [[ -x "$__fb" ]] && [[ ! "$__fb" -ef "$0" ]] && ! grep -q ${bashSingleQuote(SERVICE_SHIM_MARKER)} "$__fb" 2>/dev/null; then`,
-      `      ${realVar}="$__fb"`,
-      '      break',
-      '    fi',
-      '  done',
-      'fi',
-      ''
-    );
-  }
-
-  lines.push(
-    '# Escape hatch: LOCAL_ROUTER_NO_SHIM=1 runs the real binary directly.',
-    'if [[ "${LOCAL_ROUTER_NO_SHIM:-0}" == "1" ]]; then',
-    `  exec "$${realVar}" "$@"`,
-    'fi',
-    ''
-  );
-
-  if (serviceTarget.interceptAllArgs) {
-    // llama-server always serves: every invocation is a service start.
-    lines.push(
-      `"$LOCAL_ROUTER_BIN" ${startArgs} >/dev/null 2>&1 || true`,
-      ''
-    );
-    pushProviderRegistration(lines, serviceTarget, host, port);
-    lines.push(
-      `exec "$${realVar}" "$@"`,
-      ''
-    );
-    return lines.join('\n');
-  }
-
-  const subcommands = (serviceTarget.serveSubcommands || []).join('|');
-  lines.push(
-    'case "${1:-}" in',
-    `  ${subcommands})`,
-    `    "$LOCAL_ROUTER_BIN" ${startArgs} >/dev/null 2>&1 || true`
-  );
-  const registration = [];
-  pushProviderRegistration(registration, serviceTarget, host, port);
-  for (const line of registration) {
-    lines.push(`  ${line}`);
-  }
-  lines.push(
-    '    ;;',
-    '  studio)',
-    '    if [[ "${2:-}" == "run" ]]; then',
-    `      "\$LOCAL_ROUTER_BIN" ${startArgs} >/dev/null 2>&1 || true`
-  );
-  for (const line of registration) {
-    lines.push(`    ${line}`);
-  }
-  lines.push(
-    '    fi',
-    '    ;;',
-    'esac',
-    ''
-  );
-
-  if (serviceTarget.provisionWithoutBinary && !realPath) {
-    // Graceful degradation for the pre-provisioned shim: once the router is
-    // ensured (and, for serve, the provider registered), a missing binary is
-    // reported clearly instead of failing with an opaque exec error.
-    lines.push(
-      `if [[ -z "$${realVar}" ]]; then`,
-      `  echo "[local-router] ${serviceTarget.command} binary not installed; Local Router is intercepting on port ${port}." >&2`,
-      `  echo "[local-router] Install ${serviceTarget.command} on PATH and re-run 'local-router route set' to run the real backend." >&2`,
-      '  exit 127',
-      'fi',
-      ''
-    );
-  }
-
-  lines.push(
-    `exec "$${realVar}" "$@"`,
-    ''
-  );
-  return lines.join('\n');
-}
-
 function installShim(serviceTarget, realPath, routeMode, routeTarget) {
   if (IS_WIN) {
     if (serviceTarget.command === 'ollama') {
@@ -1446,12 +1285,22 @@ function installShim(serviceTarget, realPath, routeMode, routeTarget) {
     }
     fs.unlinkSync(serviceTarget.shimPath);
   }
-  const shimScript = serviceTarget.command === 'ollama'
-    ? renderOllamaShim(realPath, routeMode, routeTarget)
-    : renderServiceShim(serviceTarget, realPath, routeTarget);
+  const shimScript = renderOllamaShim(realPath, routeMode, routeTarget);
   fs.writeFileSync(serviceTarget.shimPath, shimScript, 'utf8');
   fs.chmodSync(serviceTarget.shimPath, 0o755);
   return true;
+}
+
+function removeLegacyServiceShims() {
+  for (const legacyPath of LEGACY_SERVICE_SHIM_PATHS) {
+    if (!fs.existsSync(legacyPath)) continue;
+    if (!shimFileContainsMarker(legacyPath)) {
+      console.error(`Refusing to remove non-Local Router file at ${legacyPath}`);
+      continue;
+    }
+    fs.unlinkSync(legacyPath);
+    console.log(`Removed stale local-router service shim: ${legacyPath}`);
+  }
 }
 
 function routeStatusSummary() {
@@ -1515,6 +1364,7 @@ async function cmdRouteSet(routeMode = 'services', customTarget = null) {
   }
 
   fs.mkdirSync(SHIM_DIR, { recursive: true });
+  removeLegacyServiceShims();
 
   const installed = [];
   let sawError = false;
@@ -1581,6 +1431,7 @@ async function cmdRouteSet(routeMode = 'services', customTarget = null) {
 function cmdRouteUnset() {
   let refused = false;
   let removedAny = false;
+  removeLegacyServiceShims();
   for (const serviceTarget of SERVICE_TARGETS) {
     const checkPaths = [serviceTarget.shimPath];
     if (serviceTarget.command === 'ollama') {
