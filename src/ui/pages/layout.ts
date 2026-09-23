@@ -2103,18 +2103,44 @@ export function renderLayout(
 
         function scrollToProviderGroup(provider) {
           const group = document.querySelector('.provider-group[data-provider="' + CSS.escape(provider) + '"]');
-          if (group) group.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          if (!group) return;
+          // Just-fetched data — show that provider's rows from the top.
+          const list = group.querySelector('ul.model-list');
+          if (list) list.scrollTop = 0;
+          group.scrollIntoView({ behavior: 'smooth', block: 'start' });
         }
 
-        // Hand a model to the Fallback Routes page editor — all chain editing
-        // lives there (the Providers page no longer carries a second editor).
-        function stageModelOnFallbackPage(modelId) {
+        // "＋ Fallback" stages a model into the system fallback chain in
+        // place (the same POST the Fallback Routes page uses) — no
+        // navigation, so the catalog keeps its scroll position and every
+        // search box. Chain editing (reorder, extra chains) stays on the
+        // Fallback Routes page.
+        const STAGE_FALLBACK_ROUTE = 'fallback-models';
+
+        async function stageModelForFallback(modelId, btn) {
           if (!modelId) return;
-          window.location.href = '/config/fallback?add=' + encodeURIComponent(modelId);
+          try {
+            const res = await fetch('/api/fallback-chain/toggle', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ modelId: modelId, enabled: true, routeId: STAGE_FALLBACK_ROUTE })
+            });
+            const payload = await res.json().catch(() => ({}));
+            if (!res.ok || !payload.success) throw new Error((payload && payload.error) || ('HTTP ' + res.status));
+            if (btn) {
+              btn.style.minWidth = btn.offsetWidth + 'px'; // label swap must not reflow the row
+              btn.textContent = payload.persisted ? '✓ Staged' : '✓ In chain';
+              btn.title = modelId + ' is in local-router/' + STAGE_FALLBACK_ROUTE
+                + ' — reorder or build chains on the Fallback Routes page';
+            }
+          } catch (err) {
+            setMessage('Failed to stage ' + modelId + ' into local-router/' + STAGE_FALLBACK_ROUTE + ': ' + (err && err.message ? err.message : err), 'error');
+          }
         }
 
-        // On the Fallback Routes page: accept a model handed over from the
-        // Providers & Models catalog ("＋ Fallback"). The system chain always
+        // On the Fallback Routes page: absorb a model from a ?add= deep link
+        // (the catalog's "＋ Fallback" stages in place now; links and
+        // bookmarks keep working). The system chain always
         // exists (empty by default), so a plain ?add= param persists immediately
         // via the same toggle API the old per-row checkbox used — no ≥2
         // gate, works from the very first model.
@@ -2190,7 +2216,6 @@ export function renderLayout(
         let curationCatalogData = [];
         let curationSelectedKeys = new Set();
         let curationEnabled = false;
-        const curationSearchByProvider = {};
 
         function catalogRowKey(provider, model) {
           return provider + '::' + model;
@@ -2278,116 +2303,183 @@ export function renderLayout(
           }
         }
 
-        function setCurationProviderSearch(provider, value, caret) {
-          curationSearchByProvider[provider] = value;
-          renderCurationCatalog();
-          const el = document.querySelector('[data-curation-provider="' + CSS.escape(provider) + '"]');
-          if (el) {
-            el.focus();
-            const pos = Math.min(typeof caret === 'number' ? caret : el.value.length, el.value.length);
-            el.setSelectionRange(pos, pos);
+        // Catalog DOM is rebuilt only when the data changes (load / refresh).
+        // Toggles, bulk edits, and search filter the live DOM in place, so
+        // scroll position, focus, caret, and every search box keep their
+        // state — the scroll-anchor dance that compensated for the old
+        // re-render-on-every-action behavior went away with it.
+        function rowSearchText(model) {
+          return [model.id, model.display, model.model]
+            .map(function(part) { return String(part || '').toLowerCase(); })
+            .join('\\n');
+        }
+
+        // Per-group counts + the status line, read back from the live
+        // sections (data-shown) and the selection set.
+        function refreshCurationMeta() {
+          let shownTotal = 0;
+          for (let p = 0; p < curationCatalogData.length; p++) {
+            const group = curationCatalogData[p];
+            const models = Array.isArray(group.models) ? group.models : [];
+            const section = document.querySelector('section[data-g="' + p + '"]');
+            const meta = document.querySelector('[data-curation-count="' + p + '"]');
+            if (!section || !meta) continue;
+            const shown = section.hasAttribute('data-shown') ? Number(section.getAttribute('data-shown')) : models.length;
+            shownTotal += shown;
+            let served = 0;
+            for (const model of models) {
+              if (curationSelectedKeys.has(catalogRowKey(group.provider, model.model))) served++;
+            }
+            meta.innerText = '(' + shown + (shown !== models.length ? ' / ' + models.length : '') + ' · ' + served + ' served)';
           }
-        }
-
-        // Scroll preservation (2026-09-04): re-rendering the catalog on every
-        // toggle used to snap the operator back to the top of the provider's
-        // list. Capture where the viewed section sat and restore it after the
-        // innerHTML swap; anchor to the toggled provider's section when given.
-        function catalogCssEscape(value) {
-          return String(value).replace(/&/g, '&amp;').replace(/"/g, '&quot;');
-        }
-
-        function renderCurationCatalog(anchorProvider) {
-          const catalogEl = document.getElementById('catalog');
           const statusEl = document.getElementById('curationStatus');
-          const searchEl = document.getElementById('catalogSearch');
-          if (!catalogEl || !Array.isArray(curationCatalogData)) return;
-
-          const prevWindowY = window.scrollY;
-          const prevCatalogTop = catalogEl.scrollTop;
-          let anchorViewportTop = null;
-          if (anchorProvider) {
-            const anchorSec = catalogEl.querySelector('section[data-provider="' + catalogCssEscape(anchorProvider) + '"]');
-            if (anchorSec) anchorViewportTop = anchorSec.getBoundingClientRect().top;
+          if (statusEl) {
+            statusEl.innerText = curationSelectedKeys.size + ' of ' + totalCurationModelCount() + ' models selected for serving'
+              + (curationEnabled ? '' : ' (curation off — all ported models served)')
+              + (shownTotal > 0 ? ' — ' + shownTotal + ' shown' : '');
           }
+        }
 
+        // Visibility + per-group counts, computed from the live rows. Global
+        // search prunes whole groups (legacy behavior); a provider-local
+        // search keeps its section and its search box rendered so the user
+        // can recover from a typo.
+        function applyCatalogFilters() {
+          const catalogEl = document.getElementById('catalog');
+          if (!catalogEl) return;
+          const searchEl = document.getElementById('catalogSearch');
           const search = String((searchEl && searchEl.value) || '').trim().toLowerCase();
           let shown = 0;
+          let providerSearchActive = false;
+          for (let p = 0; p < curationCatalogData.length; p++) {
+            const group = curationCatalogData[p];
+            const section = catalogEl.querySelector('section[data-g="' + p + '"]');
+            if (!section) continue;
+            const searchInput = section.querySelector('input[data-curation-provider]');
+            const providerSearch = String((searchInput && searchInput.value) || '').trim().toLowerCase();
+            if (providerSearch) providerSearchActive = true;
+            let groupShown = 0;
+            const rows = section.querySelectorAll('li[data-search]');
+            for (const row of rows) {
+              const hay = row.getAttribute('data-search') || '';
+              const visible = (!search || hay.indexOf(search) !== -1)
+                && (!providerSearch || hay.indexOf(providerSearch) !== -1);
+              row.style.display = visible ? 'flex' : 'none';
+              if (visible) groupShown++;
+            }
+            const sectionVisible = groupShown > 0 || Boolean(providerSearch && !search);
+            section.style.display = sectionVisible ? 'block' : 'none';
+            section.setAttribute('data-shown', String(groupShown));
+            const emptyEl = section.querySelector('[data-provider-empty]');
+            if (emptyEl) emptyEl.style.display = (sectionVisible && groupShown === 0) ? 'flex' : 'none';
+            shown += groupShown;
+          }
+          const emptyCatalogEl = catalogEl.querySelector('[data-catalog-empty]');
+          if (emptyCatalogEl) {
+            emptyCatalogEl.style.display = (shown === 0 && (search || providerSearchActive)) ? 'block' : 'none';
+          }
+          refreshCurationMeta();
+        }
+
+        // Search toggling re-cuts the result set — start every provider list
+        // back at its top so the first match is in view. Selection toggles
+        // never take this path, so picking models never moves the lists.
+        function onCatalogSearchInput() {
+          applyCatalogFilters();
+          const catalogEl = document.getElementById('catalog');
+          if (!catalogEl) return;
+          catalogEl.querySelectorAll('ul.model-list').forEach(function(list) {
+            list.scrollTop = 0;
+          });
+        }
+
+        // Selection-only change: re-sync checkboxes, counts, and status —
+        // never rebuilds the list, so the user's place in it survives.
+        function syncCurationSelection() {
+          const catalogEl = document.getElementById('catalog');
+          if (catalogEl) {
+            catalogEl.querySelectorAll('input[data-row-key]').forEach(function(input) {
+              input.checked = curationSelectedKeys.has(input.getAttribute('data-row-key'));
+            });
+          }
+          const toggleEl = document.getElementById('curationToggle');
+          if (toggleEl) toggleEl.checked = curationEnabled;
+          refreshCurationMeta();
+        }
+
+        function renderCurationCatalog() {
+          const catalogEl = document.getElementById('catalog');
+          if (!catalogEl || !Array.isArray(curationCatalogData)) return;
+
+          // Full rebuild happens only on data changes (load / refresh);
+          // hold the previous scroll offsets across the innerHTML swap.
+          const prevWindowY = window.scrollY;
+          const prevCatalogTop = catalogEl.scrollTop;
+          // Per-provider search boxes live inside the rebuilt markup; snapshot
+          // their current values first so a data refresh keeps every filter.
+          const searchSnapshot = new Map();
+          const listScrollSnapshot = new Map();
+          catalogEl.querySelectorAll('input[data-curation-provider]').forEach(function(input) {
+            searchSnapshot.set(input.getAttribute('data-curation-provider'), input.value);
+          });
+          // The 360px model list inside each section is its own scroll
+          // container — hold those offsets too, keyed by provider.
+          catalogEl.querySelectorAll('section[data-provider]').forEach(function(section) {
+            const list = section.querySelector('ul.model-list');
+            const provider = section.getAttribute('data-provider');
+            if (list && provider && list.scrollTop > 0) listScrollSnapshot.set(provider, list.scrollTop);
+          });
           let html = '';
 
           for (let p = 0; p < curationCatalogData.length; p++) {
             const group = curationCatalogData[p];
             const models = (group && Array.isArray(group.models)) ? group.models : [];
-            const providerSearch = String(curationSearchByProvider[group.provider] || '').trim().toLowerCase();
-            const matching = [];
-            for (let m = 0; m < models.length; m++) {
-              const model = models[m];
-              const haystack = [model.id, model.display, model.model]
-                .map((part) => String(part || '').toLowerCase())
-                .join('\\n');
-              if (search && !haystack.includes(search)) continue;
-              if (providerSearch && !haystack.includes(providerSearch)) continue;
-              matching.push(m);
-            }
-            // Global search prunes whole groups (legacy behavior); a
-            // provider-local search keeps its section rendered so the user
-            // can recover from a typo without the box vanishing.
-            const prunedByGlobal = search && matching.length === 0;
-            if (prunedByGlobal) continue;
-            if (!search && !providerSearch && matching.length === 0) continue;
-
-            const servedCount = models.filter(function(model) {
-              return curationSelectedKeys.has(catalogRowKey(group.provider, model.model));
-            }).length;
-            html += '<section class="provider-group" data-provider="' + escapeHtml(group.provider) + '">'
-              + '<h3>' + escapeHtml(group.provider) + ' <span class="muted">(' + matching.length + (matching.length !== models.length ? ' / ' + models.length : '') + ' · ' + servedCount + ' served)</span> ' + providerKeyStatusHtml(group.provider)
+            if (models.length === 0) continue;
+            html += '<section class="provider-group" data-provider="' + escapeHtml(group.provider) + '" data-g="' + p + '">'
+              + '<h3>' + escapeHtml(group.provider) + ' <span class="muted" data-curation-count="' + p + '"></span> ' + providerKeyStatusHtml(group.provider)
               + ' <button type="button" class="button-secondary" data-catalog-select-all="' + escapeHtml(group.provider) + '" style="padding: 1px 8px; font-size: 11px;">Select all</button>'
               + ' <button type="button" class="button-secondary" data-catalog-clear="' + escapeHtml(group.provider) + '" style="padding: 1px 8px; font-size: 11px;">Deselect all</button>'
               + '</h3>'
               + '<input type="search" class="curation-provider-search" data-curation-provider="' + escapeHtml(group.provider) + '"'
               + ' placeholder="Search ' + escapeHtml(group.provider) + ' models…"'
-              + ' value="' + escapeHtml(curationSearchByProvider[group.provider] || '') + '"'
-              + ' oninput="setCurationProviderSearch(this.dataset.curationProvider, this.value, this.selectionStart)">'
-              + '<ul class="model-list">';
-            if (matching.length === 0) {
-              html += '<li class="provider-model-empty">No models match this provider search.</li>';
-            }
-            for (const m of matching) {
+              + ' value="' + escapeHtml(searchSnapshot.get(group.provider) || '') + '"'
+              + ' oninput="onCatalogSearchInput()">'
+              + '<ul class="model-list">'
+            for (let m = 0; m < models.length; m++) {
               const model = models[m];
               const key = catalogRowKey(group.provider, model.model);
               const checked = curationSelectedKeys.has(key) ? ' checked' : '';
-              html += '<li style="display: flex; gap: 12px; align-items: center;">'
+              html += '<li data-search="' + escapeHtml(rowSearchText(model)) + '" style="display: flex; gap: 12px; align-items: center;">'
                 + '<label class="flag-toggle" style="display: flex; gap: 8px; align-items: flex-start; flex: 1;">'
-                + '<input type="checkbox"' + checked + ' onchange="toggleCatalogRow(' + p + ', ' + m + ', this.checked)">'
+                + '<input type="checkbox" data-row-key="' + escapeHtml(key) + '"' + checked + ' onchange="toggleCatalogRow(this.dataset.rowKey, this.checked)">'
                 + '<span><strong>' + escapeHtml(model.id) + '</strong><br><span class="muted">' + escapeHtml(model.display || model.model || '') + '</span></span>'
                 + '</label>'
                 + '<button type="button" class="button-secondary" data-stage-fallback="' + escapeHtml(model.id) + '"'
-                + ' title="Stage this model into a chain on the Fallback Routes page (all chain editing lives there)"'
+                + ' title="Stage ' + escapeHtml(model.id) + ' into the fallback-models chain — stays on this page"'
                 + ' style="padding: 1px 8px; font-size: 11px; white-space: nowrap;">＋ Fallback</button>'
                 + '</li>';
-              shown++;
             }
-            html += '</ul></section>';
+            // No-match notice rides at the END of the list so real rows keep
+            // the first-child border rule and the notice itself shows clean.
+            html += '<li class="provider-model-empty" data-provider-empty style="display: none; border-top: 0;">No models match this provider search.</li>'
+              + '</ul></section>';
           }
 
-          catalogEl.innerHTML = html
-            || '<div class="muted">No ported endpoint models match. Use 🔄 Refresh Endpoints to port models from every provider.</div>';
+          catalogEl.innerHTML = (html
+            ? html + '<div class="muted" data-catalog-empty style="display: none; margin-top: 8px;">No ported endpoint models match your search.</div>'
+            : '<div class="muted">No ported endpoint models yet — use 🔄 Refresh All Provider Models to port models from every provider.</div>');
 
-          // Restore scroll: keep the anchor provider's section at the same
-          // viewport position; otherwise hold the previous scroll offsets.
-          if (anchorProvider && anchorViewportTop !== null) {
-            const anchorSec = catalogEl.querySelector('section[data-provider="' + catalogCssEscape(anchorProvider) + '"]');
-            if (anchorSec) {
-              const delta = anchorSec.getBoundingClientRect().top - anchorViewportTop;
-              if (delta !== 0) {
-                window.scrollBy(0, delta);
-                if (catalogEl.scrollTop > 0 || prevCatalogTop > 0) catalogEl.scrollTop -= delta;
-              }
-            }
-          } else {
-            window.scrollTo(0, prevWindowY);
-            if (prevCatalogTop > 0) catalogEl.scrollTop = prevCatalogTop;
-          }
+          // Selection + filters re-applied after the swap, then hold the
+          // previous scroll offsets.
+          syncCurationSelection();
+          applyCatalogFilters();
+          window.scrollTo(0, prevWindowY);
+          if (prevCatalogTop > 0) catalogEl.scrollTop = prevCatalogTop;
+          catalogEl.querySelectorAll('section[data-provider]').forEach(function(section) {
+            const saved = listScrollSnapshot.get(section.getAttribute('data-provider'));
+            const list = section.querySelector('ul.model-list');
+            if (list && saved) list.scrollTop = saved;
+          });
 
           catalogEl.querySelectorAll('button[data-configure-provider]').forEach(function(btn) {
             btn.addEventListener('click', function() {
@@ -2416,7 +2508,7 @@ export function renderLayout(
           });
           catalogEl.querySelectorAll('button[data-stage-fallback]').forEach(function(btn) {
             btn.addEventListener('click', function() {
-              stageModelOnFallbackPage(btn.getAttribute('data-stage-fallback') || '');
+              stageModelForFallback(btn.getAttribute('data-stage-fallback') || '', btn);
             });
           });
           catalogEl.querySelectorAll('button[data-catalog-select-all]').forEach(function(btn) {
@@ -2429,12 +2521,6 @@ export function renderLayout(
               clearCatalogProvider(btn.getAttribute('data-catalog-clear') || '');
             });
           });
-
-          if (statusEl) {
-            statusEl.innerText = curationSelectedKeys.size + ' of ' + totalCurationModelCount() + ' models selected for serving'
-              + (curationEnabled ? '' : ' (curation off — all ported models served)')
-              + (shown > 0 ? ' — ' + shown + ' shown' : '');
-          }
         }
 
         // Serving toggles persist like the fallback chain panel ("changes
@@ -2457,17 +2543,14 @@ export function renderLayout(
           }, 600);
         }
 
-        function toggleCatalogRow(pIdx, mIdx, checked) {
-          const group = curationCatalogData[pIdx];
-          const model = group && group.models ? group.models[mIdx] : null;
-          if (!model) return;
-          const key = catalogRowKey(group.provider, model.model);
+        function toggleCatalogRow(key, checked) {
+          if (!key) return;
           if (checked) {
             curationSelectedKeys.add(key);
           } else {
             curationSelectedKeys.delete(key);
           }
-          renderCurationCatalog(group.provider);
+          syncCurationSelection();
           scheduleCurationAutoSave();
         }
 
@@ -2480,7 +2563,7 @@ export function renderLayout(
           for (const model of (group.models || [])) {
             curationSelectedKeys.add(catalogRowKey(group.provider, model.model));
           }
-          renderCurationCatalog(provider);
+          syncCurationSelection();
           scheduleCurationAutoSave();
         }
 
@@ -2490,7 +2573,7 @@ export function renderLayout(
           for (const key of keys) {
             if (key.startsWith(prefix)) curationSelectedKeys.delete(key);
           }
-          renderCurationCatalog(provider);
+          syncCurationSelection();
           scheduleCurationAutoSave(true);
         }
 
@@ -2574,7 +2657,7 @@ export function renderLayout(
             }
             curationEnabled = true;
             curationSelectedKeys = new Set(Array.isArray(payload?.selectedKeys) ? payload.selectedKeys : []);
-            renderCurationCatalog();
+            syncCurationSelection();
             await buildModelDropdown();
             setMessage('Loaded curation config "' + name + '" — ' + (payload?.selectedCount ?? curationSelectedKeys.size) + ' models now served.', 'success');
           } catch (e) {
@@ -2655,7 +2738,7 @@ export function renderLayout(
 
         function toggleCuration(checked) {
           curationEnabled = Boolean(checked);
-          renderCurationCatalog();
+          syncCurationSelection();
           scheduleCurationAutoSave();
         }
 
@@ -2695,10 +2778,11 @@ export function renderLayout(
             }
             curationEnabled = Boolean(data.curationEnabled);
             curationSelectedKeys = new Set(Array.isArray(data.selectedKeys) ? data.selectedKeys : curationSelectedKeys);
-            if (silent) {
-              const statusEl = document.getElementById('curationStatus');
-              if (statusEl) statusEl.innerText = data.selectedCount + ' models saved for serving.';
-            } else {
+            syncCurationSelection();
+            // Silent auto-save keeps the canonical status line (rewritten by
+            // refreshCurationMeta above): a one-off "saved" line hid the
+            // curation-off hint and the shown counts on every single toggle.
+            if (!silent) {
               setMessage('Model curation saved: ' + data.selectedCount + ' models will be served.', 'success');
               await loadCatalog();
               await buildModelDropdown();

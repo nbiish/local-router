@@ -194,7 +194,7 @@ export function renderProvidersPage(params: {
                   <input id="curationToggle" type="checkbox" onchange="toggleCuration(this.checked)">
                   <span style="font-weight: 500;">Curate endpoint models (serve only checked)</span>
                 </label>
-                <input id="catalogSearch" type="search" placeholder="Search ported models…" oninput="renderCurationCatalog()" style="flex: 1; min-width: 160px;">
+                <input id="catalogSearch" type="search" placeholder="Search ported models…" oninput="onCatalogSearchInput()" style="flex: 1; min-width: 160px;">
                 <button type="button" onclick="saveCuration()" style="padding: 4px 10px; font-size: 13px;">Save Curation</button>
               </div>
               <div class="muted" id="curationStatus" style="margin-top: 6px;"></div>
@@ -216,7 +216,7 @@ export function renderProvidersPage(params: {
             <button type="button" class="button-secondary" onclick="syncPqcBundleKeys(true)" style="padding: 4px 10px; font-size: 13px;">🔁 Sync PQC keys</button>
           </div>
         </div>
-        <p class="muted">Each provider below shows its key status, fetch controls, and models in one place. Check a model to serve it (saves automatically); <strong>＋ Fallback</strong> stages it into a chain on the <a href="/config/fallback">Fallback Routes</a> page, where all chain editing lives.</p>
+        <p class="muted">Each provider below shows its key status, fetch controls, and models in one place. Check a model to serve it (saves automatically); <strong>＋ Fallback</strong> drops it into the <code>fallback-models</code> chain right here — the list keeps your search and scroll position — and all chain editing (reorder, extra chains) lives on the <a href="/config/fallback">Fallback Routes</a> page.</p>
         <div id="catalog" class="catalog"></div>
       </div>
       <div class="card">
