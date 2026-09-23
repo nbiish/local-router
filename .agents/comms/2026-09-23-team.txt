@@ -1,0 +1,22 @@
+[2026-09-23T17:35:08Z] nanoboozhoo/local-router checkin
+  start: 2026-09-23T17:35:08Z end:
+  triage: now
+  branch: ui/catalog-state-preserve (worktree ../catalog-state-preserve; adopted in-flight uncommitted refactor as ground truth)
+  task: providers catalog — per-provider list scroll + search state must survive model toggling (no re-render on select); finish in-flight in-place filter refactor (layout.ts, providers.ts)
+
+[2026-09-23T18:24:00Z] nanoboozhoo/local-router intent-rebuild
+  start: 2026-09-23T18:24:00Z end: 2026-09-23T18:26:00Z
+  merging ui/catalog-state-preserve -> main (catalog scroll/search state preservation, providers page); teardown of router instance PID 410524 (state-file tracked, port 11434) — rebuild from fresh main follows
+
+[2026-09-23T18:50:00Z] nanoboozhoo/local-router update
+  start: 2026-09-23T17:35:08Z end: 2026-09-23T18:50:00Z
+  scope: providers catalog — per-provider scroll + search state across model toggling
+  merged: ui/catalog-state-preserve -> main (094ee9c via 8103707, --no-ff)
+  change: toggles / select-all / curation switch edit the live DOM (syncCurationSelection, no re-render); rebuilds snapshot+restore each provider's ul.model-list scrollTop keyed by data-provider (+ window offsets + per-provider search values); search toggling (onCatalogSearchInput) filters in place and resets lists to top; post-fetch jumps show fresh rows from the top; silent auto-save keeps the canonical status line (the one-off "saved" line hid the curation-off hint); no-match notice moved to list end; rowSearchText is the single haystack source; ＋ Fallback stages in place (in-flight refactor adopted + finished)
+  gates: tsc clean; suite 144/144 pass (incl. parseable-script checks on the providers page)
+  smoke: 28999 vs COPY of real config (1069 cached models) — toggle keeps list scroll 217 + window scroll + all 21 search boxes + row count (no rebuild); autosave keeps scroll + canonical status; provider search narrows 448->31 + list at top + survives toggling + clears; global search prunes 21->9 groups + clears; ＋ Fallback stays on page ("✓ In chain"); Save Curation rebuild restores list scroll 155 + provider search + filtered view; zero page errors
+  ops: router rebuilt from fresh main + restarted — state-file PID == listener PID == 2189621, 0.0.0.0:11434 (BIND_ALL preserved); localrouter verify PASSED (0.33.3, catalog 2391, fallback routes 1); served /config/providers carries the new handlers; ensure-timer paused during the restart window (a manual-vs-timer double-spawn race hit once and was cleared to a single instance), timer restored active
+
+[2026-09-23T18:50:00Z] nanoboozhoo/local-router checkout
+  start: 2026-09-23T18:50:00Z end: 2026-09-23T18:50:00Z
+  branch: ui/catalog-state-preserve (merged 094ee9c via 8103707; worktree+branch cleaned)
