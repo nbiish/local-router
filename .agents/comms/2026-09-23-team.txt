@@ -11,12 +11,20 @@
 [2026-09-23T18:50:00Z] nanoboozhoo/local-router update
   start: 2026-09-23T17:35:08Z end: 2026-09-23T18:50:00Z
   scope: providers catalog — per-provider scroll + search state across model toggling
-  merged: ui/catalog-state-preserve -> main (094ee9c via 8103707, --no-ff)
+  merged: ui/catalog-state-preserve -> main (094ee9c via 8103707, --no-ff; pre-rewrite SHAs — see sha-map in the incident entry below)
   change: toggles / select-all / curation switch edit the live DOM (syncCurationSelection, no re-render); rebuilds snapshot+restore each provider's ul.model-list scrollTop keyed by data-provider (+ window offsets + per-provider search values); search toggling (onCatalogSearchInput) filters in place and resets lists to top; post-fetch jumps show fresh rows from the top; silent auto-save keeps the canonical status line (the one-off "saved" line hid the curation-off hint); no-match notice moved to list end; rowSearchText is the single haystack source; ＋ Fallback stages in place (in-flight refactor adopted + finished)
   gates: tsc clean; suite 144/144 pass (incl. parseable-script checks on the providers page)
   smoke: 28999 vs COPY of real config (1069 cached models) — toggle keeps list scroll 217 + window scroll + all 21 search boxes + row count (no rebuild); autosave keeps scroll + canonical status; provider search narrows 448->31 + list at top + survives toggling + clears; global search prunes 21->9 groups + clears; ＋ Fallback stays on page ("✓ In chain"); Save Curation rebuild restores list scroll 155 + provider search + filtered view; zero page errors
   ops: router rebuilt from fresh main + restarted — state-file PID == listener PID == 2189621, 0.0.0.0:11434 (BIND_ALL preserved); localrouter verify PASSED (0.33.3, catalog 2391, fallback routes 1); served /config/providers carries the new handlers; ensure-timer paused during the restart window (a manual-vs-timer double-spawn race hit once and was cleared to a single instance), timer restored active
 
-[2026-09-23T18:50:00Z] nanoboozhoo/local-router checkout
-  start: 2026-09-23T18:50:00Z end: 2026-09-23T18:50:00Z
-  branch: ui/catalog-state-preserve (merged 094ee9c via 8103707; worktree+branch cleaned)
+[2026-09-23T19:05:00Z] nanoboozhoo/local-router update (incident: plaintext secret in git history)
+  start: 2026-09-23T18:52:00Z end: 2026-09-23T19:05:00Z
+  event: push of main rejected by GitHub push protection (GH013) — OpenRouter API key in report.20260919.211125.253699.0.001.json:835-836, introduced by aed099d (a 2026-09-19 PQC-key diagnostic artifact swept into the https-removal commit) and still tracked at HEAD
+  remediation: whole-file purge from the UNPUSHED segment only — git filter-branch --index-filter 'git rm --cached --ignore-unmatch <file>' over 3af1091..main, run in an isolated local clone (the main checkout kept the operator's unstaged edits untouched; the remote had never received the file, so no shared history was rewritten); normal fast-forward push 27b875f..9ef38cc (remote refs/heads/main = 9ef38cc); main checkout reconciled via mixed reset (unstaged edits preserved); the file was deleted from disk; temp artifacts purged (smoke config copy, rewrite clone, page snapshots); local reflog expired + gc --prune=now
+  sha-map (old -> post-rewrite): 094ee9c->124d465 fix(ui); 8103707->5e4d444 merge; c67029d->9ef38cc docs(comms); 09-20 chain remapped too (aed099d->5800fa5, e6dba0f->f29223a, f62d9d9->943364c, e7a0310->4b378a5, acb89e4->a28c46b, 4f1a9af->86860ae, 5db586a->9639746, 7388f8a->861c902, f9008cb->57a21f7, a9c1690->e949ed8)
+  reviewed: data/cip-report-CIP-2026-05-28*.json expose only findings metadata paths (category/finding/sourceName/...) — no key-shaped values; left in place
+  BLOCKER: the OpenRouter API key value must be treated as compromised — operator ROTATES it at openrouter.ai and re-packs the replacement into the PQC bundle (provider keys remain missing from all stores per the 2026-09-20 blocker)
+
+[2026-09-23T19:05:00Z] nanoboozhoo/local-router checkout
+  start: 2026-09-23T19:05:00Z end: 2026-09-23T19:05:00Z
+  branch: ui/catalog-state-preserve (merged 124d465 via 5e4d444 post-rewrite; worktree+branch cleaned; main = 9ef38cc pushed)
