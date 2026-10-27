@@ -17,8 +17,8 @@ const SHIM_PATH = path.join(os.homedir(), '.local/bin/ollama');
 
 function whichAll(commandName: string): string[] {
   if (process.platform === 'win32') {
-    // Windows: `where` prints each match on its own line (CRLF); exits 1 when nothing matches.
-    const result = spawnSync('where', [commandName], { encoding: 'utf8', shell: true });
+    // where.exe prints each match on its own line and exits 1 when nothing matches.
+    const result = spawnSync('where', [commandName], { encoding: 'utf8', windowsHide: true });
     if (result.status !== 0 || !result.stdout) return [];
     return Array.from(new Set(
       result.stdout

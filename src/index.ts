@@ -4900,9 +4900,14 @@ function ollamaCloudRoutingAllowsPro(): boolean {
 
 
 function binaryOnPath(binary: string): boolean {
+  const locator = process.platform === 'win32' ? 'where' : 'which';
   try {
-    const result = execFileSync('which', [binary], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
-    return Boolean(result.trim());
+    const result = execFileSync(locator, [binary], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+      windowsHide: true
+    });
+    return Boolean(String(result || '').trim());
   } catch {
     return false;
   }

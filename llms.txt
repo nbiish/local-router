@@ -291,7 +291,8 @@ Local Router includes an in-process update checker and self-updating subsystem (
 #### 1. Universal Setup & Installers (Windows, macOS, Linux, WSL)
 Local Router provides one-command bootstrap scripts for all operating systems and architectures (Windows x64/arm64, macOS Apple Silicon/Intel, Linux x64/aarch64, and WSL2):
 - **macOS / Linux / WSL**: Run `./install.sh` (or `npm run setup`) — builds TypeScript, creates `~/.config/local-router` and `~/.config/pqc-secrets`, generates the ML-KEM-768 keypair, and creates CLI symlinks in `~/.local/bin` for `local-router`, `localrouter`, `ollama`, and `pqc-secrets`.
-- **Windows (PowerShell / Command Prompt)**: Run `install.cmd` or `.\install.ps1` (or `npm run setup`) — builds TypeScript, creates config directories, initializes PQC keys, and provides native `.cmd` wrappers in `bin/`.
+- **Windows (PowerShell / Command Prompt)**: Run `install.cmd` or `.\install.ps1` (or `npm run setup`) — the same steps as `./install.sh`: build, config directories, PQC keypair, CLI on PATH, and `local-router route set`.
+- **Every OS:** `route set` installs the ollama shim and the ensure watchdog, and pins the desktop app's `OLLAMA_HOST` to `127.0.0.1:11435` so the app is the backend. It does not set `LOCAL_ROUTER_BIND_ALL`. Client tools use `OPENAI_BASE_URL` / `ANTHROPIC_BASE_URL` (`http://127.0.0.1:11434`). Non-serve `ollama` commands reach the router through the shim, including when the app host `127.0.0.1:11435` is already set. A different host is left alone.
 - **Dual-Stack & WSL Interop**: Binds `127.0.0.1` and `::1` simultaneously so tooling inside WSL or on Windows connects seamlessly across loopback.
 
 #### 2. Ollama Drop-In CLI Interception & Terminal Dashboard
