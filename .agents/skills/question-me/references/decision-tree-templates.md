@@ -99,7 +99,7 @@ graph TD
 ```mermaid
 graph TD
     A["Level 1: Execution Modality<br>(One-shot headless run vs. Native subagent vs. Workflow fan-out)"]
-    A --> B["Level 2: Scope Allowlist<br>(GitNexus impact files only vs. Whole directory)"]
+    A --> B["Level 2: Scope Allowlist<br>(blast-radius impact files only vs. Whole directory)"]
     B --> C["Level 3: Verification Loop<br>(Compiler/typecheck gate vs. Integration smoke test)"]
     C --> D["Level 4: COMMS Ledger Logging<br>(SUBAGENT-DISPATCH receipt vs. Orchestrator log)"]
 ```
