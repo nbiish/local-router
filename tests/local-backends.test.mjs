@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { createServer } from 'node:http';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { once } from 'node:events';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -253,6 +253,121 @@ test('live llama.cpp endpoint is detected and its models served; gone when it st
   } finally {
     await stopServer();
     fakeModels.close();
+    rmSync(testHome, { recursive: true, force: true });
+  }
+});
+
+test('unsloth proxy does not forward client IPs and does not require studio trust', async () => {
+  testHome = mkdtempSync(join(tmpdir(), 'local-router-unsloth-forwarded-'));
+  const hits = [];
+  const mock = createServer((req, res) => {
+    const url = req.url || '';
+    if (url === '/v1/models') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ data: [{ id: 'studio-model' }] }));
+      return;
+    }
+    hits.push({
+      url,
+      forwarded: req.headers['x-forwarded-for'] || null,
+      realIp: req.headers['x-real-ip'] || null
+    });
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({
+      choices: [{ index: 0, finish_reason: 'stop', message: { role: 'assistant', content: 'UNSLOTH-OK' } }]
+    }));
+  });
+  await new Promise((resolve) => mock.listen(0, '127.0.0.1', resolve));
+  const mockPort = mock.address().port;
+  process.env.UNSLOTH_PORT = String(mockPort);
+  delete process.env.UNSLOTH_STUDIO_TRUST_FORWARDED;
+  // A models array is required for the loopback row to be eligible; the live
+  // probe then replaces those ids with whatever /v1/models returns.
+  writeCustomProviders([{
+    name: 'unsloth',
+    displayName: 'Unsloth (local)',
+    endpoint: `http://127.0.0.1:${mockPort}/v1`,
+    keyEnvVar: 'UNSLOTH_API_KEY',
+    defaultTool: 'OpenAI Compatible',
+    createdAt: new Date().toISOString(),
+    models: ['studio-model']
+  }]);
+
+  await startServer();
+  try {
+    assert.equal(process.env.UNSLOTH_STUDIO_TRUST_FORWARDED, undefined);
+    const ids = await pollForModels('unsloth-studio-model', true, 60);
+    assert.ok(ids.includes('unsloth-studio-model'),
+      `live unsloth model must be listed; got: ${ids.filter((id) => id.startsWith('unsloth')).join(', ')}`);
+
+    const chat = await requestJson('/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Forwarded-For': '203.0.113.9',
+        'X-Real-IP': '203.0.113.9'
+      },
+      body: JSON.stringify({
+        model: 'unsloth-studio-model',
+        messages: [{ role: 'user', content: 'hi' }],
+        max_tokens: 8
+      })
+    });
+    assert.equal(chat.response.status, 200, `unsloth chat failed: ${JSON.stringify(chat.body).slice(0, 300)}`);
+    assert.ok(hits.length > 0, 'upstream unsloth must have received the chat');
+    for (const hit of hits) {
+      assert.equal(hit.forwarded, null, `must not forward X-Forwarded-For on ${hit.url}`);
+      assert.equal(hit.realIp, null, `must not forward X-Real-IP on ${hit.url}`);
+    }
+    assert.equal(serverLogs.includes('UNSLOTH_STUDIO_TRUST_FORWARDED'), false);
+  } finally {
+    delete process.env.UNSLOTH_PORT;
+    await stopServer();
+    mock.close();
+    rmSync(testHome, { recursive: true, force: true });
+  }
+});
+
+test('boot writes the provider endpoint snapshot outside the git tree', async () => {
+  testHome = mkdtempSync(join(tmpdir(), 'local-router-endpoint-snapshot-'));
+  const repoDoc = join(process.cwd(), 'PROVIDER_ENDPOINTS.md');
+  const before = statSync(repoDoc).mtimeMs;
+  const port = String(27800 + Math.floor(Math.random() * 200));
+  const env = { ...process.env, HOME: testHome, USERPROFILE: testHome, PORT: port };
+  env.LOCAL_ROUTER_SKIP_PQC_LOAD = 'true';
+  env.LOCAL_ROUTER_SKIP_OLLAMA_ENSURE = 'true';
+  delete env.LOCAL_ROUTER_DEV;
+  delete env.NODE_ENV;
+  delete env.NODE_TEST_CONTEXT;
+  delete env.UNSLOTH_STUDIO_TRUST_FORWARDED;
+  const child = spawn(process.execPath, ['build/index.js'], {
+    cwd: process.cwd(),
+    env,
+    stdio: ['ignore', 'pipe', 'pipe']
+  });
+  let logs = '';
+  child.stdout.on('data', (chunk) => { logs += chunk.toString(); });
+  child.stderr.on('data', (chunk) => { logs += chunk.toString(); });
+  const base = `http://127.0.0.1:${port}`;
+  let ready = false;
+  try {
+    for (let i = 0; i < 200 && !ready; i++) {
+      try {
+        const response = await fetch(`${base}/api/version`);
+        ready = response.ok;
+      } catch { await delay(100); }
+    }
+    assert.ok(ready, 'snapshot server must start\n' + logs.slice(-1500));
+    const snapshotPath = join(testHome, '.config', 'local-router', 'provider-endpoints.md');
+    const snapshot = readFileSync(snapshotPath, 'utf8');
+    assert.match(snapshot, /\| unsloth \|/);
+    assert.equal(snapshot.includes('UNSLOTH_STUDIO_TRUST_FORWARDED=1'), false);
+    assert.equal(statSync(repoDoc).mtimeMs, before, 'boot must not rewrite tracked PROVIDER_ENDPOINTS.md');
+  } finally {
+    if (child.exitCode === null) {
+      child.kill('SIGTERM');
+      await once(child, 'exit').catch(() => undefined);
+    }
     rmSync(testHome, { recursive: true, force: true });
   }
 });

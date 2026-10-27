@@ -72,6 +72,9 @@ console.log("[5/6] Configuring CLI entry points (local-router, localrouter, olla
 const binDir = path.join(root, "bin");
 
 if (isWin) {
+  // Windows install stops at PATH wrappers. `local-router route set` is the
+  // separate step that installs the ollama shim and the ensure watchdog.
+  // Leaving it out keeps a fresh Windows install on loopback (no BIND_ALL).
   const ollamaCmd = path.join(binDir, "ollama.cmd");
   const localRouterCmd = path.join(binDir, "local-router.cmd");
 

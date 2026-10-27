@@ -1420,9 +1420,9 @@ async function cmdRouteSet(routeMode = 'services', customTarget = null) {
     console.log(`Custom route target: ${routeTarget.host}:${routeTarget.port}`);
   }
   if (installed.length > 0) {
-    console.log('Service starts (ollama serve, llama-server, unsloth serve) now go through Local Router.');
-    console.log('Other invocations pass through to the real binary and talk to Local Router on its port.');
-    console.log('Set LOCAL_ROUTER_NO_SHIM=1 to bypass a shim and use the real binary directly.');
+    console.log('Ollama serve starts the real backend on 11435. Other ollama commands proxy through Local Router.');
+    console.log('llama-server and unsloth are not shimmed. They keep their own ports and are detected while they are up.');
+    console.log('Set LOCAL_ROUTER_NO_SHIM=1 to bypass the ollama shim and use the real binary directly.');
   }
   console.log(`Ensure ${SHIM_DIR} is before other paths in PATH for this to take effect.`);
   return sawError ? 1 : 0;
