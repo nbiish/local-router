@@ -792,14 +792,19 @@ function renderOllamaShim(realOllamaPath, routeMode, target) {
     `  exec "$LOCAL_ROUTER_BIN" ${serveArgs}`,
     'fi',
     '',
-    '# Non-serve invocations (list, run, pull, ps, ...) talk to the ROUTER on',
-    '# the standard port: point the real CLI at it. The router serves the',
-    '# Ollama-compatible API, so the real binary behaves as a client of it.',
-    'if [[ -n "${OLLAMA_HOST:-}" ]]; then',
-    '  : # caller already pinned a host — respect it (they may target a remote)',
-    'else',
-    `  export OLLAMA_HOST="${routerHost}:${routerPort}"`,
-    'fi',
+    '# Non-serve invocations (list, run, pull, ps, ...) talk to the ROUTER.',
+    '# A blank host, or the local backend host that route set pins for the',
+    '# desktop app (127.0.0.1:11435), is not a caller pin. Any other host is',
+    '# a remote the caller chose and is left alone. Same rule on every OS.',
+    'ollama_host_norm="${OLLAMA_HOST:-}"',
+    'ollama_host_norm="${ollama_host_norm#http://}"',
+    'ollama_host_norm="${ollama_host_norm#https://}"',
+    'ollama_host_norm="${ollama_host_norm%/}"',
+    'case "$ollama_host_norm" in',
+    '  ""|127.0.0.1:11435|localhost:11435|"[::1]:11435")',
+    `    export OLLAMA_HOST="${routerHost}:${routerPort}"`,
+    '    ;;',
+    'esac',
     'exec "$REAL_OLLAMA" "$@"',
     ''
   ].join('\n');
@@ -850,9 +855,13 @@ function renderWindowsOllamaCmd(realOllamaPath, routeMode, target) {
     '  exit /b !ERRORLEVEL!',
     ')',
     '',
-    'if "%OLLAMA_HOST%"=="" (',
-    `  set "OLLAMA_HOST=${routerHost}:${routerPort}"`,
-    ')',
+    'set "HOSTNORM=%OLLAMA_HOST%"',
+    'if /i "%HOSTNORM:~0,7%"=="http://" set "HOSTNORM=%HOSTNORM:~7%"',
+    'if /i "%HOSTNORM:~0,8%"=="https://" set "HOSTNORM=%HOSTNORM:~8%"',
+    'if /i "%HOSTNORM:~-1%"=="/" set "HOSTNORM=%HOSTNORM:~0,-1%"',
+    'if "%HOSTNORM%"=="" set "OLLAMA_HOST=' + routerHost + ':' + routerPort + '"',
+    'if /i "%HOSTNORM%"=="127.0.0.1:11435" set "OLLAMA_HOST=' + routerHost + ':' + routerPort + '"',
+    'if /i "%HOSTNORM%"=="localhost:11435" set "OLLAMA_HOST=' + routerHost + ':' + routerPort + '"',
     '"%REAL_OLLAMA%" %*',
     'exit /b !ERRORLEVEL!',
     ''
@@ -910,7 +919,9 @@ function renderWindowsOllamaPs1(realOllamaPath, routeMode, target) {
     '    exit $LASTEXITCODE',
     '}',
     '',
-    'if (-not $env:OLLAMA_HOST) {',
+    '$hostNorm = $env:OLLAMA_HOST',
+    'if ($hostNorm) { $hostNorm = $hostNorm -replace \'^https?://\',\'\' -replace \'/$\' ,\'\' }',
+    'if (-not $hostNorm -or $hostNorm -in @(\'127.0.0.1:11435\', \'localhost:11435\', \'[::1]:11435\')) {',
     `    $env:OLLAMA_HOST = "${routerHost}:${routerPort}"`,
     '}',
     '& $RealOllama @args',
@@ -1260,10 +1271,6 @@ function installShim(serviceTarget, realPath, routeMode, routeTarget) {
       const ps1Script = renderWindowsOllamaPs1(realPath, routeMode, routeTarget);
       fs.writeFileSync(cmdPath, cmdScript, 'utf8');
       fs.writeFileSync(ps1Path, ps1Script, 'utf8');
-      const binDir = path.resolve(__dirname, '..', 'bin');
-      try {
-        fs.writeFileSync(path.join(binDir, 'ollama.cmd'), cmdScript, 'utf8');
-      } catch {}
       return true;
     }
     return false;
@@ -1799,3 +1806,9 @@ if (require.main === module) {
     process.exitCode = 1;
   });
 }
+
+module.exports = {
+  renderOllamaShim,
+  renderWindowsOllamaCmd,
+  renderWindowsOllamaPs1
+};

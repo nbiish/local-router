@@ -72,9 +72,6 @@ console.log("[5/6] Configuring CLI entry points (local-router, localrouter, olla
 const binDir = path.join(root, "bin");
 
 if (isWin) {
-  // Windows install stops at PATH wrappers. `local-router route set` is the
-  // separate step that installs the ollama shim and the ensure watchdog.
-  // Leaving it out keeps a fresh Windows install on loopback (no BIND_ALL).
   const ollamaCmd = path.join(binDir, "ollama.cmd");
   const localRouterCmd = path.join(binDir, "local-router.cmd");
 
@@ -91,14 +88,22 @@ if (isWin) {
 
   console.log("✓ Windows batch wrappers ready in " + binDir);
   try {
+    const userShimDir = path.join(homeDir, ".local", "bin");
+    fs.mkdirSync(userShimDir, { recursive: true });
     const cargoBin = path.join(homeDir, ".cargo", "bin");
     const currentPath = execFileSync("powershell", ["-NoProfile", "-Command", `[Environment]::GetEnvironmentVariable("Path", "User")`], { encoding: "utf8" }).trim();
-    let newPath = currentPath;
-    if (!newPath.includes(binDir)) newPath = newPath + ";" + binDir;
-    if (fs.existsSync(cargoBin) && !newPath.includes(cargoBin)) newPath = newPath + ";" + cargoBin;
-    if (newPath !== currentPath) {
-      execFileSync("powershell", ["-NoProfile", "-Command", `[Environment]::SetEnvironmentVariable("Path", "${newPath}", "User")`], { stdio: "ignore" });
-      console.log("✓ Added Local Router and Cargo to Windows User PATH.\n");
+    const parts = currentPath.split(";").map((entry) => entry.trim()).filter(Boolean);
+    const samePath = (left, right) => left.replace(/[\\/]+$/, "").toLowerCase() === right.replace(/[\\/]+$/, "").toLowerCase();
+    const has = (dir) => parts.some((entry) => samePath(entry, dir));
+    const prefix = [];
+    if (!has(userShimDir)) prefix.push(userShimDir);
+    if (!has(binDir)) prefix.push(binDir);
+    const cargo = fs.existsSync(cargoBin) && !has(cargoBin) ? [cargoBin] : [];
+    if (prefix.length > 0 || cargo.length > 0) {
+      const newPath = [...prefix, ...parts, ...cargo].join(";");
+      const psLiteral = newPath.replace(/'/g, "''");
+      execFileSync("powershell", ["-NoProfile", "-Command", `[Environment]::SetEnvironmentVariable('Path', '${psLiteral}', 'User')`], { stdio: "ignore" });
+      console.log("✓ Windows User PATH: ~/.local/bin (ollama shim) precedes the repo bin.\n");
     } else {
       console.log("✓ Windows User PATH already contains Local Router.\n");
     }
@@ -118,20 +123,24 @@ if (isWin) {
     } catch {}
   }
   console.log("");
+}
 
-  // Activate cross-platform service routing and autostart
-  try {
-    execFileSync("node", [path.join(binDir, "local-router.js"), "route", "set"], { cwd: root, stdio: "inherit" });
-  } catch (err) {
-    console.log("ℹ Note: route set can be run later via local-router route set: " + err.message);
-  }
+// Same contract on Windows, WSL, Linux, and macOS: ollama shim + ensure
+// watchdog. route set does not set LOCAL_ROUTER_BIND_ALL, so the listener
+// stays on loopback unless the operator opted in.
+try {
+  execFileSync("node", [path.join(binDir, "local-router.js"), "route", "set"], { cwd: root, stdio: "inherit" });
+} catch (err) {
+  console.log("ℹ Note: route set can be run later via local-router route set: " + err.message);
 }
 
 // 6. Auto-export environment variables for external AI tools
-console.log("[6/6] Configuring environment variables (OLLAMA_HOST, OPENAI_BASE_URL, ANTHROPIC_BASE_URL)...");
+console.log("[6/6] Configuring client API environment (OpenAI and Anthropic base URLs)...");
 
+// OLLAMA_HOST is not a client URL. The desktop app reads it and binds there.
+// route set pins that value to 127.0.0.1:11435 on every OS so the app is the
+// backend. Non-serve `ollama` commands reach the router through the shim.
 const envVars = {
-  OLLAMA_HOST: "http://127.0.0.1:11434",
   OLLAMA_API_BASE: "http://127.0.0.1:11434",
   OPENAI_BASE_URL: "http://127.0.0.1:11434/v1",
   OPENAI_API_BASE: "http://127.0.0.1:11434/v1",
@@ -151,7 +160,8 @@ if (isWin) {
       execFileSync("powershell", ["-NoProfile", "-Command", `[Environment]::SetEnvironmentVariable("${k}", "${v}", "User")`], { stdio: "ignore" });
     } catch {}
   }
-  console.log("✓ Windows User environment variables registered (OPENAI_BASE_URL, ANTHROPIC_BASE_URL, OLLAMA_HOST).\n");
+  console.log("✓ Windows User environment variables registered (OPENAI_BASE_URL, ANTHROPIC_BASE_URL).\n");
+  console.log("  OLLAMA_HOST stays 127.0.0.1:11435 so the Ollama app does not take port 11434.\n");
 
   // Auto-sync into WSL if WSL is present
   try {

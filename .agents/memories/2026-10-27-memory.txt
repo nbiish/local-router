@@ -4,3 +4,4 @@
 - 00:45 Unsloth Studio login limits trust X-Forwarded-For only when the Unsloth process has UNSLOTH_STUDIO_TRUST_FORWARDED=1. Local Router does not set that variable and does not copy X-Forwarded-For or X-Real-IP onto unsloth /v1 calls.
 - 00:50 Windows PQC store has secrets that are not provider-mapped. The config UI shows No key until they are re-packed under LOCALROUTER_ names. Values are not stored in this file.
 - 00:50 Windows user OLLAMA_HOST was http://127.0.0.1:11434, so the Ollama app took 11434 the moment the port was free. It is now 127.0.0.1:11435, which is what route set writes so the app is the backend.
+- 01:05 install on Windows, WSL, Linux, and macOS all run route set. Persistent OLLAMA_HOST stays 127.0.0.1:11435 for the desktop app. The shim sends non-serve ollama commands to the router. setup-platform no longer writes OLLAMA_HOST=http://127.0.0.1:11434.
