@@ -4885,10 +4885,12 @@ function ollamaCloudRoutingAllowsPro(): boolean {
 }
 
 /**
- * PROVIDER_ENDPOINTS.md generator (2026-09-04): every provider's concrete
- * endpoints (base URL, models, chat), auth type, key env var, key status,
- * and curated model count — regenerated at server boot, on provider add,
- * and on key save, so the repo always carries a current endpoint map.
+ * Provider endpoint snapshot (2026-09-04, path moved 2026-10-27): every
+ * provider's concrete endpoints, auth type, key env var, key status, and
+ * curated model count. Written beside other runtime state under
+ * ~/.config/local-router/ so a boot cannot dirty the git checkout and
+ * break `git pull --ff-only` on the next update. The repo file
+ * PROVIDER_ENDPOINTS.md stays the checked-in map.
  */
 // ── Catalog health monitor (2026-09-04) ─────────────────────────────────────
 // Masters' suggestions: watch for silent curated-count collapse, empty
@@ -4980,13 +4982,10 @@ function startCatalogHealthMonitor(): void {
 }
 
 function writeProviderEndpointsDoc(): void {
-  // PROVIDER_ENDPOINTS.md is a release artifact describing the real host's
-  // provider state. Dev runs and test runs use throwaway (or absent) config
-  // dirs, so writing there would overwrite the committed doc with sandbox state
-  // — e.g. flipping OAuth providers to "not signed in" and stamping a bogus
-  // generated-at time. NODE_TEST_CONTEXT is set by the node:test runner and is
-  // inherited by in-process imports of the build. Guarding here covers every
-  // call site (boot, provider add, key save, explicit regenerate).
+  // Dev runs and test runs use throwaway config dirs. Writing the snapshot
+  // there would record sandbox key status. NODE_TEST_CONTEXT is set by the
+  // node:test runner and is inherited by in-process imports of the build.
+  // Guarding here covers every call site (boot, provider add, key save).
   if (
     process.env.LOCAL_ROUTER_DEV === 'true'
     || process.env.NODE_ENV === 'development'
@@ -4995,7 +4994,8 @@ function writeProviderEndpointsDoc(): void {
     return;
   }
   try {
-    const outPath = path.resolve(__dirname, '..', 'PROVIDER_ENDPOINTS.md');
+    ensureLocalRouterConfigDir();
+    const outPath = path.join(LOCAL_ROUTER_CONFIG_DIR, 'provider-endpoints.md');
     const lines: string[] = [
       '# Provider Endpoints Registry',
       '',
@@ -5029,9 +5029,9 @@ function writeProviderEndpointsDoc(): void {
       lines.push(`| ${slug} | ${auth} | ${base} | ${modelsEp} | ${chatEp} | ${summary.keyEnvVar || '—'} | ${keyStatus} | ${curatedCount} | ${cliBridgeStatus(slug)} |`);
     }
     lines.push('', `_Generated ${new Date().toISOString()}._`, '');
-    fs.writeFileSync(outPath, lines.join('\n'), { encoding: 'utf8' });
+    fs.writeFileSync(outPath, lines.join('\n'), { encoding: 'utf8', mode: 0o600 });
   } catch (error: any) {
-    console.error('Failed to write PROVIDER_ENDPOINTS.md:', sanitizeDiagnosticText(String(error?.message || error)));
+    console.error('Failed to write provider-endpoints.md:', sanitizeDiagnosticText(String(error?.message || error)));
   }
 }
 

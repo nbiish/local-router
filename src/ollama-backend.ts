@@ -1,4 +1,4 @@
-import { spawnSync } from 'child_process';
+import { spawn, spawnSync } from 'child_process';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
@@ -111,10 +111,40 @@ export async function ensureOllamaBackend(): Promise<boolean> {
   return live;
 }
 
+function runOllamaPull(binary: string, tag: string): Promise<{ status: number | null; stdout: string; stderr: string }> {
+  return new Promise((resolve) => {
+    const child = spawn(binary, ['pull', tag], {
+      env: { ...process.env, OLLAMA_HOST: OLLAMA_BACKEND_HOST },
+      stdio: ['ignore', 'pipe', 'pipe']
+    });
+    let stdout = '';
+    let stderr = '';
+    const timer = setTimeout(() => {
+      child.kill();
+    }, 120_000);
+    child.stdout?.on('data', (chunk: Buffer | string) => { stdout += chunk.toString(); });
+    child.stderr?.on('data', (chunk: Buffer | string) => { stderr += chunk.toString(); });
+    child.on('close', (status) => {
+      clearTimeout(timer);
+      resolve({ status, stdout, stderr });
+    });
+    child.on('error', (error) => {
+      clearTimeout(timer);
+      resolve({ status: null, stdout, stderr: error.message });
+    });
+  });
+}
+
 export async function pullOllamaCloudModels(modelTags: string[]): Promise<void> {
   if (process.env.LOCAL_ROUTER_SKIP_OLLAMA_ENSURE === 'true') {
     return;
   }
+
+  // A down backend must not be pulled. `ollama pull` with nothing on 11435
+  // launches the Ollama app on Windows, and a synchronous pull freezes the
+  // HTTP event loop (config UI and /api/version stop answering).
+  const live = await ensureOllamaBackend();
+  if (!live) return;
 
   const binary = resolveRealOllamaBinary();
   if (!binary) return;
@@ -129,23 +159,13 @@ export async function pullOllamaCloudModels(modelTags: string[]): Promise<void> 
 
   if (uniqueTags.length === 0) return;
 
-  await ensureOllamaBackend();
-
   for (const tag of uniqueTags) {
     try {
-      const result = spawnSync(binary, ['pull', tag], {
-        encoding: 'utf8',
-        timeout: 120_000,
-        env: {
-          ...process.env,
-          OLLAMA_HOST: OLLAMA_BACKEND_HOST
-        }
-      });
-
+      const result = await runOllamaPull(binary, tag);
       if (result.status === 0) {
         console.log(`[ollama] Pulled cloud model: ${tag}`);
       } else {
-        const detail = (result.stderr || result.stdout || '').trim();
+        const detail = (result.stderr || result.stdout || '').trim().slice(-400);
         console.warn(`[ollama] Pull failed for ${tag}${detail ? `: ${detail}` : ''}`);
       }
     } catch (error: any) {

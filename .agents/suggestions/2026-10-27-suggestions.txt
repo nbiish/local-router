@@ -1,0 +1,11 @@
+### [2026-10-27T00:55:00Z] fix/router-inspect-ship
+Loopback listener is up, Unsloth does not receive client-forwarded IPs, and boot no longer dirties PROVIDER_ENDPOINTS.md. Next step: on the other machine, pull main, run the OS installer, then local-router update and local-router start, and re-pack provider keys under LOCALROUTER_ names.
+What would this adversarial / security master suggest? Leave UNSLOTH_STUDIO_TRUST_FORWARDED unset unless Studio is reachable only through a proxy you control, because trusting X-Forwarded-For lets clients spoof the login rate-limit key.
+What would this privacy / data-protection regulatory master suggest? The endpoint snapshot now stays in the home config dir with mode 0600 and still must not gain secret values.
+What would this supply-chain / third-party-risk master suggest? install.ps1 still does not run route set; keep that split so a Windows install does not enable BIND_ALL.
+What would this systems-architecture / devops / infrastructure master suggest? The WSL ensure timer is disabled and its BIND_ALL line is gone; re-enable it only for a loopback listener so it does not fight the Windows server.
+What would this reliability / verification master suggest? Cold start used to block /api/version inside ollama pull; the new async path needs a watch the first time 11435 is already up.
+What would this governance / sovereignty master suggest? The checked-in PROVIDER_ENDPOINTS.md is a map, not this machine's key status, and it must stay that way across updates.
+What would this terminal-orchestration / swe-bench master suggest? The other machine's proof is pull, install, update, start, then open /config, in that order.
+What would this master-orchestrator / self-prompting master suggest? Re-pack the unmapped PQC names before judging fallback hops, since the chain currently shows No key on every step.
+What would this developer-experience / ergonomics master suggest? The providers page loaded 21 groups and search narrowed kimi-k2.6 in place; keep that path as the operator's first look after start.
