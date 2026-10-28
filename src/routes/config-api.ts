@@ -38,7 +38,9 @@ import {
   loadAgentProxyConfig,
   saveAgentProxyConfig
 } from '../config-persistence';
-import { syncSystemAgentEnv } from '../agent-env-sync';
+import { syncSystemAgentEnv, agentHarnessEnv } from '../agent-env-sync';
+import { syncCodexHarnessConfig } from '../agent-codex-config';
+import { collectAgentHarnessStatus, verifyAgentHarness } from '../agent-harness-status';
 import { getExpertLogs, importExpertLogs, clearExpertLogs, analyzeLogs } from '../expert-logs';
 
 export interface ConfigApiDeps {
@@ -1617,17 +1619,11 @@ app.get('/api/env', (req: Request, res: Response) => {
   const host = '127.0.0.1';
   const port = process.env.PORT || '11434';
   const baseUrl = `http://${host}:${port}`;
-  const v1Url = `${baseUrl}/v1`;
 
   const envs = {
     OLLAMA_HOST: baseUrl,
     OLLAMA_API_BASE: baseUrl,
-    OPENAI_BASE_URL: v1Url,
-    OPENAI_API_BASE: v1Url,
-    OPENAI_API_KEY: 'local-router',
-    ANTHROPIC_BASE_URL: baseUrl,
-    ANTHROPIC_API_URL: baseUrl,
-    ANTHROPIC_API_KEY: 'local-router'
+    ...agentHarnessEnv(baseUrl)
   };
 
   const format = String(req.query.format || 'json').toLowerCase();
@@ -1754,6 +1750,30 @@ app.put('/api/wafer-config', (req: Request, res: Response) => {
 
 
 // ── Agent Proxy Config API ─────────────────────────────────────────────────
+// Two harnesses, one contract:
+//   Claude Code — model remapping on /v1/messages + Anthropic client env.
+//   Codex CLI   — managed provider/profile files + OpenAI client env.
+// Saving reconciles the on-disk wiring, and the status/verify endpoints let
+// the page prove the loopback path instead of guessing.
+
+function agentHarnessBaseUrl(): string {
+  return `http://127.0.0.1:${PORT}`;
+}
+
+function applyAgentHarnessState(config: AgentProxyConfig) {
+  const baseUrl = agentHarnessBaseUrl();
+  const env = syncSystemAgentEnv({
+    baseUrl,
+    skipOsEnvironment: process.env.LOCAL_ROUTER_SKIP_OS_ENV === '1'
+  });
+  const codex = syncCodexHarnessConfig({
+    enabled: Boolean(config.codex?.enabled),
+    model: String(config.codex?.model || ''),
+    baseUrl
+  });
+  return { env, codex };
+}
+
 app.get('/api/agents-proxy', (req: Request, res: Response) => {
   const config = loadAgentProxyConfig();
   const rawModels = activeProviderModelList();
@@ -1776,6 +1796,14 @@ app.get('/api/agents-proxy', (req: Request, res: Response) => {
   });
 });
 
+app.get('/api/agents-proxy/status', (req: Request, res: Response) => {
+  const config = loadAgentProxyConfig();
+  return res.json({
+    ok: true,
+    status: collectAgentHarnessStatus(config, { baseUrl: agentHarnessBaseUrl() })
+  });
+});
+
 app.put('/api/agents-proxy', (req: Request, res: Response) => {
   const current = loadAgentProxyConfig();
   const incoming = req.body ?? {};
@@ -1793,28 +1821,67 @@ app.put('/api/agents-proxy', (req: Request, res: Response) => {
     }
   }
 
+  if (incoming.codex !== undefined) {
+    if (!incoming.codex || typeof incoming.codex !== 'object') {
+      return res.status(400).json({ error: 'codex must be an object.' });
+    }
+    if (incoming.codex.enabled !== undefined && typeof incoming.codex.enabled !== 'boolean') {
+      return res.status(400).json({ error: 'codex.enabled must be a boolean.' });
+    }
+    if (incoming.codex.model !== undefined) {
+      if (typeof incoming.codex.model !== 'string') {
+        return res.status(400).json({ error: 'codex.model must be a string.' });
+      }
+      const model = incoming.codex.model.trim();
+      if (!model || model.length > 200 || /[\r\n]/.test(model)) {
+        return res.status(400).json({ error: 'codex.model must be a single non-empty model id (200 chars max).' });
+      }
+      current.codex.model = model;
+    }
+    if (typeof incoming.codex.enabled === 'boolean') {
+      current.codex.enabled = incoming.codex.enabled;
+    }
+  }
+
   saveAgentProxyConfig(current);
   if (deps.agentProxyConfig) {
     deps.agentProxyConfig.claudeCode = current.claudeCode;
+    deps.agentProxyConfig.codex = current.codex;
   }
-  if (current.claudeCode.enabled) {
-    syncSystemAgentEnv();
-  }
+
+  const applied = applyAgentHarnessState(current);
+  const errors = [applied.env.ok ? null : applied.env.error, applied.codex.ok ? null : applied.codex.error].filter(Boolean);
 
   return res.json({
     ok: true,
-    config: current
+    config: current,
+    applied,
+    warnings: errors
   });
 });
 
+app.post('/api/agents-proxy/verify', async (req: Request, res: Response) => {
+  const harness = String(req.body?.harness || '').toLowerCase();
+  if (harness !== 'claude' && harness !== 'codex') {
+    return res.status(400).json({ error: 'harness must be claude or codex.' });
+  }
+  const config = loadAgentProxyConfig();
+  const result = await verifyAgentHarness(harness as 'claude' | 'codex', config, { baseUrl: agentHarnessBaseUrl() });
+  return res.json({ ok: result.ok, result });
+});
+
 app.post('/api/agents-proxy/sync-env', (req: Request, res: Response) => {
-  const result = syncSystemAgentEnv();
-  if (!result.ok) {
-    return res.status(500).json({ error: result.error || 'Failed to synchronize environment' });
+  const config = loadAgentProxyConfig();
+  const applied = applyAgentHarnessState(config);
+  if (!applied.env.ok && !applied.codex.ok) {
+    return res.status(500).json({
+      error: applied.env.error || applied.codex.error || 'Failed to synchronize agent environment'
+    });
   }
   return res.json({
     ok: true,
-    syncedAt: new Date().toISOString()
+    syncedAt: new Date().toISOString(),
+    applied
   });
 });
 
