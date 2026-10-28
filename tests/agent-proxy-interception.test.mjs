@@ -11,6 +11,7 @@ import {
   saveAgentProxyConfig
 } from '../build/config-persistence.js';
 import { syncSystemAgentEnv, upsertShellExports, agentHarnessEnv } from '../build/agent-env-sync.js';
+import { resolveCommandShim } from '../bin/lib/cli-spawn.js';
 import {
   syncCodexHarnessConfig,
   readCodexHarnessState,
@@ -280,4 +281,49 @@ test('syncCodexHarnessConfig refuses to clobber a foreign provider table', () =>
   assert.equal(readCodexHarnessState({ codexHome }).providerBlock, 'conflict');
 
   fs.rmSync(codexHome, { recursive: true, force: true });
+});
+
+test('resolveCommandShim resolves an npm-style .cmd wrapper to its real script', () => {
+  const dir = makeHome('lr-shim-js-');
+  const rel = ['node_modules', '@openai', 'codex', 'bin', 'codex.js'].join(path.sep);
+  const js = path.join(dir, rel);
+  fs.mkdirSync(path.dirname(js), { recursive: true });
+  fs.writeFileSync(js, 'console.log("codex");\n', 'utf8');
+
+  const shim = path.join(dir, 'codex.cmd');
+  fs.writeFileSync(shim, `@ECHO off\r\n"%dp0%${path.sep}${rel}" %*\r\n`, 'utf8');
+
+  const resolved = resolveCommandShim(shim);
+  assert.ok(resolved, 'npm shim must resolve');
+  assert.equal(resolved.command, process.execPath);
+  assert.deepEqual(resolved.prefixArgs, [js]);
+
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('resolveCommandShim resolves a native .exe wrapper', () => {
+  const dir = makeHome('lr-shim-exe-');
+  const rel = ['bin', 'claude.exe'].join(path.sep);
+  const exe = path.join(dir, rel);
+  fs.mkdirSync(path.dirname(exe), { recursive: true });
+  fs.writeFileSync(exe, 'MZplaceholder', 'utf8');
+
+  const shim = path.join(dir, 'claude.cmd');
+  fs.writeFileSync(shim, `@ECHO off\r\n"%dp0%${path.sep}${rel}" %*\r\n`, 'utf8');
+
+  const resolved = resolveCommandShim(shim);
+  assert.ok(resolved, 'native shim must resolve');
+  assert.equal(resolved.command, exe);
+  assert.deepEqual(resolved.prefixArgs, []);
+
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('resolveCommandShim returns null for an unknown wrapper format', () => {
+  const dir = makeHome('lr-shim-unknown-');
+  const shim = path.join(dir, 'tool.cmd');
+  fs.writeFileSync(shim, '@ECHO off\r\necho hello\r\n', 'utf8');
+
+  assert.equal(resolveCommandShim(shim), null);
+  fs.rmSync(dir, { recursive: true, force: true });
 });

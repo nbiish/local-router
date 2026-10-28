@@ -9,7 +9,8 @@
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
-const { spawnSync, execFileSync } = require('child_process');
+const { execFileSync } = require('child_process');
+const { spawnCli } = require('./cli-spawn');
 
 const PROFILE_NAME = 'local-router';
 
@@ -30,7 +31,7 @@ function findRealCodex() {
   const isWin = process.platform === 'win32';
   const pathSeparator = isWin ? ';' : ':';
   const pathDirs = (process.env.PATH || '').split(pathSeparator).filter(Boolean);
-  const extensions = isWin ? ['.exe', '.cmd', '.bat', '.ps1', ''] : [''];
+  const extensions = isWin ? ['.exe', '.cmd', '.bat', ''] : [''];
   const skip = (dir) => path.resolve(dir).toLowerCase() === currentBinDir.toLowerCase();
   // A second Local Router install on PATH ships the same shim; re-executing it
   // would ping-pong between the two instead of starting Codex.
@@ -108,11 +109,7 @@ if (!realCodex) {
   process.exit(1);
 }
 
-const result = spawnSync(realCodex, args, {
-  stdio: 'inherit',
-  env: process.env,
-  shell: process.platform === 'win32' && (realCodex.endsWith('.cmd') || realCodex.endsWith('.bat'))
-});
+const result = spawnCli(realCodex, args);
 
 if (result.error) {
   console.error('[local-router] Error executing Codex CLI:', result.error.message);
