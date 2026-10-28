@@ -1,2 +1,14 @@
 #!/usr/bin/env bash
-exec node "$(dirname "$0")/lib/codex-runner.js" "$@"
+# Resolve this script's real location first: setup links it into
+# ~/.local/share/local-router/bin, and `$0` is the symlink, not the repo copy.
+SOURCE="${BASH_SOURCE[0]}"
+while [ -L "$SOURCE" ]; do
+  DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
+  SOURCE="$(readlink "$SOURCE")"
+  case "$SOURCE" in
+    /*) ;;
+    *) SOURCE="$DIR/$SOURCE" ;;
+  esac
+done
+DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
+exec node "$DIR/lib/codex-runner.js" "$@"
