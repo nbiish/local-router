@@ -6482,10 +6482,64 @@ app.post(['/v1/messages', '/messages'], async (req: Request, res: Response) => {
     let messageStarted = false;
     let contentBlockStarted = false;
     let toolBlockStarted = false;
+    let messageDeltaSent = false;
+    let messageStopped = false;
     let openAiSseBuffer = '';
     let textIndex = 0;
-    let currentToolId = '';
-    let currentToolName = '';
+    let outputTokens = 0;
+
+    // Anthropic SSE frames are `event: <name>\ndata: <json>\n\n`. Every frame
+    // must be newline-terminated or the client concatenates the next `event:`
+    // line into the previous JSON blob (Claude Code reports exactly that as
+    // "Could not parse message into JSON").
+    const writeSse = (event: string, payload: Record<string, unknown>) => {
+      if (res.writableEnded) return;
+      res.write(`event: ${event}\ndata: ${JSON.stringify(payload)}\n\n`);
+    };
+
+    const ensureMessageStart = (data?: any) => {
+      if (messageStarted) return;
+      messageStarted = true;
+      writeSse('message_start', {
+        type: 'message_start',
+        message: {
+          id: `msg_${data?.id || cryptoRandomId()}`,
+          type: 'message',
+          role: 'assistant',
+          model: requestedModel || data?.model || 'claude-3-5-sonnet',
+          content: [],
+          stop_reason: null,
+          stop_sequence: null,
+          usage: { input_tokens: data?.usage?.prompt_tokens || 0, output_tokens: 0 }
+        }
+      });
+    };
+
+    const closeOpenBlocks = () => {
+      if (!contentBlockStarted && !toolBlockStarted) return;
+      writeSse('content_block_stop', { type: 'content_block_stop', index: textIndex });
+      contentBlockStarted = false;
+      toolBlockStarted = false;
+    };
+
+    // Exactly one message_delta and one message_stop per stream, after every
+    // open content block is closed — a duplicate delta (from `[DONE]` after a
+    // finish_reason) makes strict clients drop usage or error.
+    const finishMessage = (stopReason: string) => {
+      if (messageStopped) return;
+      ensureMessageStart();
+      closeOpenBlocks();
+      if (!messageDeltaSent) {
+        messageDeltaSent = true;
+        writeSse('message_delta', {
+          type: 'message_delta',
+          delta: { stop_reason: stopReason, stop_sequence: null },
+          usage: { output_tokens: outputTokens }
+        });
+      }
+      writeSse('message_stop', { type: 'message_stop' });
+      messageStopped = true;
+    };
 
     const processOpenAIToAnthropicStream = (chunk: any) => {
       openAiSseBuffer += chunk.toString();
@@ -6494,120 +6548,83 @@ app.post(['/v1/messages', '/messages'], async (req: Request, res: Response) => {
 
       for (const line of lines) {
         const trimmed = line.trim();
-        if (trimmed.startsWith('data: ')) {
-          const dataStr = trimmed.substring(6).trim();
-          if (dataStr === '[DONE]') {
-            res.write(`event: message_delta\ndata: ${JSON.stringify({
-              type: 'message_delta',
-              delta: { stop_reason: 'end_turn', stop_sequence: null },
-              usage: { output_tokens: 0 }
-            })}\n\n`);
-            res.write(`event: message_stop\ndata: ${JSON.stringify({ type: 'message_stop' })}\n\n`);
-            continue;
+        if (!trimmed.startsWith('data:')) continue;
+        const dataStr = trimmed.slice(5).trim();
+        if (dataStr === '[DONE]') {
+          finishMessage('end_turn');
+          continue;
+        }
+
+        try {
+          const data = JSON.parse(dataStr);
+          if (typeof data.usage?.completion_tokens === 'number') {
+            outputTokens = data.usage.completion_tokens;
+          }
+          const choice = data.choices?.[0] || {};
+          const delta = choice.delta || {};
+          ensureMessageStart(data);
+
+          if (delta.content) {
+            if (!contentBlockStarted) {
+              writeSse('content_block_start', {
+                type: 'content_block_start',
+                index: textIndex,
+                content_block: { type: 'text', text: '' }
+              });
+              contentBlockStarted = true;
+            }
+            writeSse('content_block_delta', {
+              type: 'content_block_delta',
+              index: textIndex,
+              delta: { type: 'text_delta', text: delta.content }
+            });
           }
 
-          try {
-            const data = JSON.parse(dataStr);
-            const choice = data.choices?.[0] || {};
-            const delta = choice.delta || {};
-            
-            if (!messageStarted) {
-              res.write(`event: message_start\ndata: ${JSON.stringify({
-                type: 'message_start',
-                message: {
-                  id: `msg_${data.id || cryptoRandomId()}`,
-                  type: 'message',
-                  role: 'assistant',
-                  model: requestedModel || data.model || 'claude-3-5-sonnet',
-                  content: [],
-                  stop_reason: null,
-                  stop_sequence: null,
-                  usage: { input_tokens: data.usage?.prompt_tokens || 0, output_tokens: 0 }
-                }
-              })}\n\n`);
-              messageStarted = true;
+          if (Array.isArray(delta.tool_calls) && delta.tool_calls.length > 0) {
+            if (contentBlockStarted) {
+              writeSse('content_block_stop', { type: 'content_block_stop', index: textIndex });
+              contentBlockStarted = false;
+              textIndex++;
             }
 
-            if (delta.content) {
-              if (!contentBlockStarted) {
-                res.write(`event: content_block_start\ndata: ${JSON.stringify({
+            for (const tc of delta.tool_calls) {
+              if (tc.id) {
+                if (toolBlockStarted) {
+                  writeSse('content_block_stop', { type: 'content_block_stop', index: textIndex });
+                  toolBlockStarted = false;
+                  textIndex++;
+                }
+                writeSse('content_block_start', {
                   type: 'content_block_start',
                   index: textIndex,
-                  content_block: { type: 'text', text: '' }
-                })}\n\n`);
-                contentBlockStarted = true;
+                  content_block: {
+                    type: 'tool_use',
+                    id: tc.id,
+                    name: tc.function?.name || '',
+                    input: {}
+                  }
+                });
+                toolBlockStarted = true;
               }
-              res.write(`event: content_block_delta\ndata: ${JSON.stringify({
-                type: 'content_block_delta',
-                index: textIndex,
-                delta: { type: 'text_delta', text: delta.content }
-              })}\n\n`);
-            }
-
-            if (Array.isArray(delta.tool_calls) && delta.tool_calls.length > 0) {
-              if (contentBlockStarted) {
-                res.write(`event: content_block_stop\ndata: ${JSON.stringify({
-                  type: 'content_block_stop',
-                  index: textIndex
-                })}\n\n`);
-                contentBlockStarted = false;
-                textIndex++;
-              }
-
-              for (const tc of delta.tool_calls) {
-                if (tc.id) {
-                  currentToolId = tc.id;
-                  currentToolName = tc.function?.name || '';
-                  res.write(`event: content_block_start\ndata: ${JSON.stringify({
-                    type: 'content_block_start',
-                    index: textIndex,
-                    content_block: {
-                      type: 'tool_use',
-                      id: currentToolId,
-                      name: currentToolName,
-                      input: {}
-                    }
-                  })}`);
-                  toolBlockStarted = true;
-                }
-                if (tc.function?.arguments) {
-                  res.write(`event: content_block_delta\ndata: ${JSON.stringify({
-                    type: 'content_block_delta',
-                    index: textIndex,
-                    delta: { type: 'input_json_delta', partial_json: tc.function.arguments }
-                  })}`);
-                }
+              if (tc.function?.arguments) {
+                writeSse('content_block_delta', {
+                  type: 'content_block_delta',
+                  index: textIndex,
+                  delta: { type: 'input_json_delta', partial_json: tc.function.arguments }
+                });
               }
             }
-
-            if (choice.finish_reason) {
-              if (contentBlockStarted) {
-                res.write(`event: content_block_stop\ndata: ${JSON.stringify({
-                  type: 'content_block_stop',
-                  index: textIndex
-                })}`);
-                contentBlockStarted = false;
-              }
-              if (toolBlockStarted) {
-                res.write(`event: content_block_stop\ndata: ${JSON.stringify({
-                  type: 'content_block_stop',
-                  index: textIndex
-                })}`);
-                toolBlockStarted = false;
-              }
-              let stopReason = 'end_turn';
-              if (choice.finish_reason === 'length') stopReason = 'max_tokens';
-              else if (choice.finish_reason === 'tool_calls') stopReason = 'tool_use';
-              
-              res.write(`event: message_delta\ndata: ${JSON.stringify({
-                type: 'message_delta',
-                delta: { stop_reason: stopReason, stop_sequence: null },
-                usage: { output_tokens: data.usage?.completion_tokens || 0 }
-              })}\n\n`);
-            }
-          } catch (err) {
-            // ignore
           }
+
+          if (choice.finish_reason) {
+            let stopReason = 'end_turn';
+            if (choice.finish_reason === 'length') stopReason = 'max_tokens';
+            else if (choice.finish_reason === 'tool_calls') stopReason = 'tool_use';
+            finishMessage(stopReason);
+          }
+        } catch {
+          // Malformed upstream chunk — keep the stream alive and let the
+          // closing frames normalise the result.
         }
       }
     };
@@ -6632,7 +6649,14 @@ app.post(['/v1/messages', '/messages'], async (req: Request, res: Response) => {
       res.status(fakeRes.statusCode).json(errData);
     };
     fakeRes.on('finish', () => {
-      res.end();
+      // An upstream that closes without finish_reason still owes the client a
+      // complete Anthropic frame sequence.
+      try {
+        finishMessage('end_turn');
+      } catch {
+        // Best effort: never hold the connection open on a malformed tail.
+      }
+      if (!res.writableEnded) res.end();
     });
 
     req.body = chatBody;

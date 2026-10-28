@@ -111,9 +111,118 @@ export function createResponsesFakeResponse(options: {
   const outputItemMsgId = `msg_${cryptoRandomId()}`;
   let itemAdded = false;
   let sseBuffer = '';
+  let text = '';
+  let inputTokens = 0;
+  let outputTokens = 0;
+  let finishReason = '';
 
   const finish = () => {
     onFinished?.();
+  };
+
+  const ensureItem = (role?: string) => {
+    if (itemAdded) return;
+    itemAdded = true;
+    emit({
+      type: 'response.output_item.added',
+      response_id: responseId,
+      output_index: 0,
+      item: {
+        id: outputItemMsgId,
+        type: 'message',
+        status: 'in_progress',
+        role: role || 'assistant',
+        content: []
+      }
+    });
+  };
+
+  // One decoder for both the streaming body and a trailing partial line, so a
+  // final chunk can never be counted twice.
+  const absorb = (data: any) => {
+    if (typeof data?.usage?.prompt_tokens === 'number') inputTokens = data.usage.prompt_tokens;
+    if (typeof data?.usage?.completion_tokens === 'number') outputTokens = data.usage.completion_tokens;
+
+    const choice = data?.choices?.[0] || {};
+    const delta = choice.delta || {};
+    if (choice.finish_reason) finishReason = String(choice.finish_reason);
+    ensureItem(delta.role);
+
+    if (typeof delta.content === 'string' && delta.content.length > 0) {
+      text += delta.content;
+      emit({
+        type: 'response.output_text.delta',
+        response_id: responseId,
+        item_id: outputItemMsgId,
+        content_index: 0,
+        delta: delta.content
+      });
+    }
+
+    if (Array.isArray(delta.tool_calls) && delta.tool_calls.length > 0) {
+      for (const tc of delta.tool_calls) {
+        emit({
+          type: 'response.output_tool_call.arguments.delta',
+          response_id: responseId,
+          item_id: tc.id || `call_${cryptoRandomId()}`,
+          delta: tc.function?.arguments || ''
+        });
+      }
+    }
+  };
+
+  const finalize = () => {
+    ensureItem('assistant');
+    const status = finishReason === 'length' ? 'incomplete' : 'completed';
+    const content = [{ type: 'output_text', text, annotations: [] }];
+
+    // Codex reads the terminal item/response content, not just the deltas: an
+    // empty `output_text` here shows the turn as successful with no answer.
+    emit({
+      type: 'response.output_text.done',
+      response_id: responseId,
+      item_id: outputItemMsgId,
+      output_index: 0,
+      content_index: 0,
+      text
+    });
+    emit({
+      type: 'response.output_item.done',
+      response_id: responseId,
+      output_index: 0,
+      item: {
+        id: outputItemMsgId,
+        type: 'message',
+        status,
+        role: 'assistant',
+        content
+      }
+    });
+    emit({
+      type: 'response.completed',
+      response: {
+        id: responseId,
+        object: 'response',
+        created_at: Math.floor(Date.now() / 1000),
+        model: modelId,
+        status,
+        incomplete_details: status === 'incomplete' ? { reason: 'max_output_tokens' } : null,
+        output: [{
+          id: outputItemMsgId,
+          type: 'message',
+          role: 'assistant',
+          status,
+          content
+        }],
+        usage: {
+          input_tokens: inputTokens,
+          output_tokens: outputTokens,
+          total_tokens: inputTokens + outputTokens,
+          input_tokens_details: { cached_tokens: 0 },
+          output_tokens_details: { reasoning_tokens: 0 }
+        }
+      }
+    });
   };
 
   const fakeRes = new Writable({
@@ -129,46 +238,7 @@ export function createResponsesFakeResponse(options: {
           const dataStr = trimmed.substring(6).trim();
           if (dataStr === '[DONE]') continue;
           try {
-            const data = JSON.parse(dataStr);
-            const choice = data.choices?.[0] || {};
-            const delta = choice.delta || {};
-
-            if (!itemAdded) {
-              emit({
-                type: 'response.output_item.added',
-                response_id: responseId,
-                output_index: 0,
-                item: {
-                  id: outputItemMsgId,
-                  type: 'message',
-                  status: 'in_progress',
-                  role: delta.role || 'assistant',
-                  content: []
-                }
-              });
-              itemAdded = true;
-            }
-
-            if (delta.content) {
-              emit({
-                type: 'response.output_text.delta',
-                response_id: responseId,
-                item_id: outputItemMsgId,
-                content_index: 0,
-                delta: delta.content
-              });
-            }
-
-            if (Array.isArray(delta.tool_calls) && delta.tool_calls.length > 0) {
-              for (const tc of delta.tool_calls) {
-                emit({
-                  type: 'response.output_tool_call.arguments.delta',
-                  response_id: responseId,
-                  item_id: tc.id || `call_${cryptoRandomId()}`,
-                  delta: tc.function?.arguments || ''
-                });
-              }
-            }
+            absorb(JSON.parse(dataStr));
           } catch {
             // ignore malformed SSE JSON
           }
@@ -184,49 +254,13 @@ export function createResponsesFakeResponse(options: {
           const dataStr = sseBuffer.trim().substring(6).trim();
           if (dataStr && dataStr !== '[DONE]') {
             try {
-              const data = JSON.parse(dataStr);
-              const choice = data.choices?.[0] || {};
-              const delta = choice.delta || {};
-              if (delta.content) {
-                emit({
-                  type: 'response.output_text.delta',
-                  response_id: responseId,
-                  item_id: outputItemMsgId,
-                  content_index: 0,
-                  delta: delta.content
-                });
-              }
+              absorb(JSON.parse(dataStr));
             } catch {
               // ignore
             }
           }
         }
-        if (itemAdded) {
-          emit({
-            type: 'response.output_item.done',
-            response_id: responseId,
-            output_index: 0,
-            item: {
-              id: outputItemMsgId,
-              type: 'message',
-              status: 'completed',
-              role: 'assistant',
-              content: [{ type: 'output_text', text: '' }]
-            }
-          });
-        }
-        emit({
-          type: 'response.completed',
-          response: {
-            id: responseId,
-            object: 'response',
-            status: 'completed',
-            model: modelId,
-            output: itemAdded
-              ? [{ id: outputItemMsgId, type: 'message', role: 'assistant', status: 'completed' }]
-              : []
-          }
-        });
+        finalize();
       } catch {
         // ignore
       }
