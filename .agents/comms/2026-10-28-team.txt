@@ -1,0 +1,29 @@
+[2026-10-28T00:10:00Z] local-router checkin
+  start: 2026-10-27T23:50:00Z end: 2026-10-28T00:10:00Z
+  triage: now
+  scope: Agents page system for the Claude Code and Codex CLI harnesses
+  objective: review the latest Agents work, then make /config/agents wire and prove both harnesses
+  input: Claude-only page with a hardcoded "Verified" label, env sync that appends stale keys, Codex reduced to a static card, no Codex provider/profile or endpoint proof
+  output: branch feat/agents-harness-verify — codex config section, managed provider/profile writer, update-or-append env sync, status + verify API, page rewrite, bin/codex shim, tests
+  status: in-progress
+  blockers: none in code; this machine has no real claude or codex binary installed, so CLI detection reports honestly and the wire probes are proven against the loopback shims and a fake upstream
+
+[2026-10-28T00:12:00Z] local-router intent-merge
+  start: 2026-10-28T00:10:00Z end: 2026-10-28T00:12:00Z
+  branch: feat/agents-harness-verify
+  scope: same
+  objective: merge after tsc and the harness suite
+  input: worktree D:\Code\agents-harness-verify
+  output: commits c5603ef, 7c94b9e, 04f1609; tsc clean; 21/21 touched tests green
+  status: merging
+  blockers: full suite 157/159 — custom-providers and local-backends fail identically on the pre-merge main build (port 8080 held by the llama.cpp embedding server; custom-provider test sees a second upstream prefetch), so neither failure is attributable to this branch
+
+[2026-10-28T00:15:00Z] local-router checkout
+  start: 2026-10-28T00:12:00Z end: 2026-10-28T00:15:00Z
+  branch: feat/agents-harness-verify
+  scope: same
+  objective: close the loop after merge, rebuild, and smoke test
+  input: main 05e7fd9, build refreshed from it
+  output: 11434 restarted from main (PID 53808); /config/agents and /api/agents-proxy/status serve the new system; interception stays off because the operator did not ask to change live harness settings
+  status: done
+  blockers: none

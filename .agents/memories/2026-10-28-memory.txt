@@ -1,0 +1,6 @@
+- 00:05 Codex 0.134+ ignores [profiles.x] and the top-level profile selector in config.toml; --profile reads ~/.codex/<name>.config.toml. src/agent-codex-config.ts writes the provider table into config.toml and the selection into local-router.config.toml.
+- 00:06 src/agent-env-sync.ts upsertShellExports rewrites the first managed export and drops duplicates; the old includes(key) check left stale base URLs in place.
+- 00:07 Harness readiness = PATH scan (own bin skipped, another install's shim rejected by reading the launcher) + env.sh comparison + Codex provider/profile state; POST /api/agents-proxy/verify is the only token-spending check.
+- 00:08 Windows gotcha: $home and $pid are read-only automatic variables in PowerShell; assigning them fails and the stale value silently retargets the command. Use $smokeHome/$procId.
+- 00:09 Smoke isolation on Windows needs USERPROFILE (Node os.homedir honors it) and LOCAL_ROUTER_SKIP_OS_ENV=1 so the registry stays untouched.
+- 00:10 Pre-merge full suite is 157/159: custom-providers (second upstream prefetch) and local-backends (port 8080 held by the llama.cpp embedding server) fail on main too.
