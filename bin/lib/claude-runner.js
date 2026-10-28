@@ -2,7 +2,8 @@
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
-const { spawnSync, execFileSync } = require('child_process');
+const { execFileSync } = require('child_process');
+const { spawnCli } = require('./cli-spawn');
 
 function findRealClaude() {
   const currentBinDir = path.resolve(__dirname, '..');
@@ -10,7 +11,7 @@ function findRealClaude() {
   const pathSeparator = isWin ? ';' : ':';
   const pathDirs = (process.env.PATH || '').split(pathSeparator).filter(Boolean);
 
-  const extensions = isWin ? ['.cmd', '.exe', '.bat', '.ps1', ''] : [''];
+  const extensions = isWin ? ['.exe', '.cmd', '.bat', ''] : [''];
   // A second Local Router install on PATH ships the same shim; re-executing it
   // would ping-pong between the two instead of starting Claude Code.
   const isShim = (candidate) => {
@@ -88,11 +89,7 @@ if (!realClaude) {
 }
 
 const args = process.argv.slice(2);
-const result = spawnSync(realClaude, args, {
-  stdio: 'inherit',
-  env: process.env,
-  shell: process.platform === 'win32' && (realClaude.endsWith('.cmd') || realClaude.endsWith('.bat'))
-});
+const result = spawnCli(realClaude, args);
 
 if (result.error) {
   console.error('[local-router] Error executing Claude Code:', result.error.message);

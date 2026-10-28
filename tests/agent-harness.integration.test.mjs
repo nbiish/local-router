@@ -57,6 +57,23 @@ async function startFakeUpstream() {
         return;
       }
 
+      if (body?.stream) {
+        res.writeHead(200, { 'Content-Type': 'text/event-stream' });
+        res.write(`data: ${JSON.stringify({
+          id: 'chatcmpl-harness',
+          object: 'chat.completion.chunk',
+          choices: [{ index: 0, delta: { content: 'HARNESS-CLAUDE-OK' }, finish_reason: null }]
+        })}\n\n`);
+        res.write(`data: ${JSON.stringify({
+          id: 'chatcmpl-harness',
+          object: 'chat.completion.chunk',
+          choices: [{ index: 0, delta: {}, finish_reason: 'stop' }],
+          usage: { prompt_tokens: 5, completion_tokens: 3, total_tokens: 8 }
+        })}\n\n`);
+        res.end('data: [DONE]\n\n');
+        return;
+      }
+
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({
         id: 'chatcmpl-harness',
@@ -198,6 +215,93 @@ test('POST /api/agents-proxy/verify proves the Anthropic Messages path', async (
   // The provider prefix is stripped before forwarding, but the bare id proves
   // the Claude slot replaced the incoming `claude-3-5-haiku-20241022`.
   assert.equal(forwarded?.model, 'deepseek-v4-pro', 'Claude slot must be remapped before the upstream call');
+});
+
+test('POST /v1/messages streaming emits well-formed Anthropic frames', async () => {
+  const response = await fetch(`${baseUrl}/v1/messages`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-local-router-client': 'claude' },
+    body: JSON.stringify({
+      model: 'claude-3-5-haiku-20241022',
+      max_tokens: 32,
+      stream: true,
+      messages: [{ role: 'user', content: 'ping' }]
+    })
+  });
+
+  assert.equal(response.status, 200);
+  assert.match(response.headers.get('content-type') || '', /text\/event-stream/);
+  const raw = await response.text();
+  assert.ok(raw.includes('HARNESS-CLAUDE-OK'));
+  assert.doesNotMatch(raw, /\}event:/, 'SSE frames must be newline-terminated, never concatenated');
+
+  const frames = raw
+    .split(/\n\n+/)
+    .map((block) => block.trim())
+    .filter(Boolean)
+    .map((block) => {
+      const lines = block.split('\n');
+      const eventLine = lines.find((line) => line.startsWith('event: '));
+      const dataLine = lines.find((line) => line.startsWith('data: '));
+      assert.ok(eventLine, `frame missing event line: ${block}`);
+      assert.ok(dataLine, `frame missing data line: ${block}`);
+      const parsed = JSON.parse(dataLine.slice(6));
+      assert.equal(parsed.type, eventLine.slice(7), 'event name and payload type must agree');
+      return parsed;
+    });
+
+  const count = (type) => frames.filter((frame) => frame.type === type).length;
+  assert.equal(count('message_start'), 1);
+  assert.equal(count('content_block_start'), 1);
+  assert.equal(count('content_block_stop'), 1);
+  assert.equal(count('message_delta'), 1);
+  assert.equal(count('message_stop'), 1);
+
+  const types = frames.map((frame) => frame.type);
+  assert.ok(types.indexOf('content_block_stop') < types.indexOf('message_delta'), 'content must close before finish');
+  const delta = frames.find((frame) => frame.type === 'message_delta');
+  assert.equal(delta.usage.output_tokens, 3, 'usage must survive the translation');
+  assert.equal(delta.delta.stop_reason, 'end_turn');
+});
+
+test('POST /v1/responses streaming carries the answer into the terminal frames', async () => {
+  const response = await fetch(`${baseUrl}/v1/responses`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-local-router-client': 'codex' },
+    body: JSON.stringify({
+      model: agentModel(),
+      input: 'ping',
+      max_output_tokens: 32,
+      stream: true
+    })
+  });
+
+  assert.equal(response.status, 200);
+  assert.match(response.headers.get('content-type') || '', /text\/event-stream/);
+  const raw = await response.text();
+
+  const frames = raw
+    .split(/\n\n+/)
+    .map((block) => block.trim())
+    .filter(Boolean)
+    .map((block) => {
+      const dataLine = block.split('\n').find((line) => line.startsWith('data: '));
+      assert.ok(dataLine, `frame missing data line: ${block}`);
+      return JSON.parse(dataLine.slice(6));
+    });
+
+  const textDone = frames.find((frame) => frame.type === 'response.output_text.done');
+  assert.ok(textDone, 'stream must close the text item');
+  assert.equal(textDone.text, 'HARNESS-CLAUDE-OK');
+
+  const itemDone = frames.find((frame) => frame.type === 'response.output_item.done');
+  assert.equal(itemDone.item.content[0].text, 'HARNESS-CLAUDE-OK');
+
+  const completed = frames.find((frame) => frame.type === 'response.completed');
+  const message = completed.response.output.find((item) => item.type === 'message');
+  assert.equal(message.content[0].text, 'HARNESS-CLAUDE-OK', 'terminal content must not be empty for Codex');
+  assert.equal(completed.response.usage.output_tokens, 3);
+  assert.equal(completed.response.status, 'completed');
 });
 
 test('POST /api/agents-proxy/verify proves the OpenAI Responses path', async () => {

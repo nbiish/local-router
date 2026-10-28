@@ -7,6 +7,7 @@ import path from "node:path";
 import os from "node:os";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { installAgentShims } from "./lib/agent-shims.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -98,25 +99,27 @@ if (isWin) {
     const currentPath = execFileSync("powershell", ["-NoProfile", "-Command", `[Environment]::GetEnvironmentVariable("Path", "User")`], { encoding: "utf8" }).trim();
     const parts = currentPath.split(";").map((entry) => entry.trim()).filter(Boolean);
     const samePath = (left, right) => left.replace(/[\\/]+$/, "").toLowerCase() === right.replace(/[\\/]+$/, "").toLowerCase();
-    const has = (dir) => parts.some((entry) => samePath(entry, dir));
-    const prefix = [];
-    if (!has(userShimDir)) prefix.push(userShimDir);
-    if (!has(binDir)) prefix.push(binDir);
-    const cargo = fs.existsSync(cargoBin) && !has(cargoBin) ? [cargoBin] : [];
-    if (prefix.length > 0 || cargo.length > 0) {
-      const newPath = [...prefix, ...parts, ...cargo].join(";");
+    // Local Router's bin MUST precede %APPDATA%\npm so the claude/codex shims
+    // win over the real binaries npm installs there. Presence alone is not
+    // enough; a stale late entry silently disables interception.
+    const agentPathPrefix = [userShimDir, binDir];
+    const rest = parts.filter((entry) => !agentPathPrefix.some((dir) => samePath(entry, dir)));
+    const cargo = fs.existsSync(cargoBin) && !rest.some((entry) => samePath(entry, cargoBin)) ? [cargoBin] : [];
+    const newParts = [...agentPathPrefix, ...rest, ...cargo];
+    const newPath = newParts.join(";");
+    if (newPath !== parts.join(";")) {
       const psLiteral = newPath.replace(/'/g, "''");
       execFileSync("powershell", ["-NoProfile", "-Command", `[Environment]::SetEnvironmentVariable('Path', '${psLiteral}', 'User')`], { stdio: "ignore" });
-      console.log("✓ Windows User PATH: ~/.local/bin (ollama shim) precedes the repo bin.\n");
+      console.log("✓ Windows User PATH: Local Router shims now precede npm-global and Ollama.\n");
     } else {
-      console.log("✓ Windows User PATH already contains Local Router.\n");
+      console.log("✓ Windows User PATH already puts Local Router shims first.\n");
     }
   } catch {}
 } else {
   const userBin = path.join(homeDir, ".local", "bin");
   fs.mkdirSync(userBin, { recursive: true });
 
-  for (const b of ["local-router", "localrouter", "pqc-secrets", "claude", "codex"]) {
+  for (const b of ["local-router", "localrouter", "pqc-secrets"]) {
     const targetLink = path.join(userBin, b);
     const sourceBin = b === "local-router" || b === "localrouter" ? path.join(binDir, "local-router.js") : path.join(binDir, b);
     try {
@@ -125,6 +128,14 @@ if (isWin) {
       fs.chmodSync(sourceBin, 0o755);
       console.log("✓ Linked " + b + " -> " + targetLink);
     } catch {}
+  }
+
+  // Agent shims live in their own directory so a real harness binary at
+  // ~/.local/bin/claude or ~/.local/bin/codex (the default install target of
+  // both native installers on macOS/Linux) is never overwritten.
+  const agentShims = installAgentShims({ homeDir, binDir, log: console.log });
+  if (agentShims.failed.length > 0) {
+    console.log("ℹ Some agent shims could not be linked: " + agentShims.failed.map((entry) => entry.name).join(", "));
   }
   console.log("");
 }
