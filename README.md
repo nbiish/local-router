@@ -58,6 +58,26 @@ http://127.0.0.1:11434/config
 
 `GET /api/agents-proxy/status` reports CLI discovery, interception state, env freshness, and Codex provider/profile state without spending tokens. `POST /api/agents-proxy/verify` (`{"harness":"claude"|"codex"}`) sends one 16-token request through the matching wire shape, so the page shows a measured round-trip instead of claiming success.
 
+### Install the harnesses
+
+Install both CLIs with npm on any supported OS (Windows, macOS, Linux, WSL):
+
+```bash
+npm install -g @anthropic-ai/claude-code @openai/codex
+npm run setup          # installs/refreshes the Local Router shims
+npm run agents:doctor  # readiness, no tokens spent
+npm run agents:doctor -- --verify   # + one real round trip per harness
+```
+
+Shim placement keeps the real binaries untouched:
+
+- **Windows** — `bin\claude.cmd` / `bin\codex.cmd`, with the repo `bin` kept first on the User PATH ahead of `%APPDATA%\npm`.
+- **macOS / Linux / WSL** — `~/.local/share/local-router/bin/claude|codex`, prepended to PATH from `.zshrc` / `.bashrc` / `.profile`. A native install at `~/.local/bin/claude` or `~/.local/bin/codex` is never overwritten; the shim resolves it further down PATH.
+
+On WSL, install the CLIs inside the distro (`npm install -g …` from the WSL shell). The Windows npm launchers that WSL appends to PATH are bound to the Windows Node and are ignored by CLI detection.
+
+The doctor works on every platform and reports `OK` / `WARN` / `FAIL` per check, so a macOS or WSL machine can be validated without opening the web UI. `--json` is available for scripted checks.
+
 ## Standalone Desktop GUI & Browser Configuration
 
 Local Router can be run either as a **standalone desktop application** or as a **headless background daemon** managed in any web browser:
