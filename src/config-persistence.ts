@@ -92,11 +92,22 @@ export type ClaudeModelSlotMappings = {
   haiku?: string;
 };
 
+export type CodexHarnessConfig = {
+  enabled: boolean;
+  /**
+   * Model the managed Codex profile asks Local Router for. Codex CLI has one
+   * selectable model (no Anthropic-style role slots), so the Agents page
+   * writes this value straight into ~/.codex/local-router.config.toml.
+   */
+  model: string;
+};
+
 export type AgentProxyConfig = {
   claudeCode: {
     enabled: boolean;
     models: ClaudeModelSlotMappings;
   };
+  codex: CodexHarnessConfig;
 };
 
 export const DEFAULT_AGENT_PROXY_CONFIG: AgentProxyConfig = {
@@ -109,6 +120,10 @@ export const DEFAULT_AGENT_PROXY_CONFIG: AgentProxyConfig = {
       sonnet5_1m: 'local-router/fallback-models',
       haiku: 'local-router/fallback-models'
     }
+  },
+  codex: {
+    enabled: false,
+    model: 'local-router/fallback-models'
   }
 };
 
@@ -120,6 +135,7 @@ export function loadAgentProxyConfig(): AgentProxyConfig {
     const raw = fs.readFileSync(AGENT_PROXY_CONFIG_PATH, 'utf8');
     const parsed = JSON.parse(raw);
     const claude = parsed?.claudeCode;
+    const codex = parsed?.codex;
     return {
       claudeCode: {
         enabled: Boolean(claude?.enabled),
@@ -130,6 +146,12 @@ export function loadAgentProxyConfig(): AgentProxyConfig {
           sonnet5_1m: typeof claude?.models?.sonnet5_1m === 'string' ? claude.models.sonnet5_1m : DEFAULT_AGENT_PROXY_CONFIG.claudeCode.models.sonnet5_1m,
           haiku: typeof claude?.models?.haiku === 'string' ? claude.models.haiku : DEFAULT_AGENT_PROXY_CONFIG.claudeCode.models.haiku
         }
+      },
+      codex: {
+        enabled: Boolean(codex?.enabled),
+        model: typeof codex?.model === 'string' && codex.model.trim()
+          ? codex.model.trim()
+          : DEFAULT_AGENT_PROXY_CONFIG.codex.model
       }
     };
   } catch (error) {
