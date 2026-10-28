@@ -1658,6 +1658,200 @@ export function renderLayout(
 
         let agentProxyConfig = null;
 
+        function setHarnessBadge(id, text, tone) {
+          const el = document.getElementById(id);
+          if (!el) return;
+          el.textContent = text;
+          el.style.color = tone === 'good' ? 'var(--success-text)' : tone === 'bad' ? 'var(--danger-text)' : 'var(--muted)';
+        }
+
+        function fillAgentModelSelect(selectEl, currentVal, availableModels, fallbackRoutes) {
+          if (!selectEl) return;
+          let optionsHtml = '<option value="passthrough">(Pass through — original upstream model)</option>';
+          optionsHtml += '<optgroup label="Fallback Chains">';
+          optionsHtml += '<option value="local-router/fallback-models">local-router/fallback-models (System Fallback Chain)</option>';
+          fallbackRoutes.forEach(function(r) {
+            if (r && r.id && r.id !== 'local-router/fallback-models') {
+              optionsHtml += '<option value="' + escapeHtml(r.id) + '">' + escapeHtml(r.id) + '</option>';
+            }
+          });
+          optionsHtml += '</optgroup>';
+          optionsHtml += '<optgroup label="Checked / Active Models">';
+          availableModels.forEach(function(m) {
+            const val = m.id || m.model;
+            const display = m.id + (m.provider ? ' (' + m.provider + ')' : '');
+            optionsHtml += '<option value="' + escapeHtml(val) + '">' + escapeHtml(display) + '</option>';
+          });
+          optionsHtml += '</optgroup>';
+          selectEl.innerHTML = optionsHtml;
+          selectEl.value = currentVal;
+        }
+
+        function renderClaudeHarness(s) {
+          const cli = s.cli || {};
+          const env = s.env || {};
+          const interception = s.interception || {};
+          setHarnessBadge('claudeCliState', cli.found ? 'found' : 'not installed', cli.found ? 'good' : 'bad');
+          const cliEl = document.getElementById('claudeCliState');
+          if (cliEl) cliEl.title = cli.path || 'Not on PATH';
+          setHarnessBadge(
+            'claudeInterceptState',
+            interception.enabled ? 'remapping slots' : 'off (passthrough)',
+            interception.enabled ? 'good' : 'plain'
+          );
+          setHarnessBadge('claudeEnvState', env.applied ? 'applied' : 'stale', env.applied ? 'good' : 'bad');
+          const envEl = document.getElementById('claudeEnvState');
+          if (envEl && env.envScriptPath) envEl.title = env.envScriptPath;
+        }
+
+        function renderCodexHarness(s) {
+          const cli = s.cli || {};
+          const interception = s.interception || {};
+          const config = s.config || {};
+          setHarnessBadge('codexCliState', cli.found ? 'found' : 'not installed', cli.found ? 'good' : 'bad');
+          const cliEl = document.getElementById('codexCliState');
+          if (cliEl) cliEl.title = cli.path || 'Not on PATH';
+          setHarnessBadge(
+            'codexInterceptState',
+            interception.enabled ? 'profile ' + (interception.model || 'local-router/fallback-models') : 'off',
+            interception.enabled ? 'good' : 'plain'
+          );
+          let text = 'missing';
+          let tone = 'bad';
+          if (config.providerBlock === 'conflict') {
+            text = 'provider conflict';
+          } else if (config.providerBlock === 'present' && config.profile === 'present') {
+            text = 'provider + profile';
+            tone = 'good';
+          } else if (config.providerBlock === 'present') {
+            text = 'profile ' + (config.profile || 'missing');
+          } else if (config.profile === 'present') {
+            text = 'provider missing';
+          }
+          setHarnessBadge('codexConfigState', text, tone);
+          const cfgEl = document.getElementById('codexConfigState');
+          if (cfgEl) cfgEl.title = config.configPath || '';
+        }
+
+        async function loadAgentHarnessStatus() {
+          const stamp = document.getElementById('harnessStatusStamp');
+          if (!stamp) return;
+          try {
+            const res = await fetch('/api/agents-proxy/status');
+            if (!res.ok) throw new Error('HTTP ' + res.status);
+            const payload = await res.json();
+            const status = payload.status || {};
+            renderClaudeHarness(status.claude || {});
+            renderCodexHarness(status.codex || {});
+            if (stamp) stamp.textContent = 'Checked ' + new Date(status.generatedAt || Date.now()).toLocaleTimeString();
+            const envEl = document.getElementById('envSyncStatus');
+            const env = (status.claude && status.claude.env) || (status.codex && status.codex.env) || {};
+            if (envEl) {
+              envEl.textContent = env.applied
+                ? 'Applied to env.sh and the User environment'
+                : 'Missing or stale — press Re-sync Environment';
+              envEl.style.color = env.applied ? 'var(--success-text)' : 'var(--danger-text)';
+            }
+          } catch (err) {
+            if (stamp) stamp.textContent = 'Status unavailable';
+            console.error('loadAgentHarnessStatus failed:', err);
+          }
+        }
+
+        async function verifyHarness(harness) {
+          const btn = document.getElementById(harness + 'ProbeBtn') || document.getElementById(harness + 'TestBtn');
+          const stateEl = document.getElementById(harness + 'ProbeState');
+          const originalText = btn ? btn.textContent : '';
+          if (btn) {
+            btn.disabled = true;
+            btn.textContent = 'Probing...';
+          }
+          if (stateEl) {
+            stateEl.innerHTML = '<span class="muted">Probing through the fallback chain...</span>';
+          }
+          try {
+            const res = await fetch('/api/agents-proxy/verify', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ harness: harness })
+            });
+            const payload = await res.json();
+            if (!res.ok) throw new Error(payload && payload.error ? payload.error : 'Verification failed');
+            const result = payload.result || {};
+            if (stateEl) {
+              const color = result.ok ? 'var(--success-text)' : 'var(--danger-text)';
+              let html = '<span style="color:' + color + ';">' + escapeHtml(result.detail || (result.ok ? 'OK' : 'Failed')) + '</span>';
+              if (result.error) {
+                html += ' <span class="muted">' + escapeHtml(result.error) + '</span>';
+              }
+              stateEl.innerHTML = html;
+            }
+            setMessage(result.ok ? 'Harness verification passed.' : 'Harness verification failed.', result.ok ? 'success' : 'error');
+            loadAgentHarnessStatus();
+          } catch (err) {
+            if (stateEl) {
+              stateEl.innerHTML = '<span style="color:var(--danger-text);">' + escapeHtml(err.message || String(err)) + '</span>';
+            }
+            setMessage(err.message || String(err), 'error');
+          } finally {
+            if (btn) {
+              btn.disabled = false;
+              btn.textContent = originalText;
+            }
+          }
+        }
+
+        async function saveCodexAgentConfig() {
+          const toggleEl = document.getElementById('codexProxyToggle');
+          const modelEl = document.getElementById('codexModelSelect');
+          const enabled = Boolean(toggleEl && toggleEl.checked);
+          try {
+            const res = await fetch('/api/agents-proxy', {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                codex: {
+                  enabled: enabled,
+                  model: (modelEl && modelEl.value) || 'local-router/fallback-models'
+                }
+              })
+            });
+            const resData = await res.json();
+            if (!res.ok) throw new Error(resData && resData.error ? resData.error : 'Failed to save Codex configuration');
+            agentProxyConfig = resData.config;
+            const warnings = Array.isArray(resData.warnings) ? resData.warnings.filter(Boolean) : [];
+            loadAgentHarnessStatus();
+            if (warnings.length > 0) {
+              setMessage(warnings.join(' '), 'error');
+              return false;
+            }
+            setMessage('Codex configuration saved.', 'success');
+            loadAgentProxyConfig();
+            return true;
+          } catch (err) {
+            setMessage(err.message || String(err), 'error');
+            return false;
+          }
+        }
+
+        async function toggleCodexProxy() {
+          const toggleEl = document.getElementById('codexProxyToggle');
+          const fieldsEl = document.getElementById('codexConfigFields');
+          const enabled = Boolean(toggleEl && toggleEl.checked);
+          if (fieldsEl) fieldsEl.style.display = enabled ? 'block' : 'none';
+          const ok = await saveCodexAgentConfig();
+          if (!ok && toggleEl) {
+            toggleEl.checked = !enabled;
+            if (fieldsEl) fieldsEl.style.display = !enabled ? 'block' : 'none';
+          }
+        }
+
+        function resetCodexAgentConfigToDefault() {
+          const select = document.getElementById('codexModelSelect');
+          if (select) select.value = 'local-router/fallback-models';
+          saveCodexAgentConfig();
+        }
+
         function updateActiveNavLinks() {
           const currentPath = window.location.pathname;
           document.querySelectorAll('.sidebar-nav .nav-link').forEach(function(link) {
@@ -1697,34 +1891,32 @@ export function renderLayout(
 
             slots.forEach(function(slot) {
               const sel = document.getElementById(slot.id);
-              if (!sel) return;
               const currentVal = (agentProxyConfig && agentProxyConfig.claudeCode && agentProxyConfig.claudeCode.models && agentProxyConfig.claudeCode.models[slot.key]) || 'local-router/fallback-models';
-
-              let optionsHtml = '<option value="passthrough">(Pass through — original Anthropic model)</option>';
-              optionsHtml += '<optgroup label="Fallback Chains">';
-              optionsHtml += '<option value="local-router/fallback-models">local-router/fallback-models (System Fallback Chain)</option>';
-              fallbackRoutes.forEach(function(r) {
-                if (r && r.id && r.id !== 'local-router/fallback-models') {
-                  optionsHtml += '<option value="' + escapeHtml(r.id) + '">' + escapeHtml(r.id) + '</option>';
-                }
-              });
-              optionsHtml += '</optgroup>';
-
-              optionsHtml += '<optgroup label="Checked / Active Models">';
-              availableModels.forEach(function(m) {
-                const val = m.id || m.model;
-                const display = m.id + (m.owned_by ? ' (' + m.owned_by + ')' : '');
-                optionsHtml += '<option value="' + escapeHtml(val) + '">' + escapeHtml(display) + '</option>';
-              });
-              optionsHtml += '</optgroup>';
-
-              sel.innerHTML = optionsHtml;
-              sel.value = currentVal;
+              fillAgentModelSelect(sel, currentVal, availableModels, fallbackRoutes);
             });
 
             if (statusEl) {
               statusEl.textContent = isEnabled ? 'Proxy Active — remapping 5 slots' : 'Disabled (client passthrough)';
             }
+
+            const codex = (agentProxyConfig && agentProxyConfig.codex) || {};
+            const codexEnabled = Boolean(codex.enabled);
+            const codexToggle = document.getElementById('codexProxyToggle');
+            const codexFields = document.getElementById('codexConfigFields');
+            const codexStatus = document.getElementById('codexProxyStatus');
+            if (codexToggle) codexToggle.checked = codexEnabled;
+            if (codexFields) codexFields.style.display = codexEnabled ? 'block' : 'none';
+            if (codexStatus) {
+              codexStatus.textContent = codexEnabled
+                ? 'Profile active — ' + (codex.model || 'local-router/fallback-models')
+                : 'Disabled (plain codex config)';
+            }
+            fillAgentModelSelect(
+              document.getElementById('codexModelSelect'),
+              codex.model || 'local-router/fallback-models',
+              availableModels,
+              fallbackRoutes
+            );
           } catch (err) {
             console.error('loadAgentProxyConfig failed:', err);
             const statusEl = document.getElementById('claudeProxyStatus');
@@ -1767,6 +1959,7 @@ export function renderLayout(
             if (!res.ok) throw new Error(resData && resData.error ? resData.error : 'Failed to update Claude Code proxy');
             agentProxyConfig = resData.config;
             if (statusEl) statusEl.textContent = enabled ? 'Proxy Active — remapping 5 slots' : 'Disabled (client passthrough)';
+            loadAgentHarnessStatus();
             setMessage('Claude Code proxy ' + (enabled ? 'enabled' : 'disabled') + '.', 'success');
           } catch (err) {
             setMessage(err.message || String(err), 'error');
@@ -1804,6 +1997,7 @@ export function renderLayout(
             const resData = await res.json();
             if (!res.ok) throw new Error(resData && resData.error ? resData.error : 'Failed to save configuration');
             agentProxyConfig = resData.config;
+            loadAgentHarnessStatus();
             setMessage('Saved Claude Code agent model mappings.', 'success');
           } catch (err) {
             setMessage(err.message || String(err), 'error');
@@ -1819,39 +2013,6 @@ export function renderLayout(
           saveClaudeAgentConfig();
         }
 
-        async function testClaudeProxyConnection() {
-          const btn = document.getElementById('claudeTestBtn');
-          if (btn) {
-            btn.disabled = true;
-            btn.textContent = 'Testing /v1/messages...';
-          }
-          try {
-            const res = await fetch('/v1/messages', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                model: 'claude-3-7-sonnet-20250219',
-                max_tokens: 10,
-                messages: [{ role: 'user', content: 'Ping' }]
-              })
-            });
-            if (!res.ok) {
-              const errText = await res.text();
-              throw new Error('HTTP ' + res.status + ': ' + errText);
-            }
-            const data = await res.json();
-            const resolvedModel = data.model || 'unknown';
-            setMessage('Proxy endpoint verified! Incoming claude-3-7-sonnet routed to: ' + resolvedModel, 'success');
-          } catch (err) {
-            setMessage('Endpoint test failed: ' + (err.message || String(err)), 'error');
-          } finally {
-            if (btn) {
-              btn.disabled = false;
-              btn.textContent = 'Test Proxy Endpoint';
-            }
-          }
-        }
-
         async function syncAgentEnv() {
           try {
             const res = await fetch('/api/agents-proxy/sync-env', { method: 'POST' });
@@ -1860,6 +2021,7 @@ export function renderLayout(
             setMessage('System environment variables synchronized successfully.', 'success');
             const statusEl = document.getElementById('envSyncStatus');
             if (statusEl) statusEl.textContent = 'Synced (' + (data.syncedAt || 'now') + ')';
+            loadAgentHarnessStatus();
           } catch (err) {
             setMessage('Environment sync failed: ' + (err.message || String(err)), 'error');
           }
@@ -2921,6 +3083,7 @@ export function renderLayout(
         loadModelSource();
         safeInit('updateActiveNavLinks', updateActiveNavLinks);
         safeInit('loadAgentProxyConfig', loadAgentProxyConfig);
+        safeInit('loadAgentHarnessStatus', loadAgentHarnessStatus);
 
         function bindOAuthProviderButtons(listEl) {
           listEl.querySelectorAll('button[data-copy-code]').forEach((button) => {

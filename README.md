@@ -49,6 +49,15 @@ Configuration UI:
 http://127.0.0.1:11434/config
 ```
 
+## Agent Harnesses (Claude Code & Codex CLI)
+
+`/config/agents` is the single place that wires the two terminal agent harnesses to Local Router and proves the wiring:
+
+- **Claude Code** — `ANTHROPIC_BASE_URL` / `ANTHROPIC_AUTH_TOKEN` plus five model slots remapped on `POST /v1/messages`.
+- **Codex CLI** — a managed `[model_providers.local-router]` table in `~/.codex/config.toml` and a `local-router` profile in `~/.codex/local-router.config.toml`; `bin/codex` selects it with `--profile local-router`.
+
+`GET /api/agents-proxy/status` reports CLI discovery, interception state, env freshness, and Codex provider/profile state without spending tokens. `POST /api/agents-proxy/verify` (`{"harness":"claude"|"codex"}`) sends one 16-token request through the matching wire shape, so the page shows a measured round-trip instead of claiming success.
+
 ## Standalone Desktop GUI & Browser Configuration
 
 Local Router can be run either as a **standalone desktop application** or as a **headless background daemon** managed in any web browser:

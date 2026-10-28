@@ -68,7 +68,7 @@ try {
 }
 
 // 5. Install CLI shims and binaries to User PATH
-console.log("[5/6] Configuring CLI entry points (local-router, localrouter, ollama, pqc-secrets)...");
+console.log("[5/6] Configuring CLI entry points (local-router, localrouter, ollama, pqc-secrets, claude, codex)...");
 const binDir = path.join(root, "bin");
 
 if (isWin) {
@@ -84,6 +84,10 @@ if (isWin) {
   const claudeCmd = path.join(binDir, "claude.cmd");
   if (!fs.existsSync(claudeCmd)) {
     fs.writeFileSync(claudeCmd, `@echo off\r\nnode "%~dp0lib\\claude-runner.js" %*\r\n`, "utf8");
+  }
+  const codexCmd = path.join(binDir, "codex.cmd");
+  if (!fs.existsSync(codexCmd)) {
+    fs.writeFileSync(codexCmd, `@echo off\r\nnode "%~dp0lib\\codex-runner.js" %*\r\n`, "utf8");
   }
 
   console.log("✓ Windows batch wrappers ready in " + binDir);
@@ -112,7 +116,7 @@ if (isWin) {
   const userBin = path.join(homeDir, ".local", "bin");
   fs.mkdirSync(userBin, { recursive: true });
 
-  for (const b of ["local-router", "localrouter", "pqc-secrets", "claude"]) {
+  for (const b of ["local-router", "localrouter", "pqc-secrets", "claude", "codex"]) {
     const targetLink = path.join(userBin, b);
     const sourceBin = b === "local-router" || b === "localrouter" ? path.join(binDir, "local-router.js") : path.join(binDir, b);
     try {
@@ -147,7 +151,8 @@ const envVars = {
   OPENAI_API_KEY: "local-router",
   ANTHROPIC_BASE_URL: "http://127.0.0.1:11434",
   ANTHROPIC_API_URL: "http://127.0.0.1:11434",
-  ANTHROPIC_API_KEY: "local-router"
+  ANTHROPIC_API_KEY: "local-router",
+  ANTHROPIC_AUTH_TOKEN: "local-router"
 };
 
 const envScriptContent = Object.entries(envVars).map(([k, v]) => `export ${k}="${v}"`).join("\n") + "\n";
