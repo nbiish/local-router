@@ -11,6 +11,16 @@ function findRealClaude() {
   const pathDirs = (process.env.PATH || '').split(pathSeparator).filter(Boolean);
 
   const extensions = isWin ? ['.cmd', '.exe', '.bat', '.ps1', ''] : [''];
+  // A second Local Router install on PATH ships the same shim; re-executing it
+  // would ping-pong between the two instead of starting Claude Code.
+  const isShim = (candidate) => {
+    try {
+      if (fs.statSync(candidate).size > 4096) return false;
+      return fs.readFileSync(candidate, 'utf8').includes('claude-runner.js');
+    } catch {
+      return false;
+    }
+  };
 
   for (const dir of pathDirs) {
     const resolvedDir = path.resolve(dir);
@@ -22,7 +32,7 @@ function findRealClaude() {
     for (const ext of extensions) {
       const candidate = path.join(dir, `claude${ext}`);
       try {
-        if (fs.existsSync(candidate) && !fs.statSync(candidate).isDirectory()) {
+        if (fs.existsSync(candidate) && !fs.statSync(candidate).isDirectory() && !isShim(candidate)) {
           return candidate;
         }
       } catch {}
@@ -35,7 +45,7 @@ function findRealClaude() {
       const output = execFileSync('where.exe', ['claude'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
       const lines = output.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
       for (const line of lines) {
-        if (!line.toLowerCase().includes(currentBinDir.toLowerCase()) && fs.existsSync(line)) {
+        if (!line.toLowerCase().includes(currentBinDir.toLowerCase()) && fs.existsSync(line) && !isShim(line)) {
           return line;
         }
       }

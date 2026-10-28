@@ -6,6 +6,8 @@ CLI entry points and launcher scripts for local-router and PQC secrets.
 
 - `bin/local-router.js` — primary start/stop/status CLI.
 - `bin/localrouter.js` — legacy router script.
+- `bin/lib/claude-runner.js` — `claude` shim: applies the Anthropic loopback env when interception is on.
+- `bin/lib/codex-runner.js` — `codex` shim: selects the managed `local-router` Codex profile when interception is on.
 - `bin/pqc-secrets` — PQC secrets dispatcher: native `pqc-secrets.darwin-arm64` on macOS arm64, otherwise the Python (uv) engine at `.agents/skills/pqc-secrets/scripts/pqc_secrets.py`. Both write the same bundle JSON format.
 - `bin/fvs-code.js`, `bin/lib/localrouter-client.js` — launcher/client utilities.
 
