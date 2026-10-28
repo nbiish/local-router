@@ -27,3 +27,33 @@
   output: 11434 restarted from main (PID 53808); /config/agents and /api/agents-proxy/status serve the new system; interception stays off because the operator did not ask to change live harness settings
   status: done
   blockers: none
+
+[2026-10-28T00:25:00Z] local-router checkin
+  start: 2026-10-28T00:20:00Z end: 2026-10-28T00:25:00Z
+  triage: now
+  scope: install Claude Code and Codex CLI, verify both end-to-end, prepare macOS/Linux/WSL
+  objective: prove the Agents page system against the real harnesses on this machine and make the wiring portable
+  input: no claude/codex binaries installed; no provider keys mapped; free Ollama cloud model available
+  output: both CLIs installed via npm; wire bugs found and fixed; portable shims, doctor, and WSL receipts
+  status: in-progress
+  blockers: provider keys still unmapped, so the only working route is ollama/gemma4:31b-cloud (free plan)
+
+[2026-10-28T00:38:00Z] local-router intent-merge
+  start: 2026-10-28T00:25:00Z end: 2026-10-28T00:38:00Z
+  branch: fix/agents-harness-cross-platform, fix/agent-shim-symlink
+  scope: same
+  objective: merge after tsc and the harness/wire suites
+  input: commits 1d3603e, e1520d6, 01f3bb3, a757847, b09148a
+  output: 36/36 targeted tests; full suite 162/164 with the two known environmental reds
+  status: merging
+  blockers: none
+
+[2026-10-28T00:42:00Z] local-router checkout
+  start: 2026-10-28T00:38:00Z end: 2026-10-28T00:42:00Z
+  branch: fix/agents-harness-cross-platform, fix/agent-shim-symlink
+  scope: same
+  objective: close the loop after merge, rebuild, and capture receipts
+  input: main after f097f21
+  output: 11434 rebuilt and restarted (PID 16964); claude -p and codex exec return their marker text on Windows and inside WSL; agents:doctor --verify reports both round trips OK
+  status: done
+  blockers: none

@@ -4,3 +4,11 @@
 - 00:08 Windows gotcha: $home and $pid are read-only automatic variables in PowerShell; assigning them fails and the stale value silently retargets the command. Use $smokeHome/$procId.
 - 00:09 Smoke isolation on Windows needs USERPROFILE (Node os.homedir honors it) and LOCAL_ROUTER_SKIP_OS_ENV=1 so the registry stays untouched.
 - 00:10 Pre-merge full suite is 157/159: custom-providers (second upstream prefetch) and local-backends (port 8080 held by the llama.cpp embedding server) fail on main too.
+- 00:45 Free-plan Ollama cloud model gemma4:31b-cloud works through the router as ollama/gemma4:31b-cloud even though /api/tags omits it; minimax:nemotron pulls return 402 on the free plan.
+- 00:46 Claude Code needs newline-terminated Anthropic SSE frames and exactly one message_delta; the [DONE] frame used to emit a second delta after finish_reason (src/index.ts processOpenAIToAnthropicStream).
+- 00:47 Codex reads terminal content: response.output_item.done and response.completed must carry the accumulated text and usage, or the turn renders empty with 0 tokens (src/responses-stream.ts).
+- 00:48 Windows cannot spawn a .cmd without a shell, and shell:true joins argv with spaces; bin/lib/cli-spawn.js resolves the wrapper to its real .js/.exe instead.
+- 00:49 Unix agent shims live in ~/.local/share/local-router/bin; ~/.local/bin/claude|codex belongs to the native installers and is never replaced.
+- 00:50 POSIX shim wrappers must follow symlinks before locating lib/*-runner.js, otherwise dirname "$0" points at the shim directory.
+- 00:51 WSL appends the Windows PATH; CLI detection skips /mnt/<drive> entries so a Windows npm launcher is not reported as a Linux harness.
+- 00:52 Codex reports "tokens used 0" against Ollama streams because upstream sends no usage; the router forwards none rather than inventing counts.
