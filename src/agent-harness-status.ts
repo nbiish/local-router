@@ -86,10 +86,19 @@ export function harnessSearchDirs(opts?: { command?: string; extraDirs?: string[
   };
 
   const ownBin = repoBinDir();
+  const ownShimDir = path.join(os.homedir(), '.local', 'share', 'local-router', 'bin');
+  // WSL appends the Windows PATH by default; a Windows npm launcher under
+  // /mnt/c is a shell script bound to the Windows Node, not a usable Linux
+  // harness. Install the CLI inside the distro instead.
+  const isWsl = process.platform === 'linux' && /microsoft/i.test(os.release());
+  const isWindowsMount = (dir: string) => /^\/mnt\/[a-z](\/|$)/i.test(path.resolve(dir));
   for (const dir of (process.env.PATH || '').split(path.delimiter)) {
     if (!dir) continue;
-    // Resolving our own bin would recurse through the shim we ship.
-    if (path.resolve(dir).toLowerCase() === ownBin.toLowerCase()) continue;
+    if (isWsl && isWindowsMount(dir)) continue;
+    // Resolving our own shim (repo bin or the Unix shim dir) would report a
+    // wrapper as if the real harness were installed.
+    const resolved = path.resolve(dir).toLowerCase();
+    if (resolved === ownBin.toLowerCase() || resolved === ownShimDir.toLowerCase()) continue;
     push(dir);
   }
 
@@ -109,6 +118,18 @@ export function harnessSearchDirs(opts?: { command?: string; extraDirs?: string[
   return dirs;
 }
 
+/** Our wrapper scripts carry the runner name; never report one as the harness. */
+function isLocalRouterShim(candidate: string): boolean {
+  try {
+    const stat = fs.statSync(candidate);
+    if (!stat.isFile() || stat.size > 4096) return false;
+    const text = fs.readFileSync(candidate, 'utf8');
+    return text.includes('claude-runner.js') || text.includes('codex-runner.js');
+  } catch {
+    return false;
+  }
+}
+
 export function findHarnessCli(command: string, opts?: { extraDirs?: string[] }): HarnessCliInfo {
   const dirs = harnessSearchDirs({ command, extraDirs: opts?.extraDirs });
   const isWin = process.platform === 'win32';
@@ -118,7 +139,7 @@ export function findHarnessCli(command: string, opts?: { extraDirs?: string[] })
     for (const ext of extensions) {
       const candidate = path.join(dir, `${command}${ext}`);
       try {
-        if (fs.existsSync(candidate) && !fs.statSync(candidate).isDirectory()) {
+        if (fs.existsSync(candidate) && !fs.statSync(candidate).isDirectory() && !isLocalRouterShim(candidate)) {
           return { command, found: true, path: candidate, searched: dirs };
         }
       } catch {
