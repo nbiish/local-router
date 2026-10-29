@@ -5,3 +5,9 @@
 - 16:37 reconcileRegistryMetadata fills 64K/4K placeholders from curated rows at boot but never overwrites a real provider-specific limit.
 - 16:40 The contract server on 11434 can run inside WSL (mirrored localhost); check `wsl ss -ltnp` when a Windows restart claims "already running".
 - 16:45 validate:model-specs still has 101 pre-existing ERROR rows across stale specs (not from this change); the six new rows validate clean.
+- 16:56 pqc-secrets export emits `export NAME='value'`; pack refuses shell-quoted values. persistPqcSecrets preserved those lines verbatim, which is why provider key saves silently stopped persisting (src/index.ts persistPqcSecrets).
+- 16:57 Bundle mapping only accepted LOCALROUTER_<KEY_ENV_VAR>; LOCAL_ROUTER_ (legacy), provider-slug and plain names were reported unmapped (src/pqc-key-resolver.ts).
+- 16:58 A successful skeleton export now sets pqcBundleLoaded even when zero providers map, so the health warning means decryption failure, not missing keys.
+- 17:00 Windows cannot list the bare \\wsl.localhost root; enumerate distros with `wsl.exe -l -q` (UTF-16LE) before reading \\wsl.localhost\<distro>\home\*.
+- 17:02 Real state: Windows bundle has LOCALROUTER_TEST_VENDOR_API_KEY + LOCAL_ROUTER_DOT_COM_ADMIN_TOKEN, WSL bundle has LOCAL_ROUTER_DOT_COM_ADMIN_TOKEN; no provider keys are packed anywhere yet.
+- 17:04 POST /api/keys keeps configuredSource 'memory' for contract compatibility and adds persisted:true/false plus warning on bundle failure.

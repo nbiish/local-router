@@ -72,3 +72,33 @@ description: Agent Communication System protocol template. Deployed by `ainish-c
 - output: 11434 rebuilt and restarted (PID 49408); zai flash/flashx 1,048,576/131,072, xiaomi v2.6 1,050,000/131,072, nebius V4.1 Flash 1,048,576/384,000, opencode-zen glm-5.3-flash 1,048,576 all confirmed via /api/provider-models
 - status:merged
 - blockers:none
+
+### [2026-10-29T16:54:00Z] CHECKIN | branch:fix/pqc-key-utilization | wt:D:\Code\pqc-key-utilization
+- start:2026-10-29T16:52:00Z
+- end:2026-10-29T16:54:00Z
+- scope:src/pqc-key-resolver.ts, src/index.ts, src/routes/config-api.ts, bin/pqc-doctor.js
+- objective: make packed PQC provider keys actually load and stay persisted
+- input: operator reports keys not picked up; boot log shows 2 secrets / 0 provider-mapped
+- output: alias-aware resolver, verified persistence (quote fix), /api/pqc/status + resync, pqc-doctor
+- status:in-progress
+- blockers:none
+
+### [2026-10-29T17:02:00Z] INTENT-MERGE | branch:fix/pqc-key-utilization | wt:D:\Code\pqc-key-utilization
+- start:2026-10-29T16:58:00Z
+- end:2026-10-29T17:02:00Z
+- scope:same
+- objective: merge after tsc, resolver tests, and the provider-key lifecycle test
+- input: commits 50c9d05, 97017e3, 81cfcee, ab5f3c0
+- output: 8/8 resolver tests and 6/6 provider-key tests green with a temp bundle; full suite 178/182 with the known environmental reds plus the pre-fix configuredSource assertion (fixed after that run)
+- status:verifying
+- blockers:none
+
+### [2026-10-29T17:06:00Z] CHECKOUT | branch:fix/pqc-key-utilization | wt:D:\Code\pqc-key-utilization
+- start:2026-10-29T17:02:00Z
+- end:2026-10-29T17:06:00Z
+- scope:same
+- objective: close the loop after merge, rebuild, and prove the behavior on both stores
+- input: main after the merges
+- output: 11434 rebuilt and restarted (PID 1256); /api/pqc/status live; pqc-doctor reports Windows + WSL stores and confirms no provider keys are packed yet; temp-store proof: LOCALROUTER_ZAI_API_KEY, LOCAL_ROUTER_XIAOMI_MIMO_API_KEY and plain OPENROUTER_API_KEY all loaded, and a UI save persisted + verified
+- status:merged
+- blockers:the operator's real bundles still hold no provider keys — the fix makes packed names usable, but keys still have to be packed
