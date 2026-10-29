@@ -80,6 +80,13 @@ import {
   readOutputHint,
   reconcileModelMetadata
 } from './model-metadata';
+import {
+  providerKeyAliases,
+  resolveProvidersForKey,
+  stripToolPrefix,
+  suggestKeyName,
+  unquoteSecretValue
+} from './pqc-key-resolver';
 import { catalogProviderSummaries } from './provider-registry';
 import { loadCurationConfigs, loadRouterSettings, ROUTER_SETTINGS_PATH, saveRouterSettings, loadAgentProxyConfig, AgentProxyConfig } from './config-persistence';
 import { normalizeGatewayChatCompletionBody } from './gateway-response';
@@ -3703,6 +3710,36 @@ function getPqcConfigDirCandidates(): string[] {
     }
   }
 
+  // Windows → WSL (2026-10-29): optional scan of WSL user stores over the 9P
+  // share. Off by default because a stopped distro can stall the boot; enable
+  // with LOCAL_ROUTER_PQC_SCAN_WSL=1 when keys are packed inside WSL.
+  if (process.platform === 'win32' && process.env.LOCAL_ROUTER_PQC_SCAN_WSL === '1') {
+    for (const prefix of ['\\\\wsl.localhost\\', '\\\\wsl$\\']) {
+      try {
+        const distros = fs.readdirSync(prefix, { withFileTypes: true })
+          .filter((entry) => entry.isDirectory())
+          .map((entry) => entry.name);
+        for (const distro of distros) {
+          const homeRoot = path.join(prefix, distro, 'home');
+          let homes: string[] = [];
+          try {
+            homes = fs.readdirSync(homeRoot, { withFileTypes: true })
+              .filter((entry) => entry.isDirectory())
+              .map((entry) => entry.name);
+          } catch {
+            continue;
+          }
+          for (const home of homes) {
+            const wslDot = path.join(homeRoot, home, '.config', 'pqc-secrets');
+            if (fs.existsSync(wslDot) && !candidates.includes(wslDot)) candidates.push(wslDot);
+          }
+        }
+      } catch {
+        // WSL share unavailable (distro stopped or WSL disabled).
+      }
+    }
+  }
+
   if (candidates.length === 0) {
     candidates.push(dot);
   }
@@ -3825,14 +3862,29 @@ function loadKeysFromEnvironment(): number {
   let count = 0;
   for (const summary of allSummaries) {
     if (keyStore[summary.name]) continue;
-    // Strict namespace: only LOCALROUTER_<KEY_ENV_VAR> counts as a Local
-    // Router key; ambient plainly-named keys belong to other tools.
-    const envValue = process.env[localRouterEnvVarName(summary.keyEnvVar)] || process.env[summary.keyEnvVar];
+    // Strict namespace: only a Local Router-prefixed key counts as ours;
+    // ambient plainly-named keys belong to other tools. Both documented
+    // prefixes are accepted (LOCALROUTER_, and the legacy LOCAL_ROUTER_).
+    const envValue = process.env[localRouterEnvVarName(summary.keyEnvVar)]
+      || process.env[`LOCAL_ROUTER_${summary.keyEnvVar}`];
     if (envValue) {
       keyStore[summary.name] = envValue;
       count++;
     }
   }
+
+  // Alias names exported by the operator (LOCALROUTER_ZAI, LOCAL_ROUTER_ZAI_API_KEY, …)
+  for (const [name, value] of Object.entries(process.env)) {
+    if (!value) continue;
+    if (!/^LOCAL[_-]?ROUTER_/i.test(name)) continue;
+    for (const provider of resolveProvidersForKey(name, allSummaries)) {
+      if (keyStore[provider.name]) continue;
+      keyStore[provider.name] = value;
+      process.env[localRouterEnvVarName(provider.keyEnvVar)] = value;
+      count++;
+    }
+  }
+
   if (!keyStore['modal-proxy'] && process.env.MODAL_PROXY_TOKEN_ID && process.env.MODAL_PROXY_TOKEN_SECRET) {
     keyStore['modal-proxy'] = `${process.env.MODAL_PROXY_TOKEN_ID}.${process.env.MODAL_PROXY_TOKEN_SECRET}`;
     count++;
@@ -3911,18 +3963,20 @@ function syncKeysFromPqcBundle(options: { force?: boolean } = {}): PqcBundleSync
       const match = line.match(/^export\s+([A-Z0-9_]+)=(.+)$/);
       if (!match) continue;
       const fullName = match[1];
-      let value = match[2].trim().replace(/^["']|["']$/g, '').trim();
+      let value = unquoteSecretValue(match[2]);
       if (value.startsWith('Authorization: Bearer ')) {
         value = value.slice('Authorization: Bearer '.length).trim();
       }
-      const envVar = fullName.startsWith('LOCALROUTER_') ? fullName.slice('LOCALROUTER_'.length) : fullName;
-      process.env[localRouterEnvVarName(envVar)] = value;
-      process.env[envVar] = value;
       dirSecrets += 1;
-      const providers = providerSummariesForEnvVar(envVar);
+      // Accept every documented naming variant: LOCALROUTER_<KEY_ENV_VAR>,
+      // the legacy LOCAL_ROUTER_ prefix, provider-slug names
+      // (LOCALROUTER_ZAI), and plain <KEY_ENV_VAR>.
+      const providers = resolveProvidersForKey(fullName, allProviderSummaries());
       if (providers.length > 0) {
         dirProviders += 1;
         for (const provider of providers) {
+          process.env[localRouterEnvVarName(provider.keyEnvVar)] = value;
+          process.env[provider.keyEnvVar] = value;
           keyStore[provider.name] = value;
           pqcBundleProviders.add(provider.name);
           if (!loaded.includes(provider.name)) {
@@ -3930,6 +3984,7 @@ function syncKeysFromPqcBundle(options: { force?: boolean } = {}): PqcBundleSync
           }
         }
       } else {
+        process.env[localRouterEnvVarName(stripToolPrefix(fullName))] = value;
         if (!skipped.includes(fullName)) {
           skipped.push(fullName);
         }
@@ -3959,6 +4014,10 @@ function syncKeysFromPqcBundle(options: { force?: boolean } = {}): PqcBundleSync
     return { ok: false, error: `export failed: ${message}${stderr ? ` — stderr: ${sanitizeDiagnosticText(stderr).slice(0, 300)}` : ''}` };
   }
 
+  // A successful export is a loaded bundle even when no entry maps to a
+  // provider; the health warning is about decryption, not mapping.
+  if (anySuccess) pqcBundleLoaded = true;
+
   if (process.env.MODAL_PROXY_TOKEN_ID && process.env.MODAL_PROXY_TOKEN_SECRET) {
     const combined = `${process.env.MODAL_PROXY_TOKEN_ID}.${process.env.MODAL_PROXY_TOKEN_SECRET}`;
     keyStore['modal-proxy'] = combined;
@@ -3966,6 +4025,9 @@ function syncKeysFromPqcBundle(options: { force?: boolean } = {}): PqcBundleSync
     if (!loaded.includes('modal-proxy')) loaded.push('modal-proxy');
   }
   lastPqcSyncAt = Date.now();
+  if (skipped.length > 0) {
+    console.warn(`[PQC] Unmapped secret name(s): ${skipped.join(', ')} — expected LOCALROUTER_<PROVIDER_API_KEY> (run 'node bin/pqc-doctor.js' for the exact name).`);
+  }
   return { ok: true, loaded, skipped };
 }
 
@@ -4062,6 +4124,127 @@ function findProviderByEnvVar(envVar: string): ProviderSummary | undefined {
   return allProviderSummaries().find((s) => s.keyEnvVar === envVar);
 }
 
+export type PqcSecretMapping = {
+  name: string;
+  providers: string[];
+  canonical: string | null;
+  suggestion?: string | null;
+};
+
+export type PqcStoreReport = {
+  dir: string;
+  bundlePath: string;
+  exists: boolean;
+  secretNames: string[];
+  mapped: PqcSecretMapping[];
+  unmapped: PqcSecretMapping[];
+  error?: string;
+};
+
+/**
+ * Operator-facing PQC diagnostics: which stores are scanned, which secret
+ * names each store holds (names only — never values), and whether each name
+ * maps to a provider. This is what turns "keys aren't picked up" into an
+ * exact next action.
+ */
+export function pqcStatusReport(): {
+  selectedStore: string;
+  stores: PqcStoreReport[];
+  bundleLoaded: boolean;
+  lastSyncAt: string | null;
+  loadedProviders: Array<{ provider: string; keyEnvVar: string; canonical: string }>;
+  missingProviders: string[];
+  expectedNames: Array<{ provider: string; keyEnvVar: string; canonical: string; aliases: string[] }>;
+} {
+  const summaries = allProviderSummaries();
+  const stores: PqcStoreReport[] = [];
+
+  for (const dir of getPqcConfigDirCandidates()) {
+    const bundlePath = path.join(dir, 'secrets.bundle.json');
+    const report: PqcStoreReport = {
+      dir,
+      bundlePath,
+      exists: fs.existsSync(bundlePath),
+      secretNames: [],
+      mapped: [],
+      unmapped: []
+    };
+    if (report.exists) {
+      try {
+        const output = execPqcBin(['list'], { env: { PQC_CONFIG_DIR: dir }, timeout: 60000 });
+        for (const rawLine of (output || '').split(/\r?\n/)) {
+          const match = rawLine.match(/^\s{2,}([A-Z0-9_]+)\s*$/);
+          if (!match) continue;
+          const name = match[1];
+          report.secretNames.push(name);
+          const providers = resolveProvidersForKey(name, summaries);
+          const mapping: PqcSecretMapping = {
+            name,
+            providers: providers.map((provider) => provider.name),
+            canonical: providers.length > 0 ? localRouterEnvVarName(providers[0].keyEnvVar) : null
+          };
+          if (providers.length > 0) {
+            report.mapped.push(mapping);
+          } else {
+            mapping.suggestion = suggestKeyName(name, summaries);
+            report.unmapped.push(mapping);
+          }
+        }
+      } catch (error: any) {
+        report.error = sanitizeDiagnosticText(String(error?.message || error));
+      }
+    }
+    stores.push(report);
+  }
+
+  const loadedProviders: Array<{ provider: string; keyEnvVar: string; canonical: string }> = [];
+  for (const summary of summaries) {
+    if (!keyStore[summary.name]) continue;
+    loadedProviders.push({
+      provider: summary.name,
+      keyEnvVar: summary.keyEnvVar,
+      canonical: localRouterEnvVarName(summary.keyEnvVar)
+    });
+  }
+
+  return {
+    selectedStore: getPqcConfigDir(),
+    stores,
+    bundleLoaded: pqcBundleLoaded,
+    lastSyncAt: lastPqcSyncAt > 0 ? new Date(lastPqcSyncAt).toISOString() : null,
+    loadedProviders,
+    missingProviders: summaries
+      .filter((summary) => !keyStore[summary.name] && !isOAuthProvider(summary.name))
+      .map((summary) => summary.name),
+    expectedNames: summaries.map((summary) => ({
+      provider: summary.name,
+      keyEnvVar: summary.keyEnvVar,
+      canonical: localRouterEnvVarName(summary.keyEnvVar),
+      aliases: providerKeyAliases(summary)
+    }))
+  };
+}
+
+/** Re-export the bundles and reload provider keys without a restart. */
+export function pqcResync(): {
+  ok: boolean;
+  loaded: string[];
+  skipped: string[];
+  error?: string;
+  loadedProviderCount: number;
+} {
+  const result = syncKeysFromPqcBundle({ force: true });
+  if (!result.ok) {
+    return { ok: false, loaded: [], skipped: [], error: result.error, loadedProviderCount: Object.keys(keyStore).length };
+  }
+  return {
+    ok: true,
+    loaded: result.loaded,
+    skipped: result.skipped,
+    loadedProviderCount: Object.keys(keyStore).length
+  };
+}
+
 function providerSummariesForEnvVar(envVar: string): ProviderSummary[] {
   return allProviderSummaries().filter((summary) => summary.keyEnvVar === envVar);
 }
@@ -4104,11 +4287,14 @@ function clearProviderKeyForProvider(providerName: string): void {
   delete process.env[localRouterEnvVarName(envVar)];
 }
 
-function persistPqcSecrets(): void {
+export type PqcPersistResult = { ok: boolean; persisted: number; error?: string };
+
+function persistPqcSecrets(): PqcPersistResult {
+  const fail = (error: string): PqcPersistResult => ({ ok: false, persisted: 0, error });
   const bin = getPqcBinPath();
   if (!bin) {
     console.warn(`[PQC] pqc-secrets binary not found — key changes will not persist across restarts. Install bin/pqc-secrets to enable.`);
-    return;
+    return fail('pqc-secrets binary not found');
   }
   try {
     const managedEnvVars = new Set<string>();
@@ -4123,14 +4309,22 @@ function persistPqcSecrets(): void {
         existingOutput = execPqcBin(['export'], { timeout: 120000 });
       } catch (err) {
         console.error('[PQC] Cannot persist safely: existing bundle export failed — not overwriting. Error:', sanitizeDiagnosticText(String((err as Error).message)));
-        return;
+        return fail('existing bundle export failed; write aborted');
       }
       for (const rawLine of (existingOutput || '').split(/\r?\n/)) {
         const line = rawLine.trim();
         const match = line.match(/^export\s+([A-Z0-9_]+)=(.+)$/);
         if (!match) continue;
+        // Any name that resolves to a provider is ours to rewrite into the
+        // canonical LOCALROUTER_<KEY_ENV_VAR> form. Without this, a legacy
+        // alias (LOCAL_ROUTER_XIAOMI_MIMO_API_KEY) would be preserved next to
+        // the canonical key instead of being replaced.
         if (managedEnvVars.has(match[1])) continue;
-        preservedLines.push(`${match[1]}=${match[2].trim()}`);
+        if (resolveProvidersForKey(match[1], allProviderSummaries()).length > 0) continue;
+        // `pqc-secrets export` prints `export NAME='value'`; pack REFUSES
+        // shell-quoted values (2026-08-30 guard). Preserving the quotes
+        // verbatim made every later save fail, so keys were never persisted.
+        preservedLines.push(`${match[1]}=${unquoteSecretValue(match[2])}`);
       }
     }
 
@@ -4157,18 +4351,40 @@ function persistPqcSecrets(): void {
     if (process.env.MODAL_SESSION_ID) {
       lines.push(`MODAL_SESSION_ID=${process.env.MODAL_SESSION_ID}`);
     }
-    if (lines.length === 0) return;
+    if (lines.length === 0) return { ok: true, persisted: 0 };
     if (!ensurePqcKeypair(bin)) {
       console.error(`[PQC] Cannot persist: no keypair at ${getPqcPubkeyPath()}. Run 'bin/pqc-secrets keygen' manually.`);
-      return;
+      return fail('no PQC keypair available');
     }
     execPqcBin(['pack'], {
       input: lines.join('\n') + '\n',
       timeout: 30000
     });
-    console.log(`[PQC] Persisted ${lines.length} key(s) to ${getPqcBundlePath()}.`);
+
+    // Verify the write by exporting it back. A pack that silently drops or
+    // renames a key is worse than a visible failure: the UI would claim the
+    // key is configured and the next restart would lose it.
+    const verifyOutput = execPqcBin(['export'], { timeout: 120000 });
+    const exported = new Set<string>();
+    for (const rawLine of (verifyOutput || '').split(/\r?\n/)) {
+      const match = rawLine.trim().match(/^export\s+([A-Z0-9_]+)=/);
+      if (match) exported.add(match[1]);
+    }
+    const missing = Array.from(packedEnvVars).filter((name) => !exported.has(name));
+    if (missing.length > 0) {
+      console.error(`[PQC] Bundle verification failed; missing after pack: ${missing.join(', ')}`);
+      return {
+        ok: false,
+        persisted: packedEnvVars.size - missing.length,
+        error: `bundle verification failed for ${missing.join(', ')}`
+      };
+    }
+
+    console.log(`[PQC] Persisted ${lines.length} key(s) to ${getPqcBundlePath()} (verified ${packedEnvVars.size} provider key(s)).`);
+    return { ok: true, persisted: packedEnvVars.size };
   } catch (err) {
     console.error('[PQC] Failed to persist secrets:', (err as Error).message);
+    return fail((err as Error).message || String(err));
   }
 }
 
@@ -4256,6 +4472,8 @@ const configApiDeps = {
   getProviderSummary,
   setProviderKeyForEnvVar,
   persistPqcSecrets,
+  pqcStatusReport,
+  pqcResync,
   providerSummariesForEnvVar,
   DEFAULT_OLLAMA_API_KEY,
   clearProviderKeyForProvider,
