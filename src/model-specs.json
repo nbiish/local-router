@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated": "2026-08-17",
+  "updated": "2026-10-29",
   "description": "Authoritative model specifications for CI/CD validation. Sources: provider API docs, OpenRouter metadata, model cards. Used by scripts/validate-model-specs.mts to detect metadata drift against the toggle-store catalog.",
   "models": {
     "deepseek-v4-pro": {
@@ -75,6 +75,22 @@
       "vision": false,
       "reasoning": false,
       "source": "z.ai, deepinfra (April 2026)"
+    },
+    "glm-5.3-flash": {
+      "context": 1048576,
+      "output": 131072,
+      "tools": true,
+      "vision": true,
+      "reasoning": false,
+      "source": "docs.z.ai GLM-5.3-Flash (October 2026): 1M context, 128K output, video/image/text/file input"
+    },
+    "glm-5.3-flashx": {
+      "context": 1048576,
+      "output": 131072,
+      "tools": true,
+      "vision": true,
+      "reasoning": false,
+      "source": "docs.z.ai GLM-5.3-Flash (October 2026): same limits as glm-5.3-flash"
     },
     "glm-4.6v": {
       "context": 200000,
@@ -157,6 +173,30 @@
       "reasoning": false,
       "source": "OpenRouter"
     },
+    "mimo-v2.6-pro": {
+      "context": 1050000,
+      "output": 131072,
+      "tools": true,
+      "vision": true,
+      "reasoning": false,
+      "source": "OpenRouter metadata (October 2026): text/image/video/audio input"
+    },
+    "mimo-v2.6-flash": {
+      "context": 1050000,
+      "output": 131072,
+      "tools": true,
+      "vision": true,
+      "reasoning": false,
+      "source": "OpenRouter metadata (October 2026): text/image/video/audio input"
+    },
+    "mimo-v2.6-pro-ultraspeed": {
+      "context": 1048576,
+      "output": 131072,
+      "tools": true,
+      "vision": true,
+      "reasoning": false,
+      "source": "OpenRouter metadata (October 2026)"
+    },
     "agnes-2.0-flash": {
       "context": 256000,
       "output": 65536,
@@ -207,3 +247,4 @@
     }
   }
 }
+
