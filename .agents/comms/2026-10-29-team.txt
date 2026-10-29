@@ -1,0 +1,74 @@
+---
+description: Agent Communication System protocol template. Deployed by `ainish-coder --rules` as `.agents/comms/{date}-team.txt` (one file per UTC date — the day's whole history is one read). Merge-safe: agents deploying updates must preserve all entry blocks below the PROTOCOL section; only the PROTOCOL block itself may be refreshed from this template.
+---
+
+# AGENT COMMS — 2026-10-29
+
+<PROTOCOL>
+## PROTOCOL (binding — follow like AGENTS.md)
+
+**When:** ≥1 agent or subagent is working at once (multiple branches, features, updates, bugs, docs). Solo? Still check in/out — the ledger is the audit trail.
+
+**Two channels:**
+- **This file** (`.agents/comms/{date}-team.txt`) — one file per UTC date; committed, append-only durable ledger. Never rotate per session or per hour. Updated via your task-branch commits; reaches everyone at merge.
+- **Live board** (`.agents/comms/{date}-team.live.txt`) — gitignored, at the **main repo path**. Append here by absolute path for immediate in-flight visibility. Never `git commit` it; never `git add` it. Main stays clean.
+
+**Read:** this file + the live board — at start, before any merge, and whenever blocked.
+
+**Write:** for every lifecycle event, append one entry block to **both** the live board (immediate) and this file in your worktree (durable — commit it). One writer per branch. Subagents do not write the shared files directly: report results to your orchestrator, who logs on your behalf with `parent:` set.
+
+**Skill distribution (persisted per-repo selection):** which `.agents/skills/` packs distribute to this repo is governed by the operator's persisted selection (`~/.config/ainish-coder/skills-selection.json`, toggled via `ainish-coder --skills-sync` or `--rules`). Agents and CI MUST use the headless path — `ainish-coder --skills-sync <dir> --headless` or `ainish-coder --rules <dir> --headless` — which applies the saved selection with no prompts. Do not hand-edit the selection file; run the interactive toggle instead. Scroll-channel packs (`8thfire-scrolls`, `ghost-layer-injector`, raw `.scrolls*/` payload) are never selectable here — explicit `--scrolls` only.
+
+**Timestamps — mandatory, bracketed, ISO-8601 (UTC `Z` form on this ledger):**
+- `start:` the instant the agent **begins** the action (input received / work begun).
+- `end:` the instant the agent **finishes** it (output produced / work handed off or halted).
+- **Every** entry has both. Abandoned mid-action → still close with `end:` + `status: abandoned`.
+
+\*\*Entry block:\*\*
+
+~~~
+### [<ISO-8601 timestamp>] <EVENT> | branch:<branch> | wt:<worktree-path>
+- start:<ISO-8601>               # input received / work began
+- end:<ISO-8601>                 # output produced / work ended
+- parent:<orchestrator>          # subagents only
+- scope:<paths/modules>
+- objective:<one line>
+- input:<one line — what was received or requested>
+- output:<one line — what was produced or handed off>
+- status:<new|in-progress|blocked|verifying|merged|abandoned>
+- blockers:<none | description>
+~~~
+
+</PROTOCOL>
+
+---
+
+### [2026-10-29T16:35:00Z] CHECKIN | branch:feat/model-context-metadata | wt:D:\Code\model-context-metadata
+- start:2026-10-29T16:20:00Z
+- end:2026-10-29T16:35:00Z
+- scope:src/model-metadata.ts, src/provider-model-registries.ts, src/model-specs.json, src/index.ts
+- objective: make context/output limits correct for every provider and model, starting from zai glm-5.3-flash/flashx and xiaomi mimo-v2.6-pro
+- input: served zai + xiaomi variants pinned at the 64K/4K defaults; provider /models payloads omit limits for zai and Xiaomi
+- output: shared extraction module, registry corrections, registry-first precedence, boot reconcile, seed union fix
+- status:in-progress
+- blockers:none
+
+### [2026-10-29T16:44:00Z] INTENT-MERGE | branch:feat/model-context-metadata | wt:D:\Code\model-context-metadata
+- start:2026-10-29T16:40:00Z
+- end:2026-10-29T16:44:00Z
+- scope:same
+- objective: merge after tsc, the metadata unit/boot suites, and the catalog regression subset
+- input: commits 21f5e52, 1ee1691
+- output: full suite 171/174 (three environmental reds: cursor host detection, custom-provider prefetch, port 8080 held by llama.cpp); 9/9 new metadata tests
+- status:verifying
+- blockers:none
+
+### [2026-10-29T16:50:00Z] CHECKOUT | branch:feat/model-context-metadata | wt:D:\Code\model-context-metadata
+- start:2026-10-29T16:44:00Z
+- end:2026-10-29T16:50:00Z
+- scope:same
+- objective: close the loop after merge, rebuild, and verify served limits
+- input: main after 3631540
+- output: 11434 rebuilt and restarted (PID 49408); zai flash/flashx 1,048,576/131,072, xiaomi v2.6 1,050,000/131,072, nebius V4.1 Flash 1,048,576/384,000, opencode-zen glm-5.3-flash 1,048,576 all confirmed via /api/provider-models
+- status:merged
+- blockers:none

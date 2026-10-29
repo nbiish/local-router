@@ -1,0 +1,7 @@
+- 16:30 zai's coding-plan /models publishes ids only; GLM-5.3-Flash docs (docs.z.ai) give 1M context / 128K output with video/image/file input, so the limits must live in src/provider-model-registries.ts.
+- 16:31 Xiaomi MiMo V2.6 series (pro/flash 1,050,000 ctx, pro-ultraspeed 1,048,576, 131,072 out) is documented via OpenRouter metadata; the token-plan endpoint omits limits.
+- 16:33 mapLiveRawModelsToCatalog used the cached section as its only baseline, so a 64K default self-perpetuated; registry rows now outrank cached defaults and alias-match date/plan suffixes (src/model-metadata.ts pickBaselineModel).
+- 16:35 seedRegistryBaselines passed only registry extras to mergeProviderEndpointModels, replacing the provider section and dropping live-only models each boot; it now unions with the existing cache.
+- 16:37 reconcileRegistryMetadata fills 64K/4K placeholders from curated rows at boot but never overwrites a real provider-specific limit.
+- 16:40 The contract server on 11434 can run inside WSL (mirrored localhost); check `wsl ss -ltnp` when a Windows restart claims "already running".
+- 16:45 validate:model-specs still has 101 pre-existing ERROR rows across stale specs (not from this change); the six new rows validate clean.
