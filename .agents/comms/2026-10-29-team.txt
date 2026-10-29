@@ -32,12 +32,15 @@ description: Agent Communication System protocol template. Deployed by `ainish-c
 - end:<ISO-8601>                 # output produced / work ended
 - parent:<orchestrator>          # subagents only
 - scope:<paths/modules>
+- provenance:<source_commit=XXXXXXXXXXXX manifest_sha256=XXXXXXXXXXXX>   # optional but recommended
 - objective:<one line>
 - input:<one line — what was received or requested>
 - output:<one line — what was produced or handed off>
 - status:<new|in-progress|blocked|verifying|merged|abandoned>
 - blockers:<none | description>
 ~~~
+
+**Provenance stamp (recommended on `checkin`):** embed the ainish-coder root commit SHA and the target's deployment-manifest digest so every work session is auditable against the exact ruleset it ran under. Generate it with `ainish-coder --rules-provenance <dir>`, which emits `source_commit=… manifest_sha256=…`. Verify every target's manifest signature with `ainish-coder --rules-verify [--json]`.
 
 </PROTOCOL>
 
@@ -102,3 +105,38 @@ description: Agent Communication System protocol template. Deployed by `ainish-c
 - output: 11434 rebuilt and restarted (PID 1256); /api/pqc/status live; pqc-doctor reports Windows + WSL stores and confirms no provider keys are packed yet; temp-store proof: LOCALROUTER_ZAI_API_KEY, LOCAL_ROUTER_XIAOMI_MIMO_API_KEY and plain OPENROUTER_API_KEY all loaded, and a UI save persisted + verified
 - status:merged
 - blockers:the operator's real bundles still hold no provider keys — the fix makes packed names usable, but keys still have to be packed
+
+### [2026-10-29T18:12:00Z] CHECKOUT | branch:feat/pqc-store-integration | wt:D:\Code\pqc-store-integration
+- start:2026-10-29T17:48:00Z
+- end:2026-10-29T18:12:00Z
+- provenance:source_commit=932b37b115af00a2a64b6234014cb6488826da6e manifest_sha256=e62ca10d1439605847532365e159d71fa2127d8130ab36284918cf7545f91015
+- scope:.agents/skills/pqc-secrets, bin/pqc-secrets, bin/pqc-doctor.js, src/index.ts, package.json, llms.txt, tests/pqc-persist.integration.test.mjs
+- triage:now
+- objective: finish the in-flight clean-room PQC skill integration (set/del/store) and prove /config saves persist canonically
+- input: dirty worktree at 3970c20 (11 files, no commits) left by the 13:30 e2e run; operator report that providers had to be reconfigured
+- output: commit e35c2f9 merged as 9f94503; vendored engine byte-identical to ainish-coder 932b37b; Windows scans WSL stores by default (LOCAL_ROUTER_PQC_SCAN_WSL=0 opts out); /api/pqc/status carries the engine store answer; new tests/pqc-persist.integration.test.mjs (sandboxed temp store: zai saves to LOCALROUTER_ZAI_API_KEY, other tool's entry preserved, alias absent, bundleLoaded true); resolver 8/8 + new test + provider-keys 6/6 + fallback-single-source + model-context-boot all green; e2e run manually on port 11477 against a temp store
+- status:merged
+- blockers:none
+
+### [2026-10-29T18:12:30Z] UPDATE | branch:main (runtime) | wt:D:\Code\local-router
+- start:2026-10-29T18:12:00Z
+- end:2026-10-29T18:12:30Z
+- scope:11434 runtime, ~/.config/local-router (WSL), PQC store
+- triage:now
+- objective: restore the production router to the environment that owns the real config
+- input: 11434 was answered by a Windows node started 13:05:38 (PID 1256) whose store was empty (23 curated, 2,006 cache, 0 provider keys); WSL had the real store (73 curated, 2,706 cache, 20-step chain) but no process
+- output: PID 1256 stopped; WSL instance started from the merged build (PID 119690, log ~/.config/local-router/proxy-11434.log); /api/pqc/status now reports /home/nanoboozhoo/.config/pqc-secrets; /v1/chat/completions cascades the real 20-step chain and fails only on the keyless CLI bridges (Copilot/Cursor auth), proving the chain is intact
+- status:merged
+- blockers:no provider API keys exist in any bundle (WSL holds only LOCAL_ROUTER_DOT_COM_ADMIN_TOKEN) — operator will re-enter keys in /config, which now persists and verifies
+
+### [2026-10-29T18:14:00Z] CHECKIN | branch:chore/rules-round20-deploy | wt:D:\Code\rules-round20-deploy
+- start:2026-10-29T18:12:30Z
+- end:2026-10-29T18:14:00Z
+- provenance:source_commit=932b37b115af00a2a64b6234014cb6488826da6e manifest_sha256=e62ca10d1439605847532365e159d71fa2127d8130ab36284918cf7545f91015
+- scope:AGENTS.md, .gitignore, .agents/skills, .agents/comms PROTOCOL, .agents/ainish-deploy.json, .agents/bin/ainish-rules-sync
+- triage:now
+- objective: land the contract deploy that was left uncommitted on main and was two rounds stale (source b52fa90)
+- input: uncommitted deploy from 14:44Z; root HEAD 932b37b with AGENTS.md and COMMS-template changes since b52fa90
+- output: re-deployed from WSL selection (which still had skills-selection.json after the Windows ~/.config loss), restoring production-security and question-me and refreshing the COMMS provenance protocol; AGENTS.md sha matches root 97701b66
+- status:verifying
+- blockers:none
