@@ -1,9 +1,9 @@
 {
   "format": "ainish-coder/rules-deploy/v1",
   "source_repo": "/d/Code/ainish-coder",
-  "source_commit": "229fa77ed708019674cb980a89952de2e0894d3f",
+  "source_commit": "95843bbf7a7efadfcc5fa4395b005ddd95d2bb18",
   "source_agents_sha256": "7acb2829be59f902a59acdebfb6a66997760b68c257602f27e6712b05f291f55",
-  "deployed_at": "2026-10-29T19:39:10Z",
+  "deployed_at": "2026-10-29T19:32:19Z",
   "auto_sync": true,
   "managed_paths": [
     "AGENTS.md",
