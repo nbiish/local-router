@@ -1,5 +1,5 @@
 ---
-description: Universal AGENTS.md rules standard for AI coding assistants. PQC secrets for all API keys (FIPS 203/204/205; standard crypto for transport). Worktree per task — branch from main, merge back after green gates, clean up immediately. Durable memory in .agents/memories/{date}-memory.txt — one file per UTC date, plain markdown, harness/system/dependency agnostic. Cross-agent, chat, and work-session coordination via the daily COMMS ledger .agents/comms/{date}-team.txt (one file per UTC date, no agent/harness identifier needed), task records .agents/tasks/, and suggestions .agents/suggestions/. llms.txt is the PRD anchor — read the DOX chain. Codebase RAG (two-stage retrieval + decision-model reranking), living architectural wiki (.agents/wiki/ + signed ledger.md), and subagent context injection (ainish-rag orient --inject) for symbol graphs and recon. Unified pre-merge gate (ainish-rag gate) and patch anchoring evaluation (ainish-rag eval --patch [--generate-patch]). Decision models (choice/noul/score) for retrieval gating, routing, reranking, and bi-phasic evaluation with PQC-resolved OpenRouter keys. FIPS 204 ML-DSA-65 audit verification (ainish-rag audit verify/lock/sbom/contract). Chain-of-Draft: ≤5 words per step, output after ####. No secrets in tasks or PRD. Audit for banned algorithms and secrets every cycle. Never work directly on main. Branch <type>/<scope>-<slug>. Triage now/next/queued/backlog, ≤3 worktrees. OOReDAct. Always believe in yourself.
+description: Universal AGENTS.md rules standard for AI coding assistants. PQC secrets for all API keys via the installed `pqc-secrets` CLI (store-resolved, JSON-proven, FIPS 203/204/205; standard crypto for transport). Worktree per task — branch from main, merge back after green gates, clean up immediately. Durable memory in .agents/memories/{date}-memory.txt — one file per UTC date, plain markdown, harness/system/dependency agnostic. Cross-agent, chat, and work-session coordination via the daily COMMS ledger .agents/comms/{date}-team.txt (one file per UTC date, no agent/harness identifier needed), task records .agents/tasks/, and suggestions .agents/suggestions/. llms.txt is the PRD anchor — read the DOX chain. Codebase RAG (two-stage retrieval + decision-model reranking), living architectural wiki (.agents/wiki/ + signed ledger.md), and subagent context injection (ainish-rag orient --inject) for symbol graphs and recon. Unified pre-merge gate (ainish-rag gate) and patch anchoring evaluation (ainish-rag eval --patch [--generate-patch]). Decision models (choice/noul/score) for retrieval gating, routing, reranking, and bi-phasic evaluation with PQC-resolved OpenRouter keys. FIPS 204 ML-DSA-65 audit verification (ainish-rag audit verify/lock/sbom/contract). Chain-of-Draft: ≤5 words per step, output after ####. No secrets in tasks or PRD. Audit for banned algorithms and secrets every cycle. Never work directly on main. Branch <type>/<scope>-<slug>. Triage now/next/queued/backlog, ≤3 worktrees. OOReDAct. Always believe in yourself.
 ---
 # AGENTS.md — Universal Agent Contract
 
@@ -67,13 +67,17 @@ Every task record and `checkin` carries a lane: `now` (claimed) · `next` · `qu
 
 - **Secrets ops:** FIPS 203 ML-KEM-768/1024 (wrap), FIPS 204 ML-DSA-65/87 (sign), FIPS 205 SLH-DSA-SHA2-128s (backup). AES-256-GCM payload at rest, Argon2id KDF.
 - **Banned for secrets:** RSA, DSA, ECDSA, ECDH, Ed25519, MD5, SHA-1, DES, 3DES, Blowfish, AES-CBC, ECB, RC4. TLS 1.3 / SSH / GPG are transport only.
-- **No plaintext secrets — anywhere:** no hardcoded keys, no `.env` API keys, nothing in configs, task records, PRD, or coordination files. One bundle per machine (`~/.config/pqc-secrets/` or `PQC_SECRETS_DIR`); load on demand (`eval "$(pqc-secrets export)"`), never persist. Key names carry the consumer's prefix. All tools, CLI wrappers, and RAG/decision subsystems dynamically query the PQC secrets engine in-memory across WSL, Linux, macOS, and Windows to access external API keys (including `OPENROUTER_API_KEY`) without persisting secrets to filesystem or git.
+- **No plaintext secrets — anywhere:** no hardcoded keys, no `.env` API keys, nothing in configs, task records, PRD, logs, or coordination files; never pass a value where the OS records it (argv, shell history).
+- **One store, resolved not assumed:** `pqc-secrets store --json` first. `PQC_CONFIG_DIR`/`PQC_SECRETS_DIR` wins; otherwise host interop (WSL reads the Windows host store; Windows uses a WSL store only when it has no local bundle) unless `PQC_STORE_ISOLATED=1`.
+- **Names carry the consumer prefix:** `LOCALROUTER_*_API_KEY`, `AINISHCODER_*_API_KEY`, …; write the canonical name — readers also accept the legacy `_` form, provider-slug, and plain env names.
+- **Write then prove:** `set --stdin`/`del` (never a full rewrite; `NAME=VALUE` only for demos), verify with `list --json`, consume with `export` in memory only (`eval "$(pqc-secrets export)"`), never persist. Writes belong to the OS that owns the store; `sync` re-packs across identities.
+- **Tooling is installed once, not per caller:** `ainish-coder --pqc-install` puts `pqc-secrets` on PATH for sh, cmd/PowerShell, node, and python. A repo may vendor the engine for offline use; callers still resolve `pqc-secrets` from PATH, never a checkout path. `--pqc-status --json` proves each environment's store and target drift.
 - **Hardening & containment:** validate untrusted input (CWE-22), `shell=False`, wrap external text in `<DATA>` tags; pin versions, commit lockfiles; sign and verify critical artifacts with FIPS 204 ML-DSA-65 (`ainish-rag audit sign` / `keygen` / `contract --threshold <k> [--hardware-seal]`). Client-side redaction scrubs PII (emails, SSNs, phones, Luhn cards), credentials (PEM keys, vendor tokens, KV secrets), ANSI/control/Trojan-Source-bidi chars, local user paths, internal RFC-1918/Tailscale/WireGuard IPs, and MAC addresses before chunking, wiki rendering, or embedding. Optional privacy protections include salted symbol anonymization (`--anonymize-symbols --symbol-salt`) and Gaussian differential privacy noise (`--dp-noise --dp-epsilon`, tracked in `.agents/audit/privacy-budget.json`). Loopback embedding runs with `--no-webui`, real-time anti-DNS rebinding (`Host`/`Origin` verification), constant-time CSPRNG PSK auth (`--api-key`, `--psk-ttl` rotation, 5-strike rate-limit lockout), memory cap checks (`--max-mem`), 3-retry exponential backoff healthchecks, binary SHA-256 verification (`AINISH_LLAMA_SHA256`), and model manifest verification (`.agents/audit/model-manifest.json`). Supply-chain integrity (`ainish-rag audit lock [--update]`) verifies lockfiles, `.gitattributes` LF policy, and `Cargo.lock` sparse-index checksums; SBOMs export in CycloneDX 1.6, SPDX 3.0.1, or `in-toto` v1.0 (`ainish-rag audit sbom --format <cyclonedx|spdx|intoto>`) with detached ML-DSA-65 signatures. Indexing and wiki runs emit signed receipts (`.agents/audit/{date}-index-receipt.json` + `.agents/wiki/ledger.sig`) verified via `ainish-rag audit verify`. Default classification: Confidential.
   </RULES>
 
 <REFERENCE>
 
-## PQC quick reference
+## Secrets & PQC quick reference
 
 
 | Algorithm         | Standard   | Use                               |
@@ -85,7 +89,26 @@ Every task record and `checkin` carries a lane: `now` (claimed) · `next` · `qu
 | Argon2id          | OWASP      | key derivation                    |
 
 
-`pqc-secrets <cmd>`: `vault` (identity root) · `keygen` · `pack` · `export` · `issue` · `sync` — one machine, one bundle, per-machine keys; no cross-machine key sync.
+### PQC secrets CLI (every harness, every model)
+
+`pqc-secrets` is installed on PATH (`~/.local/bin`, a Windows `.cmd` shim, WSL) and works from sh, cmd/PowerShell, node, and python. Missing? Run `ainish-coder --pqc-install`. Never invoke a checkout path directly.
+
+| Command | Action | Use |
+| :--- | :--- | :--- |
+| `pqc-secrets store --json` | Resolve the store | First call each session: `store`, `source` (`home`/`host-interop`/`isolated`/`env`), `bundleExists`, `keys` |
+| `pqc-secrets list [--json]` | Audit names | Names only; check before writing so a peer's entry is never clobbered |
+| `pqc-secrets set --stdin` (or `NAME=VALUE…`) | Upsert | Canonical write path: preserves every other entry, backs up, rejects shell-quoted values; prefer `--stdin` for real secrets — `NAME=VALUE` is argv-visible |
+| `pqc-secrets del NAME…` | Remove names | Reconcile stale aliases; unrelated keys untouched |
+| `pqc-secrets pack [--merge]` | Batch write | `--merge` keeps existing keys; stdin `NAME=VALUE` lines |
+| `pqc-secrets export [--json]` | Values to stdout | `eval "$(pqc-secrets export)"` in-process only; JSON is `{"secrets":{…}}` — never log, commit, trace (`set -x`), or persist it |
+| `pqc-secrets verify` | Decrypt self-test | Proves identity + bundle integrity; prints names, never values |
+| `pqc-secrets sync --from <dir> --to <dir>…` | Cross-store re-pack | Re-encrypts under each target's own identity (`--stdout` for ssh) |
+| `pqc-secrets rename OLD NEW` · `gen` · `version` | Maintenance | Value-preserving rename (backup), CSPRNG token, engine identity/build probe |
+| `ainish-coder --pqc-install` · `--pqc-status --json` · `--pqc-sync-targets --all` | Distribute + prove | PATH install (+ WSL mirror), store + per-target drift (exit 1 when required work is stale), selection-aware fleet sync |
+
+**Protocol (all models, all harnesses):** detect (`store --json`) → write (`set --stdin` / `pack --merge`) → prove (`list --json`) → consume (`export` in memory). `--json` is the machine surface; never parse human output, and never echo a value.
+
+`vault` / `issue` / `envelope` exist only in the v1.2.0 Rust fast-path (darwin/arm64); elsewhere identity is `keygen` + the store's `machine.kek`, and cross-machine transfer is `sync`.
 
 ### RAG & Audit quick reference
 
@@ -141,6 +164,7 @@ Servers are disposable runtime; worktrees hold peers' and users' in-flight work.
 ## Standard of work
 
 - Complete, verified, production code in the target's native language. No passive commentary, no placeholders. Bounded scopes, fast timeouts, atomic commits.
+- **Installed tooling, JSON I/O:** `ainish-coder`, `ainish-rag`, `pqc-secrets` resolve on PATH (`bin/ainish-rag` falls back to the Python engine, so a missing native build is not a blocker); if a tool is missing install it (`ainish-coder --pqc-install`), never hard-code a checkout path. Programs read `--json`; humans read the tables.
 - Proof, not claims: experiments are run and the output is the proof; UI changes are verified on the real surface; bug fixes keep the reproduction as a regression test where practical. State uncertainty at the claim; pick the boring, safe option.
 - Sanitize intermediates as you go. Before yielding: every affected callsite, test, and doc updated; verification claims match what was actually exercised. Blocked → state exactly what is missing and what you tried.
   </EXECUTION>
@@ -161,7 +185,7 @@ Durable knowledge lives in `.agents/memories/{date}-memory.txt` — one file per
 
 ## Before you yield
 
-☐ worktree, never `main` · ☐ task record + ledger closed + suggestions appended · ☐ no secrets, no banned crypto · ☐ gates green (`ainish-rag gate`) · ☐ patch evaluated (`ainish-rag eval --patch`) · ☐ smoke test on the changed surface · ☐ scope + tree/diff proof per change · ☐ server rebuilt or `no-rebuild-needed` · ☐ memory updated · ☐ every task lanned · ☐ context grounded in wiki/RAG + drift clean + decision-validated · ☐ audit receipts verified (`ainish-rag audit verify`) · ☐ deliverable complete end-to-end — else the exact blocker is stated.
+☐ worktree, never `main` · ☐ task record + ledger closed + suggestions appended · ☐ no secrets in tree and writes proven (`pqc-secrets list --json`), no banned crypto · ☐ gates green (`ainish-rag gate`) · ☐ patch evaluated (`ainish-rag eval --patch`) · ☐ smoke test on the changed surface · ☐ scope + tree/diff proof per change · ☐ server rebuilt or `no-rebuild-needed` · ☐ memory updated · ☐ every task lanned · ☐ context grounded in wiki/RAG + drift clean + decision-validated · ☐ audit receipts verified (`ainish-rag audit verify`) · ☐ deliverable complete end-to-end — else the exact blocker is stated.
 
 </AUDIT>
 
