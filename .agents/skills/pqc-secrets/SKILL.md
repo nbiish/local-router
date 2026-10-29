@@ -1,6 +1,6 @@
 ---
 name: pqc-secrets
-description: Post-quantum cryptography secrets and integrity system for API keys, tokens, private data, and signed code. Covers the ML-KEM-768 + AES-256-GCM bundle, the passphrase-wrapped vault.pqc identity root (v1.2.0: ML-KEM-768 + ML-DSA-65 seeds under Argon2id, signed audit chain, TTL session holder), the 10 browser_secrets_* MCP tools (betterbrowsermcp v0.7.0+ rotates v0.8.0+), the append-only audit log at ~/.config/pqc-secrets/audit.log, the PQC Rust binary (device-key issuance + signed cross-machine envelopes), and ML-DSA-65 code signing/verification (references/signatures-security.md). Consolidated single pack since 2026-10-29 — the former pqc-signatures-security pack merged here.
+description: Post-quantum cryptography secrets and integrity system for API keys, tokens, private data, and signed code. Covers the ML-KEM-768 + AES-256-GCM bundle, the passphrase-wrapped vault.pqc identity root (v1.2.0 — ML-KEM-768 + ML-DSA-65 seeds under Argon2id, signed audit chain, TTL session holder), the 10 browser_secrets_* MCP tools (betterbrowsermcp v0.7.0+ rotates v0.8.0+), the append-only audit log at ~/.config/pqc-secrets/audit.log, the PQC Rust binary (device-key issuance + signed cross-machine envelopes), and ML-DSA-65 code signing/verification (references/signatures-security.md). Consolidated single pack since 2026-10-29 — the former pqc-signatures-security pack merged here.
 ---
 
 # PQC Secrets Management Agent Skill
