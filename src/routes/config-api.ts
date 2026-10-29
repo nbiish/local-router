@@ -45,6 +45,9 @@ import { getExpertLogs, importExpertLogs, clearExpertLogs, analyzeLogs } from '.
 
 export interface ConfigApiDeps {
   agentProxyConfig?: AgentProxyConfig;
+  persistPqcSecrets: () => { ok: boolean; persisted: number; error?: string };
+  pqcStatusReport: () => any;
+  pqcResync: () => { ok: boolean; loaded: string[]; skipped: string[]; error?: string; loadedProviderCount: number };
   state: {
     customProviderStore: CustomProviderRecord[];
     thinkingProxyEnabled: boolean;
@@ -57,7 +60,6 @@ export interface ConfigApiDeps {
   
   getProviderSummary: (name: string) => ProviderSummary | undefined;
   setProviderKeyForEnvVar: (envVar: string, val: string) => void;
-  persistPqcSecrets: () => void;
   providerSummariesForEnvVar: (envVar: string) => ProviderSummary[];
   DEFAULT_OLLAMA_API_KEY: string;
   clearProviderKeyForProvider: (provider: string) => void;
@@ -157,6 +159,8 @@ export function registerConfigApiRoutes(app: express.Express, deps: ConfigApiDep
     getProviderSummary,
     setProviderKeyForEnvVar,
     persistPqcSecrets,
+    pqcStatusReport,
+    pqcResync,
     providerSummariesForEnvVar,
     DEFAULT_OLLAMA_API_KEY,
     clearProviderKeyForProvider,
@@ -315,7 +319,10 @@ app.post('/api/keys', async (req: Request, res: Response) => {
     }
 
     setProviderKeyForEnvVar(summary.keyEnvVar, keyValue);
-    persistPqcSecrets();
+    const persistence = persistPqcSecrets();
+    if (!persistence.ok) {
+      console.warn(`[PQC] Key saved in memory but bundle persistence failed: ${persistence.error || 'unknown error'}`);
+    }
 
     // Best-effort live model discovery now that this provider holds a key.
     // OAuth providers authenticate through their own flow and are skipped.
@@ -338,6 +345,8 @@ app.post('/api/keys', async (req: Request, res: Response) => {
       keyEnvVar: summary.keyEnvVar,
       configured: true,
       configuredSource: 'memory',
+      persisted: persistence.ok,
+      ...(persistence.ok ? {} : { warning: `Key is active in memory but could not be persisted to the PQC bundle: ${persistence.error || 'unknown error'}` }),
       sharedProviders: providerSummariesForEnvVar(summary.keyEnvVar).map((entry) => entry.name),
       discovered
     });
@@ -355,9 +364,13 @@ app.post('/api/keys', async (req: Request, res: Response) => {
     updatedLegacyProvider = true;
   }
   if (updatedLegacyProvider) {
-    persistPqcSecrets();
+    const persistence = persistPqcSecrets();
     writeProviderEndpointsDoc();
-    return res.json({ success: true });
+    return res.json({
+      success: true,
+      persisted: persistence.ok,
+      ...(persistence.ok ? {} : { warning: `Key is active in memory but could not be persisted: ${persistence.error || 'unknown error'}` })
+    });
   }
 
   return res.status(400).json({ error: 'Expected { provider, apiKey } request body.' });
@@ -1643,6 +1656,22 @@ app.get('/api/env', (req: Request, res: Response) => {
   return res.json(envs);
 });
 
+// ── PQC secrets diagnostics ───────────────────────────────────────────────
+// Names and mappings only — never values. This is the endpoint that answers
+// "I packed the key, why does the router say no key?".
+app.get('/api/pqc/status', (req: Request, res: Response) => {
+  try {
+    return res.json({ ok: true, ...pqcStatusReport() });
+  } catch (error: any) {
+    return res.status(500).json({ error: sanitizeDiagnosticText(String(error?.message || error)) });
+  }
+});
+
+app.post('/api/pqc/resync', (req: Request, res: Response) => {
+  const result = pqcResync();
+  return res.status(result.ok ? 200 : 500).json(result);
+});
+
 // ── System Prompt ──
 app.get('/api/system-prompt', (req: Request, res: Response) => {
   return res.json({
@@ -1939,3 +1968,4 @@ app.get('/api/version', async (req: Request, res: Response) => {
 });
 
 }
+
