@@ -76,14 +76,21 @@ function pqcBin() {
 
 function listSecretNames(dir, bin) {
   const env = { ...process.env, PQC_CONFIG_DIR: dir };
-  const isCmd = process.platform === 'win32' && /\.(cmd|bat)$/i.test(bin);
-  const output = isCmd
-    ? execFileSync(process.env.ComSpec || 'cmd.exe', ['/d', '/s', '/c', `"${bin}" list`], {
-        encoding: 'utf8',
-        env,
-        timeout: 120000
-      })
-    : execFileSync(bin, ['list'], { encoding: 'utf8', env, timeout: 120000 });
+  const script = path.join(root, '.agents', 'skills', 'pqc-secrets', 'scripts', 'pqc_secrets.py');
+  if (process.platform === 'win32') {
+    if (fs.existsSync(script)) {
+      try {
+        return parseNames(execFileSync('uv', ['run', script, 'list'], { encoding: 'utf8', env, timeout: 120000 }));
+      } catch {
+        // Fall through to the batch dispatcher.
+      }
+    }
+    return parseNames(execFileSync(bin, ['list'], { encoding: 'utf8', env, timeout: 120000, shell: true }));
+  }
+  return parseNames(execFileSync(bin, ['list'], { encoding: 'utf8', env, timeout: 120000 }));
+}
+
+function parseNames(output) {
   const names = [];
   for (const line of String(output || '').split(/\r?\n/)) {
     const match = line.match(/^\s{2,}([A-Z0-9_]+)\s*$/);
