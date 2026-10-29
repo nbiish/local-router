@@ -1,0 +1,6 @@
+ok    bsk home writable            C:\Users\kenwa\.bsk
+ok    agent skill up to date       up to date in 8 harness(es)
+ok    daemon running               pid 48440 at ws://127.0.0.1:52800 (sock \\.\pipe\bsk-daemon-241153ee80759f28)
+ok    protocol compatible          daemon protocol 1.1 (app 0.2.1)
+ok    extension connected          1 browser(s) connected
+ok    browser protocol compatible  all 1 online browser(s) are compatible with the daemon
