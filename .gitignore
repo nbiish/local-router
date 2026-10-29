@@ -180,10 +180,10 @@ audit.log.*
 example-repos/
 node_modules
 router-settings.json
+src-tauri/gen/
+src-tauri/target/
 src/**/*.d.ts
 src/**/*.d.ts.map
 src/**/*.js
 src/**/*.js.map
-src-tauri/gen/
-src-tauri/target/
 
