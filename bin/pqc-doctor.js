@@ -112,23 +112,25 @@ function storeDirs(options) {
   }
 
   if (process.platform === 'win32' && options.wsl) {
-    for (const prefix of ['\\\\wsl.localhost\\', '\\\\wsl$\\']) {
-      let distros = [];
+    let distros = [];
+    try {
+      const raw = execFileSync('wsl.exe', ['-l', '-q'], { encoding: 'utf16le', timeout: 5000 });
+      distros = raw.replace(/\0/g, '').split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+    } catch {
+      distros = [];
+    }
+    for (const distro of distros) {
+      const homeRoot = `\\\\wsl.localhost\\${distro}\\home`;
+      let homes = [];
       try {
-        distros = fs.readdirSync(prefix, { withFileTypes: true }).filter((entry) => entry.isDirectory()).map((entry) => entry.name);
+        homes = fs.readdirSync(homeRoot, { withFileTypes: true })
+          .filter((entry) => entry.isDirectory())
+          .map((entry) => entry.name);
       } catch {
         continue;
       }
-      for (const distro of distros) {
-        let homes = [];
-        try {
-          homes = fs.readdirSync(path.join(prefix, distro, 'home'), { withFileTypes: true }).filter((entry) => entry.isDirectory()).map((entry) => entry.name);
-        } catch {
-          continue;
-        }
-        for (const home of homes) {
-          push(path.join(prefix, distro, 'home', home, '.config', 'pqc-secrets'));
-        }
+      for (const home of homes) {
+        push(path.join(homeRoot, home, '.config', 'pqc-secrets'));
       }
     }
   }
