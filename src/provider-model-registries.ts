@@ -597,7 +597,10 @@ export const PROVIDER_MODEL_REGISTRY: Record<string, RegistryModelEntry[]> = {
   ],
   'nebius': [
     { id: 'deepseek-ai/DeepSeek-V4-Pro', contextLength: 1000000, outputTokens: 384000, supportsTools: true, tier: 'paid' },
-    { id: 'deepseek-ai/DeepSeek-V4-Flash-0731', tier: 'paid', note: 'Replaces DeepSeek-V4-Flash (2026-08-31)' },
+    { id: 'deepseek-ai/DeepSeek-V4-Flash-0731', contextLength: 1048576, outputTokens: 384000, supportsTools: true, tier: 'paid', note: 'Replaces DeepSeek-V4-Flash (2026-08-31)' },
+    { id: 'deepseek-ai/DeepSeek-V4.1-Flash', contextLength: 1048576, outputTokens: 384000, supportsTools: true, tier: 'paid', note: 'Same limits as DeepSeek-V4.1-Flash elsewhere (2026-10-29)' },
+    { id: 'zai-org/GLM-5.3', contextLength: 1048576, outputTokens: 131072, supportsTools: true, tier: 'paid' },
+    { id: 'zai-org/GLM-5.3-Flash', contextLength: 1048576, outputTokens: 131072, supportsTools: true, supportsImages: true, tier: 'paid' },
     { id: 'moonshotai/Kimi-K3', contextLength: 1048576, outputTokens: 8000, supportsTools: true, tier: 'paid' },
     { id: 'moonshotai/Kimi-K2.7-Code', contextLength: 262144, outputTokens: 8000, supportsTools: true, tier: 'paid' },
     { id: 'MiniMaxAI/MiniMax-M3', contextLength: 1048576, outputTokens: 1048576, supportsTools: true, tier: 'paid' },
@@ -1143,6 +1146,12 @@ export const PROVIDER_MODEL_REGISTRY: Record<string, RegistryModelEntry[]> = {
     { id: 'muse-spark-1.2-contributor', contextLength: 1048576, outputTokens: 131072, tier: 'subscription' },
   ],
   'opencode-zen': [
+    { id: 'glm-5.3', contextLength: 1000000, outputTokens: 131072, tier: 'paid' },
+    { id: 'glm-5.3-flash', contextLength: 1048576, outputTokens: 131072, tier: 'paid', note: 'Live-discovery row recovered at 64K; docs.z.ai limits (2026-10-29)' },
+    { id: 'gemini-3.8-flash', contextLength: 1048576, outputTokens: 65536, tier: 'paid' },
+    { id: 'deepseek-v4-flash-vision-exp', contextLength: 1048576, outputTokens: 384000, supportsImages: true, tier: 'paid' },
+    { id: 'deepseek-v4-flash-0731', contextLength: 1048576, outputTokens: 384000, tier: 'paid' },
+    { id: 'ling-3.0-flash-fin-free', contextLength: 262144, outputTokens: 32768, tier: 'free' },
     { id: 'claude-fable-5', contextLength: 1000000, outputTokens: 128000, tier: 'paid', note: '$10/$50 per 1M' },
     { id: 'claude-opus-5', contextLength: 1000000, outputTokens: 128000, tier: 'paid', note: '$5/$25' },
     { id: 'claude-opus-4-8', contextLength: 1000000, outputTokens: 128000, tier: 'paid', note: '$5/$25' },
@@ -1327,6 +1336,9 @@ export const PROVIDER_MODEL_REGISTRY: Record<string, RegistryModelEntry[]> = {
     { id: 'MiniMax-M3', contextLength: 1000000, outputTokens: 512000, supportsTools: true, supportsImages: true, tier: 'paid', note: 'Chat-proven; routed/allowlist model' },
   ],
   'xiaomi-mimo': [
+    { id: 'mimo-v2.6-pro', contextLength: 1050000, outputTokens: 131072, supportsTools: true, supportsImages: true, tier: 'subscription', note: 'Text/image/video/audio input; OpenRouter metadata (2026-10-29)' },
+    { id: 'mimo-v2.6-flash', contextLength: 1050000, outputTokens: 131072, supportsTools: true, supportsImages: true, tier: 'subscription', note: 'Text/image/video/audio input; OpenRouter metadata (2026-10-29)' },
+    { id: 'mimo-v2.6-pro-ultraspeed', contextLength: 1048576, outputTokens: 131072, supportsTools: true, supportsImages: true, tier: 'subscription', note: 'Low-latency V2.6 Pro; OpenRouter metadata (2026-10-29)' },
     { id: 'mimo-v2.5-pro', contextLength: 1000000, outputTokens: 131072, supportsTools: true, tier: 'subscription', note: 'Text-only; 100 RPM / 10M TPM' },
     { id: 'mimo-v2.5', contextLength: 1000000, outputTokens: 131072, supportsTools: true, supportsImages: true, tier: 'subscription', note: 'Full-modal: image/audio/video input' },
     { id: 'mimo-v2.5-asr', contextLength: 8192, outputTokens: 2048, tier: 'subscription', note: 'Speech recognition; billed by audio-hours' },
@@ -1335,6 +1347,8 @@ export const PROVIDER_MODEL_REGISTRY: Record<string, RegistryModelEntry[]> = {
     { id: 'mimo-v2.5-tts-voicedesign', contextLength: 8192, outputTokens: 8192, tier: 'subscription' },
   ],
   'zai': [
+    { id: 'glm-5.3-flash', contextLength: 1048576, outputTokens: 131072, supportsTools: true, supportsImages: true, tier: 'subscription', note: 'Context 1M / output 128K; video/image/file input; docs.z.ai (2026-10-29)' },
+    { id: 'glm-5.3-flashx', contextLength: 1048576, outputTokens: 131072, supportsTools: true, supportsImages: true, tier: 'subscription', note: 'Same limits as glm-5.3-flash; docs.z.ai (2026-10-29)' },
     { id: 'glm-5.3', contextLength: 1000000, outputTokens: 131072, supportsTools: true, tier: 'subscription', note: 'Always-reasoning; effort low/high/max; 1M via glm-5.3[1m]' },
     { id: 'glm-5.2', contextLength: 1000000, outputTokens: 131072, supportsTools: true, tier: 'subscription' },
     { id: 'glm-5.1', contextLength: 200000, outputTokens: 131072, supportsTools: true, tier: 'subscription' },
