@@ -3714,28 +3714,28 @@ function getPqcConfigDirCandidates(): string[] {
   // share. Off by default because a stopped distro can stall the boot; enable
   // with LOCAL_ROUTER_PQC_SCAN_WSL=1 when keys are packed inside WSL.
   if (process.platform === 'win32' && process.env.LOCAL_ROUTER_PQC_SCAN_WSL === '1') {
-    for (const prefix of ['\\\\wsl.localhost\\', '\\\\wsl$\\']) {
+    // Enumerate distros through wsl.exe: Windows cannot list the bare
+    // \\wsl.localhost server root, only a distro share.
+    let distros: string[] = [];
+    try {
+      const raw = execFileSync('wsl.exe', ['-l', '-q'], { encoding: 'utf16le', timeout: 5000 });
+      distros = raw.replace(/\0/g, '').split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+    } catch {
+      distros = [];
+    }
+    for (const distro of distros) {
+      const homeRoot = `\\\\wsl.localhost\\${distro}\\home`;
+      let homes: string[] = [];
       try {
-        const distros = fs.readdirSync(prefix, { withFileTypes: true })
+        homes = fs.readdirSync(homeRoot, { withFileTypes: true })
           .filter((entry) => entry.isDirectory())
           .map((entry) => entry.name);
-        for (const distro of distros) {
-          const homeRoot = path.join(prefix, distro, 'home');
-          let homes: string[] = [];
-          try {
-            homes = fs.readdirSync(homeRoot, { withFileTypes: true })
-              .filter((entry) => entry.isDirectory())
-              .map((entry) => entry.name);
-          } catch {
-            continue;
-          }
-          for (const home of homes) {
-            const wslDot = path.join(homeRoot, home, '.config', 'pqc-secrets');
-            if (fs.existsSync(wslDot) && !candidates.includes(wslDot)) candidates.push(wslDot);
-          }
-        }
       } catch {
-        // WSL share unavailable (distro stopped or WSL disabled).
+        continue;
+      }
+      for (const home of homes) {
+        const wslDot = path.join(homeRoot, home, '.config', 'pqc-secrets');
+        if (fs.existsSync(wslDot) && !candidates.includes(wslDot)) candidates.push(wslDot);
       }
     }
   }
