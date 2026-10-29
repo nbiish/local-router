@@ -32,7 +32,7 @@ function parseArgs(argv) {
   const options = {
     json: false,
     local: false,
-    wsl: false,
+    wsl: process.platform === 'win32',
     strict: false,
     port: process.env.PORT || '11434'
   };
@@ -40,6 +40,7 @@ function parseArgs(argv) {
     if (token === '--json') options.json = true;
     else if (token === '--local') options.local = true;
     else if (token === '--wsl') options.wsl = true;
+    else if (token === '--no-wsl') options.wsl = false;
     else if (token === '--strict') options.strict = true;
     else if (token.startsWith('--port=')) options.port = token.split('=')[1];
   }
@@ -104,7 +105,9 @@ function storeDirs(options) {
   const push = (dir) => {
     if (dir && fs.existsSync(dir) && !dirs.includes(dir)) dirs.push(dir);
   };
-  if (process.env.PQC_CONFIG_DIR) push(process.env.PQC_CONFIG_DIR);
+  if (process.env.PQC_CONFIG_DIR || process.env.PQC_SECRETS_DIR) {
+    push(process.env.PQC_CONFIG_DIR || process.env.PQC_SECRETS_DIR);
+  }
   push(path.join(os.homedir(), '.config', 'pqc-secrets'));
   push(path.join(os.homedir(), 'config', 'pqc-secrets'));
   for (const raw of String(process.env.LOCAL_ROUTER_PQC_EXTRA_DIRS || '').split(/[;:]/)) {
