@@ -140,3 +140,14 @@ description: Agent Communication System protocol template. Deployed by `ainish-c
 - output: re-deployed from WSL selection (which still had skills-selection.json after the Windows ~/.config loss), restoring production-security and question-me and refreshing the COMMS provenance protocol; AGENTS.md sha matches root 97701b66
 - status:verifying
 - blockers:none
+### [2026-10-29T18:20:00Z] CHECKOUT | branch:chore/rules-round20-deploy | wt:D:\Code\rules-round20-deploy
+- start:2026-10-29T18:14:00Z
+- end:2026-10-29T18:20:00Z
+- provenance:source_commit=932b37b115af00a2a64b6234014cb6488826da6e manifest_sha256=e62ca10d1439605847532365e159d71fa2127d8130ab36284918cf7545f91015
+- scope:.agents/skills, .agents/ainish-deploy.json(.sig), .agents/skills/.ainish-source, .agents/comms
+- triage:now
+- objective: merge the contract deploy and leave the tree clean
+- input: worktree commit 36e97de; merge 1f242ed fired the target post-merge hook
+- output: merged; the hook re-ran the Windows-side deploy with NO selection key for /d/Code/local-router, so it deployed all 21 root packs and re-stamped the manifest to /d. Removed the 17 unselected packs, copied the operator's skills-selection.json from WSL and added the /d/Code/local-router key, then committed the Windows-view manifest (+ .sig) so the hook's up-to-date check is satisfied and future merges stay quiet. Durable fix belongs in ainish-coder: an unknown target path must not default to ALL packs.
+- status:merged
+- blockers:none
