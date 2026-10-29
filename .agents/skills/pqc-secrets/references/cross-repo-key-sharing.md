@@ -37,6 +37,40 @@ keypair, one stable wrapping key, and zero plaintext on disk.
 - **No per-repo keys.** A key added once is immediately available to every
   repo, project, and shell session that reads the bundle.
 
+## Distribution across toolchains
+
+The bundle is shared; the *engine* used to be copied by hand. Since 2026-10-29
+ainish-coder distributes it:
+
+```bash
+ainish-coder --pqc-install --json          # launcher on PATH (+ Windows .cmd, WSL mirroring)
+ainish-coder --pqc-status --json           # store per environment + target drift
+ainish-coder --pqc-sync-targets --all      # refresh enrolled repos' vendored engine
+```
+
+| Question | Command | What it proves |
+|---|---|---|
+| Does *this* tool see the store? | `pqc-secrets store --json` | resolved path, `source` (`home`, `host-interop`, `isolated`, `env`), bundle presence, key names |
+| Is the launcher installed here? | `ainish-coder --pqc-status --json` → `launcher` | path, `installed`, `onPath` |
+| Does Windows see the WSL store? | `--pqc-status` → `wsl` | `store` + `source` from the WSL engine |
+| Is every repo current? | `--pqc-status` → `targets[]` | `current`/`stale`/`missing` + per-repo selection |
+
+`--pqc-install` resolves the engine from `AINISH_PQC_ENGINE`, then
+`AINISH_PQC_ROOT`, then `~/.config/ainish-coder/pqc-root` — never from the
+current directory — so a tool can call `pqc-secrets` from any cwd. It only
+generates the identity when no bundle resolves, and on Windows it never
+overwrites a working WSL launcher (that checkout may be a different clone).
+
+`--pqc-sync-targets` honours the per-repo skills selection: a repo that
+deselected `pqc-secrets` is reported `deselected` and left untouched, so
+distribution cannot silently override an operator's choice. `--pqc-status`
+exits 1 only for a *stale* engine or a *required* target missing one, which
+makes it usable as a CI gate.
+
+**Drift is a digest comparison**, not a version string: every target's
+`scripts/pqc_secrets.py` is hashed against the source engine. A target is
+`current` only on an exact match, so a partial copy is never reported healthy.
+
 ## How keys are shared across repos
 
 Because all repos point at one bundle, a key added through any of them is

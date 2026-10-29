@@ -31,6 +31,46 @@ AI agents using this skill are equipped to:
 
 ---
 
+## 0. Distribution: one engine, every toolchain
+
+The engine ships in this skill pack and is installed once per machine, so any
+caller — node, python, bash, PowerShell, a build script, a DAW tool — reaches
+the **same** store through the **same** CLI:
+
+```bash
+ainish-coder --pqc-install              # installs ~/.local/bin/pqc-secrets (+ .cmd on Windows)
+ainish-coder --pqc-status --json        # what store does each environment resolve?
+ainish-coder --pqc-sync-targets --all   # refresh every enrolled repo's vendored engine
+```
+
+- `--pqc-install` writes a launcher that resolves the engine from
+  `AINISH_PQC_ENGINE`, `AINISH_PQC_ROOT`, or `~/.config/ainish-coder/pqc-root`
+  (never from the current directory), records the root, generates the
+  ML-KEM-768 identity only when no bundle exists, and — on Windows — verifies
+  or provisions the WSL side (`--no-wsl` opts out). Re-run it after moving the
+  checkout; the marker is the only thing that changes.
+- `--pqc-status` prints the engine digest and build date, the launcher's PATH
+  visibility, the store each environment resolves (native + WSL, including
+  `host-interop`), and every enrolled target as `current`/`stale`/`missing`
+  with its per-repo selection. It exits 1 when a target's vendored engine is
+  stale or a required target has none, so CI fails closed.
+- `--pqc-sync-targets` copies this skill pack (and `bin/pqc-secrets[.cmd]` when
+  the target has a `bin/`) into every enrolled target, skips repos that
+  deselected the pack, and re-hashes the copy before reporting success.
+
+**Store resolution is shared by design:** `PQC_CONFIG_DIR` / `PQC_SECRETS_DIR`
+wins; otherwise WSL reads the Windows host store and Windows falls back to a
+WSL store only when it has no local bundle (`PQC_STORE_ISOLATED=1` opts out).
+`pqc-secrets store --json` is the "am I on the same system?" probe and reports
+the resolved path, source, and key names (never values).
+
+**Naming:** write keys under the consuming tool's prefix
+(`LOCALROUTER_*_API_KEY`, `AINISHCODER_*_API_KEY`). Readers accept the
+canonical prefix, the legacy underscore form, provider-slug names, and plain
+env names, but the canonical name is what survives a rename.
+
+---
+
 ## 1. Core Philosophy: Zero Plaintext on Disk
 
 Traditional secrets management relies heavily on plaintext `.env` files or insecure environment variables. Under the PQC mandate:
