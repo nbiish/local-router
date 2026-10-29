@@ -142,6 +142,12 @@ audit.log.*
 # Local pqc-sign public keys (used for verification, not for committing)
 .pqc-keys/*.priv
 .pqc-keys/*.sk
+.agents/audit/*.priv
+.agents/audit/*.sk
+.agents/audit/keys/*.priv
+.agents/audit/keys/*.sk
+**/*.priv
+**/*.sk
 
 # Hermes / agent plan and context directories (auto-injected by
 # subdirectory context discovery — never intended for git)
@@ -153,6 +159,16 @@ audit.log.*
 # Agent COMMS live board — in-flight coordination, never committed.
 # The daily team ledger .agents/comms/{date}-team.txt IS committed; this sidecar is not.
 .agents/comms/*-team.live.txt
+
+# Multimodal RAG local vector store and runtime process PID
+.agents/rag/
+
+# Rules auto-sync runtime artifacts (manifest and sync script ARE committed)
+.agents/ainish-sync.log
+.agents/.rules-sync.lock/
+
+# Compiled native binaries (built locally via cargo or distributed wrappers)
+*.exe
 
 # ═══════════════════════════════════════════════════════════════════════════
 # Project-specific patterns (preserved from existing .gitignore)

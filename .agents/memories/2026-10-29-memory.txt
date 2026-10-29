@@ -11,3 +11,10 @@
 - 17:00 Windows cannot list the bare \\wsl.localhost root; enumerate distros with `wsl.exe -l -q` (UTF-16LE) before reading \\wsl.localhost\<distro>\home\*.
 - 17:02 Real state: Windows bundle has LOCALROUTER_TEST_VENDOR_API_KEY + LOCAL_ROUTER_DOT_COM_ADMIN_TOKEN, WSL bundle has LOCAL_ROUTER_DOT_COM_ADMIN_TOKEN; no provider keys are packed anywhere yet.
 - 17:04 POST /api/keys keeps configuredSource 'memory' for contract compatibility and adds persisted:true/false plus warning on bundle failure.
+- 14:05 e2e on a temp store proved the merged save path: persisted:true, bundle holds LOCALROUTER_ZAI_API_KEY, a foreign OTHER_TOOL_KEY survives, no alias row (src/index.ts persistPqcSecrets).
+- 14:08 The 13:05 Windows router instance (PID 1256) answered 11434 with an empty store (23 curated / 2,006 cache / 0 keys) while the real store sat in WSL (73 / 2,706 / 20-step chain); production now runs in WSL again (PID 119690, build 9f94503).
+- 14:09 A completion on 11434 cascades the real chain and fails only on the two keyless CLI bridges (Copilot/Cursor auth) — chain proof without provider keys.
+- 14:10 No bundle in any environment holds provider API keys: WSL has LOCAL_ROUTER_DOT_COM_ADMIN_TOKEN only. Keys must be re-entered once in /config; the save now persists and verifies.
+- 14:11 Windows C:\Users\kenwa\.config was recreated 13:35:38 local (health.json write) — the earlier contents (pqc-secrets, ainish-coder fleet registry + skills selection, local-router stores) are gone; exact deleter not provable from event logs (process auditing off, no Prefetch entries).
+- 14:13 Deploy from WSL selection restored production-security + question-me; a Windows-side headless deploy has no selection (post-wipe) and would deploy the wrong pack set — run --rules from the environment that owns ~/.config/ainish-coder.
+- 14:14 D:\Code\pqc-store-integration left 11 modified files + .pqc-e2e/ (private.key.enc + bundle) uncommitted since 13:30; committed as e35c2f9 and the artifact removed — repo-local PQC stores must never be created (use %TEMP%).

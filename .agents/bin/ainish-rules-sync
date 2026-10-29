@@ -1,0 +1,60 @@
+#!/bin/sh
+# Managed by ainish-coder. Refreshes this repository's agent rules when the
+# ainish-coder source contract advances. Safe no-op when already current.
+set -u
+ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/../.." 2>/dev/null && pwd) || exit 0
+MANIFEST="$ROOT/.agents/ainish-deploy.json"
+LOG="$ROOT/.agents/ainish-sync.log"
+QUIET=0
+[ "${1:-}" = "--quiet" ] && QUIET=1
+[ -f "$MANIFEST" ] || exit 0
+
+field() {
+    sed -n "s/^[[:space:]]*\"$1\":[[:space:]]*\"\([^\"]*\)\".*/\1/p" "$MANIFEST" 2>/dev/null | head -n 1
+}
+
+SRC=$(field source_repo)
+DEPLOYED_COMMIT=$(field source_commit)
+DEPLOYED_SHA=$(field source_agents_sha256)
+[ -n "$SRC" ] || exit 0
+
+CUR_SHA=""
+sha_of() {
+    if command -v sha256sum >/dev/null 2>&1; then
+        sha256sum "$1" 2>/dev/null | awk '{print $1}'
+    elif command -v shasum >/dev/null 2>&1; then
+        shasum -a 256 "$1" 2>/dev/null | awk '{print $1}'
+    elif command -v openssl >/dev/null 2>&1; then
+        openssl dgst -sha256 "$1" 2>/dev/null | awk '{print $NF}'
+    fi
+}
+
+CURRENT_COMMIT=""
+if command -v git >/dev/null 2>&1 && [ -d "$SRC/.git" ]; then
+    CURRENT_COMMIT=$(git -C "$SRC" rev-parse HEAD 2>/dev/null || true)
+fi
+
+UP_TO_DATE=0
+if [ -n "$CURRENT_COMMIT" ] && [ "$CURRENT_COMMIT" = "$DEPLOYED_COMMIT" ]; then
+    UP_TO_DATE=1
+elif [ -z "$CURRENT_COMMIT" ] && [ -f "$SRC/AGENTS.md" ]; then
+    CUR_SHA=$(sha_of "$SRC/AGENTS.md")
+    [ -n "$CUR_SHA" ] && [ "$CUR_SHA" = "$DEPLOYED_SHA" ] && UP_TO_DATE=1
+fi
+[ "$UP_TO_DATE" = "1" ] && exit 0
+
+CLI="$SRC/bin/ainish-coder"
+[ -x "$CLI" ] || CLI=$(command -v ainish-coder 2>/dev/null || true)
+[ -n "$CLI" ] || exit 0
+
+LOCK="$ROOT/.agents/.rules-sync.lock"
+mkdir "$LOCK" 2>/dev/null || exit 0
+trap 'rmdir "$LOCK" 2>/dev/null || true' EXIT INT TERM HUP
+
+[ "$QUIET" = "1" ] || printf '[ainish-rules-sync] refreshing rules from %s\n' "$SRC"
+if AINISH_RULES_SYNC_ACTIVE=1 "$CLI" --rules "$ROOT" --headless -y >>"$LOG" 2>&1; then
+    [ "$QUIET" = "1" ] || printf '[ainish-rules-sync] rules refreshed\n'
+else
+    printf '[ainish-rules-sync] refresh failed; see %s\n' "$LOG" >&2
+fi
+exit 0
