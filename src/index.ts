@@ -74,6 +74,12 @@ import {
   PROVIDER_MODEL_REGISTRY,
   providerHasNoLiveModelList
 } from './provider-model-registries';
+import {
+  pickBaselineModel,
+  readContextHint,
+  readOutputHint,
+  reconcileModelMetadata
+} from './model-metadata';
 import { catalogProviderSummaries } from './provider-registry';
 import { loadCurationConfigs, loadRouterSettings, ROUTER_SETTINGS_PATH, saveRouterSettings, loadAgentProxyConfig, AgentProxyConfig } from './config-persistence';
 import { normalizeGatewayChatCompletionBody } from './gateway-response';
@@ -2092,76 +2098,40 @@ function mapLiveRawModelsToCatalog(
   providerName: string,
   rawModels: Array<{ id: string; [key: string]: unknown }>
 ): ProviderModel[] {
-  const baselineModels = rawProviderCacheModels(providerName);
+  // Metadata precedence (2026-10-29): curated registry > previously cached
+  // live data. The cache used to be the only baseline, so a model first seen
+  // without upstream limits stayed at the 64K default forever and registry
+  // knowledge could never correct it.
+  const cachedBaselines = rawProviderCacheModels(providerName);
+  const registryBaselines: ProviderModel[] = (PROVIDER_MODEL_REGISTRY[providerName] || []).map((entry) => ({
+    id: entry.id,
+    provider: providerName,
+    model: entry.id,
+    display: providerModelDisplay(providerName, entry.id),
+    contextLength: entry.contextLength ?? 0,
+    outputTokens: entry.outputTokens ?? 0,
+    supportsTools: entry.supportsTools ?? true,
+    supportsImages: entry.supportsImages ?? false,
+    supportsCache: entry.supportsCache ?? false,
+    supportsReasoning: entry.supportsReasoning ?? false,
+    tier: entry.tier,
+    sourceUrl: entry.sourceUrl
+  }));
+  const baselineModels = [...registryBaselines, ...cachedBaselines];
   const providerModels: ProviderModel[] = [];
-
-  // Provider metadata hints (2026-09-04): accept every common upstream shape
-  // (OpenAI, OpenRouter, vLLM, llama.cpp, Ollama payloads). Nested paths cover
-  // OpenRouter's top_provider.* and Ollama's model_info.*; providers that
-  // publish nothing fall back to the shared default window.
-  const numberHintPath = (raw: Record<string, unknown>, ...paths: string[]): number | undefined => {
-    for (const path of paths) {
-      let value: unknown = raw;
-      for (const segment of path.split('.')) {
-        value = (value && typeof value === 'object' && !Array.isArray(value))
-          ? (value as Record<string, unknown>)[segment]
-          : undefined;
-      }
-      if (typeof value === 'number' && Number.isFinite(value) && value > 0) return value;
-    }
-    return undefined;
-  };
-  const numberHintKeys = (raw: Record<string, unknown>, ...keys: string[]): number | undefined => {
-    for (const key of keys) {
-      const value = raw[key];
-      if (typeof value === 'number' && Number.isFinite(value) && value > 0) return value;
-    }
-    return undefined;
-  };
-  const contextHint = (raw: Record<string, unknown>): number | undefined =>
-    numberHintKeys(
-      raw,
-      'contextLength',
-      'context_length',
-      'max_model_len',
-      'max_context_length',
-      'context_window',
-      'context_window_tokens',
-      'max_sequence_length',
-      'max_input_tokens'
-    ) ?? numberHintPath(
-      raw,
-      'top_provider.context_length',
-      'model_info.context_length',
-      'limits.context_length',
-      'info.context_length',
-      'wafer.context_length'
-    );
-  const outputHint = (raw: Record<string, unknown>): number | undefined =>
-    numberHintKeys(
-      raw,
-      'outputTokens',
-      'max_output_tokens',
-      'max_output_length',
-      'output_token_limit',
-      'max_completion_tokens',
-      'max_tokens_out'
-    ) ?? numberHintPath(
-      raw,
-      'top_provider.max_completion_tokens',
-      'limits.max_output_tokens',
-      'info.max_output_tokens',
-      'wafer.max_output_tokens'
-    );
 
   const usedPresentedIds = new Set<string>();
   for (const raw of rawModels) {
     const modelId = raw.id;
     const presentedId = makeUniquePresentedModelName(providerName, modelId, usedPresentedIds);
     usedPresentedIds.add(presentedId);
-    const matchingBaseline = baselineModels.find(
-      (baseline) => baseline.provider === providerName && baseline.model === modelId
-    );
+    const registryBaseline = pickBaselineModel(registryBaselines, modelId);
+    const cachedBaseline = pickBaselineModel(cachedBaselines, modelId);
+    // Prefer the registry row only when it actually carries limits; otherwise
+    // keep live-derived cached metadata.
+    const matchingBaseline = (registryBaseline && (registryBaseline.contextLength > 0 || registryBaseline.outputTokens > 0))
+      ? registryBaseline
+      : (cachedBaseline ?? registryBaseline);
 
     const booleanHint = (key: string, fallback: boolean): boolean => {
       const value = (raw as Record<string, unknown>)[key];
@@ -2211,8 +2181,8 @@ function mapLiveRawModelsToCatalog(
       providerModels.push({
         ...matchingBaseline,
         id: presentedId,
-        contextLength: contextHint(raw) ?? matchingBaseline.contextLength ?? DEFAULT_CONTEXT_LENGTH,
-        outputTokens: outputHint(raw) ?? matchingBaseline.outputTokens ?? DEFAULT_OUTPUT_TOKENS,
+        contextLength: readContextHint(raw) ?? matchingBaseline.contextLength ?? DEFAULT_CONTEXT_LENGTH,
+        outputTokens: readOutputHint(raw) ?? matchingBaseline.outputTokens ?? DEFAULT_OUTPUT_TOKENS,
         supportsImages: resolvedSupportsImages || Boolean(matchingBaseline.supportsImages),
         supportsReasoning: resolvedSupportsReasoning || Boolean(matchingBaseline.supportsReasoning),
         supportsTools: resolvedSupportsTools && (matchingBaseline.supportsTools ?? true)
@@ -2228,8 +2198,8 @@ function mapLiveRawModelsToCatalog(
       provider: providerName,
       model: modelId,
       display: providerModelDisplay(providerName, modelId),
-      contextLength: contextHint(raw) ?? DEFAULT_CONTEXT_LENGTH,
-      outputTokens: outputHint(raw) ?? DEFAULT_OUTPUT_TOKENS,
+      contextLength: readContextHint(raw) ?? DEFAULT_CONTEXT_LENGTH,
+      outputTokens: readOutputHint(raw) ?? DEFAULT_OUTPUT_TOKENS,
       tier,
       sourceUrl: stringHint('sourceUrl'),
       supportsTools: resolvedSupportsTools,
@@ -4517,6 +4487,7 @@ if (modelSourceConfig.defaultCurationConfig) {
 loadEndpointModelsCache();
 loadPersistedProviderModels();
 seedRegistryBaselines();
+reconcileRegistryMetadata();
 if (shouldServe) {
   startCatalogHealthMonitor();
 }
@@ -7122,7 +7093,11 @@ function seedRegistryBaselines(): void {
         // after boot, but never auto-curated — curation stays operator- and
         // fallback-healer-driven, otherwise every restart balloons the served
         // catalog back up to the full registry.
-        mergeProviderEndpointModels(slug, extras);
+        // Union, never replace (2026-10-29): passing only `extras` dropped
+        // every live-discovered model of that provider from the cache on each
+        // boot, which is how live-only variants lost their metadata.
+        const existing = endpointModelsCache.filter((m) => m.provider === slug);
+        mergeProviderEndpointModels(slug, [...existing, ...extras]);
         seeded += extras.length;
       }
     }
@@ -7134,6 +7109,47 @@ function seedRegistryBaselines(): void {
     }
   } catch (error: any) {
     console.error('[catalog] Registry baseline seed failed:', sanitizeDiagnosticText(String(error?.message || error)));
+  }
+}
+/**
+ * Fill default-window limits on cached models from curated registry rows.
+ *
+ * A provider that publishes no limits (z.ai's coding plan, Xiaomi's token
+ * plan) leaves new variants at the 64K default, and because the cache was
+ * also the mapping baseline that default survived every refresh. Registry
+ * knowledge now corrects defaults at boot; provider-specific live values are
+ * never overwritten.
+ */
+function reconcileRegistryMetadata(): number {
+  try {
+    let changed = 0;
+    for (const provider of Object.keys(PROVIDER_MODEL_REGISTRY)) {
+      const cached = endpointModelsCache.filter((model) => model.provider === provider);
+      if (cached.length === 0) continue;
+      const registryRows = (PROVIDER_MODEL_REGISTRY[provider] || []).map((entry) => ({
+        model: entry.id,
+        contextLength: entry.contextLength,
+        outputTokens: entry.outputTokens
+      }));
+      const result = reconcileModelMetadata({
+        models: cached,
+        registryRows,
+        defaultContextLength: DEFAULT_CONTEXT_LENGTH,
+        defaultOutputTokens: DEFAULT_OUTPUT_TOKENS
+      });
+      if (result.changed > 0) {
+        mergeProviderEndpointModels(provider, result.models);
+        changed += result.changed;
+      }
+    }
+    if (changed > 0) {
+      persistEndpointModelsCache();
+      console.log(`[catalog] Reconciled ${changed} cached model(s) with curated registry limits.`);
+    }
+    return changed;
+  } catch (error: any) {
+    console.error('[catalog] Registry metadata reconcile failed:', sanitizeDiagnosticText(String(error?.message || error)));
+    return 0;
   }
 }
 if (shouldServe) {
@@ -7294,3 +7310,4 @@ export {
   requestRequiresMultimodal,
   filterEligibleFallbackModels
 };
+
