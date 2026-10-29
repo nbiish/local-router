@@ -1,11 +1,11 @@
 ---
 name: pqc-secrets
-description: Post-quantum cryptography secrets management system for protecting API keys, tokens, and private data. Includes the passphrase-wrapped vault.pqc identity root (v1.2.0: ML-KEM-768 + ML-DSA-65 seeds under Argon2id, signed audit chain, TTL session holder), the 10 browser_secrets_* MCP tools (betterbrowsermcp v0.7.0+ rotates v0.8.0+), the append-only audit log at ~/.config/pqc-secrets/audit.log, and the PQC Rust binary (device-key issuance + signed cross-machine envelopes).
+description: Post-quantum cryptography secrets and integrity system for API keys, tokens, private data, and signed code. Covers the ML-KEM-768 + AES-256-GCM bundle, the passphrase-wrapped vault.pqc identity root (v1.2.0: ML-KEM-768 + ML-DSA-65 seeds under Argon2id, signed audit chain, TTL session holder), the 10 browser_secrets_* MCP tools (betterbrowsermcp v0.7.0+ rotates v0.8.0+), the append-only audit log at ~/.config/pqc-secrets/audit.log, the PQC Rust binary (device-key issuance + signed cross-machine envelopes), and ML-DSA-65 code signing/verification (references/signatures-security.md). Consolidated single pack since 2026-10-29 — the former pqc-signatures-security pack merged here.
 ---
 
 # PQC Secrets Management Agent Skill
 
-> **Companion skill:** [pqc-signatures-security](../pqc-signatures-security/SKILL.md) — ML-DSA-65 code signing, integrity verification, and secure coding patterns. Use both together for complete PQC coverage: this skill encrypts secrets at rest; pqc-signatures-security verifies code hasn't been tampered with.
+> **One pack, full PQC coverage (2026-10-29):** this pack carries both halves of the secured system — secrets at rest (this file + `references/`) and **code integrity** ([references/signatures-security.md](references/signatures-security.md): ML-DSA-65 keygen, signing, verification, anti-patterns, threat model). The former standalone `pqc-signatures-security` pack merged here so one distribution gives any repo the whole system.
 
 > **New in v0.8.0 (betterbrowsermcp):** `browser_secrets_rotate` tool
 > (data-key rotation, identity key stays), `secrets_get mode=plain|redact`,
