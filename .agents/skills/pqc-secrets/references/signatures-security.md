@@ -1,11 +1,9 @@
----
-name: pqc-signatures-security
-description: Expert instructions to implement and verify ML-DSA-65 post-quantum cryptographic signatures and agentic workflow security.
----
+# PQC signatures & repository security (ML-DSA-65)
 
-# PQC Signatures and Repository Security Agent Skill
-
-> **Companion skill:** [pqc-secrets](../pqc-secrets/SKILL.md) — API key encryption at rest via ML-KEM-768 + AES-256-GCM. Use both together for complete PQC coverage: pqc-secrets encrypts your secrets; this skill verifies your code integrity.
+> Part of the **pqc-secrets** skill. Secrets at rest (ML-KEM-768 + AES-256-GCM)
+> and code integrity (ML-DSA-65) ship as one pack so any repo gets the whole
+> secured system in a single copy. Return to [SKILL.md](../SKILL.md) for the
+> CLI, store resolution, and the write/verify protocol.
 
 This skill provides comprehensive instructions, blueprints, and reference code for implementing post-quantum cryptographic (PQC) signature verification and agentic security standards in any repository. 
 
@@ -471,8 +469,8 @@ the user can verify "did my agent sign/verify X at Y time?"
 
 ## §11 See also
 
-- [pqc-secrets](../pqc-secrets/SKILL.md) — companion skill for
-  symmetric encryption of secrets (uses ML-KEM-768 + AES-256-GCM)
+- [SKILL.md](../SKILL.md) — the pack entry point: CLI, store resolution, and
+  the write/verify protocol for secrets encrypted with ML-KEM-768 + AES-256-GCM
 - `references/pqc-sign-cli.md` — CLI reference (future work)
 - `references/signature-formats.md` — signature file formats
   (future work)
