@@ -353,14 +353,34 @@ Use the primary native Rust binary `bin/pqc-secrets` (or run the Python fallback
 | Step | Rust Command | Python Fallback Command | Description |
 |---|---|---|---|
 | **Keygen** | `bin/pqc-secrets keygen` | `uv run .agents/skills/pqc-secrets/scripts/pqc_secrets.py keygen` | Generates a new ML-KEM-768 keypair. Stores the private key in local encrypted file in FIPS 203 seed form, 64 bytes (system keychain if opted-in via `PQC_USE_KEYCHAIN=true`). Public key → `~/.config/pqc-secrets/recipient.pub`. |
-| **Pack** | `bin/pqc-secrets pack` | `uv run .agents/skills/pqc-secrets/scripts/pqc_secrets.py pack` | Reads `KEY=VAL` lines from stdin, encrypts via AES-256-GCM + ML-KEM-768, writes `secrets.bundle.json`. |
-| **Load** | `bin/pqc-secrets export` | `uv run .agents/skills/pqc-secrets/scripts/pqc_secrets.py export` | Decrypts bundle in-memory, outputs `export KEY=VALUE` lines. Use `secrets-load` shell function. |
+| **Pack** | `bin/pqc-secrets pack` | `uv run .agents/skills/pqc-secrets/scripts/pqc_secrets.py pack` | Reads `KEY=VAL` lines from stdin, encrypts via AES-256-GCM + ML-KEM-768, writes `secrets.bundle.json` atomically (backup kept). `pack --merge` preserves existing keys. |
+| **Set** | `bin/pqc-secrets set NAME=VALUE ...` | `uv run ... pqc_secrets.py set NAME=VALUE ...` | **Preferred upsert path (2026-10-29):** adds or rotates only the named keys and leaves every other entry untouched. Also accepts `--stdin` and `NAME VALUE`. This is what makes a store reusable across repos and platform iterations. |
+| **Del** | `bin/pqc-secrets del NAME ...` | `uv run ... pqc_secrets.py del NAME ...` | Removes only the named keys (idempotent; absent names are skipped), so tooling can reconcile its managed set without rewriting the bundle. |
+| **Store** | `bin/pqc-secrets store` | `uv run ... pqc_secrets.py store` | Prints the resolved store, its source (`env` / `host-interop` / `home` / `isolated`), platform, and key names — the cross-platform "same system?" check. |
+| **Load** | `bin/pqc-secrets export` | `uv run .agents/skills/pqc-secrets/scripts/pqc_secrets.py export` | Decrypts bundle in-memory, outputs `export KEY=VALUE` lines (`--json` for tooling). Use `secrets-load` shell function. |
 | **Verify** | `bin/pqc-secrets verify` | `uv run .agents/skills/pqc-secrets/scripts/pqc_secrets.py verify` | Verifies bundle can be decrypted, lists key names. |
-| **List** | `bin/pqc-secrets list` | `uv run ... pqc_secrets.py list` | Lists every secret **name** (never values), sorted — the inspection surface for what is set, what belongs to which tool prefix, and what needs renaming. |
+| **List** | `bin/pqc-secrets list` | `uv run ... pqc_secrets.py list` | Lists every secret **name** (never values), sorted — the inspection surface for what is set, what belongs to which tool prefix, and what needs renaming. `--json` emits `{bundle, count, names}`. |
 | **Rename** | `bin/pqc-secrets rename OLD NEW` | `uv run ... pqc_secrets.py rename OLD NEW` | Renames one secret **name** keeping its value; the previous bundle is backed up to `secrets.bundle.json.bak.<UTC>` first. Refuses to overwrite an existing name. |
 | **Rotate** | `bin/pqc-secrets keygen && bin/pqc-secrets pack` | `keygen && pack` | Generates new keypair and re-packs secrets under new public key. |
 | **Rewrap** | `bin/pqc-secrets rewrap --new-pub <path> --out <path>` | — | Re-encrypts bundle under a different public key without exposing plaintext. |
 | **Migrate** | `bin/pqc-secrets migrate` | `uv run ... pqc_secrets.py migrate` | Migrates keychain entry from old account name to new. |
+
+### Cross-environment store resolution (2026-10-29)
+
+Every platform resolves the store through one function, so PowerShell, WSL,
+Linux, and macOS tooling all agree on what "the system" is:
+
+1. `PQC_CONFIG_DIR`, then the contract alias `PQC_SECRETS_DIR` (explicit wins).
+2. Host interop: **WSL reads the Windows host store** (`/mnt/c/Users/<user>/.config/pqc-secrets`);
+   Windows reads its local store first and falls back to a WSL store only when
+   it has no local bundle. This makes a key set once visible from both sides
+   without copying bundles.
+3. `~/.config/pqc-secrets`.
+
+`PQC_STORE_ISOLATED=1` keeps per-environment stores (separate identities for
+intentional isolation). Check what any shell resolves with
+`pqc-secrets store --json`; the local-router server applies the same order and
+additionally scans both Windows and WSL stores on boot.
 
 ### Key Naming Convention (tool-relative prefixes)
 

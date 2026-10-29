@@ -142,3 +142,57 @@ exits.
 - `references/pqc-secrets-cli.md` — CLI reference
 - `references/agent-integration.md` — wiring into Claude Code, Hermes, etc.
 - `SKILL.md` §2 Infrastructure Architecture
+
+## Cross-environment access (WSL ↔ Windows ↔ macOS ↔ Linux, 2026-10-29)
+
+The one-system principle used to stop at an OS boundary: a WSL shell and a
+PowerShell session each had their own `~/.config/pqc-secrets`, so a key packed
+on one side was invisible to the other. The engine now resolves one store per
+machine and reports it:
+
+```bash
+pqc-secrets store --json
+# {"store":"/mnt/c/Users/kenwa/.config/pqc-secrets","source":"host-interop",
+#  "platform":"wsl","bundleExists":true,"keyCount":14,...}
+```
+
+Resolution order:
+
+1. `PQC_CONFIG_DIR` (or the contract alias `PQC_SECRETS_DIR`) — explicit wins.
+2. Host interop: **WSL reads the Windows host store**; Windows reads its local
+   store first, then falls back to a WSL store when it has no local bundle.
+   On macOS/Linux the user store is the store.
+3. `~/.config/pqc-secrets`.
+
+`PQC_STORE_ISOLATED=1` keeps per-environment stores when separate identities are
+intentional (for example a throwaway test store).
+
+Practical consequences:
+
+- `pqc-secrets set LOCALROUTER_ZAI_API_KEY=...` from PowerShell is immediately
+  visible to `pqc-secrets export` in WSL (and vice versa) **because both point
+  at the same bundle**, not because anything was copied.
+- A store is still one ML-KEM-768 identity. If you deliberately keep two
+  stores, `pqc-secrets sync --from <dir> --to <dir>` re-packs values under each
+  store's own identity; `--stdout | ssh host 'sync --stdin --to ...'` is the
+  remote lane.
+- `pqc-secrets store --json` is the first diagnostic when a tool claims a key is
+  missing: compare `store`/`source` across the two shells before re-packing.
+- The local-router server applies the same resolution order and additionally
+  scans Windows + WSL stores at boot (see its `pqc:doctor`).
+
+## Reusable-key workflow
+
+Prefer `set` over re-packing the whole bundle:
+
+```bash
+pqc-secrets set LOCALROUTER_ZAI_API_KEY=...        # add or rotate one key
+pqc-secrets set --stdin < keys.txt                # batch upsert
+pqc-secrets list --json                           # names only
+pqc-secrets export --json                         # values for non-shell tooling
+```
+
+`set` decrypts, overlays the named keys, keeps every other entry, writes the
+bundle atomically, and leaves `secrets.bundle.json.bak.<UTC>` behind. `pack`
+without `--merge` still replaces the bundle; `pack --merge` has the same
+overlay semantics for stdin batches.

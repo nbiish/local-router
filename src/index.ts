@@ -3666,7 +3666,8 @@ function defaultChildPathEnv(): string {
 }
 
 function getPqcConfigDirCandidates(): string[] {
-  if (process.env.PQC_CONFIG_DIR) return [process.env.PQC_CONFIG_DIR];
+  const explicit = process.env.PQC_CONFIG_DIR || process.env.PQC_SECRETS_DIR;
+  if (explicit) return [explicit];
   const candidates: string[] = [];
   const home = os.homedir();
   const noDot = path.join(home, 'config', 'pqc-secrets');
@@ -3713,7 +3714,11 @@ function getPqcConfigDirCandidates(): string[] {
   // Windows → WSL (2026-10-29): optional scan of WSL user stores over the 9P
   // share. Off by default because a stopped distro can stall the boot; enable
   // with LOCAL_ROUTER_PQC_SCAN_WSL=1 when keys are packed inside WSL.
-  if (process.platform === 'win32' && process.env.LOCAL_ROUTER_PQC_SCAN_WSL === '1') {
+  // Windows → WSL (2026-10-29): scan WSL user stores over the 9P share so a
+  // key packed once inside WSL is usable by the Windows server. On by default;
+  // a stopped distro is skipped harmlessly. LOCAL_ROUTER_PQC_SCAN_WSL=0 opts
+  // out (and PQC_STORE_ISOLATED=1 in the engine keeps identities separate).
+  if (process.platform === 'win32' && process.env.LOCAL_ROUTER_PQC_SCAN_WSL !== '0') {
     // Enumerate distros through wsl.exe: Windows cannot list the bare
     // \\wsl.localhost server root, only a distro share.
     let distros: string[] = [];
@@ -3748,6 +3753,7 @@ function getPqcConfigDirCandidates(): string[] {
 
 function getPqcConfigDir(): string {
   if (process.env.PQC_CONFIG_DIR) return process.env.PQC_CONFIG_DIR;
+  if (process.env.PQC_SECRETS_DIR) return process.env.PQC_SECRETS_DIR;
   const candidates = getPqcConfigDirCandidates();
   for (const candidate of candidates) {
     if (fs.existsSync(path.join(candidate, 'secrets.bundle.json'))) {
@@ -4155,6 +4161,7 @@ export function pqcStatusReport(): {
   loadedProviders: Array<{ provider: string; keyEnvVar: string; canonical: string }>;
   missingProviders: string[];
   expectedNames: Array<{ provider: string; keyEnvVar: string; canonical: string; aliases: string[] }>;
+  engineStore: unknown;
 } {
   const summaries = allProviderSummaries();
   const stores: PqcStoreReport[] = [];
@@ -4207,6 +4214,15 @@ export function pqcStatusReport(): {
     });
   }
 
+  // Engine-side store resolution (2026-10-29): the same answer `pqc-secrets
+  // store --json` gives any shell, so operators can compare platforms.
+  let engineStore: unknown = null;
+  try {
+    engineStore = JSON.parse(execPqcBin(['store', '--json'], { timeout: 30000 }));
+  } catch {
+    engineStore = null;
+  }
+
   return {
     selectedStore: getPqcConfigDir(),
     stores,
@@ -4221,7 +4237,8 @@ export function pqcStatusReport(): {
       keyEnvVar: summary.keyEnvVar,
       canonical: localRouterEnvVarName(summary.keyEnvVar),
       aliases: providerKeyAliases(summary)
-    }))
+    })),
+    engineStore
   };
 }
 
@@ -4352,6 +4369,46 @@ function persistPqcSecrets(): PqcPersistResult {
       lines.push(`MODAL_SESSION_ID=${process.env.MODAL_SESSION_ID}`);
     }
     if (lines.length === 0) return { ok: true, persisted: 0 };
+
+    // Preferred path (2026-10-29 skill): upsert only the names Local Router
+    // owns with `set --stdin`, then reconcile deletions with `del`. Unrelated
+    // bundle entries are never re-written, so a key added by another tool
+    // survives local-router saves untouched.
+    const desiredNames = new Set<string>(packedEnvVars);
+    for (const name of ['MODAL_PROXY_TOKEN_ID', 'MODAL_PROXY_TOKEN_SECRET', 'MODAL_SESSION_ID']) {
+      if (process.env[name]) desiredNames.add(name);
+    }
+    if (desiredNames.size > 0) {
+      try {
+        const setInput = lines
+          .filter((line) => desiredNames.has(line.slice(0, line.indexOf('='))))
+          .join('\n');
+        execPqcBin(['set', '--stdin'], { input: setInput + '\n', timeout: 60000 });
+        const listed = JSON.parse(execPqcBin(['list', '--json'], { timeout: 60000 }));
+        const existing: string[] = Array.isArray(listed?.names) ? listed.names : [];
+        const stale = existing.filter((name) => {
+          if (desiredNames.has(name)) return false;
+          if (packedEnvVars.has(name)) return true;
+          if (!/^LOCAL[_-]?ROUTER_/.test(name)) return false;
+          return resolveProvidersForKey(name, allProviderSummaries()).length > 0;
+        });
+        if (stale.length > 0) {
+          execPqcBin(['del', ...stale], { timeout: 60000 });
+        }
+        const verified = JSON.parse(execPqcBin(['list', '--json'], { timeout: 60000 }));
+        const present = new Set<string>(Array.isArray(verified?.names) ? verified.names : []);
+        const missing = Array.from(desiredNames).filter((name) => !present.has(name));
+        if (missing.length > 0) {
+          return fail(`bundle verification failed for ${missing.join(', ')}`);
+        }
+        console.log(`[PQC] Persisted ${desiredNames.size} key(s) to ${getPqcBundlePath()} via set/del (${stale.length} stale name(s) reconciled).`);
+        return { ok: true, persisted: desiredNames.size };
+      } catch {
+        // Older vendored engine without set/del/list --json: fall through to
+        // the legacy full rewrite so upgrades stay backward compatible.
+      }
+    }
+
     if (!ensurePqcKeypair(bin)) {
       console.error(`[PQC] Cannot persist: no keypair at ${getPqcPubkeyPath()}. Run 'bin/pqc-secrets keygen' manually.`);
       return fail('no PQC keypair available');
