@@ -92,3 +92,14 @@ description: Agent Communication System protocol template. Deployed by `ainish-c
 - output:decisions transport live on 11434; docs/decisions.md + README + PRD updated; task record .agents/tasks/2026-10-30-task.md (status line still reads "merging" — final state is this entry); memory 2026-10-30-memory.txt updated.
 - status:merged
 - blockers:none
+
+### [2026-10-31T01:06:26.9715889-04:00] checkin | branch:fix/decisions-always-available | wt:D:/Code/lr-decisions-pinned
+- start:2026-10-31T01:06:26.9715889-04:00
+- end:2026-10-31T01:06:26.9715889-04:00
+- scope:src/index.ts (pinned model rows, curation bypass, id reservation, dedupe), tests/decisions-pinned.integration.test.mjs, docs/decisions.md, README.md, llms.txt
+- objective:the OpenRouter Jev decision model is always available whenever the OpenRouter key is set, regardless of curation toggles or catalog edits.
+- input:operator request after the decisions transport shipped (97f7cfd).
+- output:worktree + repro (pre-change build already survived curation clears, so the gap was guarantees/dedupe/reservation); implementation in progress.
+- triage:now
+- status:in-progress
+- blockers:none
