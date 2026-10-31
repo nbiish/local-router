@@ -43,3 +43,19 @@ Next step: after the OpenRouter key is entered in /config, run the three verific
 - Terminal-orchestration/swe-bench: expose localrouter decisions verify --json (pinned row, provider answered, latency) so harness setup can gate on the decision transport in one call.
 - Master-orchestrator/self-prompting: deploys that change discovery (/v1/models) should always emit a before/after model manifest to the ledger — the 67→32 model delta after this restart was expected catalog state but is not self-explaining.
 - Developer-experience/ergonomics: after key entry the provider's 454 discovered models arrive toggled off, which reads as "nothing happened" — surface a one-line toast that the key is live, the decision model is published, and curation is now the operator's choice.
+
+### [2026-10-31T01:37:21.1596735-04:00] main
+**Changed:** Verified the operator's key end-to-end on production: bundle persistence across a cold restart (PID 445423), discovery (openrouter/jev-1.14, decisions=true) next to the untouched chat alias, live probe 200/448 ms, a noul+choice+score batch 200/294 ms with probabilities summing to 1.0 and legend intact, chat separation (400 for the decision id, alias served by a general model), and tooling consumption including the local-router fallback transport (source: local-router:http://127.0.0.1:11434/api/alpha/decisions, noul 0.79).
+
+Next step: wire the decision transport into the repo's own quality gates by running one rerank-heavy inish-rag query and inish-rag eval against a real answer, and record their source in the ledger so rерanked retrieval is proven on the router, not only the direct decide/route calls.
+
+- Adversarial/security: the router now holds a live OpenRouter key and an unauthenticated decisions route on loopback — add a regression that a forged caller Authorization header never reaches OpenRouter and that the route refuses non-loopback origins.
+- Privacy/data-protection: verification payloads carried repo paths in state; add a redaction pass option for decisions state so agent-supplied context cannot leak local paths to the provider by default.
+- Supply-chain/third-party-risk: the pinned model id (	ypesafe/jev-1.14) is compiled in — add a startup check that compares it to /api/decisions/status and warns when the provider reports a newer dated build.
+- Systems-architecture/devops: production still has no supervisor; PID 445423 will not come back after a crash — install a user systemd unit that restarts from /mnt/d/Code/local-router and appends the restart to health.json.
+- Reliability/verification: capture a golden verification script (
+ode scripts/verify-decisions.mjs) that runs the probe, a typed batch, and the chat guard, so post-deploy proof is one command instead of six curls.
+- Governance/sovereignty: record in the PRD that decisions egress repository state to OpenRouter/TypeSafe, and that the local router is a transport, not a decision maker — the calibrated thresholds stay in code.
+- Terminal-orchestration/swe-bench: harness setup can now assert source startswith local-router: by exporting a deliberately invalid primary key; document that trick as the supported way to force the fallback transport in CI.
+- Master-orchestrator/self-prompting: after every key change, re-run the six-step verification automatically and append the receipt — the last three sessions each rediscovered the same checks.
+- Developer-experience/ergonomics: /config should show a "Decision transport: ready (openrouter, 448 ms)" status tile with the last probe result, so operators stop needing curl to know whether Jev is live.

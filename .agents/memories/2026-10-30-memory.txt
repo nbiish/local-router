@@ -15,3 +15,6 @@
 - 01:40 Deployed main 471d3f6 to 11434 (PID 440868, setsid-detached, parent /init). Keyless boot verified: decisions status ready=false, /config 200, decisions POST 503 with per-provider key state.
 - 01:40 Operator journey proven on an isolated store: POST /api/keys persisted=true writes LOCALROUTER_OPENROUTER_API_KEY, the pinned model appears with zero curated models, and after a restart the bundle alone loads openrouter and decisions answer 200 in 233 ms.
 - 01:40 PSIONICS_* names remain in the shared bundle; the router deliberately does not consume them, so provider keys must be entered via /config (they land as LOCALROUTER_*).
+- 01:58 Operator key verified end-to-end on prod: LOCALROUTER_OPENROUTER_API_KEY persisted, loaded from the bundle after a cold restart (PID 445423), probe 200/448 ms, noul+choice+score batch 200/294 ms with probabilities=1.0 and legend intact.
+- 01:58 Engine transport proven both ways: ainish-rag decide -> openrouter:... normally, and with a broken primary key -> local-router:http://127.0.0.1:11434/api/alpha/decisions:typesafe/jev-1.14-20261014 (noul 0.79). Chat for the decision id is refused 400; the jev-router alias stays general chat (openai/gpt-6-luna).
+- 01:58 ZenMux still has no key in this store; its decisions route remains 404 model_not_supported, so the router stays single-provider until a ZenMux key is added.

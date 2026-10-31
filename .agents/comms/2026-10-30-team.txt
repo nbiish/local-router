@@ -170,3 +170,23 @@ description: Agent Communication System protocol template. Deployed by `ainish-c
 - output:Router is keyless and ready at http://127.0.0.1:11434/config; entering the OpenRouter key there publishes the pinned decision model and enables /api/alpha/decisions without a restart. ZenMux remains optional (its route still answers 404 model_not_supported; the router fails over and reports it).
 - status:merged
 - blockers:none
+
+### [2026-10-31T01:36:01.3532335-04:00] intent-rebuild | branch:main | wt:D:/Code/local-router
+- start:2026-10-31T01:36:01.3532335-04:00
+- end:2026-10-31T01:36:01.3532335-04:00
+- scope:production runtime 127.0.0.1:11434 restart to prove bundle-loaded decision keys
+- objective:confirm the operator-entered OpenRouter key survives a cold start (not just in-memory).
+- input:key persisted as LOCALROUTER_OPENROUTER_API_KEY; decisions ready and engine fallback transport proven.
+- output:pending restart + probe.
+- status:in-progress
+- blockers:none
+
+### [2026-10-31T01:37:11.6740840-04:00] update | branch:main | wt:D:/Code/local-router
+- start:2026-10-31T01:37:11.6740840-04:00
+- end:2026-10-31T01:37:11.6740840-04:00
+- scope:decision transport verification on production 127.0.0.1:11434 (WSL PID 445423, main 471d3f6)
+- objective:prove the operator-entered key makes the decision model work and is available to tooling.
+- input:operator added the OpenRouter key through /config.
+- output:KEY — pqc bundle now holds LOCALROUTER_OPENROUTER_API_KEY (names only inspected), loadedProviders=openrouter,xiaomi-mimo,ollama after a cold start with no runtime key entry. DISCOVERY — /v1/models exposes openrouter/jev-1.14 (capabilities.decisions=true, 262144 ctx) alongside the untouched chat alias openrouter-jev-router (decisions=false); /api/tags agrees. PROBE — openrouter 200 / 448 ms -> typesafe/jev-1.14-20261014. CONTENT — typed batch (noul+choice+score) 200 in 294 ms: noul 0.60; choice provider_resolver p=1.0; score 2.63 with legend and probabilities summing to 1.0; usage 461/72 tokens, cost 0. SEPARATION — chat for the decision id 400 with the decisions-route pointer; chat alias served by openai/gpt-6-luna. TOOLING — inish-rag secrets reports the Decisions Route; inish-rag decide -> noul 0.87 (source openrouter:typesafe/jev-1.14-20261014); inish-rag route -> needs_retrieval 0.69, architectural_wiki, freshness 0.07; forced primary failure -> source local-router:http://127.0.0.1:11434/api/alpha/decisions:typesafe/jev-1.14-20261014, noul 0.79. PERSISTENCE — production restarted (440868 -> 445423); key loaded from the bundle, probe 200/448 ms, decision call 200.
+- status:verified
+- blockers:none
