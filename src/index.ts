@@ -106,6 +106,14 @@ import {
 } from './ollama-keys';
 import { assertSafeUpstreamUrl, safeFetch } from './ssrf-guard';
 import { runCliAuto } from './cli-auto-bridge';
+import {
+  advertisedDecisionModels,
+  decisionProvider,
+  decisionProviderOrder,
+  isDecisionModelId
+} from './decisions/catalog';
+import { DecisionService } from './decisions/service';
+import { registerDecisionRoutes } from './decisions/routes';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 
@@ -172,7 +180,7 @@ type ModelTarget = {
 };
 
 type AttemptFailure = {
-  errorType: 'unknown_model' | 'provider_not_found' | 'provider_config' | 'upstream_http' | 'upstream_http_quota' | 'upstream_http_payment_required' | 'upstream_http_auth' | 'upstream_http_rate_limit' | 'upstream_http_unavailable' | 'upstream_http_invalid_request' | 'proxy_runtime';
+  errorType: 'unknown_model' | 'provider_not_found' | 'provider_config' | 'upstream_http' | 'upstream_http_quota' | 'upstream_http_payment_required' | 'upstream_http_auth' | 'upstream_http_rate_limit' | 'upstream_http_unavailable' | 'upstream_http_invalid_request' | 'decision_model_requires_decisions_api' | 'proxy_runtime';
   providerName?: string;
   actualModel?: string;
   status?: number;
@@ -2918,19 +2926,45 @@ function providerCatalogModels(): ProviderModel[] {
   return applyEndpointCuration([...byKey.values()]);
 }
 
+/**
+ * Decision models are advertised through `/v1/models` so discovery can see
+ * them (ainish-rag and any Je v-aware client look for a `jev` id before it
+ * probes the decisions routes). Only providers that actually hold a key are
+ * advertised — an unkeyed provider is not a serving path.
+ */
+function decisionModelEntries(): ProviderModel[] {
+  const providers = decisionProviderOrder()
+    .map((name) => decisionProvider(name))
+    .filter((spec): spec is NonNullable<ReturnType<typeof decisionProvider>> => Boolean(spec))
+    .filter((spec) => providerHasConfiguredKey(spec.name));
+  return advertisedDecisionModels(providers).map((row) => ({
+    id: row.id,
+    provider: row.provider,
+    model: row.canonical,
+    display: row.display,
+    contextLength: 262144,
+    outputTokens: 0,
+    supportsTools: false,
+    supportsImages: false,
+    supportsCache: false,
+    supportsReasoning: false
+  }));
+}
+
 async function discoveryModelList(live = false): Promise<ProviderModel[]> {
+  const decisions = decisionModelEntries();
   if (live) {
     const upstream = await resolveCatalogModels({ live: true });
     const seen = new Set<string>();
     const merged: ProviderModel[] = [];
-    for (const model of [...upstream, ...fallbackModelList()]) {
+    for (const model of [...upstream, ...fallbackModelList(), ...decisions]) {
       if (seen.has(model.id)) continue;
       seen.add(model.id);
       merged.push(model);
     }
     return merged;
   }
-  return [...providerCatalogModels(), ...fallbackModelList()];
+  return [...providerCatalogModels(), ...fallbackModelList(), ...decisions];
 }
 
 const MODEL_ENTRY_CREATED_TIMESTAMP = Math.floor(Date.now() / 1000);
@@ -2949,7 +2983,9 @@ function openAIModelEntry(model: ProviderModel) {
       toolCalling: model.supportsTools,
       imageInput: model.supportsImages,
       caching: model.supportsCache,
-      reasoning: model.supportsReasoning
+      reasoning: model.supportsReasoning,
+      // Typed decision models are served by /api/alpha/decisions, never chat.
+      decisions: isDecisionModelId(model.model) || isDecisionModelId(model.id)
     }
   };
 }
@@ -5328,6 +5364,11 @@ function shouldCascadeDirectModelToSystemFallback(modelName: string): boolean {
   if (target?.providerName === 'kilo' || target?.providerName === 'cline') {
     return false;
   }
+  // A typed decision model is never a chat target: cascading it into a chat
+  // chain would answer a calibration question with generated prose.
+  if (isDecisionModelId(modelName) || (target ? isDecisionModelId(target.actualModel) : false)) {
+    return false;
+  }
   return true;
 }
 
@@ -5877,6 +5918,29 @@ async function proxyModelAttempt(
     };
   }
 
+  // Typed decision models (typesafe/jev-*) are not chat models. Answering a
+  // chat request for one would silently hand the caller general-model prose in
+  // place of a calibrated probability, so point at the decisions transport.
+  if (
+    isDecisionModelId(targetModelName) ||
+    isDecisionModelId(target.actualModel) ||
+    isDecisionModelId(presentedModelName)
+  ) {
+    return {
+      ok: false,
+      error: {
+        errorType: 'decision_model_requires_decisions_api',
+        status: 400,
+        providerName: target.providerName,
+        actualModel: target.actualModel,
+        message:
+          `"${targetModelName}" is a typed decision model; it is served by the decisions API, not chat completions. ` +
+          `POST the same {model, state, questions} payload to http://127.0.0.1:${PORT}/api/alpha/decisions ` +
+          `(equivalent aliases: /v1/decisions, /decisions).`
+      }
+    };
+  }
+
   // GitHub Copilot auto bridge (2026-09-04): the `auto` model only resolves
   // inside first-party Copilot clients — the API rejects it outright
   // (400 model_not_supported). Run the logged-in Copilot CLI headlessly
@@ -6326,7 +6390,9 @@ async function handleChatCompletion(req: Request, res: Response, bodyOverrides?:
         ? 400
         : directModelResult.error.errorType === 'provider_config'
           ? 400
-          : 500;
+          : directModelResult.error.errorType === 'decision_model_requires_decisions_api'
+            ? 400
+            : 500;
 
     logTracker.onFailure(directStatus, directModelResult.error.errorType, directModelResult.error.message);
     logTracker.onFinish(Date.now() - requestStartedAt);
@@ -7192,6 +7258,18 @@ app.get(['/v1/models', '/models'], async (req: Request, res: Response) => {
       provider: requestedProvider,
       live
     });
+    // Decision models are not chat models: expose them on the provider-scoped
+    // listing too, so `/v1/models?provider=openrouter` matches discovery.
+    const decisionRows = decisionModelEntries().filter(
+      (entry) => entry.provider === canonicalProviderSlug(requestedProvider)
+    );
+    const seen = new Set(models.map((model) => model.id));
+    for (const entry of decisionRows) {
+      if (!seen.has(entry.id)) {
+        seen.add(entry.id);
+        models.push(entry);
+      }
+    }
 
     return res.json({
       object: 'list',
@@ -7325,6 +7403,33 @@ app.post('/api/generate', async (req: Request, res: Response) => {
     }
   }
 });
+
+// ==========================================
+// Typed decision models (System One / Jev)
+// ==========================================
+// Local Router is the loopback transport for typed, calibrated decisions.
+// `openrouter-jev-router` stays a chat alias; real decision models are served
+// by /api/alpha/decisions, /v1/decisions, and /decisions through the same
+// per-provider key store the chat proxy uses (PQC bundle -> resolved env).
+const decisionService = new DecisionService({
+  hasProviderKey: (providerName) => providerHasConfiguredKey(providerName),
+  resolveProviderHeaders: async (providerName) => {
+    const summary = getProviderSummary(providerName);
+    if (!summary) {
+      throw new Error(`Unknown decision provider "${providerName}".`);
+    }
+    const key = keyStore[summary.name] || providerEnvKeyValue(summary.keyEnvVar);
+    if (!key) {
+      throw new Error(`${summary.keyEnvVar} is not set for ${providerName}.`);
+    }
+    const spec = decisionProvider(providerName);
+    return {
+      Authorization: `Bearer ${key}`,
+      ...(spec?.extraHeaders || {})
+    };
+  }
+});
+registerDecisionRoutes(app, decisionService);
 
 const isDevMode = process.env.LOCAL_ROUTER_DEV === 'true' || process.env.NODE_ENV === 'development';
 
