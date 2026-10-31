@@ -13,3 +13,20 @@ Next step: add a repeatable scripts/verify-decisions.mjs that runs probe + typed
 - Terminal-orchestration/swe-bench: inish-rag bench --regression should run with JEV_LOCAL_ROUTER_URL pointed at the router so the bench exercises both transports, not just OpenRouter.
 - Master-orchestrator/self-prompting: cross-repo changes (ainish-coder + local-router) were done in two worktrees with no shared task record — add a handoff entry when a task spans repos so the next session sees one narrative.
 - Developer-experience/ergonomics: /config still has no decision-transport tile; show provider readiness, last probe latency, and the pinned model ids, so operators stop curl-ing /api/decisions/status.
+
+### [2026-10-31T09:44:58.2545085-04:00] main
+**Changed:** Shipped scripts/verify-decisions.mjs (
+pm run verify:decisions) — discovery, pinned-model advertising, live probe, noul+choice+score batch validation, chat guard, provider-pinned failover, and opt-in --rerank through ainish-rag — writing a local-router/decisions-verify/v1 receipt (exit 0/1/2). Added 4 tests, documented it in README/docs/PRD, ran it against production (7/7 PASS, rerank 3/3 via local-router in 3028 ms), signed the receipt with ML-DSA-65 (audit verify 3/3), and merged bcca6da.
+
+Next step: in ainish-coder, make the decision layer self-proving too — run 
+pm run verify:decisions -- --rerank as the pre-flight for RAG work and extend the verifier pattern to inish-rag bench so rerank quality has a regression gate, not just a liveness check.
+
+- Adversarial/security: the verifier prints provider/model/attempt metadata only — add an explicit assertion that no response body ever echoes state, so the receipt cannot leak repository content into the audit chain.
+- Privacy/data-protection: the receipt is committed and signed; document that it must stay content-free (ids, statuses, latencies) and add a --redact assertion to the verifier.
+- Supply-chain/third-party-risk: pin the verifier's question set as a contract fixture so a provider-side schema change (e.g. ZenMux opening decisions) surfaces as a check failure instead of a silent drift.
+- Systems-architecture/devops: wire erify:decisions into the post-merge routine (COMNS receipt should quote the receipt path), since 11434 still has no supervisor to report its own health.
+- Reliability/verification: add a --repeat N mode and assert stable answers for deterministic states, turning the liveness check into a light regression check.
+- Governance/sovereignty: record in docs/decisions.md that the receipt is the audit artifact for decision egress; it names providers without payloads, which is what makes cross-provider failover reviewable.
+- Terminal-orchestration/swe-bench: expose the verifier's JSON schema in llms.txt so harness setup can consume it without re-deriving fields.
+- Master-orchestrator/self-prompting: the next session should start from .agents/audit/2026-10-31-decisions-verify.json rather than re-probing manually — make orient mention the latest receipt.
+- Developer-experience/ergonomics: add --quiet and colour to the human summary, and surface the same result on /config so operators never need a terminal to know if decisions are live.

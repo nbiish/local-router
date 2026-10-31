@@ -64,3 +64,23 @@ description: Agent Communication System protocol template. Deployed by `ainish-c
 - output:main e49b137; worktrees removed (lr-decisions-docs), branches deleted; prod healthy (ready=true, both pinned models). Verification receipts in docs/decisions.md. Known gaps: no supervisor on 11434; ZenMux route pending; no rerank benchmark/regression run.
 - status:merged
 - blockers:none
+
+### [2026-10-31T09:44:48.1479892-04:00] update | branch:main | wt:D:/Code/local-router
+- start:2026-10-31T09:44:48.1479892-04:00
+- end:2026-10-31T09:44:48.1479892-04:00
+- scope:scripts/verify-decisions.mjs, tests/decisions-verify.test.mjs, package.json, README.md, docs/decisions.md, llms.txt, .agents/audit receipts
+- objective:implement the top recommendation — one command proves the decision transport and emits a signed receipt.
+- input:operator asked to implement the master suggestion, wrap up and finalize the local-router addition.
+- output:FEATURE — 
+pm run verify:decisions runs discovery (routes/providers/pinned models), pinned-model advertising on /v1/models + /api/tags (exactly one row each, capabilities.decisions), a live typed probe, a noul+choice+score batch validated for ranges/legend/normalized probabilities, the chat guard (400 + decisions pointer), and provider-pinned failover (direct or failover with a recorded attempt trail), plus opt-in --rerank that forces ainish-rag through the router. Emits local-router/decisions-verify/v1 JSON (exit 0/1/2) with --out. TESTS — 4 new (pass/fail/usage/skip), 38/38 decisions tests green; full suite 221 tests, 219 pass, same 2 pre-existing failures. PRODUCTION — 7/7 PASS in 6.3 s (probe openrouter 421 ms; batch 300 ms; rerank 3/3 chunks via Jev local-router:... in 3028 ms). Receipt .agents/audit/2026-10-31-decisions-verify.json ML-DSA-65 signed; the earlier index receipt was re-signed with the trust anchor; inish-rag audit verify now reports 3/3 receipts verified. MERGE — bcca6da (--no-ff). Docs-only+runtime-neutral: no rebuild needed (prod PID 445423 still ready with both pinned models).
+- status:merged
+- blockers:none
+
+### [2026-10-31T09:44:48.1479892-04:00] checkout | branch:main | wt:D:/Code/local-router
+- start:2026-10-31T09:44:48.1479892-04:00
+- end:2026-10-31T09:44:48.1479892-04:00
+- scope:local-router decisions addition finalized
+- objective:hand a stable, self-verifying decision transport to the ainish-coder RAG work.
+- output:main bcca6da; worktrees removed, branches deleted; production healthy. One command proves the layer; receipt chain verified. Open item carried forward: ZenMux decisions route still 404 for typesafe/jev-1.14 (failover + provenance recorded), and 11434 still lacks a supervisor.
+- status:merged
+- blockers:none
