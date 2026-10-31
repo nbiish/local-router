@@ -1,0 +1,15 @@
+
+### [2026-10-30T22:43:51.0588011-04:00] main
+**Changed:** Local Router now serves typed decision models on /api/alpha/decisions, /v1/decisions, and /decisions with per-provider dialects (OpenRouter typesafe passthrough; ZenMux strict array body with noul carried as a calibrated two-option choice), availability-only failover with per-attempt provenance, discovery on /v1/models + /api/tags (capabilities.decisions), a 400 chat guard, and /api/decisions/status / ?probe=true diagnostics. Merged 97f7cfd; prod 11434 rebuilt and verified (engine now reports a Decisions Route).
+
+Next step: add the decisions readiness line to the boot health monitor (unCatalogHealthCheck → health.json) and surface it on /config so an operator sees "decision transport: openrouter ready / zenmux not open" without calling the status API.
+
+- Adversarial/security: the decisions routes inherit loopback-only trust but now spend multiple providers' keys — keep the "ignore caller Authorization" invariant and add a regression test that a forged Authorization header never reaches an upstream.
+- Privacy/data-protection: decision state can carry repository content to a second provider on failover, so the provenance trail should be logged with provider identity (never payload) to make cross-provider egress auditable.
+- Supply-chain/third-party-risk: ZenMux's decisions dialect is undocumented and was reverse-engineered from validation errors — pin it with contract tests and re-probe at each release, because a silent schema change would surface as a 400 to callers rather than a router bug.
+- Systems-architecture/devops: the 11434 instance has no supervisor (parent /init, setsid-detached), so a crash is invisible until a client fails; add a user systemd unit or a watchdog that restarts from the built tree and reports into health.json.
+- Reliability/verification: pin the engine's 1200 ms discovery budget as an explicit budget test — cold-start DNS + upstream time was 1014 ms on first call, which leaves little headroom before a healthy router is misreported as chat-only.
+- Governance/sovereignty: record in docs/decisions.md that a pinned provider is a preference, not a contract, so downstream audits can explain why a zenmux/... request was answered by OpenRouter.
+- Terminal-orchestration/swe-bench: expose the decisions probe as localrouter decisions probe --json so harness setup scripts can assert the transport without hand-rolled curl.
+- Master-orchestrator/self-prompting: the noul→choice conversion is the one lossy path — have future work treat "provider lacks the native primitive" as a first-class capability flag the router reports, so agents choose the transport instead of discovering divergence after the fact.
+- Developer-experience/ergonomics: a chat request for a decision model now returns a 400 with the exact route to use; extend the same hint to /v1/responses streaming clients so IDE plugins surface the guidance instead of a generic error toast.
