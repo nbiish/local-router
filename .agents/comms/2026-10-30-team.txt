@@ -122,3 +122,22 @@ description: Agent Communication System protocol template. Deployed by `ainish-c
 - output:20 decisions tests green (6 new pinning); full suite 215/217 with the 2 pre-existing failures; patch eval ADEQUATE 0.52. Gate red only for pre-existing repo state.
 - status:in-progress
 - blockers:prod restart deferred — the shared bundle no longer carries LOCALROUTER_* provider keys, so a restart would boot keyless (see update entry above).
+
+### [2026-10-31T01:12:15.1606952-04:00] update | branch:main | wt:D:/Code/local-router
+- start:2026-10-31T01:12:15.1606952-04:00
+- end:2026-10-31T01:12:15.1606952-04:00
+- scope:merge 7d0ea5c; build/ rebuilt; verification instance :11437 (isolated store, key injected in-memory)
+- objective:prove the pinned decision model on the merged code without disturbing the running runtime.
+- output:Live on :11437 — exactly one openrouter/jev-1.14 before and after PUT /api/model-curation (decisions=true), /api/show/openrouter/jev-1.14 200 (provider=openrouter, upstream=typesafe/jev-1.14), /v1/models?provider=openrouter exactly one row, and POST /api/alpha/decisions 200 via OpenRouter (typesafe/jev-1.14-20261014). 20 decisions tests green; full suite 215/217 with the 2 pre-existing failures.
+- status:merged
+- blockers:11434 restart deferred — see the vault entry (bundle now PSIONICS_* only). Prod verified healthy on its in-memory keys: ready=true, both decision rows advertised.
+
+### [2026-10-31T01:12:15.1606952-04:00] checkout | branch:main | wt:D:/Code/local-router
+- start:2026-10-31T01:12:15.1606952-04:00
+- end:2026-10-31T01:12:15.1606952-04:00
+- scope:fix/decisions-always-available closed; worktree removed, branch deleted (was deff66d)
+- objective:close the loop with an auditable receipt.
+- input:merge 7d0ea5c (--no-ff); pinning + dedupe + id reservation + /api/show; patch eval ADEQUATE 0.52, 0 canary leaks.
+- output:pinned availability is code-enforced and tested; ZENMUX row stays key-gated and its route still reports 404 honestly. Task record .agents/tasks/2026-10-30-decisions-pinned.md (status line reads "merging"; final state is this entry).
+- status:merged
+- blockers:restart of 11434 still blocked on the operator restoring LOCALROUTER_* provider names (or choosing that PSIONICS_* be accepted).

@@ -13,3 +13,18 @@ Next step: add the decisions readiness line to the boot health monitor (unCatal
 - Terminal-orchestration/swe-bench: expose the decisions probe as localrouter decisions probe --json so harness setup scripts can assert the transport without hand-rolled curl.
 - Master-orchestrator/self-prompting: the noul→choice conversion is the one lossy path — have future work treat "provider lacks the native primitive" as a first-class capability flag the router reports, so agents choose the transport instead of discovering divergence after the fact.
 - Developer-experience/ergonomics: a chat request for a decision model now returns a 400 with the exact route to use; extend the same hint to /v1/responses streaming clients so IDE plugins surface the guidance instead of a generic error toast.
+
+### [2026-10-31T01:12:15.1606952-04:00] main
+**Changed:** The OpenRouter Jev decision model is now pinned: lwaysAvailable rows bypass curation and configured-model filters, same-id catalog/override rows collapse to the decision row, decision ids are reserved against provider-model authoring, /api/show describes them, and the VS Code chat picker excludes them. Merged 7d0ea5c and verified on an isolated :11437 (single row across a curation clear, decisions 200 via OpenRouter). The 11434 restart is deferred: the shared PQC bundle was rewritten to PSIONICS_* names and the router cannot resolve them.
+
+Next step: restore the router's consumer-prefixed key names (LOCALROUTER_OPENROUTER_API_KEY, …) in the PQC bundle additively, then restart 11434 and re-run inish-rag secrets to confirm the decisions route survives a cold boot.
+
+- Adversarial/security: the vault rewrite silently invalidated the router's credential path while prod kept using stale in-memory keys — add a boot-time assertion that the expected canonical key names exist and fail loudly (or refuse to serve decisions) rather than advertising a transport it cannot authenticate.
+- Privacy/data-protection: pinning makes the decision id a permanent discovery beacon; ensure the response/provenance still never echoes state, so a pinned endpoint cannot become a content-exfiltration surface.
+- Supply-chain/third-party-risk: a peer tool renaming shared provider secrets is a supply-chain event for every consumer — document the consumer-prefix contract and add a pqc-secrets guard that refuses to delete another consumer's canonical names.
+- Systems-architecture/devops: 11434 still has no supervisor; the deferred restart now depends on a manual vault repair, so add a localrouter doctor check that reports PQC name drift, decisions readiness, and whether the running build matches main.
+- Reliability/verification: pinning is only proven by an integration test today; add a boot-time self-check that compares /v1/models decision rows against decisionModelEntries() and logs a mismatch.
+- Governance/sovereignty: record in docs/decisions.md that consumer prefixes are contracts — PSIONICS_* keys are not the router's to consume, and cross-tool reuse needs an explicit decision.
+- Terminal-orchestration/swe-bench: expose localrouter decisions verify --json (pinned row present, route answers, provider named) so harness setup can gate on it without parse-heavy curl.
+- Master-orchestrator/self-prompting: the /api/show and test-assertion edits were nearly lost because they landed after the commit — run a git status pre-merge gate in the workflow before every intent-merge.
+- Developer-experience/ergonomics: a pinned model that returns 400 on chat is correct but surprising in the VS Code picker; surface the decision models on /config with a "decisions only" badge and the exact curl to use.
