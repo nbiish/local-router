@@ -78,7 +78,7 @@ errors do not. Every response carries `provider`, `dialect`, and a
 `local_router` provenance block with the attempt trail.
 
 - `GET /api/decisions/status` — readiness, providers, advertised models, recent requests; `?probe=true` (or `POST /api/decisions/probe`) runs a live typed probe.
-- `/v1/models` and `/api/tags` advertise `openrouter/jev-1.14` / `zenmux/jev-1.14` with `capabilities.decisions: true`. `openrouter-jev-router` remains a chat alias.
+- `/v1/models` and `/api/tags` advertise `openrouter/jev-1.14` / `zenmux/jev-1.14` with `capabilities.decisions: true`. They are **pinned**: available whenever the provider key is set, no matter how the catalog is toggled, and their ids cannot be shadowed by a provider model. `openrouter-jev-router` remains a chat alias.
 - Chat requests for a decision model return `400` pointing at the decisions route instead of answering with general-model prose.
 
 Full contract, dialect details, failover table, and configuration:

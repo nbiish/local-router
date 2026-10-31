@@ -161,9 +161,34 @@ Clients that discover Jev by id (ainish-rag looks for any `jev` id, then probes
 the decisions paths) therefore find a real decision model, not only the
 `openrouter-jev-router` chat alias. Unkeyed providers are not advertised.
 
+### Pinned rows (no toggle can remove them)
+
+Decision rows are built from the decisions catalog, never from the toggle store,
+and carry `alwaysAvailable: true` in the model layer:
+
+- **Key is the only condition.** `openrouter/jev-1.14` is advertised exactly when
+  the OpenRouter key is configured — adding or removing the key changes
+  availability; curation does not.
+- **Curation is bypassed.** `PUT /api/model-curation` (including clearing every
+  curated key, or unchecking everything for OpenRouter) leaves the decision row
+  served. `applyEndpointCuration` and `filterConfiguredModels` both honour the
+  pin.
+- **Ids are reserved.** `POST/PUT /api/provider-models/:provider` rejects a
+  presented name that is a decision id (`400 … already exists`), so an operator
+  cannot rename a chat model over the transport.
+- **Duplicates collapse.** If a catalog row, override, or live discovery ever
+  produces the same presented id, `withDecisionModels()` drops the shadow row
+  and appends the decision row — the decisions catalog is authoritative for
+  those ids, and `/v1/models` still returns exactly one.
+
+The mirror case is deliberate: with no OpenRouter key the model is **not**
+advertised and `/api/alpha/decisions` answers `503
+decision_provider_unavailable`. Discovery never points at a transport that
+cannot serve.
+
 Chat completions for a decision model are refused with `400` and a message
 pointing at `/api/alpha/decisions`; a decision model is never cascaded into a
-chat fallback chain.
+chat fallback chain, and the VS Code chat picker excludes pinned rows.
 
 ## Diagnostics
 
