@@ -1,0 +1,489 @@
+{
+  "schema": "local-router/decisions-verify/v1",
+  "generated_at": "2026-10-31T13:43:21.842Z",
+  "base_url": "http://127.0.0.1:11434",
+  "model": "typesafe/jev-1.14",
+  "overall": "pass",
+  "options": {
+    "timeout_ms": 30000,
+    "skip_failover": false,
+    "rerank": true,
+    "model": "typesafe/jev-1.14"
+  },
+  "checks": [
+    {
+      "name": "discovery",
+      "status": "pass",
+      "ms": 66,
+      "detail": "3 routes · openrouter:typesafe, zenmux:zenmux · pinned openrouter/jev-1.14, zenmux/jev-1.14"
+    },
+    {
+      "name": "models",
+      "status": "pass",
+      "ms": 223,
+      "detail": "48 models · pinned openrouter/jev-1.14, zenmux/jev-1.14"
+    },
+    {
+      "name": "probe",
+      "status": "pass",
+      "ms": 1512,
+      "detail": "openrouter:ok 421ms · zenmux:fail HTTP 404: Requested model is not supported by /v1/decisions (request_id: f9fab8f3501246bead07e998bb109020)"
+    },
+    {
+      "name": "batch",
+      "status": "pass",
+      "ms": 300,
+      "detail": "openrouter/typesafe · typesafe/jev-1.14-20261014 · 300 ms"
+    },
+    {
+      "name": "chat guard",
+      "status": "pass",
+      "ms": 26,
+      "detail": "openrouter/jev-1.14 refused 400 with the decisions pointer"
+    },
+    {
+      "name": "failover",
+      "status": "pass",
+      "ms": 1157,
+      "detail": "openrouter/jev-1.14: direct → openrouter · zenmux/jev-1.14: failover → openrouter"
+    },
+    {
+      "name": "rerank",
+      "status": "pass",
+      "ms": 3031,
+      "detail": "3/3 reranked chunks via local-router · 3028 ms"
+    }
+  ],
+  "baseUrl": "http://127.0.0.1:11434",
+  "status": {
+    "ready": true,
+    "routes": [
+      "/api/alpha/decisions",
+      "/v1/decisions",
+      "/decisions"
+    ],
+    "order": [
+      "openrouter",
+      "zenmux"
+    ],
+    "latest_model": "typesafe/jev-1.14",
+    "providers": [
+      {
+        "name": "openrouter",
+        "label": "OpenRouter Decisions API",
+        "endpoint": "https://openrouter.ai/api/alpha/decisions",
+        "dialect": "typesafe",
+        "latest_model": "typesafe/jev-1.14",
+        "key_configured": true,
+        "primitives": [
+          "noul",
+          "choice",
+          "score"
+        ],
+        "note": "Primary transport: proxies TypeSafe System One questions unchanged."
+      },
+      {
+        "name": "zenmux",
+        "label": "ZenMux Decisions API",
+        "endpoint": "https://zenmux.ai/api/v1/decisions",
+        "dialect": "zenmux",
+        "latest_model": "typesafe/jev-1.14",
+        "key_configured": true,
+        "primitives": [
+          "choice",
+          "score"
+        ],
+        "note": "Choice/score dialects; noul is derived from a calibrated two-option choice."
+      }
+    ],
+    "advertised_models": [
+      {
+        "id": "openrouter/jev-1.14",
+        "provider": "openrouter",
+        "model": "typesafe/jev-1.14",
+        "display": "TypeSafe Jev 1.14 (openrouter decisions)"
+      },
+      {
+        "id": "zenmux/jev-1.14",
+        "provider": "zenmux",
+        "model": "typesafe/jev-1.14",
+        "display": "TypeSafe Jev 1.14 (zenmux decisions)"
+      }
+    ],
+    "last_probe": {
+      "checked_at": "2026-10-31T13:42:52.896Z",
+      "results": [
+        {
+          "provider": "openrouter",
+          "ok": true,
+          "status": 200,
+          "ms": 398,
+          "model": "typesafe/jev-1.14-20261014",
+          "checked_at": "2026-10-31T13:42:50.989Z"
+        },
+        {
+          "provider": "zenmux",
+          "ok": false,
+          "status": 404,
+          "ms": 1509,
+          "error": "HTTP 404: Requested model is not supported by /v1/decisions (request_id: e768a6c181194f609c2a851b07665ad4)",
+          "checked_at": "2026-10-31T13:42:51.387Z"
+        }
+      ]
+    },
+    "recent": [
+      {
+        "at": "2026-10-31T13:43:10.201Z",
+        "route": "/api/alpha/decisions",
+        "requested_model": "typesafe/jev-1.14",
+        "canonical_model": "typesafe/jev-1.14",
+        "provider": "openrouter",
+        "dialect": "typesafe",
+        "status": 200,
+        "ms": 514,
+        "attempts": 1
+      },
+      {
+        "at": "2026-10-31T13:43:09.683Z",
+        "route": "/api/alpha/decisions",
+        "requested_model": "typesafe/jev-1.14",
+        "canonical_model": "typesafe/jev-1.14",
+        "provider": "openrouter",
+        "dialect": "typesafe",
+        "status": 200,
+        "ms": 410,
+        "attempts": 1
+      },
+      {
+        "at": "2026-10-31T13:42:57.774Z",
+        "route": "/api/alpha/decisions",
+        "requested_model": "typesafe/jev-1.14",
+        "canonical_model": "typesafe/jev-1.14",
+        "provider": "openrouter",
+        "dialect": "typesafe",
+        "status": 200,
+        "ms": 500,
+        "attempts": 1
+      },
+      {
+        "at": "2026-10-31T13:42:57.271Z",
+        "route": "/api/alpha/decisions",
+        "requested_model": "typesafe/jev-1.14",
+        "canonical_model": "typesafe/jev-1.14",
+        "provider": "openrouter",
+        "dialect": "typesafe",
+        "status": 200,
+        "ms": 222,
+        "attempts": 1
+      },
+      {
+        "at": "2026-10-31T13:42:54.447Z",
+        "route": "/api/alpha/decisions",
+        "requested_model": "zenmux/jev-1.14",
+        "canonical_model": "typesafe/jev-1.14",
+        "provider": "openrouter",
+        "dialect": "typesafe",
+        "status": 200,
+        "ms": 1057,
+        "attempts": 2
+      },
+      {
+        "at": "2026-10-31T13:42:53.387Z",
+        "route": "/api/alpha/decisions",
+        "requested_model": "openrouter/jev-1.14",
+        "canonical_model": "typesafe/jev-1.14",
+        "provider": "openrouter",
+        "dialect": "typesafe",
+        "status": 200,
+        "ms": 233,
+        "attempts": 1
+      },
+      {
+        "at": "2026-10-31T13:42:53.123Z",
+        "route": "/api/alpha/decisions",
+        "requested_model": "typesafe/jev-1.14",
+        "canonical_model": "typesafe/jev-1.14",
+        "provider": "openrouter",
+        "dialect": "typesafe",
+        "status": 200,
+        "ms": 221,
+        "attempts": 1
+      },
+      {
+        "at": "2026-10-31T13:42:42.059Z",
+        "route": "/api/alpha/decisions",
+        "requested_model": "zenmux/jev-1.14",
+        "canonical_model": "typesafe/jev-1.14",
+        "provider": "openrouter",
+        "dialect": "typesafe",
+        "status": 200,
+        "ms": 835,
+        "attempts": 2
+      },
+      {
+        "at": "2026-10-31T13:42:41.220Z",
+        "route": "/api/alpha/decisions",
+        "requested_model": "openrouter/jev-1.14",
+        "canonical_model": "typesafe/jev-1.14",
+        "provider": "openrouter",
+        "dialect": "typesafe",
+        "status": 200,
+        "ms": 234,
+        "attempts": 1
+      },
+      {
+        "at": "2026-10-31T13:42:40.954Z",
+        "route": "/api/alpha/decisions",
+        "requested_model": "typesafe/jev-1.14",
+        "canonical_model": "typesafe/jev-1.14",
+        "provider": "openrouter",
+        "dialect": "typesafe",
+        "status": 200,
+        "ms": 218,
+        "attempts": 1
+      },
+      {
+        "at": "2026-10-31T13:42:03.896Z",
+        "route": "/api/alpha/decisions",
+        "requested_model": "zenmux/jev-1.14",
+        "canonical_model": "typesafe/jev-1.14",
+        "provider": "openrouter",
+        "dialect": "typesafe",
+        "status": 200,
+        "ms": 831,
+        "attempts": 2
+      },
+      {
+        "at": "2026-10-31T13:42:03.061Z",
+        "route": "/api/alpha/decisions",
+        "requested_model": "openrouter/jev-1.14",
+        "canonical_model": "typesafe/jev-1.14",
+        "provider": "openrouter",
+        "dialect": "typesafe",
+        "status": 200,
+        "ms": 264,
+        "attempts": 1
+      },
+      {
+        "at": "2026-10-31T13:42:02.756Z",
+        "route": "/api/alpha/decisions",
+        "requested_model": "typesafe/jev-1.14",
+        "canonical_model": "typesafe/jev-1.14",
+        "provider": "openrouter",
+        "dialect": "typesafe",
+        "status": 200,
+        "ms": 231,
+        "attempts": 1
+      },
+      {
+        "at": "2026-10-31T13:27:27.783Z",
+        "route": "/api/alpha/decisions",
+        "requested_model": "zenmux/jev-1.14",
+        "canonical_model": "typesafe/jev-1.14",
+        "provider": "openrouter",
+        "dialect": "typesafe",
+        "status": 200,
+        "ms": 1219,
+        "attempts": 2
+      },
+      {
+        "at": "2026-10-31T13:27:26.561Z",
+        "route": "/api/alpha/decisions",
+        "requested_model": "openrouter/jev-1.14",
+        "canonical_model": "typesafe/jev-1.14",
+        "provider": "openrouter",
+        "dialect": "typesafe",
+        "status": 200,
+        "ms": 246,
+        "attempts": 1
+      },
+      {
+        "at": "2026-10-31T13:27:26.283Z",
+        "route": "/api/alpha/decisions",
+        "requested_model": "typesafe/jev-1.14",
+        "canonical_model": "typesafe/jev-1.14",
+        "provider": "openrouter",
+        "dialect": "typesafe",
+        "status": 200,
+        "ms": 230,
+        "attempts": 1
+      },
+      {
+        "at": "2026-10-31T05:46:43.286Z",
+        "route": "/api/alpha/decisions",
+        "requested_model": "typesafe/jev-1.14",
+        "canonical_model": "typesafe/jev-1.14",
+        "provider": "openrouter",
+        "dialect": "typesafe",
+        "status": 200,
+        "ms": 552,
+        "attempts": 1
+      },
+      {
+        "at": "2026-10-31T05:46:42.731Z",
+        "route": "/api/alpha/decisions",
+        "requested_model": "typesafe/jev-1.14",
+        "canonical_model": "typesafe/jev-1.14",
+        "provider": "openrouter",
+        "dialect": "typesafe",
+        "status": 200,
+        "ms": 421,
+        "attempts": 1
+      },
+      {
+        "at": "2026-10-31T05:43:39.053Z",
+        "route": "/api/alpha/decisions",
+        "requested_model": "zenmux/jev-1.14",
+        "canonical_model": "typesafe/jev-1.14",
+        "provider": "openrouter",
+        "dialect": "typesafe",
+        "status": 200,
+        "ms": 641,
+        "attempts": 2
+      },
+      {
+        "at": "2026-10-31T05:37:04.090Z",
+        "route": "/api/alpha/decisions",
+        "requested_model": "typesafe/jev-1.14",
+        "canonical_model": "typesafe/jev-1.14",
+        "provider": "openrouter",
+        "dialect": "typesafe",
+        "status": 200,
+        "ms": 430,
+        "attempts": 1
+      },
+      {
+        "at": "2026-10-31T05:36:55.934Z",
+        "route": "/api/alpha/decisions",
+        "requested_model": "typesafe/jev-1.14",
+        "canonical_model": "typesafe/jev-1.14",
+        "provider": "openrouter",
+        "dialect": "typesafe",
+        "status": 200,
+        "ms": 237,
+        "attempts": 1
+      }
+    ]
+  },
+  "pinned": [
+    {
+      "id": "openrouter/jev-1.14",
+      "provider": "openrouter",
+      "model": "typesafe/jev-1.14"
+    },
+    {
+      "id": "zenmux/jev-1.14",
+      "provider": "zenmux",
+      "model": "typesafe/jev-1.14"
+    }
+  ],
+  "models": {
+    "count": 48,
+    "pinned": [
+      "openrouter/jev-1.14",
+      "zenmux/jev-1.14"
+    ]
+  },
+  "probe": [
+    {
+      "provider": "openrouter",
+      "ok": true,
+      "status": 200,
+      "ms": 421,
+      "model": "typesafe/jev-1.14-20261014",
+      "checked_at": "2026-10-31T13:43:22.134Z"
+    },
+    {
+      "provider": "zenmux",
+      "ok": false,
+      "status": 404,
+      "ms": 1086,
+      "error": "HTTP 404: Requested model is not supported by /v1/decisions (request_id: f9fab8f3501246bead07e998bb109020)",
+      "checked_at": "2026-10-31T13:43:22.555Z"
+    }
+  ],
+  "batch": {
+    "provider": "openrouter",
+    "dialect": "typesafe",
+    "model": "typesafe/jev-1.14-20261014",
+    "answers": {
+      "needs_transport": {
+        "type": "noul",
+        "noul": 0.97
+      },
+      "component": {
+        "type": "choice",
+        "choice": "decision_transport",
+        "probabilities": {
+          "decision_transport": 1,
+          "chat_proxy": 0
+        },
+        "confidence": 1
+      },
+      "utility": {
+        "type": "score",
+        "score": 3.55,
+        "probabilities": {
+          "0": 0,
+          "1": 0.01,
+          "2": 0.05,
+          "3": 0.3,
+          "4": 0.64
+        },
+        "legend": {
+          "0": "no relevant fact",
+          "1": "mentions routing only",
+          "2": "partial evidence",
+          "3": "names the transport behaviour",
+          "4": "a complete, quotable answer"
+        },
+        "confidence": 0.64
+      }
+    },
+    "usage": {
+      "input_tokens": 483,
+      "output_tokens": 65,
+      "cost": 0
+    },
+    "latency_ms": 300
+  },
+  "failover": [
+    {
+      "model": "openrouter/jev-1.14",
+      "pinned_provider": "openrouter",
+      "answered_by": "openrouter",
+      "mode": "direct",
+      "attempts": [
+        {
+          "provider": "openrouter",
+          "outcome": "answered",
+          "status": 200
+        }
+      ]
+    },
+    {
+      "model": "zenmux/jev-1.14",
+      "pinned_provider": "zenmux",
+      "answered_by": "openrouter",
+      "mode": "failover",
+      "attempts": [
+        {
+          "provider": "zenmux",
+          "outcome": "retryable_error",
+          "status": 404
+        },
+        {
+          "provider": "openrouter",
+          "outcome": "answered",
+          "status": 200
+        }
+      ]
+    }
+  ],
+  "rerank": {
+    "latency_ms": 3028,
+    "results": 3,
+    "through_router": 3
+  },
+  "elapsed_ms": 6317
+}

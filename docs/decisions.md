@@ -236,8 +236,35 @@ probe traffic.
 
 ## Verification
 
-- `node --test --test-concurrency=1 tests/decisions-dialects.test.mjs tests/decisions.integration.test.mjs tests/decisions-pinned.integration.test.mjs`
-  — 34 tests: id resolution (including the chat alias), dialect encode/decode,
+### One command (recommended)
+
+```bash
+npm run verify:decisions -- --json --out .agents/audit/decisions-verify.json
+```
+
+Runs six checks against a live router and writes a JSON receipt
+(`schema: local-router/decisions-verify/v1`, exit `0` pass / `1` fail / `2` usage):
+
+| Check | Asserts |
+| :--- | :--- |
+| `discovery` | `/api/decisions/status` reports the three routes, keyed providers, `ready`, and pinned models |
+| `models` | `/v1/models` has exactly one row per pinned id with `capabilities.decisions: true`; `/api/tags` agrees |
+| `probe` | a live typed probe answered on at least one keyed provider (per-provider status + latency recorded) |
+| `batch` | noul+choice+score answers are in range, the chosen option has a probability, `legend` covers `0..n-1`, and distributions sum to 1 |
+| `chat guard` | a chat request for a pinned id returns `400` and names `/api/alpha/decisions` |
+| `failover` | a provider-pinned request either answers `direct` or fails over with a recorded failure before the answer |
+
+`--rerank` additionally shells out to `ainish-rag query` with a deliberately
+invalid primary key and requires the rerank rationales to name
+`Jev local-router:` — end-to-end proof that the RAG tooling uses this router as
+its decisions transport (skipped, with a reason, when ainish-rag or an index is
+missing). Sign the receipt for the audit chain with
+`ainish-rag audit sign .agents/audit/decisions-verify.json`.
+
+### Test suite
+
+- `node --test --test-concurrency=1 tests/decisions-dialects.test.mjs tests/decisions.integration.test.mjs tests/decisions-pinned.integration.test.mjs tests/decisions-verify.test.mjs`
+  — 38 tests: id resolution (including the chat alias), dialect encode/decode,
   one-based score normalization, fail-closed decoding, all three routes,
   discovery, chat guard, failover, malformed failover, all-fail 502, contract
   400, pinned provider preference, probe endpoint, curation-independent pinned
