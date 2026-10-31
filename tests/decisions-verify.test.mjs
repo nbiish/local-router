@@ -19,8 +19,12 @@ const worktreeRoot = fileURLToPath(new URL('..', import.meta.url));
 const scriptPath = join(worktreeRoot, 'scripts', 'verify-decisions.mjs');
 const port = String(18900 + Math.floor(Math.random() * 300));
 const baseUrl = `http://127.0.0.1:${port}`;
+const keylessPort = String(19300 + Math.floor(Math.random() * 300));
+const keylessBaseUrl = `http://127.0.0.1:${keylessPort}`;
 
 let serverProcess;
+let keylessProcess;
+let keylessHome = '';
 let serverLogs = '';
 let testHome = '';
 let receiptDir = '';
@@ -98,19 +102,26 @@ async function startUpstreams() {
   zenmuxUrl = await listen(zenmuxServer);
 }
 
-async function waitForServer() {
+async function waitForRouter(base, getProcess, label = 'router') {
   const deadline = Date.now() + 30_000;
   while (Date.now() < deadline) {
-    if (serverProcess.exitCode !== null) throw new Error(`server exited (${serverProcess.exitCode})\n${serverLogs}`);
+    const child = getProcess();
+    if (child?.exitCode !== null && child?.exitCode !== undefined) {
+      throw new Error(`${label} exited (${child.exitCode})\n${serverLogs}`);
+    }
     try {
-      const response = await fetch(`${baseUrl}/v1/models`, { signal: AbortSignal.timeout(1500) });
+      const response = await fetch(`${base}/v1/models`, { signal: AbortSignal.timeout(1500) });
       if (response.ok) return;
     } catch {
       /* starting */
     }
     await delay(200);
   }
-  throw new Error(`server did not become ready\n${serverLogs}`);
+  throw new Error(`${label} did not become ready\n${serverLogs}`);
+}
+
+async function waitForServer() {
+  await waitForRouter(baseUrl, () => serverProcess);
 }
 
 function runVerifier(args) {
@@ -160,13 +171,44 @@ test.before(async () => {
   serverProcess.stdout.on('data', (chunk) => { serverLogs += chunk.toString(); });
   serverProcess.stderr.on('data', (chunk) => { serverLogs += chunk.toString(); });
   await waitForServer();
+
+  // A second router with no provider keys: the verifier must fail cleanly and
+  // skip dependent checks instead of crashing on an undefined pinned set.
+  keylessHome = mkdtempSync(join(tmpdir(), 'lr-verify-keyless-'));
+  const keylessEnv = {
+    ...process.env,
+    PORT: keylessPort,
+    HOME: keylessHome,
+    USERPROFILE: keylessHome,
+    PQC_STORE_ISOLATED: '1',
+    PQC_CONFIG_DIR: join(keylessHome, 'pqc'),
+    PQC_SECRETS_DIR: join(keylessHome, 'pqc'),
+    LOCAL_ROUTER_PQC_SCAN_WSL: '0'
+  };
+  for (const key of [
+    'OPENROUTER_API_KEY',
+    'ZENMUX_API_KEY',
+    'LOCALROUTER_OPENROUTER_API_KEY',
+    'LOCALROUTER_ZENMUX_API_KEY',
+    'LOCAL_ROUTER_OPENROUTER_API_KEY',
+    'LOCAL_ROUTER_ZENMUX_API_KEY'
+  ]) {
+    delete keylessEnv[key];
+  }
+  keylessProcess = spawn(process.execPath, ['build/index.js'], {
+    cwd: worktreeRoot,
+    env: keylessEnv,
+    stdio: ['ignore', 'pipe', 'pipe']
+  });
+  await waitForRouter(keylessBaseUrl, () => keylessProcess);
 });
 
 test.after(async () => {
   serverProcess?.kill();
+  keylessProcess?.kill();
   await new Promise((resolve) => openrouterServer?.close(resolve) ?? resolve());
   await new Promise((resolve) => zenmuxServer?.close(resolve) ?? resolve());
-  for (const dir of [testHome, receiptDir]) {
+  for (const dir of [testHome, keylessHome, receiptDir]) {
     if (dir) rmSync(dir, { recursive: true, force: true });
   }
 });
@@ -215,6 +257,24 @@ test('unknown arguments are a usage error', async () => {
   const result = await runVerifier(['--nope']);
   assert.equal(result.status, 2);
   assert.match(result.stderr, /unknown argument/);
+});
+
+test('the verifier fails cleanly on a keyless router and skips dependent checks', async () => {
+  const result = await runVerifier(['--base-url', keylessBaseUrl, '--json']);
+  assert.equal(result.status, 1, `keyless run must fail\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}`);
+  const receipt = JSON.parse(result.stdout);
+  assert.equal(receipt.overall, 'fail');
+
+  const checks = Object.fromEntries(receipt.checks.map((check) => [check.name, check.status]));
+  assert.equal(checks.discovery, 'fail');
+  assert.equal(checks.models, 'skipped');
+  assert.equal(checks.probe, 'skipped');
+  assert.equal(checks.batch, 'skipped');
+  assert.equal(checks['chat guard'], 'skipped');
+  assert.equal(checks.failover, 'skipped');
+
+  assert.match(receipt.checks[0].detail, /no decision provider is keyed/);
+  assert.match(receipt.checks[1].detail, /did not advertise a decision model/);
 });
 
 test('--skip-failover records the check as skipped', async () => {
