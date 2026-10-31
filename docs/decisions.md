@@ -92,8 +92,8 @@ in code (e.g. ≥ 0.70 yes, ≤ 0.30 no); a probability is not a decision.
 
 | Provider | Endpoint | Dialect | Primitives | Status (2026-10-31) |
 | :--- | :--- | :--- | :--- | :--- |
-| OpenRouter | `https://openrouter.ai/api/alpha/decisions` | `typesafe` | noul, choice, score | Live — Jev 1.14 answers in 300–600 ms |
-| ZenMux | `https://zenmux.ai/api/v1/decisions` | `zenmux` | choice, score | Catalogued; route currently answers `404 model_not_supported` for `typesafe/jev-1.14`, so the router fails over and reports it |
+| OpenRouter | `https://openrouter.ai/api/alpha/decisions` | `typesafe` | noul, choice, score | Live — Jev 1.14 answers in 230–600 ms |
+| ZenMux | `https://zenmux.ai/api/v1/decisions` | `zenmux` | choice, score | Keyed and catalogued; the route still answers `404 model_not_supported` for `typesafe/jev-1.14` (1.3 s), so a pinned request falls back to OpenRouter with both attempts recorded |
 
 ### `typesafe` dialect (OpenRouter)
 
@@ -236,11 +236,12 @@ probe traffic.
 
 ## Verification
 
-- `node --test --test-concurrency=1 tests/decisions-dialects.test.mjs tests/decisions.integration.test.mjs`
-  — 28 tests: id resolution (including the chat alias), dialect encode/decode,
+- `node --test --test-concurrency=1 tests/decisions-dialects.test.mjs tests/decisions.integration.test.mjs tests/decisions-pinned.integration.test.mjs`
+  — 34 tests: id resolution (including the chat alias), dialect encode/decode,
   one-based score normalization, fail-closed decoding, all three routes,
   discovery, chat guard, failover, malformed failover, all-fail 502, contract
-  400, pinned provider preference, probe endpoint.
+  400, pinned provider preference, probe endpoint, curation-independent pinned
+  rows, id reservation, and `/api/show` for a pinned row.
 - Live (2026-10-31, build from branch `feat/router-decision-providers`, port 11436):
   - `POST /api/alpha/decisions` with `typesafe/jev-1.14` → `200`, `provider:
     openrouter`, `answers.q.noul` populated, 246–1014 ms including cold start.
@@ -250,3 +251,26 @@ probe traffic.
     attempts present in `local_router.attempts`.
   - `ainish-rag secrets` with `JEV_LOCAL_ROUTER_URL=http://127.0.0.1:11436` →
     `Decisions Route: http://127.0.0.1:11436/api/alpha/decisions (fallback transport)`.
+- Production (2026-10-31, `main` @ `471d3f6`, `127.0.0.1:11434`, WSL PID 445423,
+  operator-keyed OpenRouter + ZenMux):
+  - Key persisted as `LOCALROUTER_OPENROUTER_API_KEY`; after a cold restart
+    `bundleLoaded=true` with `loadedProviders=openrouter,zenmux,xiaomi-mimo,ollama`.
+  - Discovery: `/v1/models` + `/api/tags` expose `openrouter/jev-1.14` and
+    `zenmux/jev-1.14` with `capabilities.decisions: true`, next to the untouched
+    chat alias `openrouter-jev-router` (`decisions: false`).
+  - Probe: OpenRouter `200` / 593 ms; ZenMux `404 model_not_supported` / 1307 ms.
+  - Typed batch (noul + choice + score): `200` in 294 ms; `noul 0.60`,
+    `choice provider_resolver` p=1.0, `score 2.63` with legend and probabilities
+    summing to 1.0; usage 461/72 tokens, cost 0.
+  - Pinned `zenmux/jev-1.14` → `200` served by OpenRouter, attempts
+    `zenmux:retryable_error:404 → openrouter:answered:200`.
+  - Chat separation: chat for the decision id → `400` with the decisions pointer;
+    the alias was served by `openai/gpt-6-luna`.
+- Tooling (ainish-rag against the same instance):
+  - `ainish-rag secrets` → `Decisions Route: http://127.0.0.1:11434/api/alpha/decisions (fallback transport)`.
+  - `ainish-rag decide` → noul 0.87 (`openrouter:typesafe/jev-1.14-20261014`);
+    `ainish-rag route` → `needs_retrieval 0.69`, `architectural_wiki`, freshness 0.07.
+  - Forced fallback (invalid primary key) → `source: local-router:http://127.0.0.1:11434/api/alpha/decisions:typesafe/jev-1.14-20261014`.
+  - Rerank batch through the router: `ainish-rag query` rationales read
+    `Jev local-router:http://127.0.0.1:11434/api/alpha/decisions:typesafe/jev-1.14-20261014`
+    with `direct 0.84 (yes), symbols 0.95, utility 3.51/4 [implementation]` in 3.5 s.
