@@ -10,11 +10,12 @@ import { setTimeout as delay } from 'node:timers/promises';
 
 // Local backends (llama.cpp `llama-server`, Unsloth) are DETECTED, never
 // started and never shimmed (2026-09-20): they register as keyless loopback
-// custom providers at boot, but their models are listed ONLY while the
-// backend's own /v1/models endpoint answers. An offline backend contributes
-// no catalog rows while 11434 keeps answering OpenAI + Anthropic shapes
-// through graceful failover. Deleting a standard backend tombstones it so
-// boot does not resurrect it.
+// custom providers at boot. llama.cpp models are listed ONLY while its own
+// /v1/models endpoint answers. Unsloth is the exception (2026-10-31): the
+// operator runs Unsloth Studio themselves, so its known models stay listed
+// while the app is closed and requests keep proxying to its endpoint — Local
+// Router never starts, shims, or supervises it. Deleting a standard backend
+// tombstones it so boot does not resurrect it.
 
 const port = String(27700 + Math.floor(Math.random() * 300));
 const baseUrl = `http://127.0.0.1:${port}`;
@@ -259,18 +260,35 @@ test('live llama.cpp endpoint is detected and its models served; gone when it st
 
 test('unsloth proxy does not forward client IPs and does not require studio trust', async () => {
   testHome = mkdtempSync(join(tmpdir(), 'local-router-unsloth-forwarded-'));
+  const unslothKey = 'sk-unsloth-test-key';
   const hits = [];
-  const mock = createServer((req, res) => {
+  const readBody = (req) => new Promise((resolve) => {
+    let raw = '';
+    req.on('data', (chunk) => { raw += chunk; });
+    req.on('end', () => resolve(raw));
+  });
+  const mock = createServer(async (req, res) => {
     const url = req.url || '';
+    // Unsloth Studio requires its bearer key on every call, including models.
+    if (req.headers.authorization !== `Bearer ${unslothKey}`) {
+      res.writeHead(401, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: { message: 'invalid api key' } }));
+      return;
+    }
     if (url === '/v1/models') {
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ data: [{ id: 'studio-model' }] }));
       return;
     }
+    const rawBody = await readBody(req);
+    let parsedBody = null;
+    try { parsedBody = JSON.parse(rawBody); } catch { parsedBody = null; }
     hits.push({
       url,
+      authorization: req.headers.authorization || null,
       forwarded: req.headers['x-forwarded-for'] || null,
-      realIp: req.headers['x-real-ip'] || null
+      realIp: req.headers['x-real-ip'] || null,
+      body: parsedBody
     });
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({
@@ -280,6 +298,7 @@ test('unsloth proxy does not forward client IPs and does not require studio trus
   await new Promise((resolve) => mock.listen(0, '127.0.0.1', resolve));
   const mockPort = mock.address().port;
   process.env.UNSLOTH_PORT = String(mockPort);
+  process.env.LOCALROUTER_UNSLOTH_API_KEY = unslothKey;
   delete process.env.UNSLOTH_STUDIO_TRUST_FORWARDED;
   // A models array is required for the loopback row to be eligible; the live
   // probe then replaces those ids with whatever /v1/models returns.
@@ -309,21 +328,101 @@ test('unsloth proxy does not forward client IPs and does not require studio trus
       },
       body: JSON.stringify({
         model: 'unsloth-studio-model',
-        messages: [{ role: 'user', content: 'hi' }],
+        messages: [{ role: 'user', content: 'What is Unsloth?' }],
+        // Unsloth's documented body: tools are requested at the call site and
+        // must survive the proxy untouched.
+        enable_tools: true,
+        enabled_tools: ['web_search', 'python', 'terminal'],
+        permission_mode: 'off',
         max_tokens: 8
       })
     });
     assert.equal(chat.response.status, 200, `unsloth chat failed: ${JSON.stringify(chat.body).slice(0, 300)}`);
     assert.ok(hits.length > 0, 'upstream unsloth must have received the chat');
     for (const hit of hits) {
+      // The operator's Unsloth key is forwarded (never the caller's), and
+      // Unsloth's own request fields are preserved.
+      assert.equal(hit.authorization, `Bearer ${unslothKey}`, `unsloth must receive its bearer key on ${hit.url}`);
       assert.equal(hit.forwarded, null, `must not forward X-Forwarded-For on ${hit.url}`);
       assert.equal(hit.realIp, null, `must not forward X-Real-IP on ${hit.url}`);
     }
+    const chatHit = hits[hits.length - 1];
+    assert.equal(chatHit.body?.enable_tools, true, 'enable_tools must pass through');
+    assert.deepEqual(chatHit.body?.enabled_tools, ['web_search', 'python', 'terminal']);
+    assert.equal(chatHit.body?.permission_mode, 'off');
     assert.equal(serverLogs.includes('UNSLOTH_STUDIO_TRUST_FORWARDED'), false);
   } finally {
     delete process.env.UNSLOTH_PORT;
+    delete process.env.LOCALROUTER_UNSLOTH_API_KEY;
     await stopServer();
     mock.close();
+    rmSync(testHome, { recursive: true, force: true });
+  }
+});
+
+test('unsloth stays advertised while the app is closed and is never launched', async () => {
+  testHome = mkdtempSync(join(tmpdir(), 'local-router-unsloth-closed-'));
+
+  // Reserve a loopback port, then close it: this port is guaranteed dead for
+  // the whole test, so "the user's Unsloth app is not open".
+  const reservation = createServer();
+  await new Promise((resolve) => reservation.listen(0, '127.0.0.1', resolve));
+  const closedPort = reservation.address().port;
+  await new Promise((resolve) => reservation.close(resolve));
+
+  process.env.UNSLOTH_PORT = String(closedPort);
+  writeCustomProviders([
+    {
+      name: 'unsloth',
+      displayName: 'Unsloth (local)',
+      endpoint: `http://127.0.0.1:${closedPort}/v1`,
+      keyEnvVar: 'UNSLOTH_API_KEY',
+      defaultTool: 'OpenAI Compatible',
+      createdAt: new Date().toISOString(),
+      models: ['studio-model', 'qwen3.5-32b']
+    }
+  ]);
+
+  await startServer();
+  try {
+    // Detection only: the app is closed, yet Local Router behaves as if the
+    // operator has it open — the known models stay discoverable.
+    const ids = await pollForModels('unsloth-studio-model', true, 20);
+    assert.ok(ids.includes('unsloth-studio-model'), `closed unsloth must still list its models; got: ${ids.join(', ')}`);
+    assert.ok(ids.includes('unsloth-qwen3.5-32b'), 'all known unsloth models stay listed');
+
+    const tags = await requestJson('/api/tags');
+    assert.ok(
+      (tags.body?.models || []).some((model) => model.name === 'unsloth-studio-model'),
+      '/api/tags must agree with /v1/models'
+    );
+
+    // A request is proxied to the app's own endpoint and surfaces the upstream
+    // failure — the router never substitutes a launch attempt.
+    const chat = await requestJson('/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'unsloth-studio-model',
+        messages: [{ role: 'user', content: 'hi' }],
+        max_tokens: 8
+      })
+    });
+    assert.notEqual(chat.response.status, 200, 'chat to a closed app must fail, not fabricate an answer');
+
+    // Nothing was started: the port is still free.
+    const stillFree = await new Promise((resolve) => {
+      const probe = createServer();
+      probe.once('error', () => resolve(false));
+      probe.listen(closedPort, '127.0.0.1', () => probe.close(() => resolve(true)));
+    });
+    assert.equal(stillFree, true, 'the router must not start an unsloth service');
+
+    // And it says nothing about launching one.
+    assert.equal(/unsloth[^\n]*(spawn|launch|starting)/i.test(serverLogs), false, 'no launch attempt may be logged');
+  } finally {
+    delete process.env.UNSLOTH_PORT;
+    await stopServer();
     rmSync(testHome, { recursive: true, force: true });
   }
 });

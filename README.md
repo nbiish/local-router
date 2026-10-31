@@ -198,6 +198,13 @@ local-router/<route-name>
 
 Legacy `fvs-code/<route-name>` and `fallback/<route-name>` inputs still resolve as compatibility aliases, but new docs and APIs present `local-router/<route-name>`.
 
+### Local backends (llama.cpp & Unsloth)
+
+Local Router only **detects and proxies** local apps — it never starts, shims, or supervises them.
+
+- **llama.cpp** (`llama-server`, `:8080`, `LLAMA_CPP_PORT`): models are listed while its `/v1/models` answers; an offline backend contributes no rows.
+- **Unsloth** (`:8888`, `UNSLOTH_PORT`): your Unsloth Studio app stays yours. Models discovered while it is open are remembered and remain listed after you close it, and requests keep proxying to `http://127.0.0.1:8888/v1` — you get the app's own error if it is closed, never a launched substitute. Studio requires its bearer key (`sk-unsloth-…`); set it once (`LOCALROUTER_UNSLOTH_API_KEY` in the PQC store, or paste it on the provider card) and Local Router forwards it on probes and chat, leaving fields like `enable_tools`, `enabled_tools`, and `permission_mode` untouched.
+
 ## Fallback Chains
 
 Routing is either a **direct provider model** (`zenmux-deepseek-v4-pro`) or a **fallback chain** (`local-router/<chain-id>`) — an ordered retry chain with backoff. When a chain exhausts, the request cascades into the system safety-net chain `local-router/fallback-models`.
