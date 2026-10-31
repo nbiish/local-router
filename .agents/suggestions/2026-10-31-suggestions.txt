@@ -30,3 +30,17 @@ pm run verify:decisions -- --rerank as the pre-flight for RAG work and extend th
 - Terminal-orchestration/swe-bench: expose the verifier's JSON schema in llms.txt so harness setup can consume it without re-deriving fields.
 - Master-orchestrator/self-prompting: the next session should start from .agents/audit/2026-10-31-decisions-verify.json rather than re-probing manually — make orient mention the latest receipt.
 - Developer-experience/ergonomics: add --quiet and colour to the human summary, and surface the same result on /config so operators never need a terminal to know if decisions are live.
+### [2026-10-31T10:07:45.0912503-04:00] main
+**Changed:** Unsloth is now strictly detect-and-proxy — merged 2efc14f: never resolved/shimmed/started/supervised (CLI guard + dead branch removed), the operator's bearer key forwarded on /v1/models probes and chat, enable_tools/enabled_tools/permission_mode passed through untouched, and known model ids persisted so they stay listed while the app is closed. Also merged ed87ce3: the decisions verifier now fails cleanly on a keyless router instead of crashing. Tests: local-backends 5/5, decisions-verify 5/5, full suite 220/222 (same 2 pre-existing). Production restarted on the new build; no Unsloth process is ever spawned.
+
+Next step: restore the router-consumer keys (LOCALROUTER_OPENROUTER_API_KEY / LOCALROUTER_ZENMUX_API_KEY / LOCALROUTER_UNSLOTH_API_KEY) in the PQC bundle, then run `npm run verify:decisions -- --rerank` and require 7/7 before starting the ainish-coder RAG work.
+
+- Adversarial/security: the Unsloth bearer key now leaves the store on every probe and chat — assert it is only ever sent to a loopback endpoint and add a test that a non-loopback Unsloth endpoint override refuses to receive it.
+- Privacy/data-protection: Unsloth tool calls (web_search, python, terminal) can act on the host; document that the router forwards them verbatim and consider a config gate for tool-enabled requests.
+- Supply-chain/third-party-risk: the shared PQC bundle keeps losing this consumer's names to other tools — add a boot-time canary that writes/reads LOCALROUTER_AGENT_CANARY and fails loudly when another writer clobbers the bundle.
+- Systems-architecture/devops: the 09:59 bundle rewrite happened while a router instance was live; add a bundle-mtime watcher so a live router reports key drift instead of silently serving stale in-memory keys.
+- Reliability/verification: add a regression test that a bundle losing its router names mid-run is detected (pqc-resync + decisions status) rather than discovered by a failed verifier run hours later.
+- Governance/sovereignty: consumer-prefix boundaries held (the router did not consume PSIONICS_ names) — keep it that way and document the authorized-mirror procedure as the only sanctioned cross-consumer path.
+- Terminal-orchestration/swe-bench: expose `verify:decisions` as a pre-flight in the harness bootstrap so a keyless router is caught before any agent work starts.
+- Master-orchestrator/self-prompting: this session's blocker was environmental, not code — start the next session with `pqc-secrets list --json | grep LOCALROUTER_` and the verifier receipt, not with code reading.
+- Developer-experience/ergonomics: `/config` should show Unsloth as "detected / closed (models remembered)" with its key state, so operators understand why a model is listed while the app is shut.

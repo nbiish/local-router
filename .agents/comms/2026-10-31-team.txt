@@ -84,3 +84,41 @@ pm run verify:decisions runs discovery (routes/providers/pinned models), pinned-
 - output:main bcca6da; worktrees removed, branches deleted; production healthy. One command proves the layer; receipt chain verified. Open item carried forward: ZenMux decisions route still 404 for typesafe/jev-1.14 (failover + provenance recorded), and 11434 still lacks a supervisor.
 - status:merged
 - blockers:none
+
+### [2026-10-31T10:00:29.3642865-04:00] intent-merge | branch:fix/unsloth-no-autostart | wt:D:/Code/lr-unsloth
+- start:2026-10-31T10:00:29.3642865-04:00
+- end:2026-10-31T10:00:29.3642865-04:00
+- scope:merge into main (--no-ff) + rebuild the 11434 runtime
+- objective:ship Unsloth detect-and-proxy contract (bearer key, offline-tolerant listing, never launched).
+- output:222 tests · 220 pass · same 2 pre-existing failures; local-backends 5/5 (auth forwarding, tool fields, closed-app listing, no launch); CLI syntax checked. Baseline on prod: 0 unsloth rows while the app is closed.
+- status:in-progress
+- blockers:none
+### [2026-10-31T10:07:34.8941790-04:00] update | branch:main | wt:D:/Code/local-router
+- start:2026-10-31T10:07:34.8941790-04:00
+- end:2026-10-31T10:07:34.8941790-04:00
+- scope:Unsloth detect-and-proxy contract; decisions verifier keyless guard; production restart
+- objective:ship the Unsloth contract and re-test the whole layer.
+- output:UNSLOTH (merge 2efc14f) — never resolves, shims, starts, or supervises Unsloth: the CLI shim installer refuses the unsloth target explicitly and the dead binary-resolution branch is removed. The operator's bearer key (LOCALROUTER_UNSLOTH_API_KEY / UNSLOTH_API_KEY) is forwarded on the /v1/models probe and on chat (caller Authorization still ignored); Unsloth body fields enable_tools, enabled_tools and permission_mode pass through untouched. Offline-tolerant: last-known ids persist to custom-providers.json and stay listed while the app is closed (llama.cpp keeps strict liveness gating). VERIFIER (merge ed87ce3) — a keyless router now fails discovery and SKIPS models/probe/batch/chat-guard/failover instead of throwing "receipt.pinned is not iterable"; regression test added.
+- tests: local-backends 5/5 (bearer auth enforced by the mock, tool fields preserved, closed-app listing, no launch, IP non-forwarding); decisions-verify 5/5; full suite 222 tests / 220 pass / same 2 pre-existing failures; node --check on the CLI clean.
+- prod: restarted on 2efc14f (WSL PID 476964); no unsloth process spawned, 8888 closed, 0 unsloth rows because no model ids are known yet.
+- status:merged
+- blockers:decision layer is keyless again — see the incident entry.
+
+### [2026-10-31T10:07:34.8941790-04:00] update | branch:main | wt:D:/Code/local-router
+- start:2026-10-31T10:07:34.8941790-04:00
+- end:2026-10-31T10:07:34.8941790-04:00
+- scope:shared PQC bundle (OBSERVED only, never written)
+- objective:explain why the restarted router lost its decision keys.
+- input:pqc-secrets list at 09:45 showed 12 names incl. LOCALROUTER_OPENROUTER/ZENMUX/XIAOMI; at 10:00 the same bundle held 10 PSIONICS_ names only.
+- output:the bundle was rewritten at 09:59:54 local with five rapid backups (13:59:33-53Z). Every backup in that window (10-11 names) already lacks the router names, so there is no pre-rewrite snapshot to restore from — the router persisted copies are gone and pqc-doctor agrees (0 provider-mapped). Production therefore boots keyless (decisionsReady=false, no pinned models, verifier fails discovery cleanly). PSIONICS_OPENROUTER_API_KEY / PSIONICS_ZENMUX_API_KEY survive and were previously proven valid, but they belong to another consumer namespace: the router does not consume them implicitly.
+- status:blocked-on-operator
+- blockers:router-consumer keys must be re-entered (/config or pqc-secrets set --stdin with LOCALROUTER_ names), or the operator must authorize an explicit PSIONICS_ to LOCALROUTER_ mirror (additive, reversible with pqc-secrets del).
+
+### [2026-10-31T10:07:34.8941790-04:00] checkout | branch:main | wt:D:/Code/local-router
+- start:2026-10-31T10:07:34.8941790-04:00
+- end:2026-10-31T10:07:34.8941790-04:00
+- scope:unsloth + verifier session closed
+- objective:leave a clean tree and a precise handoff.
+- output:main ed87ce3; worktrees removed (lr-unsloth, lr-verify-guard), branches deleted; prod on the 2efc14f build. Carried forward: re-enter router keys, then run npm run verify:decisions -- --rerank and require 7/7 before RAG work.
+- status:merged
+- blockers:keyless decision layer (operator action).
