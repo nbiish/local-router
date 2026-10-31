@@ -1,0 +1,15 @@
+
+### [2026-10-31T01:51:52.5937459-04:00] main
+**Changed:** Verified the RAG decision tooling against production with both providers keyed (OpenRouter live 593 ms; ZenMux keyed but still 404 for the latest Jev id, so pinned zenmux/jev-1.14 fails over with both attempts recorded), proved the rerank batch runs through local-router (direct 0.84 / symbols 0.95 / utility 3.51 [implementation], 3.5 s), aligned ainish-coder at 61467cf (skill transports + failure rows, verified API contract, PRD line, engine comments; cargo check + 41 Python tests green), and merged the local-router verification receipts (e49b137, docs-only).
+
+Next step: add a repeatable scripts/verify-decisions.mjs that runs probe + typed batch + chat guard + forced-fallback rerank and emits a JSON receipt, so every future deploy proves the transport in one command instead of this session's six-step ritual.
+
+- Adversarial/security: a pinned zenmux/jev-1.14 request now silently answers via OpenRouter — correct, but make the provenance block un-ignorable in tooling logs so a security review can always trace which provider saw the state.
+- Privacy/data-protection: decision state crosses two providers on failover; add per-provider egress accounting (counts only) to /api/decisions/status so operators can see how often content left the country of choice.
+- Supply-chain/third-party-risk: ZenMux's dialect is undocumented and reverse-engineered; freeze its schema in a contract test and add a probe-driven warning when ZenMux starts accepting the model, so the adapter is re-validated at the moment the route opens.
+- Systems-architecture/devops: 11434 remains unsupervised (PID 445423) — a crash is invisible; add a systemd user unit that restarts and appends to health.json, since this cycle again restarted it by hand.
+- Reliability/verification: the rerank proof was manual and assertion-free; capture it as a test with a fixture snapshot of ationale prefixes so a regression in batch transport fails CI.
+- Governance/sovereignty: document that the Local Router is a transport and the *judgments* are TypeSafe's; thresholds, weights, and the decision to act remain in ainish-rag code, which is what makes the audit defensible.
+- Terminal-orchestration/swe-bench: inish-rag bench --regression should run with JEV_LOCAL_ROUTER_URL pointed at the router so the bench exercises both transports, not just OpenRouter.
+- Master-orchestrator/self-prompting: cross-repo changes (ainish-coder + local-router) were done in two worktrees with no shared task record — add a handoff entry when a task spans repos so the next session sees one narrative.
+- Developer-experience/ergonomics: /config still has no decision-transport tile; show provider readiness, last probe latency, and the pinned model ids, so operators stop curl-ing /api/decisions/status.

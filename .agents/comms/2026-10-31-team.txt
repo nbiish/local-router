@@ -1,0 +1,66 @@
+---
+description: Agent Communication System protocol template. Deployed by `ainish-coder --rules` as `.agents/comms/{date}-team.txt` (one file per UTC date — the day's whole history is one read). Merge-safe: agents deploying updates must preserve all entry blocks below the PROTOCOL section; only the PROTOCOL block itself may be refreshed from this template.
+---
+
+# AGENT COMMS — 2026-10-31
+
+<PROTOCOL>
+## PROTOCOL (binding — follow like AGENTS.md)
+
+**When:** ≥1 agent or subagent is working at once (multiple branches, features, updates, bugs, docs). Solo? Still check in/out — the ledger is the audit trail.
+
+**Two channels:**
+- **This file** (`.agents/comms/{date}-team.txt`) — one file per UTC date; committed, append-only durable ledger. Never rotate per session or per hour. Updated via your task-branch commits; reaches everyone at merge.
+- **Live board** (`.agents/comms/{date}-team.live.txt`) — gitignored, at the **main repo path**. Append here by absolute path for immediate in-flight visibility. Never `git commit` it; never `git add` it. Main stays clean.
+
+**Read:** this file + the live board — at start, before any merge, and whenever blocked.
+
+**Write:** for every lifecycle event, append one entry block to **both** the live board (immediate) and this file in your worktree (durable — commit it). One writer per branch. Subagents do not write the shared files directly: report results to your orchestrator, who logs on your behalf with `parent:` set.
+
+**Skill distribution (persisted per-repo selection):** which `.agents/skills/` packs distribute to this repo is governed by the operator's persisted selection (`~/.config/ainish-coder/skills-selection.json`, toggled via `ainish-coder --skills-sync` or `--rules`). Agents and CI MUST use the headless path — `ainish-coder --skills-sync <dir> --headless` or `ainish-coder --rules <dir> --headless` — which applies the saved selection with no prompts. Do not hand-edit the selection file; run the interactive toggle instead. Scroll-channel packs (`8thfire-scrolls`, `ghost-layer-injector`, raw `.scrolls*/` payload) are never selectable here — explicit `--scrolls` only.
+
+**Timestamps — mandatory, bracketed, ISO-8601 (UTC `Z` form on this ledger):**
+- `start:` the instant the agent **begins** the action (input received / work begun).
+- `end:` the instant the agent **finishes** it (output produced / work handed off or halted).
+- **Every** entry has both. Abandoned mid-action → still close with `end:` + `status: abandoned`.
+
+\*\*Entry block:\*\*
+
+~~~
+### [<ISO-8601 timestamp>] <EVENT> | branch:<branch> | wt:<worktree-path>
+- start:<ISO-8601>               # input received / work began
+- end:<ISO-8601>                 # output produced / work ended
+- parent:<orchestrator>          # subagents only
+- scope:<paths/modules>
+- provenance:<source_commit=XXXXXXXXXXXX manifest_sha256=XXXXXXXXXXXX>   # optional but recommended
+- objective:<one line>
+- input:<one line — what was received or requested>
+- output:<one line — what was produced or handed off>
+- status:<new|in-progress|blocked|verifying|merged|abandoned>
+- blockers:<none | description>
+~~~
+
+**Provenance stamp (recommended on `checkin`):** embed the ainish-coder root commit SHA and the target's deployment-manifest digest so every work session is auditable against the exact ruleset it ran under. Generate it with `ainish-coder --rules-provenance <dir>`, which emits `source_commit=… manifest_sha256=…`. Verify every target's manifest signature with `ainish-coder --rules-verify [--json]`.
+
+</PROTOCOL>
+
+---
+
+### [2026-10-31T01:51:40.4442567-04:00] update | branch:main | wt:D:/Code/local-router
+- start:2026-10-31T01:51:40.4442567-04:00
+- end:2026-10-31T01:51:40.4442567-04:00
+- scope:decision transport verification with both providers keyed; ainish-coder alignment; docs merge e49b137
+- objective:prove the RAG tooling consumes the decision model, align the engine repo, and wrap the local-router work.
+- input:operator added the ZenMux key; request to test the RAG tooling and update ainish-coder.
+- output:ZENMUX — key loaded (loadedProviders=openrouter,zenmux,xiaomi-mimo,ollama); both pinned rows advertised; probe zenmux 404 model_not_supported / 1307 ms (route not open for typesafe/jev-1.14), openrouter 200 / 593 ms. A pinned zenmux/jev-1.14 request answered 200 via OpenRouter with attempts zenmux:retryable_error:404 -> openrouter:answered:200 and no translations leak. TOOLING — inish-rag query rerank ran through the router when the primary key was forced invalid: rationales Jev local-router:http://127.0.0.1:11434/api/alpha/decisions:typesafe/jev-1.14-20261014 with direct 0.84 / symbols 0.95 / utility 3.51 [implementation] in 3.5 s; normal-path query, decide (0.87), route (needs_retrieval 0.69 / architectural_wiki / freshness 0.07) all green. AINISH-CODER — merge 61467cf updates the skill transports + failure-mode rows, api-contract verified section, PRD decision-layer line, and engine comments/secrets message; cargo check --all-targets clean, 41 Python decision tests OK. LOCAL-ROUTER — docs/decisions.md receipts updated (merge e49b137); docs-only, no runtime change (no-rebuild-needed; prod PID 445423 still serving both pinned models).
+- status:merged
+- blockers:ZenMux decisions route still 404 for the latest Jev id; router falls back and reports it.
+
+### [2026-10-31T01:51:40.4442567-04:00] checkout | branch:main | wt:D:/Code/local-router
+- start:2026-10-31T01:51:40.4442567-04:00
+- end:2026-10-31T01:51:40.4442567-04:00
+- scope:local-router decisions work wrapped for this cycle
+- objective:close with an auditable receipt and a clean tree.
+- output:main e49b137; worktrees removed (lr-decisions-docs), branches deleted; prod healthy (ready=true, both pinned models). Verification receipts in docs/decisions.md. Known gaps: no supervisor on 11434; ZenMux route pending; no rerank benchmark/regression run.
+- status:merged
+- blockers:none
