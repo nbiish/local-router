@@ -3,7 +3,7 @@
 - **Branch:** `fix/decisions-always-available`
 - **Worktree:** `D:/Code/lr-decisions-pinned`
 - **Lane:** now (claimed 2026-10-31T01:00-04:00 / 05:00Z)
-- **Status:** verifying
+- **Status:** merging
 
 ## Objective
 
