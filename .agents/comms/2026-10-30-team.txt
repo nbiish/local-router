@@ -55,3 +55,21 @@ description: Agent Communication System protocol template. Deployed by `ainish-c
 - output:worktree created; contracts captured (OpenRouter decisions live, ZenMux /api/v1/decisions schema probed); implementation in progress.
 - status:in-progress
 - blockers:none
+
+### [2026-10-30T22:41:27.2678809-04:00] update | branch:feat/router-decision-providers | wt:D:/Code/lr-decision-providers
+- start:2026-10-30T22:41:27.2678809-04:00
+- end:2026-10-30T22:41:27.2678809-04:00
+- scope:src/decisions/**; src/index.ts; tests/decisions*; docs/decisions.md; README.md; llms.txt
+- objective:ship decision-model transport (all three edge routes) across configured providers.
+- output:6 modules + wiring; 28 tests green; full suite has 2 pre-existing failures reproduced on main; live smoke on 11436 proved 200 via OpenRouter, honest ZenMux 404, pinned-provider failover, and inish-rag secrets reporting Decisions Route: .../api/alpha/decisions. Patch eval ADEQUATE (0.50, 254 anchored symbols, no canary leaks). Gate red only for pre-existing repo state (identical on main).
+- status:verifying
+- blockers:none
+
+### [2026-10-30T22:41:27.2678809-04:00] intent-merge | branch:feat/router-decision-providers | wt:D:/Code/lr-decision-providers
+- start:2026-10-30T22:41:27.2678809-04:00
+- end:2026-10-30T22:41:27.2678809-04:00
+- scope:merge feat/router-decision-providers into main (--no-ff) + rebuild the 11434 runtime
+- objective:record the integration intent before touching main.
+- output:pending merge; gates: build green, 28 new tests green, live smoke green, gate failures pre-existing.
+- status:in-progress
+- blockers:none
