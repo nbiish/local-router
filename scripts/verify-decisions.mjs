@@ -307,6 +307,8 @@ async function checkDiscovery(call, receipt) {
 }
 
 async function checkModels(call, receipt) {
+  const pinned = Array.isArray(receipt.pinned) ? receipt.pinned : [];
+  if (pinned.length === 0) throw new SkipCheck('discovery did not advertise a decision model');
   const models = await call('/v1/models');
   if (models.status !== 200 || !isObject(models.json) || !Array.isArray(models.json.data)) {
     throw new Error(`/v1/models returned ${models.status}`);
@@ -571,7 +573,11 @@ async function main() {
 
   const checks = [];
   checks.push(await runCheck('discovery', () => checkDiscovery(call, receipt)));
-  checks.push(await runCheck('models', () => checkModels(call, receipt)));
+  checks.push(
+    receipt.pinned?.length
+      ? await runCheck('models', () => checkModels(call, receipt))
+      : skippedCheck('models', 'discovery did not advertise a decision model')
+  );
   checks.push(
     receipt.pinned?.length
       ? await runCheck('probe', () => checkProbe(call, receipt, options.timeoutMs))
