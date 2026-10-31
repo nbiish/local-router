@@ -49,6 +49,41 @@ Configuration UI:
 http://127.0.0.1:11434/config
 ```
 
+## Decision Models (System One / Jev)
+
+Local Router also proxies **typed decision models** — calibrated, structured
+answers instead of generated prose. Three equivalent paths accept the TypeSafe
+System One contract (`{model, state, questions}`) and answer `{model, answers,
+usage}`:
+
+```text
+POST http://127.0.0.1:11434/api/alpha/decisions
+POST http://127.0.0.1:11434/v1/decisions
+POST http://127.0.0.1:11434/decisions
+```
+
+```bash
+curl -s http://127.0.0.1:11434/api/alpha/decisions \
+  -H 'Content-Type: application/json' \
+  -d '{"model":"typesafe/jev-1.14","state":"file src/router.ts binds port 11434",
+       "questions":{"needs_port":{"type":"noul","instructions":"Does this state bind a network port?",
+       "criteria":{"true":"it binds a port","false":"no network binding"}}}}'
+```
+
+Decision-capable providers are resolved from your configured keys and tried in
+order: **OpenRouter** (`/api/alpha/decisions`, full noul/choice/score) then
+**ZenMux** (`/api/v1/decisions`, choice/score, with noul carried as a calibrated
+two-option choice). Availability failures fail over between providers; contract
+errors do not. Every response carries `provider`, `dialect`, and a
+`local_router` provenance block with the attempt trail.
+
+- `GET /api/decisions/status` — readiness, providers, advertised models, recent requests; `?probe=true` (or `POST /api/decisions/probe`) runs a live typed probe.
+- `/v1/models` and `/api/tags` advertise `openrouter/jev-1.14` / `zenmux/jev-1.14` with `capabilities.decisions: true`. `openrouter-jev-router` remains a chat alias.
+- Chat requests for a decision model return `400` pointing at the decisions route instead of answering with general-model prose.
+
+Full contract, dialect details, failover table, and configuration:
+[docs/decisions.md](docs/decisions.md).
+
 ## Agent Harnesses (Claude Code & Codex CLI)
 
 `/config/agents` is the single place that wires the two terminal agent harnesses to Local Router and proves the wiring:
