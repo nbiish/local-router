@@ -3393,7 +3393,9 @@ function migratePersistedRoutingConfig(): void {
 
 function findPresentedModel(modelName: string): ProviderModel | undefined {
   const lookup = stripOllamaLatestSuffix(modelName.trim());
-  return presentedModelList().find((model) => providerModelAliases(model).has(lookup));
+  // Pinned decision rows are listed by /v1/models and /api/tags, so /api/show
+  // must be able to describe them too instead of 404ing a model it advertises.
+  return [...presentedModelList(), ...decisionModelEntries()].find((model) => providerModelAliases(model).has(lookup));
 }
 
 /** Ordered chain-member configurations for a local-router/<chain> route,

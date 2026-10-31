@@ -194,6 +194,13 @@ test('the Ollama-compatible surface and the provider-scoped listing agree', asyn
   const rows = scoped.data.filter((model) => model.id === 'openrouter/jev-1.14');
   assert.equal(rows.length, 1);
   assert.equal(rows[0].capabilities.decisions, true);
+
+  // /api/show must describe a model the router advertises, not 404 it.
+  const show = await fetch(`${keyedBase}/api/show/openrouter/jev-1.14`);
+  assert.equal(show.status, 200);
+  const shown = await show.json();
+  assert.equal(shown.model_info['general.provider'], 'openrouter');
+  assert.equal(shown.model_info['general.upstream_model'], 'typesafe/jev-1.14');
 });
 
 test('decision ids are reserved: a provider model cannot shadow the transport', async () => {
