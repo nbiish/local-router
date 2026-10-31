@@ -1,0 +1,13 @@
+{
+  "action": "batch_index",
+  "algorithm_guarantee": "FIPS 204 ML-DSA-65",
+  "anonymized_symbols": false,
+  "chunks_generated": 3274,
+  "files_indexed": 498,
+  "receipt_id": "idx-1793414448740",
+  "status": "verified",
+  "target": "D:\\Code\\lr-decision-providers",
+  "timestamp": "2026-10-31T02:40:48.740765+00:00",
+  "total_store_records": 3274,
+  "wiki_ledger_sha256": null
+}
