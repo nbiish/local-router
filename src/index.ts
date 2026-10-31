@@ -130,6 +130,11 @@ export type ProviderModel = {
   supportsReasoning: boolean;
   tier?: string;
   sourceUrl?: string;
+  /**
+   * Pinned decision-model row: always served while its provider key is
+   * configured, never governed by curation toggles or catalog contents.
+   */
+  alwaysAvailable?: boolean;
 };
 
 type ProviderSource = 'catalog' | 'custom';
@@ -2053,6 +2058,10 @@ function filterConfiguredModels(models: ProviderModel[]): ProviderModel[] {
       const oauthState = getOAuthStateSafe(model.provider);
       return Boolean(oauthState?.accessToken);
     }
+    // Pinned decision models are built only when their provider holds a key
+    // (decisionModelEntries), so they are always servable here — curation and
+    // catalog filters must never drop them.
+    if (model.alwaysAvailable) return true;
     return providerHasConfiguredKey(model.provider);
   });
 }
@@ -2076,12 +2085,17 @@ function endpointCurationActive(): boolean {
 function applyEndpointCuration(models: ProviderModel[]): ProviderModel[] {
   if (!endpointCurationActive() || !modelSourceConfig.filterConfigured) return models;
   const curatedKeys = new Set(modelSourceConfig.curatedEndpointModelKeys);
+  // Pinned decision models are catalog-independent: they are advertised from
+  // the decisions catalog (never from a toggle store row), so an operator who
+  // curates nothing — or unchecks everything for a provider — still gets the
+  // decision transport discovery needs.
+  const alwaysAvailable = (model: ProviderModel) => model.alwaysAvailable === true;
   if (curatedKeys.size === 0) {
     // Local ollama backend stays discoverable even when nothing is curated.
-    return models.filter((model) => model.provider === 'ollama');
+    return models.filter((model) => model.provider === 'ollama' || alwaysAvailable(model));
   }
   return models.filter(
-    (model) => model.provider === 'ollama' || curatedKeys.has(endpointModelCurationKey(model))
+    (model) => model.provider === 'ollama' || alwaysAvailable(model) || curatedKeys.has(endpointModelCurationKey(model))
   );
 }
 
@@ -2947,24 +2961,31 @@ function decisionModelEntries(): ProviderModel[] {
     supportsTools: false,
     supportsImages: false,
     supportsCache: false,
-    supportsReasoning: false
+    supportsReasoning: false,
+    // Pinned: served whenever the provider key is configured, regardless of
+    // curation toggles or catalog contents.
+    alwaysAvailable: true
   }));
 }
 
-async function discoveryModelList(live = false): Promise<ProviderModel[]> {
+/**
+ * Appends the pinned decision rows to any model list, replacing (not
+ * duplicating) a same-id row that a catalog, override, or live discovery may
+ * have produced. The decisions catalog is authoritative for these ids.
+ */
+function withDecisionModels(models: ProviderModel[]): ProviderModel[] {
   const decisions = decisionModelEntries();
+  if (decisions.length === 0) return models;
+  const pinnedIds = new Set(decisions.map((model) => model.id));
+  return [...models.filter((model) => !pinnedIds.has(model.id)), ...decisions];
+}
+
+async function discoveryModelList(live = false): Promise<ProviderModel[]> {
   if (live) {
     const upstream = await resolveCatalogModels({ live: true });
-    const seen = new Set<string>();
-    const merged: ProviderModel[] = [];
-    for (const model of [...upstream, ...fallbackModelList(), ...decisions]) {
-      if (seen.has(model.id)) continue;
-      seen.add(model.id);
-      merged.push(model);
-    }
-    return merged;
+    return withDecisionModels([...upstream, ...fallbackModelList()]);
   }
-  return [...providerCatalogModels(), ...fallbackModelList(), ...decisions];
+  return withDecisionModels([...providerCatalogModels(), ...fallbackModelList()]);
 }
 
 const MODEL_ENTRY_CREATED_TIMESTAMP = Math.floor(Date.now() / 1000);
@@ -3113,6 +3134,15 @@ function validateFallbackReferences(model: FallbackModel) {
 }
 
 function findPresentedNameConflict(providerName: string, presentedName: string) {
+  // Decision-model ids are reserved: a provider model cannot shadow
+  // `openrouter/jev-1.14` (or any typed decision id), because that would let a
+  // catalog toggle rename the calibrated decision transport into a chat row.
+  if (isDecisionModelId(presentedName)) {
+    return {
+      id: presentedName,
+      provider: FALLBACK_PROVIDER_NAME
+    } as Pick<ProviderModel, 'id' | 'provider'>;
+  }
   const modelConflict = activeProviderModelList().find((model) => (
     model.provider !== providerName && model.id === presentedName
   ));
@@ -3535,7 +3565,11 @@ function configureVSCodeModelPicker(hostUrl: string) {
   const userDir = vscodeUserDir();
   const chatLanguageModelsPath = path.join(userDir, 'chatLanguageModels.json');
   const statePath = path.join(userDir, 'globalStorage', 'state.vscdb');
-  const models = [...providerCatalogModels(), ...fallbackModelList()];
+  // Typed decision models are served by the decisions API, never chat: keep
+  // them out of the VS Code chat picker even if a pinned row ever reaches the
+  // catalog layer.
+  const models = [...providerCatalogModels(), ...fallbackModelList()]
+    .filter((model) => model.alwaysAvailable !== true);
   const modelNames = models.map((model) => model.id);
   const candidateToModel = new Map<string, ProviderModel>();
 
@@ -7259,21 +7293,17 @@ app.get(['/v1/models', '/models'], async (req: Request, res: Response) => {
       live
     });
     // Decision models are not chat models: expose them on the provider-scoped
-    // listing too, so `/v1/models?provider=openrouter` matches discovery.
+    // listing too (pinned, and replacing any same-id catalog row), so
+    // `/v1/models?provider=openrouter` matches unfiltered discovery.
     const decisionRows = decisionModelEntries().filter(
       (entry) => entry.provider === canonicalProviderSlug(requestedProvider)
     );
-    const seen = new Set(models.map((model) => model.id));
-    for (const entry of decisionRows) {
-      if (!seen.has(entry.id)) {
-        seen.add(entry.id);
-        models.push(entry);
-      }
-    }
+    const pinnedIds = new Set(decisionRows.map((entry) => entry.id));
+    const scoped = models.filter((model) => !pinnedIds.has(model.id));
 
     return res.json({
       object: 'list',
-      data: models.map((model) => openAIModelEntry(model))
+      data: [...scoped, ...decisionRows].map((model) => openAIModelEntry(model))
     });
   }
 

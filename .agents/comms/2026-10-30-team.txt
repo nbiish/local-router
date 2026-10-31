@@ -92,3 +92,33 @@ description: Agent Communication System protocol template. Deployed by `ainish-c
 - output:decisions transport live on 11434; docs/decisions.md + README + PRD updated; task record .agents/tasks/2026-10-30-task.md (status line still reads "merging" — final state is this entry); memory 2026-10-30-memory.txt updated.
 - status:merged
 - blockers:none
+
+### [2026-10-31T01:06:26.9715889-04:00] checkin | branch:fix/decisions-always-available | wt:D:/Code/lr-decisions-pinned
+- start:2026-10-31T01:06:26.9715889-04:00
+- end:2026-10-31T01:06:26.9715889-04:00
+- scope:src/index.ts (pinned model rows, curation bypass, id reservation, dedupe), tests/decisions-pinned.integration.test.mjs, docs/decisions.md, README.md, llms.txt
+- objective:the OpenRouter Jev decision model is always available whenever the OpenRouter key is set, regardless of curation toggles or catalog edits.
+- input:operator request after the decisions transport shipped (97f7cfd).
+- output:worktree + repro (pre-change build already survived curation clears, so the gap was guarantees/dedupe/reservation); implementation in progress.
+- triage:now
+- status:in-progress
+- blockers:none
+
+### [2026-10-31T01:08:16.0204169-04:00] update | branch:fix/decisions-always-available | wt:D:/Code/lr-decisions-pinned
+- start:2026-10-31T01:08:16.0204169-04:00
+- end:2026-10-31T01:08:16.0204169-04:00
+- scope:shared PQC bundle at \\wsl.localhost\Ubuntu\home\nanoboozhoo\.config\pqc-secrets (OBSERVED, not modified)
+- objective:record a live vault change that affects every router restart.
+- input:bundle mtime 2026-10-31 01:05 local; content now carries PSIONICS_* names only for provider keys.
+- output:pqc-secrets export now lists 10 names: PSIONICS_{OPENROUTER,ZENMUX,NEBIUS,ZAI,CLINE,MIMO}_API_KEY, PSIONICS_MODAL_PROXY_TOKEN_{ID,SECRET}, LOCALROUTER_TEST_VENDOR_API_KEY, LOCAL_ROUTER_DOT_COM_ADMIN_TOKEN. No LOCALROUTER_* provider keys remain. The running 11434 instance (booted 04:53Z) still holds 14 provider keys in memory, so chat/decisions work now; any restart loses them (src/pqc-key-resolver.ts strips only LOCALROUTER_/LOCAL_ROUTER_/LOCAL-ROUTER_ prefixes, so PSIONICS_ names are unmapped).
+- status:blocked-on-operator
+- blockers:router-owned key names are gone from the shared bundle; rebuilding the 11434 runtime would boot keyless. Prod left running until the operator restores LOCALROUTER_* names (or states that PSIONICS_* should be accepted).
+
+### [2026-10-31T01:10:03.3957998-04:00] intent-merge | branch:fix/decisions-always-available | wt:D:/Code/lr-decisions-pinned
+- start:2026-10-31T01:10:03.3957998-04:00
+- end:2026-10-31T01:10:03.3957998-04:00
+- scope:merge into main (--no-ff); rebuild build/ but DO NOT restart 11434 (vault blocker)
+- objective:record integration intent and the restart decision.
+- output:20 decisions tests green (6 new pinning); full suite 215/217 with the 2 pre-existing failures; patch eval ADEQUATE 0.52. Gate red only for pre-existing repo state.
+- status:in-progress
+- blockers:prod restart deferred — the shared bundle no longer carries LOCALROUTER_* provider keys, so a restart would boot keyless (see update entry above).
