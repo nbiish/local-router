@@ -141,3 +141,32 @@ description: Agent Communication System protocol template. Deployed by `ainish-c
 - output:pinned availability is code-enforced and tested; ZENMUX row stays key-gated and its route still reports 404 honestly. Task record .agents/tasks/2026-10-30-decisions-pinned.md (status line reads "merging"; final state is this entry).
 - status:merged
 - blockers:restart of 11434 still blocked on the operator restoring LOCALROUTER_* provider names (or choosing that PSIONICS_* be accepted).
+
+### [2026-10-31T01:28:37.5186761-04:00] intent-rebuild | branch:main | wt:D:/Code/local-router
+- start:2026-10-31T01:28:37.5186761-04:00
+- end:2026-10-31T01:28:37.5186761-04:00
+- scope:production runtime 127.0.0.1:11434 (WSL), build from main 471d3f6
+- objective:deploy the merged decisions + pinned-model build so provider keys can be entered and the decisions endpoint verified.
+- input:operator confirmed PQC reset complete; keys will be entered through /config.
+- output:pending restart; expected keyless boot (bundle currently holds only PSIONICS_* + LOCAL_ROUTER_DOT_COM_ADMIN_TOKEN; router-owned LOCALROUTER_* names return as keys are entered).
+- status:in-progress
+- blockers:none
+
+### [2026-10-31T01:30:36.1582405-04:00] update | branch:main | wt:D:/Code/local-router
+- start:2026-10-31T01:30:36.1582405-04:00
+- end:2026-10-31T01:30:36.1582405-04:00
+- scope:production runtime 127.0.0.1:11434 (WSL PID 440868) on main 471d3f6; isolated journey proof on :11438
+- objective:deploy the latest decisions build and prove the operator's key-entry path before they use it.
+- output:BUILD — tsc clean from main 471d3f6; pqc-persist + all 28 decisions tests green before deploy. DEPLOY — old PID 427237 stopped, new instance started setsid-detached, listening 127.0.0.1/::1:11434. Keyless baseline verified: /api/decisions/status 200 (ready=false, both providers key_configured=false), /config 200, /api/version 200 (0.40.13), decisions POST 503 decision_provider_unavailable with the per-provider key state. JOURNEY (isolated store, real OpenRouter key, no writes to the operator vault) — POST /api/keys -> 200 persisted=true, pinned openrouter/jev-1.14 appeared immediately with zero curated models; restart with no env key -> bundleLoaded=true loadedProviders=openrouter, probe openrouter 200/407 ms, decisions POST 200 in 233 ms (typesafe/jev-1.14-20261014).
+- status:merged
+- blockers:none
+
+### [2026-10-31T01:30:36.1582405-04:00] checkout | branch:main | wt:D:/Code/local-router
+- start:2026-10-31T01:30:36.1582405-04:00
+- end:2026-10-31T01:30:36.1582405-04:00
+- scope:deploy/verify session closed
+- objective:hand the operator a ready router for key entry.
+- input:operator confirmed the PQC reset is complete.
+- output:Router is keyless and ready at http://127.0.0.1:11434/config; entering the OpenRouter key there publishes the pinned decision model and enables /api/alpha/decisions without a restart. ZenMux remains optional (its route still answers 404 model_not_supported; the router fails over and reports it).
+- status:merged
+- blockers:none

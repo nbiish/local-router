@@ -28,3 +28,18 @@ Next step: restore the router's consumer-prefixed key names (LOCALROUTER_OPENROU
 - Terminal-orchestration/swe-bench: expose localrouter decisions verify --json (pinned row present, route answers, provider named) so harness setup can gate on it without parse-heavy curl.
 - Master-orchestrator/self-prompting: the /api/show and test-assertion edits were nearly lost because they landed after the commit — run a git status pre-merge gate in the workflow before every intent-merge.
 - Developer-experience/ergonomics: a pinned model that returns 400 on chat is correct but surprising in the VS Code picker; surface the decision models on /config with a "decisions only" badge and the exact curl to use.
+
+### [2026-10-31T01:30:46.0911967-04:00] main
+**Changed:** Deployed main 471d3f6 to production (127.0.0.1:11434, WSL PID 440868, setsid-detached) on a clean tsc build; verified the keyless baseline (/api/decisions/status ready=false with per-provider key state, /config 200, decisions 503 with a precise message) and proved the operator key-entry journey end-to-end on an isolated store: POST /api/keys → persisted=true → pinned openrouter/jev-1.14 appears with zero curated models → restart loads the key from the bundle → decisions 200 in 233 ms. No writes to the operator vault.
+
+Next step: after the OpenRouter key is entered in /config, run the three verification calls (models, status?probe=true, one noul batch) and record the receipt in the ledger before starting any decision-dependent work.
+
+- Adversarial/security: the pinned model is discoverable to any loopback client — confirm the decisions routes stay unauthenticated only because 11434 binds loopback, and add a regression test that a non-loopback bind refuses or gates them.
+- Privacy/data-protection: state is repository content sent to a third-party decision provider; document that entering a key opts into that egress and keep provider identity in provenance (never payload) in logs.
+- Supply-chain/third-party-risk: the key-save flow fires live discovery against the provider on save (454 models observed); make that call cancellable so a slow provider cannot stall the config UI during key entry.
+- Systems-architecture/devops: 11434 still has no supervisor — the deploy works, but a crash goes unnoticed; add a user systemd unit (or watchdog) that restarts from /mnt/d/Code/local-router and writes the receipt to health.json.
+- Reliability/verification: keep the keyless baseline as a named smoke (decisions_status ready=false + 503 shape) so a future deploy into a keyless store is never mistaken for a broken build.
+- Governance/sovereignty: the bundle now holds PSIONICS_* keys that this router deliberately does not consume — document that boundary next to the provider list so no future change silently claims another consumer's credentials.
+- Terminal-orchestration/swe-bench: expose localrouter decisions verify --json (pinned row, provider answered, latency) so harness setup can gate on the decision transport in one call.
+- Master-orchestrator/self-prompting: deploys that change discovery (/v1/models) should always emit a before/after model manifest to the ledger — the 67→32 model delta after this restart was expected catalog state but is not self-explaining.
+- Developer-experience/ergonomics: after key entry the provider's 454 discovered models arrive toggled off, which reads as "nothing happened" — surface a one-line toast that the key is live, the decision model is published, and curation is now the operator's choice.
