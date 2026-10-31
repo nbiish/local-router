@@ -1225,44 +1225,20 @@ function resolveRealServiceBinary(serviceTarget) {
     }
   }
 
-    if (serviceTarget.command === 'unsloth') {
-    const fallbacks = [
-      path.join(os.homedir(), '.unsloth', 'studio', 'bin', IS_WIN ? 'unsloth.exe' : 'unsloth'),
-      path.join(os.homedir(), '.unsloth', 'studio', 'bin', 'unsloth.cmd'),
-      path.join(os.homedir(), '.local', 'bin', 'unsloth-real'),
-      '/usr/local/bin/unsloth',
-      '/usr/bin/unsloth'
-    ];
-    if (IS_WIN) {
-      if (process.env.USERPROFILE) {
-        fallbacks.push(path.join(process.env.USERPROFILE, '.unsloth', 'studio', 'bin', 'unsloth.exe'));
-        fallbacks.push(path.join(process.env.USERPROFILE, '.unsloth', 'studio', 'bin', 'unsloth.cmd'));
-      }
-      if (process.env.LOCALAPPDATA) {
-        fallbacks.push(path.join(process.env.LOCALAPPDATA, 'Programs', 'Unsloth', 'unsloth.exe'));
-      }
-    } else {
-      try {
-        const mntUsers = '/mnt/c/Users';
-        if (fs.existsSync(mntUsers)) {
-          for (const userDir of fs.readdirSync(mntUsers)) {
-            fallbacks.push(path.join(mntUsers, userDir, '.unsloth', 'studio', 'bin', 'unsloth.exe'));
-            fallbacks.push(path.join(mntUsers, userDir, '.unsloth', 'studio', 'bin', 'unsloth.cmd'));
-          }
-        }
-      } catch {}
-    }
-    for (const fb of fallbacks) {
-      if (fb && fs.existsSync(fb) && !shimFileContainsMarker(fb)) {
-        return fb;
-      }
-    }
-  }
+  // Unsloth is intentionally absent here: Local Router never resolves, shims,
+  // starts, or supervises the operator's Unsloth Studio. It only proxies to the
+  // endpoint the app exposes while it is open.
 
   return null;
 }
 
 function installShim(serviceTarget, realPath, routeMode, routeTarget) {
+  // Hard invariant: the Unsloth app belongs to the operator. Never install a
+  // shim for it (a shim is how Local Router would ever influence its start).
+  if (serviceTarget.command === 'unsloth') {
+    console.error('Unsloth is never shimmed or started. Open Unsloth Studio yourself; Local Router proxies to its own endpoint.');
+    return false;
+  }
   if (IS_WIN) {
     if (serviceTarget.command === 'ollama') {
       const cmdPath = path.join(SHIM_DIR, 'ollama.cmd');

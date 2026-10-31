@@ -646,10 +646,30 @@ const STANDARD_LOCAL_BACKENDS: Array<{
   port: number;
   portEnvVar: string;
   keyEnvVar: string;
+  /**
+   * Keep known models served even while the backend is closed (proxying is
+   * attempted normally). Unsloth sets this: the operator runs Unsloth Studio
+   * themselves and Local Router must behave as if it is open, never start it.
+   */
+  offlineTolerant?: boolean;
 }> = [
   { slug: 'llama-cpp', displayName: 'llama.cpp (local llama-server)', port: 8080, portEnvVar: 'LLAMA_CPP_PORT', keyEnvVar: 'LLAMA_CPP_API_KEY' },
-  { slug: 'unsloth', displayName: 'Unsloth (local)', port: 8888, portEnvVar: 'UNSLOTH_PORT', keyEnvVar: 'UNSLOTH_API_KEY' }
+  {
+    slug: 'unsloth',
+    displayName: 'Unsloth (local)',
+    port: 8888,
+    portEnvVar: 'UNSLOTH_PORT',
+    keyEnvVar: 'UNSLOTH_API_KEY',
+    // Detect-and-proxy only: Local Router never starts, shims, or supervises
+    // Unsloth Studio. Its models stay known while the app is closed so tooling
+    // can pre-select them; chat attempts proxy to the app's own endpoint.
+    offlineTolerant: true
+  }
 ];
+
+function standardLocalBackend(slug: string): (typeof STANDARD_LOCAL_BACKENDS)[number] | undefined {
+  return STANDARD_LOCAL_BACKENDS.find((backend) => backend.slug === slug);
+}
 
 function standardLocalBackendPort(backend: (typeof STANDARD_LOCAL_BACKENDS)[number]): number {
   const envVal = process.env[backend.portEnvVar] || (backend.slug === 'unsloth' ? process.env.UNSLOTHER_PORT : '');
@@ -743,12 +763,27 @@ interface LocalBackendRuntimeState {
 const localBackendRuntime: Partial<Record<string, LocalBackendRuntimeState>> = {};
 const LOCAL_BACKEND_PROBE_TTL_MS = 30_000;
 
+/**
+ * Auth for probing a loopback backend. Unsloth Studio answers `/v1/models`
+ * only with its bearer key; llama.cpp is normally keyless. The key is resolved
+ * from the same in-memory store / PQC-backed env as chat requests — never from
+ * the probe itself.
+ */
+function localBackendRequestHeaders(slug: string): Record<string, string> {
+  const record = customProviderStore.find((entry) => entry.name === slug);
+  const key = keyStore[slug] || (record ? providerEnvKeyValue(record.keyEnvVar) : undefined);
+  return key ? { Authorization: `Bearer ${key}` } : {};
+}
+
 function refreshLocalBackendRuntime(slug: string): void {
   const record = customProviderStore.find((entry) => entry.name === slug);
   if (!record) return;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 1500);
-  void fetch(`${record.endpoint}/models`, { signal: controller.signal })
+  void fetch(`${record.endpoint}/models`, {
+    signal: controller.signal,
+    headers: localBackendRequestHeaders(slug)
+  })
     .then(async (response) => {
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const parsed: unknown = await response.json();
@@ -763,6 +798,21 @@ function refreshLocalBackendRuntime(slug: string): void {
             .filter(Boolean)
         : [];
       localBackendRuntime[slug] = { models: ids, checkedAt: Date.now(), live: true };
+      // Remember the ids so an offline-tolerant backend (Unsloth) can keep
+      // them advertised while the user's app is closed. Durable, but only on
+      // change: the probe runs every 30 s.
+      if (ids.length > 0) {
+        const known = Array.isArray(record.models) ? record.models : [];
+        const changed = ids.length !== known.length || ids.some((id, index) => known[index] !== id);
+        if (changed) {
+          record.models = ids;
+          try {
+            // Preserve the tombstone envelope: persistCustomProviders() would
+            // rewrite the file without dismissedLocalBackends.
+            persistCustomProviderExtras({});
+          } catch { /* best-effort: listing still works from the runtime cache */ }
+        }
+      }
     })
     .catch(() => {
       localBackendRuntime[slug] = { models: [], checkedAt: Date.now(), live: false };
@@ -817,7 +867,11 @@ function localLoopbackRegisteredModels(): ProviderModel[] {
   for (const record of customProviderStore) {
     if (!isLocalLoopbackProvider(record.name) || !Array.isArray(record.models)) continue;
     const runtime = localBackendRuntime[record.name];
-    if (runtime?.live === false) continue; // probed offline -> hidden until it answers again
+    const offlineTolerant = standardLocalBackend(record.name)?.offlineTolerant === true;
+    // A probed-offline backend is normally hidden until it answers again —
+    // except Unsloth, which the operator runs themselves: its known models stay
+    // advertised and requests keep proxying to the app's endpoint.
+    if (runtime?.live === false && !offlineTolerant) continue;
     const modelNames = runtime && runtime.models.length > 0 ? runtime.models : record.models;
     for (const modelName of modelNames) {
       const id = defaultPresentedModelName(record.name, modelName);
@@ -4704,11 +4758,15 @@ async function loadProvider(name: string): Promise<ProxyProvider | null> {
       baseUrl: providerBaseUrl(summary),
       getHeaders: (): Record<string, string> => {
         // Local loopback backends (llama.cpp `llama-server`, Unsloth) are
-        // keyless by design — their localhost endpoint has no auth. Sending
-        // no Authorization header is correct; throwing broke offline-tolerant
-        // registration (2026-09-07).
+        // detected, never started. Unsloth Studio requires its own bearer key
+        // (`sk-unsloth-…`), llama.cpp is normally keyless — so send auth only
+        // when a key is actually configured. Throwing when a loopback backend
+        // has no key broke offline-tolerant registration (2026-09-07).
         if (isLocalLoopbackProvider(summary.name)) {
-          return { 'Content-Type': 'application/json' };
+          const localKey = keyStore[summary.name] || providerEnvKeyValue(summary.keyEnvVar);
+          return localKey
+            ? { 'Content-Type': 'application/json', Authorization: `Bearer ${localKey}` }
+            : { 'Content-Type': 'application/json' };
         }
         const key = keyStore[summary.name] || providerEnvKeyValue(summary.keyEnvVar);
         if (!key) {
