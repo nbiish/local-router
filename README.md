@@ -81,6 +81,19 @@ errors do not. Every response carries `provider`, `dialect`, and a
 - `/v1/models` and `/api/tags` advertise `openrouter/jev-1.14` / `zenmux/jev-1.14` with `capabilities.decisions: true`. They are **pinned**: available whenever the provider key is set, no matter how the catalog is toggled, and their ids cannot be shadowed by a provider model. `openrouter-jev-router` remains a chat alias.
 - Chat requests for a decision model return `400` pointing at the decisions route instead of answering with general-model prose.
 
+Verify the whole transport in one command (exit code 0 = pass, 1 = fail):
+
+```bash
+npm run verify:decisions -- --json --out .agents/audit/decisions-verify.json
+# live RAG integration (needs ainish-rag + an index):
+npm run verify:decisions -- --rerank --out .agents/audit/decisions-verify.json
+```
+
+It checks discovery, pinned model advertising, a live typed probe, a
+noul+choice+score batch (ranges, legend, normalized probabilities), the chat
+guard, and provider-pinned failover — then writes a JSON receipt you can sign
+with `ainish-rag audit sign`.
+
 Full contract, dialect details, failover table, and configuration:
 [docs/decisions.md](docs/decisions.md).
 
