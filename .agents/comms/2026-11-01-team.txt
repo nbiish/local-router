@@ -1,0 +1,19 @@
+### [2026-11-01T01:08:00.0000000+00:00] checkin | branch:feat/drift-egress-guards | wt:D:/Code/lr-drift
+- start:2026-11-01T01:08:00.0000000+00:00
+- end:2026-11-01T01:08:30.0000000+00:00
+- scope:implement the 2026-10-31 master suggestions (local-backend key egress, live PQC bundle drift) and wrap the cycle for push
+- objective:make the recurring bundle-clobber incident observable, and keep Unsloth's bearer key on loopback
+- input:prior suggestions block (2026-10-31T10:07), live bundle rewrite incident at 09:59:54, Unsloth bearer-key contract
+- output:branch `feat/drift-egress-guards` from `eb18306`; task record `.agents/tasks/2026-11-01-task.md` carries `compat:` and `budget:` lines
+- status:in-progress
+- blockers:none
+
+### [2026-11-01T01:09:00.0000000+00:00] intent-merge | branch:feat/drift-egress-guards | wt:D:/Code/lr-drift
+- start:2026-11-01T01:09:00.0000000+00:00
+- end:2026-11-01T01:09:00.0000000+00:00
+- scope:merge after green local gates and rebuild 11434
+- objective:ship bundle drift reporting + local-backend egress refusal
+- input:`tests/local-backends.test.mjs` 6/6; `tests/pqc-drift.integration.test.mjs` 1/1; full suite 225 tests / 223 pass (same 2 pre-existing failures)
+- output:gate card pending re-index (`Patch Anchoring` re-run); zero-trust red is pre-existing on `main` and unrelated to this diff
+- status:in-progress
+- blockers:gate patch anchoring requires a re-index after the doc edits

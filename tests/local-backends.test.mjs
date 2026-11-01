@@ -427,6 +427,51 @@ test('unsloth stays advertised while the app is closed and is never launched', a
   }
 });
 
+test('a local backend pointed off-loopback refuses to send its key', async () => {
+  testHome = mkdtempSync(join(tmpdir(), 'local-router-unsloth-egress-'));
+  process.env.LOCALROUTER_UNSLOTH_API_KEY = 'sk-unsloth-egress-test';
+  // The record stays loopback (so it is a local backend whose models resolve),
+  // but the base-URL override points off-box — the realistic misconfiguration.
+  // `.invalid` never resolves: real egress would be slow and visible.
+  process.env.LOCAL_ROUTER_PROVIDER_UNSLOTH_BASE_URL = 'https://unsloth.invalid/v1';
+  writeCustomProviders([
+    {
+      name: 'unsloth',
+      displayName: 'Unsloth (local)',
+      endpoint: 'http://127.0.0.1:8888/v1',
+      keyEnvVar: 'UNSLOTH_API_KEY',
+      defaultTool: 'OpenAI Compatible',
+      createdAt: new Date().toISOString(),
+      models: ['studio-model']
+    }
+  ]);
+
+  await startServer();
+  try {
+    const started = Date.now();
+    const chat = await requestJson('/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'unsloth-studio-model',
+        messages: [{ role: 'user', content: 'hi' }],
+        max_tokens: 8
+      })
+    });
+    const elapsed = Date.now() - started;
+
+    assert.notEqual(chat.response.status, 200, 'off-loopback local backend must not be served');
+    assert.ok(elapsed < 3000, `key-egress guard must fire before any network attempt (took ${elapsed}ms)`);
+    assert.match(JSON.stringify(chat.body), /non-loopback|local backend/i,
+      `response must explain the loopback-only rule; got ${JSON.stringify(chat.body).slice(0, 240)}`);
+  } finally {
+    delete process.env.LOCALROUTER_UNSLOTH_API_KEY;
+    delete process.env.LOCAL_ROUTER_PROVIDER_UNSLOTH_BASE_URL;
+    await stopServer();
+    rmSync(testHome, { recursive: true, force: true });
+  }
+});
+
 test('boot writes the provider endpoint snapshot outside the git tree', async () => {
   testHome = mkdtempSync(join(tmpdir(), 'local-router-endpoint-snapshot-'));
   const repoDoc = join(process.cwd(), 'PROVIDER_ENDPOINTS.md');
@@ -470,3 +515,4 @@ test('boot writes the provider endpoint snapshot outside the git tree', async ()
     rmSync(testHome, { recursive: true, force: true });
   }
 });
+

@@ -301,3 +301,19 @@ missing). Sign the receipt for the audit chain with
   - Rerank batch through the router: `ainish-rag query` rationales read
     `Jev local-router:http://127.0.0.1:11434/api/alpha/decisions:typesafe/jev-1.14-20261014`
     with `direct 0.84 (yes), symbols 0.95, utility 3.51/4 [implementation]` in 3.5 s.
+
+### The receipt is the egress record
+
+`verify:decisions --out` is the audit artifact for the decision layer: it names
+the providers that answered, the dialect, statuses, attempt trails, model ids,
+and latencies — and nothing else. It must never carry `state` or an answer
+payload, which is what makes cross-provider failover (including a pinned
+provider failing over to another) reviewable without exposing the content that
+was judged. Sign it with `ainish-rag audit sign` before archiving; keep it
+content-free when editing.
+
+Availability failures are also visible outside the decision layer:
+`GET /api/pqc/status` reports `bundleDrift` when the shared PQC store is
+rewritten underneath a live router, so a keyless restart is an observed fact
+(`added` / `removed` provider names) rather than a mystery discovered hours
+later.
