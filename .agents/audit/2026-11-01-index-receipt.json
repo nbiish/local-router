@@ -1,0 +1,13 @@
+{
+  "action": "batch_index",
+  "algorithm_guarantee": "FIPS 204 ML-DSA-65",
+  "anonymized_symbols": false,
+  "chunks_generated": 3359,
+  "files_indexed": 514,
+  "receipt_id": "idx-1793496595594",
+  "status": "verified",
+  "target": "D:\\Code\\lr-drift",
+  "timestamp": "2026-11-01T01:29:55.594873100+00:00",
+  "total_store_records": 3364,
+  "wiki_ledger_sha256": null
+}

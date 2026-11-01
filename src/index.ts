@@ -106,6 +106,7 @@ import {
 } from './ollama-keys';
 import { assertSafeUpstreamUrl, safeFetch } from './ssrf-guard';
 import { runCliAuto } from './cli-auto-bridge';
+import { localBackendKeyEgressAllowed } from './local-backends';
 import {
   advertisedDecisionModels,
   decisionProvider,
@@ -771,6 +772,10 @@ const LOCAL_BACKEND_PROBE_TTL_MS = 30_000;
  */
 function localBackendRequestHeaders(slug: string): Record<string, string> {
   const record = customProviderStore.find((entry) => entry.name === slug);
+  // Never let a local backend's key leave loopback, not even on a probe.
+  if (record && standardLocalBackend(slug) && !localBackendKeyEgressAllowed(record.endpoint)) {
+    return {};
+  }
   const key = keyStore[slug] || (record ? providerEnvKeyValue(record.keyEnvVar) : undefined);
   return key ? { Authorization: `Bearer ${key}` } : {};
 }
@@ -4038,6 +4043,94 @@ let lastPqcSyncAt = 0;
 const PQC_SYNC_MIN_INTERVAL_MS = 30_000;
 
 /**
+ * Bundle drift (2026-10-31): the shared bundle can be rewritten by another
+ * consumer while this process runs (observed: the router's LOCALROUTER_* names
+ * vanished at 09:59:54). A live router must notice rather than silently serve
+ * keys that no longer exist on disk. The fingerprint is stat-only (mtime+size),
+ * and a change triggers one read-only resync plus a reported drift record.
+ */
+export interface PqcBundleDrift {
+  detectedAt: string;
+  added: string[];
+  removed: string[];
+  providersBefore: number;
+  providersAfter: number;
+  resyncOk: boolean;
+  fingerprintBefore: string;
+  fingerprintAfter: string;
+  error?: string;
+}
+
+let pqcBundleFingerprint: string | null = null;
+let pqcLoadedProviders: string[] = [];
+let pqcBundleDrift: PqcBundleDrift | null = null;
+
+function currentBundleFingerprint(): string | null {
+  const parts: string[] = [];
+  for (const dir of getPqcConfigDirCandidates()) {
+    try {
+      const stat = fs.statSync(path.join(dir, 'secrets.bundle.json'));
+      parts.push(`${dir}|${stat.mtimeMs}|${stat.size}`);
+    } catch {
+      /* store without a bundle */
+    }
+  }
+  return parts.length > 0 ? parts.join(';') : null;
+}
+
+/** Records the post-sync state so the next drift check has a baseline. */
+function rememberPqcSyncState(loaded: string[]): void {
+  pqcLoadedProviders = [...loaded].sort();
+  pqcBundleFingerprint = currentBundleFingerprint();
+}
+
+/**
+ * Cheap drift check (two stats). When the bundle changed on disk, reload it in
+ * memory and record which providers appeared or disappeared. Never writes to
+ * the store and never drops in-memory keys — a vanished key is reported, so the
+ * operator can decide between re-entering it and restarting.
+ */
+export function checkPqcBundleDrift(): PqcBundleDrift | null {
+  const fingerprint = currentBundleFingerprint();
+  if (!fingerprint) return pqcBundleDrift;
+  if (pqcBundleFingerprint === null) {
+    pqcBundleFingerprint = fingerprint;
+    return pqcBundleDrift;
+  }
+  if (fingerprint === pqcBundleFingerprint) return pqcBundleDrift;
+
+  const before = [...pqcLoadedProviders];
+  const result = syncKeysFromPqcBundle({ force: true });
+  const after = result.ok ? [...result.loaded].sort() : before;
+  const added = after.filter((name) => !before.includes(name));
+  const removed = before.filter((name) => !after.includes(name));
+  const drift: PqcBundleDrift = {
+    detectedAt: new Date().toISOString(),
+    added,
+    removed,
+    providersBefore: before.length,
+    providersAfter: after.length,
+    resyncOk: result.ok,
+    fingerprintBefore: pqcBundleFingerprint,
+    fingerprintAfter: fingerprint,
+    ...(result.ok ? {} : { error: sanitizeDiagnosticText(String(result.error || 'resync failed')) })
+  };
+  pqcBundleFingerprint = fingerprint;
+  if (result.ok) pqcLoadedProviders = after;
+  pqcBundleDrift = drift;
+
+  if (!result.ok || removed.length > 0) {
+    console.warn(
+      `[PQC] bundle drift: ${added.length} added, ${removed.length} no longer mapped` +
+      `${removed.length > 0 ? ` (${removed.join(', ')})` : ''} — in-memory keys kept; re-enter or POST /api/pqc/resync`
+    );
+  } else if (added.length > 0) {
+    console.log(`[PQC] bundle drift: reloaded ${added.length} new provider key(s) (${added.join(', ')})`);
+  }
+  return drift;
+}
+
+/**
  * Run `pqc-secrets export`, map KEY=VAL lines onto registered providers, and
  * load matches into the key store. Retries the export once: the dispatcher
  * script cold-starts uv/python (its first run after reboots can exceed the
@@ -4160,6 +4253,7 @@ function syncKeysFromPqcBundle(options: { force?: boolean } = {}): PqcBundleSync
   if (skipped.length > 0) {
     console.warn(`[PQC] Unmapped secret name(s): ${skipped.join(', ')} — expected LOCALROUTER_<PROVIDER_API_KEY> (run 'node bin/pqc-doctor.js' for the exact name).`);
   }
+  rememberPqcSyncState(loaded);
   return { ok: true, loaded, skipped };
 }
 
@@ -4287,8 +4381,12 @@ export function pqcStatusReport(): {
   loadedProviders: Array<{ provider: string; keyEnvVar: string; canonical: string }>;
   missingProviders: string[];
   expectedNames: Array<{ provider: string; keyEnvVar: string; canonical: string; aliases: string[] }>;
+  bundleDrift: PqcBundleDrift | null;
   engineStore: unknown;
 } {
+  // Cheap stat-based check: a bundle rewritten while this process runs is
+  // reloaded here (read-only) and the drift is reported with the status.
+  checkPqcBundleDrift();
   const summaries = allProviderSummaries();
   const stores: PqcStoreReport[] = [];
 
@@ -4364,6 +4462,7 @@ export function pqcStatusReport(): {
       canonical: localRouterEnvVarName(summary.keyEnvVar),
       aliases: providerKeyAliases(summary)
     })),
+    bundleDrift: pqcBundleDrift,
     engineStore
   };
 }
@@ -4757,6 +4856,15 @@ async function loadProvider(name: string): Promise<ProxyProvider | null> {
       name: summary.name,
       baseUrl: providerBaseUrl(summary),
       getHeaders: (): Record<string, string> => {
+        // A standard local backend (llama.cpp, Unsloth) is an on-machine app:
+        // its key must never be sent anywhere but loopback. A provider record
+        // pointed at a public host is refused here, before any request.
+        const endpoint = providerBaseUrl(summary);
+        if (standardLocalBackend(summary.name) && !localBackendKeyEgressAllowed(endpoint)) {
+          throw new Error(
+            `${summary.name} is a local backend; refusing to send its key to a non-loopback endpoint (${endpoint}). Point it at 127.0.0.1.`
+          );
+        }
         // Local loopback backends (llama.cpp `llama-server`, Unsloth) are
         // detected, never started. Unsloth Studio requires its own bearer key
         // (`sk-unsloth-…`), llama.cpp is normally keyless — so send auth only
@@ -5346,6 +5454,15 @@ function runCatalogHealthCheck(): void {
   if (!snapshot.pqcBundleLoaded) {
     console.warn('[health] WARN: PQC bundle not loaded this run — provider keys may be missing.');
   }
+  // Shared-bundle drift: another consumer rewriting the store must not go
+  // unnoticed while this process keeps serving its in-memory copy.
+  const drift = checkPqcBundleDrift();
+  if (drift && (!drift.resyncOk || drift.removed.length > 0)) {
+    console.warn(
+      `[health] WARN: PQC bundle changed on disk — ${drift.removed.length} provider key(s) no longer mapped` +
+      `${drift.removed.length > 0 ? `: ${drift.removed.join(', ')}` : ''}. Re-enter them or POST /api/pqc/resync.`
+    );
+  }
   const missing = Object.entries(snapshot.bridges as Record<string, boolean>).filter(([, ok]) => !ok).map(([name]) => name);
   if (missing.length > 0) {
     console.warn(`[health] WARN: auto bridge binaries not found on PATH: ${missing.join(', ')}`);
@@ -5462,6 +5579,12 @@ function shouldCascadeDirectModelToSystemFallback(modelName: string): boolean {
   // chain would answer a calibration question with generated prose.
   if (isDecisionModelId(modelName) || (target ? isDecisionModelId(target.actualModel) : false)) {
     return false;
+  }
+  // A local backend misconfigured off-loopback is a configuration error, not an
+  // availability failure: cascading would hide the reason behind a chain error.
+  if (target && standardLocalBackend(target.providerName)) {
+    const summary = getProviderSummary(target.providerName);
+    if (summary && !localBackendKeyEgressAllowed(providerBaseUrl(summary))) return false;
   }
   return true;
 }
