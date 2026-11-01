@@ -17,3 +17,31 @@
 - output:gate card pending re-index (`Patch Anchoring` re-run); zero-trust red is pre-existing on `main` and unrelated to this diff
 - status:in-progress
 - blockers:gate patch anchoring requires a re-index after the doc edits
+### [2026-10-31T21:37:56.3039878-04:00] update | branch:main | wt:D:/Code/local-router
+- start:2026-10-31T21:37:56.3039878-04:00
+- end:2026-10-31T21:37:56.3039878-04:00
+- scope:bundle drift detection + loopback-only local-backend key egress, shipped and proven live
+- objective:implement the 2026-10-31 master suggestions and re-verify the decision layer
+- input:merged c51b0b9; prod rebuilt and restarted (WSL PID 524137)
+- output:LIVE PROOF of drift detection — the shared bundle was rewritten again at 21:25:36 (third clobber; PSIONICS-only, router names gone). Restored the router names additively with `pqc-secrets set --stdin` from the operator values, then a single `GET /api/pqc/status` reported `bundleDrift.added=openrouter,zenmux`, `resyncOk=true`, and decisions became ready (openrouter/jev-1.14, zenmux/jev-1.14) with NO restart. `verify:decisions --rerank`: 7/7 PASS in 8656 ms (discovery 65 ms, models 411 ms, probe 1560 ms, batch 383 ms, chat guard 117 ms, failover 1807 ms, rerank 5/5 in 4308 ms). Signed receipt `.agents/audit/2026-11-01-decisions-verify.json(.sig)`; `audit verify` 5 receipts PASS.
+- status:merged
+- blockers:none
+
+### [2026-10-31T21:37:56.3039878-04:00] update | branch:main | wt:D:/Code/local-router
+- start:2026-10-31T21:37:56.3039878-04:00
+- end:2026-10-31T21:37:56.3039878-04:00
+- scope:shared PQC writer conflict (observation + mitigation)
+- objective:name the recurring key-loss root cause precisely
+- input:bundle rewrites observed at 09:59:54 and 21:25:36; both back up then replace with the 10 PSIONICS names
+- output:a consumer outside local-router packs the shared bundle without merging, so LOCALROUTER_* entries are dropped each time it writes. The router now (a) reports the drift and the vanished provider names in `/api/pqc/status` + `[health]`, (b) reloads added keys live, and (c) deliberately does not auto-consume another consumer's namespace. Remaining fix is on the other writer: use `pack --merge` / `set` rather than a full replace.
+- status:blocked-on-peer-tooling
+- blockers:the PSIONICS packer must merge instead of replace; until then keys may vanish again and the router will report it.
+
+### [2026-10-31T21:37:56.3039878-04:00] checkout | branch:main | wt:D:/Code/local-router
+- start:2026-10-31T21:37:56.3039878-04:00
+- end:2026-10-31T21:37:56.3039878-04:00
+- scope:drift/egress cycle closed; cycle pushed
+- objective:clean tree, current records, next session oriented
+- output:main c51b0b9 + receipt/records commit; worktree lr-drift to be removed after push; compat declared (additive `bundleDrift`, fail-closed off-loopback local backend), budget unchanged (stat-only drift check). Gate: lockfiles PASS, receipts PASS, patch anchoring UNGROUNDED (advisory; new-file symbol map), zero-trust RED pre-existing on main and unrelated.
+- status:merged
+- blockers:none

@@ -1,0 +1,14 @@
+### [2026-10-31T21:38:07.4889696-04:00] main
+**Changed:** shipped live PQC bundle drift detection (`bundleDrift` on `/api/pqc/status` + health warning; one read-only resync, never drops or writes) and loopback-only local-backend key egress (`src/local-backends.ts`; off-loopback base-URL override refused with a 400 that names the rule, cascade suppressed). Proven in production: the bundle was clobbered a third time at 21:25:36, the router reported `added=openrouter,zenmux` and went ready with no restart; `verify:decisions --rerank` 7/7 in 8.7 s, signed receipt archived, `audit verify` 5/5.
+
+Next step: push `main` to origin, then fix the external writer that replaces the shared bundle — it must use `pack --merge`/`set` so `LOCALROUTER_*` survives; the router will report any further clobber in `/api/pqc/status`.
+
+- Adversarial/security: the egress refusal is covered only for the header/probe paths — add a record-level validation that rejects saving an off-loopback endpoint for a standard local backend at edit time, so the failure moves from request time to config time.
+- Privacy/data-protection: tool-enabled Unsloth requests act with Studio's privileges; the PRD documents verbatim forwarding, but an operator-visible per-request marker ("contains tool calls") would make that risk legible in logs.
+- Supply-chain/third-party-risk: the clobbering writer is the real supply-chain gap — fingerprint the bundle's writer (record which tool's `set`/`pack` produced each backup) or add a `pqc-secrets` lock so two consumers cannot replace each other's entries.
+- Systems-architecture/devops: run the drift check on a short timer (30 s) instead of only status reads and the 15-minute sweep, so a clobber is visible in logs immediately after it happens.
+- Reliability/verification: add a restart-free recovery assertion to the verifier (`/api/pqc/resync` after a simulated key drop) so the incident path itself is a green gate rather than a manual recovery.
+- Governance/sovereignty: the additive mirror was a deliberate, logged operator-intent action; document it as the sanctioned cross-consumer recovery and keep the router's refusal to read `PSIONICS_*` implicit forever.
+- Terminal-orchestration/swe-bench: expose `bundleDrift` and decision readiness in one `ainish-rag statusline` field so harness bootstrap fails fast on a keyless or clobbered store.
+- Master-orchestrator/self-prompting: next session should read `/api/pqc/status.bundleDrift` before trusting any key state; a null drift plus `loadedProviders` is the cheapest proof of a healthy store.
+- Developer-experience/ergonomics: `/config` should surface the drift banner ("bundle changed on disk; N provider keys no longer mapped") with a one-click resync, since the warning currently lives only in logs and JSON.

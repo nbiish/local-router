@@ -1,0 +1,3 @@
+- 21:40 Drift detection proved live: third bundle clobber at 21:25:36; one /api/pqc/status reported added=openrouter,zenmux and decisions went ready without restart. Root cause is an external writer packing without --merge.
+- 21:40 Local-backend key egress is loopback-only (src/local-backends.ts); off-loopback base-URL override returns 400 with the reason and no request leaves the host.
+- 21:40 verify:decisions --rerank 7/7 in 8656 ms; receipt .agents/audit/2026-11-01-decisions-verify.json signed (5 receipts verified).

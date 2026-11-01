@@ -1,0 +1,10 @@
+{
+  "cumulative_epsilon": 0.0,
+  "delta": 0.00001,
+  "expenditure_log": [],
+  "format": "ainish-rag/privacy-budget-ledger/v1",
+  "mechanism": "Gaussian-DP-L2",
+  "sensitivity": 0.05,
+  "total_protected_vectors": 0,
+  "updated_at": "2026-10-31T05:43:24.064417200+00:00"
+}
