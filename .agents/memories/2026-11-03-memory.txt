@@ -1,0 +1,3 @@
+- 23:42 Wrap-up 2026-11-03: the drift/egress + decisions cycles were already fully merged and pushed (c51b0b9..e4b0f92); the dirty tree held only the hook's ainish-deploy re-stamp (json+sig) and a 10-31 ledger EOF newline — commit leftovers the same session the hook writes them.
+- 23:43 Gate RED on main is a documented pre-existing set (zt:FAIL, Aug/Sep legacy `agent:` tags, unsigned AGENTS.md envelope — see 2026-10-30-task.md); audit verify is 5/5 and rules-status CURRENT at fe6bf2e9, so a red card alone is not a regression.
+- 23:43 Open external blocker: the PSIONICS packer replaces the shared PQC bundle without `--merge` and drops LOCALROUTER_* entries; the router detects and reports it (bundleDrift) but only that writer can stop it.

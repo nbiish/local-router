@@ -1,0 +1,16 @@
+### [2026-11-03T23:45:00.0000000+00:00] main
+**Changed:** reviewed and closed the drift/egress + decisions-verify cycles — all code (`c51b0b9` drift/egress, `ed87ce3` keyless guard, `2efc14f` Unsloth detect-and-proxy, `bcca6da` decisions verify) was already merged and pushed; committed the hook's rules-deploy re-stamp (source `fe6bf2e9`, `rules-status` CURRENT) plus the wrap-up records (2026-11-01 task → done; 2026-11-03 task/ledger/memory), with `audit verify` 5/5 and the gate red only on the documented pre-existing set (`zt:FAIL`, Aug/Sep legacy `agent:` tags, unsigned AGENTS.md envelope).
+
+Next step: fix the external PSIONICS packer to write the shared bundle with `pqc-secrets pack --merge`/`set` so `LOCALROUTER_*` survives a write — or add a write lock to `pqc-secrets` — since the router only reports the clobber in `/api/pqc/status`, it cannot prevent it.
+
+- Concurrency (triggered): the wrap-up wrote shared coordination state append-only, with one content-identical EOF newline on a closed ledger entry — line-identical, so any merge resolves it or drops it harmlessly.
+- Compatibility (triggered): the deploy manifest moved only its `source_commit` pointer and timestamp — format unchanged, nothing renamed or erased, and no consumer-visible contract crossed an expand→migrate→contract window.
+- Adversarial/security: the loopback-only egress guard fails closed at request time; the next hardening is rejecting off-loopback standard-backend URLs at config-save time so the error moves earlier and survives every call path.
+- Privacy/data-protection: verification proved the tree without ever printing a secret (names only, detached signatures only) — keep that property when the `/config` drift banner is added.
+- Supply-chain/third-party-risk: committing the hook's re-stamp keeps the deploy provenance chain queryable via `--rules-provenance`, so an unsigned or stale contract refresh cannot quietly linger in the working tree.
+- Systems-architecture/devops: origin/main is now the single green source downstream tooling consumes; keep it push-green by landing coordination commits atomically with the receipts they reference.
+- Reliability/verification: pin the gate's three chronic red axes in one `gate-baseline` note so future RED cards show only new regressions instead of the documented set.
+- Governance/sovereignty: the Aug/Sep `agent:` tags stay untouched as immutable history; scrubbing harness identity from the record is an explicit operator decision, never a wrap-up side effect.
+- Terminal-orchestration/swe-bench: let `git context` treat a non-`CURRENT` `--rules-status` as drift so the next session's bootstrap fails fast on a stale deploy manifest.
+- Master-orchestrator/self-prompting: a wrap-up should start from `origin/main..main` emptiness plus a dirty-tree inventory — that diff is the entire todo list.
+- Developer-experience/ergonomics: the deploy re-stamp shows up as a dirty tree after every hook run; surface it in the session's first status read so it gets committed the same session it appears.
