@@ -186,7 +186,7 @@ type ModelTarget = {
 };
 
 type AttemptFailure = {
-  errorType: 'unknown_model' | 'provider_not_found' | 'provider_config' | 'upstream_http' | 'upstream_http_quota' | 'upstream_http_payment_required' | 'upstream_http_auth' | 'upstream_http_rate_limit' | 'upstream_http_unavailable' | 'upstream_http_invalid_request' | 'decision_model_requires_decisions_api' | 'proxy_runtime';
+  errorType: 'unknown_model' | 'provider_not_found' | 'provider_config' | 'upstream_http' | 'upstream_parse_error' | 'upstream_http_quota' | 'upstream_http_payment_required' | 'upstream_http_auth' | 'upstream_http_rate_limit' | 'upstream_http_unavailable' | 'upstream_http_invalid_request' | 'decision_model_requires_decisions_api' | 'proxy_runtime';
   providerName?: string;
   actualModel?: string;
   status?: number;
@@ -1012,9 +1012,29 @@ function rawProviderCacheModels(providerName: string): ProviderModel[] {
   return endpointModelsCache.filter((model) => model.provider === providerName);
 }
 
+function registeredCustomProviderModels(providerName: string): ProviderModel[] {
+  const provider = customProviderStore.find((entry) => entry.name === canonicalProviderSlug(providerName));
+  if (!provider?.models?.length) return [];
+  return provider.models.map((model) => ({
+    id: `${provider.name}/${model}`,
+    provider: provider.name,
+    model,
+    display: `${provider.name}/${model}`,
+    contextLength: DEFAULT_CONTEXT_LENGTH,
+    outputTokens: DEFAULT_OUTPUT_TOKENS,
+    supportsTools: false,
+    supportsImages: false,
+    supportsCache: false,
+    supportsReasoning: false,
+    tier: 'custom'
+  }));
+}
+
 function effectiveProviderModels(rawProviderName: string): ProviderModel[] {
   const providerName = canonicalProviderSlug(rawProviderName);
   if (modelStore[providerName]) return modelStore[providerName];
+  const registered = registeredCustomProviderModels(providerName);
+  if (registered.length > 0) return registered;
   const section = endpointModelsCache.filter((model) => model.provider === providerName);
   if (providerName === 'ollama') return section;
   const curated = new Set(modelSourceConfig.curatedEndpointModelKeys);
@@ -1238,7 +1258,8 @@ function providerModelAliases(model: ProviderModel) {
     model.display,
     model.model,
     `${model.provider}/${model.model}`,
-    `${model.provider}/${model.id}`
+    `${model.provider}/${model.id}`,
+    `${model.provider}-${model.model}`
   ]);
 
   if (model.provider === FALLBACK_PROVIDER_NAME) {
@@ -6529,6 +6550,190 @@ export function fallbackExecutionPlan(fallbackRoute: FallbackModel, body?: any) 
   return buildEscalatingWraparoundPlan(eligible);
 }
 
+type EmbeddingSuccess = {
+  providerName: string;
+  actualModel: string;
+  response: globalThis.Response;
+};
+
+type EmbeddingAttemptResult =
+  | { ok: true; value: EmbeddingSuccess }
+  | { ok: false; error: AttemptFailure };
+
+async function proxyEmbeddingAttempt(
+  body: any,
+  presentedModelName: string,
+  targetModelName: string
+): Promise<EmbeddingAttemptResult> {
+  const target = resolveModelTarget(targetModelName);
+  if (!target || !target.actualModel) {
+    return {
+      ok: false,
+      error: {
+        errorType: 'unknown_model',
+        message: `Unknown embedding model "${targetModelName}". Configure it at /config or use a known embedding model.`
+      }
+    };
+  }
+  if (target.providerName === FALLBACK_PROVIDER_NAME) {
+    return {
+      ok: false,
+      error: {
+        errorType: 'unknown_model',
+        message: `Fallback model "${targetModelName}" cannot be nested inside another fallback route.`
+      }
+    };
+  }
+  if (isDecisionModelId(targetModelName) || isDecisionModelId(target.actualModel) || isDecisionModelId(presentedModelName)) {
+    return {
+      ok: false,
+      error: {
+        errorType: 'decision_model_requires_decisions_api',
+        status: 400,
+        providerName: target.providerName,
+        actualModel: target.actualModel,
+        message: `"${targetModelName}" is a typed decision model; it is served by the decisions API, not embeddings.`
+      }
+    };
+  }
+
+  const provider = await loadProvider(target.providerName);
+  if (!provider || !provider.baseUrl) {
+    return {
+      ok: false,
+      error: {
+        errorType: 'provider_not_found',
+        providerName: target.providerName,
+        actualModel: target.actualModel,
+        message: `No provider for "${target.providerName}" — skipping to next embedding stage.`
+      }
+    };
+  }
+
+  let providerHeaders: Record<string, string>;
+  try {
+    providerHeaders = provider.getHeadersAsync
+      ? await provider.getHeadersAsync()
+      : provider.getHeaders();
+  } catch (error: any) {
+    return {
+      ok: false,
+      error: {
+        errorType: 'provider_config',
+        providerName: target.providerName,
+        actualModel: target.actualModel,
+        message: sanitizeDiagnosticText(String(error?.message || 'Provider key is missing.'))
+      }
+    };
+  }
+
+  const requestBody = provider.formatBody
+    ? provider.formatBody({ ...body, model: target.actualModel })
+    : { ...body, model: target.actualModel };
+  const endpoint = `${provider.baseUrl}/embeddings`;
+  try {
+    const response = isCustomProvider(target.providerName)
+      ? await safeFetch(endpoint, {
+        method: 'POST',
+        headers: providerHeaders,
+        body: JSON.stringify(requestBody),
+        signal: AbortSignal.timeout(30000)
+      })
+      : await fetch(endpoint, {
+        method: 'POST',
+        headers: providerHeaders,
+        body: JSON.stringify(requestBody),
+        signal: AbortSignal.timeout(30000)
+      });
+    if (!response.ok) {
+      const responseText = await response.text();
+      return {
+        ok: false,
+        error: {
+          errorType: 'upstream_http',
+          status: response.status,
+          providerName: target.providerName,
+          actualModel: target.actualModel,
+          message: `Embedding upstream returned ${response.status}.`,
+          responseText
+        }
+      };
+    }
+    const parsed = await response.clone().json().catch(() => null);
+    if (!parsed || !Array.isArray(parsed.data)) {
+      return {
+        ok: false,
+        error: {
+          errorType: 'upstream_parse_error',
+          status: 502,
+          providerName: target.providerName,
+          actualModel: target.actualModel,
+          message: 'Embedding upstream returned no data array.'
+        }
+      };
+    }
+    return { ok: true, value: { providerName: target.providerName, actualModel: target.actualModel, response } };
+  } catch (error: any) {
+    return {
+      ok: false,
+      error: {
+        errorType: 'upstream_http',
+        status: 502,
+        providerName: target.providerName,
+        actualModel: target.actualModel,
+        message: sanitizeDiagnosticText(String(error?.message || 'Embedding upstream request failed.'))
+      }
+    };
+  }
+}
+
+async function handleEmbeddingRequest(req: Request, res: Response) {
+  const body = req.body || {};
+  const presentedModel = String(body.model || '').trim();
+  if (!presentedModel) return res.status(400).json({ error: 'Model is required in request body.' });
+  const fallbackRoute = findFallbackModel(presentedModel);
+  const candidates = fallbackRoute
+    ? fallbackExecutionPlan(fallbackRoute, body)
+    : [ { model: presentedModel } ];
+  if (candidates.length === 0) {
+    return res.status(502).json({
+      error: `Embedding fallback "${presentedModel}" has no active or eligible targets.`,
+      provider: 'local-router',
+      fallback: fallbackRoute?.id || null
+    });
+  }
+
+  const attempts: Array<Record<string, unknown>> = [];
+  for (const stage of candidates) {
+    const result = await proxyEmbeddingAttempt(body, presentedModel, stage.model);
+    if (result.ok) {
+      res.status(result.value.response.status);
+      result.value.response.headers.forEach((value, key) => {
+        const header = key.toLowerCase();
+        if (header !== 'content-length' && header !== 'transfer-encoding') res.setHeader(key, value);
+      });
+      return res.send(Buffer.from(await result.value.response.arrayBuffer()));
+    }
+    attempts.push({
+      stage: 'stage' in stage ? stage.stage : 'direct',
+      targetModel: stage.model,
+      provider: result.error.providerName || null,
+      actualModel: result.error.actualModel || null,
+      errorType: result.error.errorType,
+      status: result.error.status || 502,
+      message: result.error.message
+    });
+  }
+
+  const last = attempts[attempts.length - 1] || {};
+  return res.status(Number(last.status) || 502).json({
+    error: 'All embedding fallback stages failed.',
+    provider: 'local-router',
+    fallback: fallbackRoute?.id || null,
+    attempts
+  });
+}
+
 async function handleChatCompletion(req: Request, res: Response, bodyOverrides?: any, options?: { outputFormat?: CompletionOutputFormat }) {
   const outputFormat = options?.outputFormat || 'openai';
   const requestStartedAt = Date.now();
@@ -6845,6 +7050,10 @@ async function executeFallbackRoute(
 
 app.post(['/v1/chat/completions', '/chat/completions'], async (req: Request, res: Response) => {
   await handleChatCompletion(req, res);
+});
+
+app.post(['/v1/embeddings', '/embeddings'], async (req: Request, res: Response) => {
+  await handleEmbeddingRequest(req, res);
 });
 
 function chatCompletionToAnthropicResponse(chatData: any, requestedModel?: string): any {
@@ -7903,4 +8112,3 @@ export {
   requestRequiresMultimodal,
   filterEligibleFallbackModels
 };
-
