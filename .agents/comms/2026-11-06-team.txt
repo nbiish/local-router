@@ -89,3 +89,17 @@ description: Agent Communication System protocol template. Deployed by `ainish-c
 - compat:Content and comments only. No API, schema, flag, dependency, or routing change. The one user-facing change is the button label glyph (U+FF0B -> ASCII '+'); data-stage-fallback, the attribute tests assert, is untouched.
 - verification:guard 0 findings; selftest 10/10; tsc clean. npm run test:integration shows 2 failures (antigravity host-session detect, custom-provider catalog) that reproduce identically on main without this diff.
 - provenance:branch=fix/english-only-audit base=78e30a4 commit=2af9703
+### [2026-11-06T20:52:00Z] OPS | branch:main | wt:D:\Code\local-router
+- start:2026-11-06T20:40:00Z
+- end:2026-11-06T20:52:00Z
+- scope:WSL Docker state, Windows autostart, router runtime
+- objective:Confirm no runaway processes or models are being left in memory.
+- input:Operator: "We need to deeply examine the system and ensure that there are no runaway processes or models being left in memory."
+- finding-models:clean. GET /api/ps returned {"models":[]}; the router (WSL PID 797) has no children; src/ has exactly one spawn site (ollama pull, 120s kill timer), so no backend is ever launched. No llama/ollama/vLLM/SGLang/ComfyUI/torch process anywhere; no GGUF or safetensors handle held open; /dev/kfd absent and nothing holds /dev/dri, so no VRAM is claimed. Windows 127GB total / 98GB free / 29GB used; WSL 1.5GB of its 24GB cap. 0 zombies.
+- finding-orphan:headroom-default container was running healthy on restart=unless-stopped, 301MB RSS and 57 PIDs, largest process in WSL. The feature is fully removed (no dependency in package.json, /api/headroom-config returns 404, its own config said enabled:false since 2026-09-05) and it was bound to 127.0.0.1:8787 inside WSL only, so nothing could reach it from Windows. Dead code that never stopped running, reviving on every WSL boot.
+- action:docker stop+rm headroom-default and its image; docker rm the 2-month-old stopped agent-zero container; docker image prune -a reclaimed 11.82GB. Renamed ~/.config/local-router/headroom-config.json to .removed-20261106 after proving no source file reads it. Removed the HKCU Run autostart for unsloth-studio.exe (--hidden) and stopped the running instance: ~197MB idle with no models loaded and no listening port.
+- verification:0 containers, 0 images, 0 headroom processes, port 8787 free, only 11434 listening in WSL. Router /api/ps, /v1/models, /api/decisions/status, /api/pqc/status all 200 after every change. No model runtimes on Windows.
+- status:done
+- blockers:none.
+- note:llms.txt:401 still documents Headroom correctly as an optional external tool on the /config/efficiency reference page, explicitly decoupled from the proxy pipeline; no doc change needed. llms.txt:870 is a historical log entry and stays. The 8 wsl.exe + 7 wslhost processes are parented to the Cursor agent host by this session's own WSL probes and were stable at 15 across a 20s sample, so they are not accumulating.
+- provenance:branch=main base=4311052
