@@ -118,3 +118,18 @@ description: Agent Communication System protocol template. Deployed by `ainish-c
 - verification:git 0/0 with origin; tsc clean; 25/25 decisions tests; 5/5 verifier tests; verify:decisions --rerank 7/7 PASS.
 - status:done (embeddings route tracked as an open issue)
 - provenance:branch=main commit=2b37b96
+### [2026-11-06T22:10:00Z] FIX | branch:main | wt:D:\Code\local-router
+- start:2026-11-06T21:48:00Z
+- end:2026-11-06T22:10:00Z
+- scope:src/index.ts (embeddings route), tests/embeddings-fallback.test.mjs, llms.txt
+- objective:Fix the router /v1/embeddings 502 now that the operator set the provider key.
+- input:Operator: "I set the key. please make the fix, commit, and push once verified everything works properly."
+- finding-1:model ids are not unique across providers. openai/text-embedding-3-small is catalogued under nous-portal (line 848) and zenmux (line 1490). resolveModelTarget returned the first match, sent one request, got NOUS_API_KEY not set, and stopped. Added resolveEmbeddingTargets: every provider carrying the id, callable (keyed or OAuth) first, catalog order preserved within each group. Provider-qualified ids still resolve to exactly one target. Scoped to the embeddings path so chat and decision routing are untouched.
+- finding-2:the proxy copied upstream headers wholesale including content-encoding: gzip, then sent a body already decoded by response.arrayBuffer(). Strict clients died with Z_DATA_ERROR incorrect header check on a 200 response. Now drops content-encoding, content-length, transfer-encoding, connection, keep-alive and lets Express set its own. This was masked before because the route failed earlier with 502; setting the key exposed it.
+- finding-3:when every candidate was unkeyed the route returned a bare 502 that read like an outage. It now reports which providers need a key.
+- test-rework:tests/embeddings-fallback.test.mjs shared one router/upstream/home across tests, so a second test inherited the first test's router and an aborted run orphaned processes on the test ports. Rebuilt with per-test fixtures and explicit teardown. Four tests: fallback chain, gzip header contract, unkeyed shadowing, actionable error.
+- verification-live:unqualified 200 data[1] dim=1536; batch 200 data[3]; unkeyed provider 502 naming groq; unknown model 502; missing model 400; client sending accept-encoding gzip gets content-encoding absent and a parseable body.
+- verification-suites:4/4 embeddings; 34/34 decisions+SSRF; 258/260 full suite. The 2 failures (antigravity host-session detect, custom-provider catalog) reproduce identically with src/index.ts stashed, so they are pre-existing host-environment failures, not regressions. verify:decisions --rerank 7/7 with 5/5 chunks.
+- hygiene:killed the node processes left by the aborted test runs; no listeners on the 279xx test ports remain.
+- status:committed 41aa778, pushed
+- provenance:branch=main commit=41aa778
