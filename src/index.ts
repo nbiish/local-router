@@ -111,8 +111,10 @@ import {
   advertisedDecisionModels,
   decisionProvider,
   decisionProviderOrder,
+  decisionProvidersForModel,
   isDecisionModelId,
-  LATEST_DECISION_MODEL
+  LATEST_DECISION_MODEL,
+  resolveDecisionModel
 } from './decisions/catalog';
 import { DecisionService } from './decisions/service';
 import { registerDecisionRoutes } from './decisions/routes';
@@ -5883,8 +5885,28 @@ function shouldCascadeDirectModelToSystemFallback(modelName: string): boolean {
 }
 
 function candidateAvailability(modelName: string) {
+  // Typed decision models are not chat-served and their transport is the decisions route, so the
+  // generic provider/key logic below would report them as "unavailable" or attribute them to a
+  // provider that does not exist ("typesafe"). Report what actually backstops them: any keyed
+  // decision provider.
+  const decisionTarget = resolveDecisionModel(modelName);
+  if (decisionTarget.matched) {
+    const providers = decisionProvidersForModel(decisionTarget.canonical);
+    const keyed = providers.filter((spec) => providerHasConfiguredKey(spec.name));
+    return {
+      model: modelName,
+      provider: keyed.length > 0 ? keyed[0].name : (providers[0]?.name ?? null),
+      resolved: providers.length > 0,
+      keyConfigured: keyed.length > 0,
+      status: providers.length === 0 ? 'unavailable' : keyed.length > 0 ? 'ready' : 'no_key'
+    } as const;
+  }
+
   const target = resolveModelTarget(modelName);
-  const resolved = Boolean(findProviderModel(modelName));
+  // An embedding model is resolvable without being *served* as a chat model, so `served` alone is
+  // the wrong signal. Known-to-the-catalog is what matters for a chain step.
+  const served = Boolean(findProviderModel(modelName));
+  const known = served || Boolean(findCatalogModel(modelName));
   const providerName = target?.providerName || '';
   const keyConfigured = providerName ? providerHasConfiguredKey(providerName) : false;
   let status: 'ready' | 'no_key' | 'unavailable';
@@ -5892,7 +5914,7 @@ function candidateAvailability(modelName: string) {
     status = 'unavailable';
   } else if (!keyConfigured) {
     status = 'no_key';
-  } else if (!resolved) {
+  } else if (!known) {
     status = 'unavailable';
   } else {
     status = 'ready';
@@ -5900,7 +5922,8 @@ function candidateAvailability(modelName: string) {
   return {
     model: modelName,
     provider: providerName || null,
-    resolved,
+    resolved: known,
+    served,
     keyConfigured,
     status
   };

@@ -96,6 +96,26 @@ Do not set `OPENROUTER_API_KEY` to a dummy value to force the router. That key i
 remote embeddings, and an invalid value fails the query with a 401 before retrieval runs. Ordering
 is controlled by `JEV_TRANSPORT_PRIORITY`.
 
+## Reviewing and editing these routes
+
+Both routes appear on `/config/fallback` alongside `fallback-models`, in the route list and in the
+"Fallback Chain" selector, and either can be edited, reordered, disabled per step, or deleted like
+any other chain. That page is also what an agent or operator reads to learn which models and
+configurations back a route, so its readiness badges must match reality.
+
+`/api/routing/availability` backs those badges. Two things it had to get right, both fixed when
+these routes were added:
+
+- A **catalogued** model is not the same as a **chat-served** model. Embedding models are
+  catalogued but never curated for chat, so a check that required "served" reported every
+  embedding step as `unavailable` on a route that answered fine.
+- A typed decision model carries no provider in its id. The generic path read `typesafe/jev-1.14`
+  as provider `typesafe` and reported `no_key`; it now reports the real decision transport
+  (`openrouter`) and `ready` when any decision provider holds a key.
+
+A wrong badge is worse than no badge: an operator who reads "Unavailable" on a working route will
+either rewrite a good chain or stop trusting the page.
+
 ## Measured cost per 1M tokens (2026-11-06)
 
 Read from the `usage` block each provider returned, not from a price page.
