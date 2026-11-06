@@ -148,3 +148,19 @@ description: Agent Communication System protocol template. Deployed by `ainish-c
 - note:several existing tests asserted the total route count, now three; rewritten to assert the invariant (the chat chain ships empty) rather than the incidental total.
 - status:merged, pushed
 - provenance:branch=main commit=f5ae1e4 merged
+### [2026-11-07T00:10:00Z] FIX | branch:main | wt:D:\Code\local-router
+- start:2026-11-06T23:00:00Z
+- end:2026-11-07T00:10:00Z
+- scope:src/index.ts (candidateAvailability), tests/routing-availability.test.mjs, docs/fallback-embedding-and-decision.md
+- objective:Confirm the two new routes are reviewable and editable on the Fallback Routes page, and that the embedding chain really is one model across providers.
+- input:Operator asked for clarification that fallback-embedding uses the same model and configuration across providers so ainish-rag is not broken, and that both new routes must show up and be configurable on the Fallback Routes page so agents can learn the configuration.
+- confirmed-1:fallback-embedding is exactly one upstream model (openai/text-embedding-3-small) across zenmux, openrouter and nous-portal, all at the caller's pinned width. Measured cosine between all three is 1.000000, so a fallback step is invisible to the index. The cheapest model (qwen3-embedding-8b, 0.036898) and the best-quality one (text-embedding-3-large, 0.006612) are deliberately excluded because they are different vector spaces.
+- confirmed-2:both routes render on /config/fallback, appear in the Fallback Chain selector, and load their steps into the editor when selected. Verified in a real browser: selecting fallback-embedding shows its three steps, selecting fallback-decision shows typesafe/jev-1.14. Both are deletable, so they are ordinary editable chains.
+- bug-found:the readiness badges lied. /api/routing/availability reported all three embedding steps as "unavailable" and the decision model as "No key" while both routes answered 200. An operator would have rewritten a working chain.
+- cause-1:"resolved" required findProviderModel (a CHAT-served model). Embedding models are catalogued but never curated for chat, so they always failed. Now accepts a catalogued model and reports "served" separately.
+- cause-2:a typed decision id carries no provider, so the generic path attributed typesafe/jev-1.14 to a provider literally named "typesafe" and answered no_key. Now resolves through the decision catalog and reports the real transport (openrouter) as ready when any decision provider holds a key.
+- verification:after the fix the page shows "3 fallback routes" with embedding 3 of 3 ready and decision 1 of 1 ready, each naming its real provider. Calls unchanged: embedding 200 at the pinned width, decision 200 on typesafe/jev-1.14-20261014.
+- test-honesty:both new tests were run against a build WITHOUT the fix and both FAILED, then passed with it. An earlier version of the embedding test passed either way because it registered a custom provider, which made the model served and masked the defect; it now uses a built-in registry model with only its key set.
+- suite:266/268. The 2 failures (antigravity host-session detect, custom-provider catalog) reproduce with this change stashed.
+- status:committed 158e1e1
+- provenance:branch=main commit=158e1e1
