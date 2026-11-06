@@ -36,6 +36,15 @@ export const PROVIDER_REGISTRY: readonly ProviderRegistryEntry[] = [
     note: 'Nbiish GLM-5.3-Flash / Kimi-K3 own deployment'
   },
   { name: 'openrouter', endpoint: 'https://openrouter.ai/api/v1', keyEnvVar: 'OPENROUTER_API_KEY' },
+  {
+    name: 'typesafe',
+    // The chat-compatible base is registered for key resolution and discovery; typed decisions go
+    // to /v1/systemone on the same host (see decisions/catalog.ts). TypeSafe trains Jev, so this is
+    // the source provider the other two resell.
+    endpoint: 'https://api.typesafe.ai/v1',
+    keyEnvVar: 'TYPESAFE_API_KEY',
+    note: 'Direct TypeSafe System One (Jev) API; decisions use /v1/systemone'
+  },
   { name: 'xiaomi-mimo', endpoint: 'https://token-plan-sgp.xiaomimimo.com/v1', keyEnvVar: 'XIAOMI_MIMO_API_KEY' },
   { name: 'opencode-go', endpoint: 'https://opencode.ai/zen/go/v1', keyEnvVar: 'OPENCODE_API_KEY' },
   { name: 'opencode-zen', endpoint: 'https://opencode.ai/zen/v1', keyEnvVar: 'OPENCODE_ZEN_API_KEY' },

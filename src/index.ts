@@ -4645,8 +4645,22 @@ function localRouterEnvVarName(keyEnvVar: string): string {
   return `LOCALROUTER_${keyEnvVar}`;
 }
 
+/**
+ * Reads a provider key from the environment, accepting both the consumer-prefixed name and the
+ * bare name the provider documents.
+ *
+ * The prefixed form stays first so an operator who deliberately sets a router-scoped value wins.
+ * The bare form matters because that is the name in every provider's own documentation and in the
+ * fleet tooling (ainish-rag resolves `TYPESAFE_API_KEY`, for example). Accepting only the prefixed
+ * name meant an operator who followed the docs set a variable that was silently ignored, and the
+ * provider then reported "no key" with no hint that a value was present under another name.
+ */
 function providerEnvKeyValue(keyEnvVar: string): string | undefined {
-  return process.env[localRouterEnvVarName(keyEnvVar)];
+  const prefixed = process.env[localRouterEnvVarName(keyEnvVar)];
+  if (typeof prefixed === 'string' && prefixed.trim()) return prefixed;
+  const bare = process.env[keyEnvVar];
+  if (typeof bare === 'string' && bare.trim()) return bare;
+  return undefined;
 }
 
 /** Catalog providers may share one env var (e.g. opencode-go + opencode-zen → OPENCODE_API_KEY). */

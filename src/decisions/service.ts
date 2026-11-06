@@ -18,6 +18,8 @@ import {
   decisionProvidersForModel,
   decisionProviderOrder,
   decisionEndpoint,
+  decisionModelFor,
+  decisionModelEnvVar,
   resolveDecisionModel,
   LATEST_DECISION_MODEL,
   type DecisionProviderSpec
@@ -70,7 +72,12 @@ export interface DecisionStatusProvider {
   label: string;
   endpoint: string;
   dialect: string;
+  /** Newest build known to this provider spec. */
   latest_model: string;
+  /** Build this provider will actually be asked for, after any per-provider override. */
+  configured_model: string;
+  /** Env var that pins this provider's build, shown so an operator can copy it. */
+  model_env_var: string;
   key_configured: boolean;
   primitives: readonly string[];
   note?: string;
@@ -229,7 +236,8 @@ export class DecisionService {
       let encoded;
       try {
         encoded = dialect.encode({
-          canonicalModel: resolved.canonical,
+          // Ask each provider for the build IT publishes, which may lag the newest release.
+          canonicalModel: decisionModelFor(spec),
           state: request.state,
           questions: request.questions
         });
@@ -421,10 +429,19 @@ export class DecisionService {
 
   /** Provider precedence for a model: a caller pin first, then configured order. */
   private candidatesFor(canonical: string, pinned?: string): DecisionProviderSpec[] {
-    const servable = this.servableProviders().filter((spec) => spec.modelPattern.test(canonical));
-    if (!pinned) return servable;
-    const first = servable.filter((spec) => spec.name === pinned);
-    const rest = servable.filter((spec) => spec.name !== pinned);
+    // Serve the requested build only from providers configured for it. A provider pinned to an
+    // older Jev build would answer `model_not_supported`, which costs a failover round-trip and
+    // records a misleading attempt, so it is excluded rather than tried and failed.
+    const exact = this.servableProviders().filter((spec) => decisionModelFor(spec) === canonical);
+    // A caller who deliberately asks for a specific build the router is not currently pointed at
+    // (replaying an older evaluation, say) still gets the pattern-compatible providers, so an
+    // explicit request is honoured instead of being answered with "no provider".
+    const candidates = exact.length > 0
+      ? exact
+      : this.servableProviders().filter((spec) => spec.modelPattern.test(canonical));
+    if (!pinned) return candidates;
+    const first = candidates.filter((spec) => spec.name === pinned);
+    const rest = candidates.filter((spec) => spec.name !== pinned);
     return [...first, ...rest];
   }
 
@@ -452,16 +469,21 @@ export class DecisionService {
         endpoint: decisionEndpoint(spec),
         dialect: spec.dialect,
         latest_model: spec.latestModel,
+        configured_model: decisionModelFor(spec),
+        model_env_var: decisionModelEnvVar(spec.name),
         key_configured: keyConfigured,
         primitives: spec.primitives,
         ...(spec.note ? { note: spec.note } : {})
       });
       if (keyConfigured) {
-        const short = spec.latestModel.replace(/^typesafe\//, '');
+        // Advertise the build this provider is actually configured for, so discovery never offers
+        // an id the provider would reject.
+        const configured = decisionModelFor(spec);
+        const short = configured.replace(/^typesafe\//, '');
         advertised.push({
           id: `${spec.name}/${short}`,
           provider: spec.name,
-          model: spec.latestModel,
+          model: configured,
           display: `TypeSafe Jev ${short.replace(/^jev-/, '')} (${spec.name} decisions)`
         });
       }
