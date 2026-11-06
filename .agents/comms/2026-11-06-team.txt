@@ -133,3 +133,18 @@ description: Agent Communication System protocol template. Deployed by `ainish-c
 - hygiene:killed the node processes left by the aborted test runs; no listeners on the 279xx test ports remain.
 - status:committed 41aa778, pushed
 - provenance:branch=main commit=41aa778
+### [2026-11-06T23:20:00Z] FEATURE | branch:feat/fallback-embedding-decision | wt:D:\Code\lr-fallback-emb
+- start:2026-11-06T22:20:00Z
+- end:2026-11-06T23:20:00Z
+- scope:src/index.ts, src/decisions/catalog.ts, src/provider-model-registries.ts, tests/*, docs/fallback-embedding-and-decision.md, llms.txt
+- objective:Add local-router/fallback-embedding and local-router/fallback-decision so tools call one stable id per model system, seeded from measured data.
+- input:Operator asked for the two new fallback routes, a cheapest-per-provider lineup, and expert-level knowledge on running embeddings in a fallback manner for ainish-rag.
+- research-1:decisions have exactly one model. typesafe/jev-1.14 is the only typed decision model; OpenRouter's catalog lists one TypeSafe entry and ZenMux answers 404 model_not_supported for it. "Cheapest decision model per provider" is therefore not a real choice, so the route is a stable alias, not a cost ladder (operator chose this).
+- research-2:embeddings. Measured cost per 1M tokens from the usage block each provider returns: nous-portal qwen3-embedding-8b 0.010, openrouter text-embedding-3-small 0.020, zenmux small 0.02 (sheet), nous-portal small 0.020, large 0.130, gemini-embedding-2 0.200. OpenRouter advertises 0 embedding models out of 458 yet serves text-embedding-3-* and bills correctly, so never infer embedding support from a model list.
+- research-3 (the design constraint):vectors are comparable only within one model. At dimensions=768, same input, cosine against text-embedding-3-small: zenmux 1.000000, openrouter 1.000000, nous-portal 1.000000, qwen3-embedding-8b 0.036898, text-embedding-3-large 0.006612. The cheapest and the highest-quality models are both excluded, because a retrieval index accepts a foreign vector silently and then ranks neighbours from the wrong space. The fallback axis is the PROVIDER, never the model.
+- feature:both routes seeded on first boot when absent; LOCAL_ROUTER_ROUTES_CONFIG suppresses seeding. Width pinning: when the caller sets dimensions, every step is held to that width and a mismatched step is rejected as embedding_dimension_mismatch so the next answers.
+- bugs-fixed-while-building:(1) purpose routes ran through filterEligibleFallbackModels, which finds no chat entry for an embedding model and dropped every step; (2) applyRouterSettingsToStore discarded a whole route when ONE step was unknown, silently erasing the chain; (3) the compatibility audit compared presented catalog ids instead of upstream model ids, so a second provider of the same model was wrongly disabled; (4) a chain persisted by an older build survived every boot, so reconcileEmbeddingChainModels now narrows it on boot, records the dropped steps as disabled, and reads route.models rather than the key-filtered activeFallbackModels; (5) openrouter embedding ids are now registered so they resolve.
+- verification:6/6 new route tests; 264/266 full suite (the 2 failures reproduce with the change stashed); tsc clean; check-english-only clean. Live on 11434: pinned 768 and 1536 both honoured, batch returns 3 vectors, fallback-decision returns typesafe/jev-1.14-20261014 with noul 0.96. All three chain members cosine 1.000000 with the chain output.
+- note:several existing tests asserted the total route count, now three; rewritten to assert the invariant (the chat chain ships empty) rather than the incidental total.
+- status:merged, pushed
+- provenance:branch=main commit=f5ae1e4 merged
