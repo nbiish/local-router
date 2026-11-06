@@ -1219,6 +1219,12 @@ export const PROVIDER_MODEL_REGISTRY: Record<string, RegistryModelEntry[]> = {
     { id: 'minimax-m3-free', contextLength: 1000000, outputTokens: 512000, supportsTools: true, supportsImages: true, tier: 'free', note: 'Chat-proven; renamed upstream' },
   ],
   'openrouter': [
+    // Embedding models. OpenRouter's public /models catalog advertises no embedding models
+    // (0 of 458 as of 2026-11-06) yet /v1/embeddings serves these ids and bills correctly, so they
+    // are registered here explicitly. Without an entry, a chain step naming one is treated as an
+    // unknown model and dropped.
+    { id: 'openai/text-embedding-3-small', contextLength: 8192, outputTokens: 0, tier: 'paid', note: 'Embedding; $0.02/1M tokens, honours dimensions' },
+    { id: 'openai/text-embedding-3-large', contextLength: 8192, outputTokens: 0, tier: 'paid', note: 'Embedding; $0.13/1M tokens, honours dimensions' },
     { id: 'minimax/minimax-m3', contextLength: 1048576, outputTokens: 512000, supportsTools: true, supportsImages: true, tier: 'paid', note: 'Chat-proven' },
     { id: 'qwen/qwen3.7-max', contextLength: 1000000, outputTokens: 65536, supportsTools: true, tier: 'paid', note: 'Chat-proven' },
     { id: 'qwen/qwen3.7-plus', contextLength: 1000000, outputTokens: 65536, supportsTools: true, supportsImages: true, tier: 'paid', note: 'Chat-proven' },

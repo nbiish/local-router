@@ -127,6 +127,9 @@ export interface ResolvedDecisionModel {
  * `openrouter-jev-router` is deliberately NOT matched: it is a chat alias that
  * a general model serves, not a calibrated decision model.
  */
+/** Route ids that name a decision chain rather than a specific build. */
+const DECISION_ROUTE_ALIASES = new Set(['fallback-decision', 'decisions']);
+
 export function resolveDecisionModel(model: string): ResolvedDecisionModel {
   const requested = typeof model === 'string' ? model.trim() : '';
   const fallback: ResolvedDecisionModel = { requested, canonical: requested, matched: false };
@@ -144,6 +147,13 @@ export function resolveDecisionModel(model: string): ResolvedDecisionModel {
       provider = head;
       remainder = requested.slice(slash + 1);
     }
+  }
+
+  // A route id names the decision chain, not a build. Resolve it to the current canonical model
+  // so callers can write `local-router/fallback-decision` and never track Jev versions; the
+  // provider failover underneath is unchanged.
+  if (!provider && DECISION_ROUTE_ALIASES.has(remainder.toLowerCase())) {
+    return { requested, canonical: LATEST_DECISION_MODEL, matched: true };
   }
 
   const canonical = canonicalizeDecisionId(remainder);

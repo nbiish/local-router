@@ -111,7 +111,8 @@ import {
   advertisedDecisionModels,
   decisionProvider,
   decisionProviderOrder,
-  isDecisionModelId
+  isDecisionModelId,
+  LATEST_DECISION_MODEL
 } from './decisions/catalog';
 import { DecisionService } from './decisions/service';
 import { registerDecisionRoutes } from './decisions/routes';
@@ -186,7 +187,7 @@ type ModelTarget = {
 };
 
 type AttemptFailure = {
-  errorType: 'unknown_model' | 'provider_not_found' | 'provider_config' | 'upstream_http' | 'upstream_parse_error' | 'upstream_http_quota' | 'upstream_http_payment_required' | 'upstream_http_auth' | 'upstream_http_rate_limit' | 'upstream_http_unavailable' | 'upstream_http_invalid_request' | 'decision_model_requires_decisions_api' | 'proxy_runtime';
+  errorType: 'unknown_model' | 'provider_not_found' | 'provider_config' | 'upstream_http' | 'upstream_parse_error' | 'upstream_http_quota' | 'upstream_http_payment_required' | 'upstream_http_auth' | 'upstream_http_rate_limit' | 'upstream_http_unavailable' | 'upstream_http_invalid_request' | 'decision_model_requires_decisions_api' | 'embedding_dimension_mismatch' | 'proxy_runtime';
   providerName?: string;
   actualModel?: string;
   status?: number;
@@ -242,6 +243,57 @@ const PROVIDER_SLUG_PATTERN = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/;
 const PROVIDER_KEY_ENV_PATTERN = /^[A-Z0-9_]+_API_KEY$/;
 const MAX_PROVIDER_SLUG_LENGTH = 48;
 const SYSTEM_FALLBACK_ROUTE_ID = 'fallback-models';
+
+/**
+ * Purpose-scoped system routes.
+ *
+ * `fallback-models` is the generic chat chain: every step is a chat model and any of them can
+ * answer any prompt. Embeddings and typed decisions are different request shapes and cannot be
+ * served by a chat chain, so each gets its own named route. Tools call one stable id
+ * (`local-router/fallback-embedding`, `local-router/fallback-decision`) instead of hard-coding a
+ * provider, which is what lets the routing move underneath them.
+ */
+const EMBEDDING_FALLBACK_ROUTE_ID = 'fallback-embedding';
+const DECISION_FALLBACK_ROUTE_ID = 'fallback-decision';
+
+/**
+ * Seed steps for `fallback-embedding`.
+ *
+ * The fallback axis is the PROVIDER, not the model. That is the whole design constraint and it is
+ * easy to get wrong.
+ *
+ * Measured 2026-11-06 at `dimensions: 768`, same input, cosine similarity against
+ * `openai/text-embedding-3-small`:
+ *
+ *   zenmux / openrouter / nous-portal  text-embedding-3-small   1.000000  interchangeable
+ *   nous-portal                        qwen3-embedding-8b       0.036898  different space
+ *   openrouter                         text-embedding-3-large   0.006612  different space
+ *
+ * Qwen is the cheapest model measured ($0.010/1M vs $0.020) and large is the highest quality, and
+ * both are deliberately excluded: a vector from another embedding space is accepted silently by a
+ * retrieval index and then scores neighbours wrongly, which no caller can detect. Every step below
+ * is the SAME model, so any of them may answer without the caller ever learning which did.
+ *
+ * `dimensions` still matters — the providers' defaults differ (1536 vs 3072) — which is why the
+ * handler holds a whole chain to the caller's pinned width.
+ */
+const EMBEDDING_FALLBACK_SEED: readonly string[] = [
+  'zenmux/openai/text-embedding-3-small',
+  'openrouter/openai/text-embedding-3-small',
+  'nous-portal/openai/text-embedding-3-small'
+];
+
+/**
+ * Seed steps for `fallback-decision`.
+ *
+ * `typesafe/jev-1.14` is the only typed decision model that exists; the decisions API serves
+ * `jev-1.13`/`jev-1.14` aliases and nothing else, and OpenRouter's catalog lists a single TypeSafe
+ * entry. So this route is not a cost ladder — it is a stable name for the model, so callers never
+ * bake in "which jev build is current". Provider failover (OpenRouter → ZenMux) already happens
+ * inside the decisions transport and records both attempts.
+ */
+const DECISION_FALLBACK_SEED: readonly string[] = [LATEST_DECISION_MODEL];
+
 
 /** Maps persisted upstream-style paths to presented catalog aliases. */
 const UPSTREAM_MODEL_ID_ALIASES: Record<string, string> = {
@@ -1724,8 +1776,24 @@ function applyRouterSettingsToStore(): boolean {
       );
     }
     if (!parsedRoute.ok) continue;
+    // Drop only the steps that reference an unknown model. Discarding the whole route would make
+    // a single stale entry silently erase an operator's chain — which is how a purpose-scoped
+    // route disappeared entirely when one of its steps was not in the curated catalog.
     const referenceCheck = validateFallbackReferences(parsedRoute.model);
-    if (!referenceCheck.ok) continue;
+    if (!referenceCheck.ok) {
+      const keep = parsedRoute.model.models.filter((entry) => !referenceCheck.unresolved.includes(entry));
+      if (keep.length === 0) {
+        console.warn(
+          `[config] Route "${parsedRoute.model.id}" has no resolvable steps and was skipped: ${referenceCheck.error}`
+        );
+        continue;
+      }
+      console.warn(
+        `[config] Route "${parsedRoute.model.id}" had unresolvable step(s) removed: ` +
+          `${parsedRoute.model.models.filter((entry) => !keep.includes(entry)).join(', ')}`
+      );
+      parsedRoute = { ok: true, model: { ...parsedRoute.model, models: keep } };
+    }
     fallbackModelStore[parsedRoute.model.id] = cloneFallbackModel(parsedRoute.model);
     appliedRoutes++;
   }
@@ -3246,7 +3314,7 @@ function findSystemFallback(): FallbackModel | undefined {
   return entries.length > 0 ? entries[0] : undefined;
 }
 
-function validateFallbackReferences(model: FallbackModel) {
+function validateFallbackReferences(model: FallbackModel): { ok: true } | { ok: false; error: string; unresolved: string[] } {
   const unresolved = model.models.filter((entry) => {
     if (findCatalogModel(entry)) return false;
     const resolved = resolveModelTarget(entry);
@@ -3255,7 +3323,11 @@ function validateFallbackReferences(model: FallbackModel) {
   });
 
   if (unresolved.length > 0) {
-    return { ok: false, error: `Fallback model references unknown model(s): ${unresolved.join(', ')}` } as const;
+    return {
+      ok: false,
+      error: `Fallback model references unknown model(s): ${unresolved.join(', ')}`,
+      unresolved
+    } as const;
   }
 
   return { ok: true } as const;
@@ -5223,6 +5295,158 @@ function ensureSystemFallbackRouteExists() {
 }
 ensureSystemFallbackRouteExists();
 
+/**
+ * Seeds the purpose-scoped routes (`fallback-embedding`, `fallback-decision`).
+ *
+ * These are created only when absent, so an operator edit is never overwritten: once the route
+ * exists in `fallback-models.json`, this function leaves it alone. An empty curated list is
+ * still "absent" in spirit — a route seeded with zero steps cannot serve anything — so the seed
+ * is applied when the stored route has no models.
+ */
+function ensurePurposeFallbackRoutes() {
+  // An explicit routes config file owns the route set: if the operator declared the store, honor
+  // exactly what they declared instead of injecting routes they did not ask for.
+  if (String(process.env.LOCAL_ROUTER_ROUTES_CONFIG || '').trim()) return;
+
+  const seeds: Array<{ id: string; models: readonly string[]; label: string }> = [
+    {
+      id: EMBEDDING_FALLBACK_ROUTE_ID,
+      models: EMBEDDING_FALLBACK_SEED,
+      label: 'embedding (cheapest-first, width-safe)'
+    },
+    {
+      id: DECISION_FALLBACK_ROUTE_ID,
+      models: DECISION_FALLBACK_SEED,
+      label: 'typed decisions (stable alias for the current Jev build)'
+    }
+  ];
+
+  let created = 0;
+  for (const seed of seeds) {
+    const existing = fallbackModelStore[seed.id];
+    if (existing && Array.isArray(existing.models) && existing.models.length > 0) continue;
+    if (seed.models.length === 0) continue;
+    fallbackModelStore[seed.id] = {
+      id: seed.id,
+      models: seed.models.slice(),
+      disabledModels: existing?.disabledModels ? existing.disabledModels.slice() : []
+    };
+    created += 1;
+    console.log(
+      `[router] Seeded "${seed.id}" — ${seed.label}: ${seed.models.length} step(s).`
+    );
+  }
+
+  if (created > 0) {
+    try {
+      persistFallbackModels();
+    } catch (error: any) {
+      console.error(
+        '[router] Failed to persist purpose-scoped fallback routes:',
+        sanitizeDiagnosticText(String(error?.message || error))
+      );
+    }
+  }
+}
+ensurePurposeFallbackRoutes();
+reconcileEmbeddingChainModels();
+
+/** True when a route id names a purpose-scoped (non-chat) chain. */
+function isPurposeFallbackRoute(routeId: string): boolean {
+  const id = normalizeFallbackRouteId(routeId);
+  return id === EMBEDDING_FALLBACK_ROUTE_ID || id === DECISION_FALLBACK_ROUTE_ID;
+}
+
+/**
+ * The upstream model id behind a route step, used only to compare steps for embedding-space
+ * compatibility.
+ *
+ * This must resolve through the provider, not by string-slicing. A step is stored as a presented
+ * catalog id (`mock-a-embed-model`) once the model is registered, and the provider prefix is not
+ * always present in that form; two providers that both register `embed-model` produce two distinct
+ * presented ids that name the SAME upstream model. Comparing presented ids would call them
+ * different models and wrongly disable one.
+ */
+function embeddingStepModel(step: string): string {
+  const resolved = resolveModelTarget(step);
+  if (resolved?.actualModel) return resolved.actualModel;
+  const slash = step.indexOf('/');
+  return (slash < 0 ? step : step.slice(slash + 1)).trim();
+}
+
+/**
+ * Warns when an embedding chain mixes models from different embedding spaces.
+ *
+ * Vectors from different models are not comparable, and a retrieval index cannot tell: it accepts
+ * whatever width it is given and then ranks neighbours from a foreign space. The router cannot
+ * prove two models are compatible without spending a request, so this checks the one signal it has
+ * — the upstream model id — and reports mismatches instead of letting them pass silently. A chain
+ * whose steps name different models is a configuration error worth surfacing, not a valid budget
+ * ladder.
+ */
+function auditEmbeddingChainCompatibility(route: FallbackModel): string[] {
+  const models = new Set(activeFallbackModels(route).map(embeddingStepModel));
+  if (models.size <= 1) return [];
+  return [...models];
+}
+
+/**
+ * Keeps a chain usable rather than merely complain about it.
+ *
+ * Seeding is one-shot — it runs only when the route is absent — so a chain written by an older
+ * build survives every later boot. A persisted chain that mixes embedding models is therefore a
+ * live hazard: every retrieval that falls back to a different step silently returns vectors the
+ * caller's index cannot compare. On boot, a mixed chain is narrowed to the steps that share the
+ * upstream model of its first step, which is the cheapest step by construction, so the chain keeps
+ * its cost ordering and becomes coherent. Steps are never invented; anything removed is logged.
+ */
+function reconcileEmbeddingChainModels(): void {
+  const route = fallbackModelStore[EMBEDDING_FALLBACK_ROUTE_ID];
+  if (!route) return;
+  // Read `route.models`, not `activeFallbackModels`: the latter filters by whether a provider key
+  // is resolved, so on a boot where keys load later the chain would look empty and the audit would
+  // silently skip the very routes it exists to protect.
+  const steps = route.models.slice();
+  if (steps.length <= 1) return;
+
+  const keeper = embeddingStepModel(steps[0]);
+  const keep = steps.filter((step) => embeddingStepModel(step) === keeper);
+  if (keep.length === steps.length) return;
+
+  const dropped = steps.filter((step) => embeddingStepModel(step) !== keeper);
+  const disabled = new Set(route.disabledModels || []);
+  for (const step of dropped) disabled.add(step);
+
+  route.models = keep;
+  route.disabledModels = [...disabled];
+  try {
+    persistFallbackModels();
+  } catch (error: any) {
+    console.error(
+      '[router] Failed to persist the reconciled embedding route:',
+      sanitizeDiagnosticText(String(error?.message || error))
+    );
+  }
+  console.warn(
+    `[router] "${EMBEDDING_FALLBACK_ROUTE_ID}" mixed embedding models, which return vectors an ` +
+      `index cannot compare. Kept the ${keeper} steps and disabled ${dropped.length} other ` +
+      `model(s): ${dropped.map(embeddingStepModel).filter((v, i, a) => a.indexOf(v) === i).join(', ')}. ` +
+      'Re-enable them at /config if you also rebuild the index.'
+  );
+}
+
+function warnIfEmbeddingChainMixesModels() {
+  const route = fallbackModelStore[EMBEDDING_FALLBACK_ROUTE_ID];
+  if (!route) return;
+  const distinct = auditEmbeddingChainCompatibility(route);
+  if (distinct.length <= 1) return;
+  console.warn(
+    `[router] "${EMBEDDING_FALLBACK_ROUTE_ID}" mixes ${distinct.length} embedding models ` +
+      `(${distinct.join(', ')}). Vectors from different models are not interchangeable, so a ` +
+      'fallback step will return vectors this index cannot compare. Keep one model and vary the provider.'
+  );
+}
+
 
 function ollamaImageToOpenAIUrl(image: unknown) {
   if (typeof image !== 'string' || !image.trim()) return null;
@@ -6611,7 +6835,8 @@ type EmbeddingAttemptResult =
 async function proxyEmbeddingAttempt(
   body: any,
   presentedModelName: string,
-  targetModelName: string
+  targetModelName: string,
+  expectedDimensions?: number
 ): Promise<EmbeddingAttemptResult> {
   const target = resolveModelTarget(targetModelName);
   if (!target || !target.actualModel) {
@@ -6720,6 +6945,28 @@ async function proxyEmbeddingAttempt(
         }
       };
     }
+    // Width consistency: a vector whose length differs from the index's width is worse than no
+    // answer at all, because it is accepted silently and then compared against incompatible
+    // neighbours. Reject it and let the next step answer.
+    if (expectedDimensions) {
+      const offending = (parsed.data as any[]).find(
+        (row) => Array.isArray(row?.embedding) && row.embedding.length !== expectedDimensions
+      );
+      if (offending) {
+        return {
+          ok: false,
+          error: {
+            errorType: 'embedding_dimension_mismatch',
+            status: 502,
+            providerName: target.providerName,
+            actualModel: target.actualModel,
+            message: sanitizeDiagnosticText(
+              `Embedding returned width ${offending.embedding.length} but the chain is pinned to ${expectedDimensions}.`
+            )
+          }
+        };
+      }
+    }
     return { ok: true, value: { providerName: target.providerName, actualModel: target.actualModel, response } };
   } catch (error: any) {
     return {
@@ -6740,8 +6987,17 @@ async function handleEmbeddingRequest(req: Request, res: Response) {
   const presentedModel = String(body.model || '').trim();
   if (!presentedModel) return res.status(400).json({ error: 'Model is required in request body.' });
   const fallbackRoute = findFallbackModel(presentedModel);
+  // Purpose-scoped routes must not go through the chat capability filter.
+  //
+  // `fallbackExecutionPlan` filters each step on chat-oriented specs (context window, image
+  // support) looked up by model id. An embedding model is not in that catalog with useful
+  // values, so every step is filtered out and the chain resolves to zero candidates — which is
+  // exactly what happened before this guard. An embedding chain is ordered for cost and width,
+  // not for chat capability, so the plan is the route's active steps in order.
   const candidates = fallbackRoute
-    ? fallbackExecutionPlan(fallbackRoute, body)
+    ? (isPurposeFallbackRoute(fallbackRoute.id)
+        ? activeFallbackModels(fallbackRoute).map((model) => ({ model }))
+        : fallbackExecutionPlan(fallbackRoute, body))
     : resolveEmbeddingTargets(presentedModel).map((target) => ({ model: presentedModel, target }));
   if (candidates.length === 0) {
     return res.status(502).json({
@@ -6751,13 +7007,29 @@ async function handleEmbeddingRequest(req: Request, res: Response) {
     });
   }
 
+  // Width pinning. Providers disagree on default width for the same model family (1536 vs 3072),
+  // and a fallback step that silently returns a different width poisons the caller's vector
+  // index — the vectors are accepted, then compared against incompatible neighbours. When the
+  // caller pins `dimensions`, every step in the chain is held to it; a step that comes back with
+  // another width is rejected and the next step answers. Without a pin there is nothing to hold
+  // the chain to, so the request passes through unchanged.
+  const requestedDimensions = Number((body as any).dimensions ?? (body as any).dimension);
+  const pinnedDimensions = Number.isFinite(requestedDimensions) && requestedDimensions > 0
+    ? Math.trunc(requestedDimensions)
+    : undefined;
+  const chainPinsWidth = pinnedDimensions !== undefined && Boolean(fallbackRoute);
   const attempts: Array<Record<string, unknown>> = [];
   for (const stage of candidates) {
     const stageTarget = 'target' in stage ? (stage as { target?: ModelTarget }).target : undefined;
     const stageModelName = stageTarget
       ? `${stageTarget.providerName}/${stageTarget.actualModel}`
       : stage.model;
-    const result = await proxyEmbeddingAttempt(body, presentedModel, stageModelName);
+    const result = await proxyEmbeddingAttempt(
+      body,
+      presentedModel,
+      stageModelName,
+      chainPinsWidth ? pinnedDimensions : undefined
+    );
     if (result.ok) {
       res.status(result.value.response.status);
       // `response.arrayBuffer()` yields the *decoded* body, so forwarding the upstream

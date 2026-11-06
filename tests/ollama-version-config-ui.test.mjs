@@ -154,8 +154,10 @@ test('POST /api/show for a local-router route exposes local_router_chain', { ski
     body: JSON.stringify({ id: 'show-chain-smoke', models: chainModels })
   });
   assert.equal(created.status, 200);
-  const routes = await (await fetch(`${baseUrl}/api/fallback-models`)).json();
-  const routeId = `local-router/${routes.data[0].routeId}`;
+  // Address the chain this test authored. Indexing [0] used to be safe only because one route
+  // existed; the store now also holds the purpose-scoped routes, so the first entry is whichever
+  // sorts first rather than the chain under test.
+  const routeId = 'local-router/show-chain-smoke';
   const response = await fetch(`${baseUrl}/api/show`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

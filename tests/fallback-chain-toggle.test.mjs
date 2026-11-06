@@ -178,12 +178,13 @@ test('fallback-chain toggle + reorder manage the system fallback route', async (
 
   const initialRoutes = await requestJson('/api/fallback-models');
   assert.equal(initialRoutes.response.status, 200);
-  // Empty by default (2026-08-24 follow-up): the system chain always exists
-  // but ships with zero steps; all chain content is user-authored.
-  const systemChain = (initialRoutes.body?.data || []);
-  assert.equal(systemChain.length, 1, 'only the system chain should exist at boot');
-  assert.equal(systemChain[0].routeId, 'fallback-models');
-  assert.deepEqual(systemChain[0].models, []);
+  // Empty by default (2026-08-24 follow-up): the system chat chain always exists but ships with
+  // zero steps; all chain content is user-authored. The route set also contains the
+  // purpose-scoped embedding/decision routes, so the chat chain is looked up by id rather than by
+  // position.
+  const systemChain = (initialRoutes.body?.data || []).find((route) => route.routeId === 'fallback-models');
+  assert.ok(systemChain, 'the system chat chain must exist at boot');
+  assert.deepEqual(systemChain.models, []);
 
   // Toggle on an unknown model → 400.
   const unknown = await postJson('/api/fallback-chain/toggle', {

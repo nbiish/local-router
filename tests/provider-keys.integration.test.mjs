@@ -309,11 +309,12 @@ test('provider key save/reset lifecycle exposes configured source', async (t) =>
   // Empty by default (2026-08-24): fresh boots ship exactly the always-present
   // empty system chain (`fallback-models`, zero steps) — every chain step is
   // user-authored or comes from LOCAL_ROUTER_ROUTES_CONFIG.
-  assert.deepEqual(
-    (bootstrappedFallbackRoutes.body?.data || []).map((route) => [route.routeId, route.models]),
-    [['fallback-models', []]],
-    'Expected exactly the empty system chain on first run'
-  );
+  // The chat chain ships empty. The route set also carries the purpose-scoped embedding and
+  // decision routes, so this checks the chat chain specifically instead of the whole set.
+  const bootstrappedRoutes = bootstrappedFallbackRoutes.body?.data || [];
+  const bootstrappedSystem = bootstrappedRoutes.find((route) => route.routeId === 'fallback-models');
+  assert.ok(bootstrappedSystem, 'the system chat chain must exist on first run');
+  assert.deepEqual(bootstrappedSystem.models, [], 'Expected the empty system chat chain on first run');
 
   const providerPricing = await requestJson('/api/provider-pricing');
   assert.equal(providerPricing.response.status, 404, 'Expected /api/provider-pricing to be removed (404)');
