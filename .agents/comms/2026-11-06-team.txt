@@ -103,3 +103,18 @@ description: Agent Communication System protocol template. Deployed by `ainish-c
 - blockers:none.
 - note:llms.txt:401 still documents Headroom correctly as an optional external tool on the /config/efficiency reference page, explicitly decoupled from the proxy pipeline; no doc change needed. llms.txt:870 is a historical log entry and stays. The 8 wsl.exe + 7 wslhost processes are parented to the Cursor agent host by this session's own WSL probes and were stable at 15 across a 20s sample, so they are not accumulating.
 - provenance:branch=main base=4311052
+### [2026-11-06T21:25:00Z] UPDATE | branch:main | wt:D:\Code\local-router
+- start:2026-11-06T21:05:00Z
+- end:2026-11-06T21:25:00Z
+- scope:git branches/remotes, WSL watchdog, decisions transport, scripts/verify-decisions.mjs
+- objective:Verify no stale branches and that local-router is fully updated and serves Jev 1.14 to ainish-rag's local-router/OpenRouter/ZenMux fallback.
+- input:Operator: "verify we don't have any stale branches and ... local-router is fully updated and able to run the decision model jev 1.14 ... so that the ainish-rag system can fully utilize its own fallback."
+- finding-branches:clean. One branch (main), one worktree, no unmerged or merged leftovers, no remote-only commits. Was 5 commits ahead of origin (the English-only audit cycle plus the rules sync); pushed, now 0/0.
+- finding-runtime:the router had DIED mid-audit. Root cause: Docker Desktop shut down once its last container and image were removed, which terminated WSL and took the router with it. The local-router-ensure.timer watchdog that exists for exactly this was DISABLED, so nothing restarted it. Started the router (PID 862) and enabled the timer; confirmed Linger=yes so the user unit runs at boot without a login. Proved the watchdog by killing the router (0 listeners) and letting the unit restore it (PID 1560, /api/ps 200).
+- finding-decisions:PASS 7/7. openrouter serves typesafe/jev-1.14 (dated build jev-1.14-20261014). zenmux is keyed and advertised but answers upstream 404 model_not_supported for typesafe/jev-1.14; a pinned zenmux/jev-1.14 request records the ZenMux 404 then fails over to OpenRouter with both attempts. This is documented, intentional behavior in docs/decisions.md:96 and src/decisions/catalog.ts, not a router defect - ZenMux has not opened that route.
+- finding-ainish-rag:proven live. ainish-rag decide through the router returns Source: local-router:http://127.0.0.1:11434/api/alpha/decisions:typesafe/jev-1.14-20261014, and rerank returns 5/5 chunks with rerank_source naming local-router and the Jev model. ainish-rag's transport order default is local-router -> openrouter -> direct jev -> local-model, which is the fallback the operator wanted.
+- fix:verify-decisions --rerank poisoned OPENROUTER_API_KEY with a placeholder to force failover. That key also drives remote embeddings, so the query died 401 on openai/text-embedding-3-small and the check reported SKIPPED instead of proving anything. Switched to JEV_TRANSPORT_PRIORITY=local-router and stopped deleting the embedding key: rerank now PASSES with 5/5 chunks. Commit 2b37b96.
+- open-issue (not blocking, recorded honestly):the router's own POST /v1/embeddings returns 502. resolveModelTarget maps openai/text-embedding-3-small to nous-portal, which has no key, and only one attempt is made, so it never reaches a keyed provider. ainish-rag is unaffected because it calls OpenRouter directly for embeddings, but any client relying on the router's embeddings route would fail.
+- verification:git 0/0 with origin; tsc clean; 25/25 decisions tests; 5/5 verifier tests; verify:decisions --rerank 7/7 PASS.
+- status:done (embeddings route tracked as an open issue)
+- provenance:branch=main commit=2b37b96
