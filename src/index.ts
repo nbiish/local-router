@@ -3095,6 +3095,54 @@ function activeProviderModelList(): ProviderModel[] {
   return providerCatalogModels();
 }
 
+/**
+ * True when a provider can be called at all: it either holds a resolved API key or
+ * authenticates through OAuth. Providers that are catalogued but unkeyed would only fail
+ * with a "…_API_KEY is not set" provider_config error, so callers choose another.
+ */
+function providerIsCallable(providerName: string): boolean {
+  if (!providerName) return false;
+  if (keyStore[providerName]) return true;
+  if (isOAuthProviderName(providerName)) return true;
+  return false;
+}
+
+/**
+ * Every target that could serve `modelName`, most-preferred first.
+ *
+ * A model id is not unique across providers: `openai/text-embedding-3-small` is catalogued under
+ * both `nous-portal` and `zenmux`. `resolveModelTarget` returns the first match, which may be a
+ * provider with no key, and that single failure used to end the request. Embeddings are
+ * provider-agnostic, so the caller deserves the remaining candidates instead of one dead one.
+ */
+function resolveEmbeddingTargets(modelName: string): ModelTarget[] {
+  const presented = resolveModelTarget(modelName);
+  if (!presented) return [];
+
+  // A provider-qualified id (`zenmux/openai/...`) names exactly one target; respect it.
+  const [head, ...rest] = modelName.split('/');
+  if (rest.length > 0 && canonicalProviderSlug(head) === presented.providerName) {
+    return [presented];
+  }
+
+  const lookup = resolveGatewayPresentedLegacyId(stripOllamaLatestSuffix(modelName.trim()));
+  const seen = new Set<string>([`${presented.providerName}::${presented.actualModel}`]);
+  const targets: ModelTarget[] = [presented];
+  for (const model of allCatalogModels()) {
+    if (!providerModelAliases(model).has(lookup)) continue;
+    const key = `${model.provider}::${model.model}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    targets.push({ providerName: model.provider, actualModel: model.model, presentedModel: model.id });
+  }
+
+  // Callable providers first, preserving catalog order inside each group, so an unkeyed
+  // duplicate never shadows a provider that can actually answer.
+  const callable = targets.filter((t) => providerIsCallable(t.providerName));
+  const restTargets = targets.filter((t) => !providerIsCallable(t.providerName));
+  return [...callable, ...restTargets];
+}
+
 function resolveModelTarget(modelName: string): ModelTarget | null {
   const configuredModel = findProviderModel(modelName) || findCatalogModel(modelName);
   if (modelName.includes('mock')) {
@@ -6694,7 +6742,7 @@ async function handleEmbeddingRequest(req: Request, res: Response) {
   const fallbackRoute = findFallbackModel(presentedModel);
   const candidates = fallbackRoute
     ? fallbackExecutionPlan(fallbackRoute, body)
-    : [ { model: presentedModel } ];
+    : resolveEmbeddingTargets(presentedModel).map((target) => ({ model: presentedModel, target }));
   if (candidates.length === 0) {
     return res.status(502).json({
       error: `Embedding fallback "${presentedModel}" has no active or eligible targets.`,
@@ -6705,12 +6753,27 @@ async function handleEmbeddingRequest(req: Request, res: Response) {
 
   const attempts: Array<Record<string, unknown>> = [];
   for (const stage of candidates) {
-    const result = await proxyEmbeddingAttempt(body, presentedModel, stage.model);
+    const stageTarget = 'target' in stage ? (stage as { target?: ModelTarget }).target : undefined;
+    const stageModelName = stageTarget
+      ? `${stageTarget.providerName}/${stageTarget.actualModel}`
+      : stage.model;
+    const result = await proxyEmbeddingAttempt(body, presentedModel, stageModelName);
     if (result.ok) {
       res.status(result.value.response.status);
+      // `response.arrayBuffer()` yields the *decoded* body, so forwarding the upstream
+      // `content-encoding` (or the length it described) would tell the client to gunzip plain
+      // JSON — every conforming client then fails with "incorrect header check". Drop every
+      // header that describes the removed transfer encoding and let Express set its own.
+      const DROPPED_RESPONSE_HEADERS = new Set([
+        'content-length',
+        'content-encoding',
+        'transfer-encoding',
+        'connection',
+        'keep-alive'
+      ]);
       result.value.response.headers.forEach((value, key) => {
         const header = key.toLowerCase();
-        if (header !== 'content-length' && header !== 'transfer-encoding') res.setHeader(key, value);
+        if (!DROPPED_RESPONSE_HEADERS.has(header)) res.setHeader(key, value);
       });
       return res.send(Buffer.from(await result.value.response.arrayBuffer()));
     }
@@ -6725,9 +6788,16 @@ async function handleEmbeddingRequest(req: Request, res: Response) {
     });
   }
 
+  // A failure where every candidate was an unkeyed provider is a configuration problem, not an
+  // upstream error: say so instead of returning a bare 502 that looks like a provider outage.
+  const allUnkeyed = attempts.length > 0 && attempts.every((a) => a.errorType === 'provider_config');
   const last = attempts[attempts.length - 1] || {};
   return res.status(Number(last.status) || 502).json({
-    error: 'All embedding fallback stages failed.',
+    error: allUnkeyed
+      ? `No keyed provider can serve embedding model "${presentedModel}". Set a key for: ${attempts
+          .map((a) => String(a.provider))
+          .join(', ')}.`
+      : 'All embedding fallback stages failed.',
     provider: 'local-router',
     fallback: fallbackRoute?.id || null,
     attempts
