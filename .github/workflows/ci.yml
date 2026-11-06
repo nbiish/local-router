@@ -41,6 +41,9 @@ jobs:
       - name: Build TypeScript
         run: npm run build
 
+      - name: Verify English-only contract and text integrity
+        run: node scripts/check-english-only.mjs
+
       - name: Run Test Suite
         run: npm test
 

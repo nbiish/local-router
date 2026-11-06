@@ -216,7 +216,7 @@ export function renderProvidersPage(params: {
             <button type="button" class="button-secondary" onclick="syncPqcBundleKeys(true)" style="padding: 4px 10px; font-size: 13px;">🔁 Sync PQC keys</button>
           </div>
         </div>
-        <p class="muted">Each provider below shows its key status, fetch controls, and models in one place. Check a model to serve it (saves automatically); <strong>＋ Fallback</strong> drops it into the <code>fallback-models</code> chain right here — the list keeps your search and scroll position — and all chain editing (reorder, extra chains) lives on the <a href="/config/fallback">Fallback Routes</a> page.</p>
+        <p class="muted">Each provider below shows its key status, fetch controls, and models in one place. Check a model to serve it (saves automatically); <strong>+ Fallback</strong> drops it into the <code>fallback-models</code> chain right here — the list keeps your search and scroll position — and all chain editing (reorder, extra chains) lives on the <a href="/config/fallback">Fallback Routes</a> page.</p>
         <div id="catalog" class="catalog"></div>
       </div>
       <div class="card">

@@ -1,9 +1,9 @@
-# TASK 2026-08-25 ＋ Fallback staging race — DIAGNOSED, NOT FIXED
+# TASK 2026-08-25 + Fallback staging race — DIAGNOSED, NOT FIXED
 
 Confidential. No secrets. Logged from the psionics chat by mistake-routing;
 fix belongs here. Work was reverted before any commit landed.
 
-- Bug: ＋ Fallback shows nothing anywhere
+- Bug: + Fallback shows nothing anywhere
 - Root cause: safeInit fire-and-forget race
 - Fix designed, never committed
 - Revert verified clean
@@ -12,7 +12,7 @@ fix belongs here. Work was reverted before any commit landed.
 
 ## Symptom (operator report, VSCode/extension config UI)
 
-Press ＋ Fallback on a catalog model → model appears neither in the chain
+Press + Fallback on a catalog model → model appears neither in the chain
 dropdown nor in the Fallback Order drag/click list.
 
 ## Root cause (layout.ts)
@@ -53,6 +53,6 @@ node_modules copy aborted mid-flight, no residue outside removed worktree.
 1. Apply fix above in a fresh fix/* worktree from develop.
 2. Gates: npm run build + tests/fallback-chain-toggle.test.mjs +
    fallback-default-bootstrap.test.mjs + ollama-version-config-ui.test.mjs.
-3. Manual verify: catalog → ＋ Fallback → lands in local-router/fallback-models,
+3. Manual verify: catalog → + Fallback → lands in local-router/fallback-models,
    visible in dropdown + Fallback Order immediately after navigation.
 4. Merge --no-ff per repo convention; release hop per Develop-Complete Gate.

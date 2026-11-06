@@ -1,6 +1,6 @@
 # MEMORY — local-router (curated digest)
 
-One entry per durable fact. Format: \- [YYYY-MM-DD] <fact> *(source: <server/tool>)*\ — newest first per section. Contracts live in the \llms.txt\ chain, never duplicated here. Exports beside this file are machine snapshots; this file is the curated layer agents iterate on.
+One entry per durable fact. Format: `- [YYYY-MM-DD] <fact> *(source: <server/tool>)*` — newest first per section. Contracts live in the `llms.txt` chain, never duplicated here. Exports beside this file are machine snapshots; this file is the curated layer agents iterate on.
 
 ## Facts
 - [2026-09-23] Providers catalog state model (src/ui/pages/layout.ts): the catalog DOM rebuilds ONLY on data change (load/refresh/Save Curation/key refresh); toggles/bulk/curation edit the live DOM (syncCurationSelection + applyCatalogFilters); every rebuild snapshot-restores each provider's `ul.model-list` scrollTop keyed by `data-provider`, plus window offsets and per-provider search values; search inputs run `onCatalogSearchInput` (filter in place + reset lists to top). *(source: obs)*
