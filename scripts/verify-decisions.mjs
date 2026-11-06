@@ -508,9 +508,13 @@ async function checkRerank(receipt, baseUrl) {
   const environment = {
     ...process.env,
     JEV_LOCAL_ROUTER_URL: baseUrl,
-    // Force the router to be the transport: the engine tries OpenRouter first.
-    OPENROUTER_API_KEY: 'invalid-local-router-verify-key'
+    // Force the router to be the decisions transport. ainish-rag honours this ordering
+    // variable, so the check does NOT need to poison OPENROUTER_API_KEY: that key is also
+    // used for remote embeddings, and an invalid value makes the query fail with a 401
+    // from the embeddings endpoint before reranking is ever exercised.
+    JEV_TRANSPORT_PRIORITY: 'local-router'
   };
+  delete environment.OPENROUTER_API_KEY;
   const started = Date.now();
   const query = spawnSync(
     'ainish-rag',
