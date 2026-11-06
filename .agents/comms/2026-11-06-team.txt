@@ -1,0 +1,77 @@
+---
+description: Agent Communication System protocol template. Deployed by `ainish-coder --rules` as `.agents/comms/{date}-team.txt` (one file per UTC date — the day's whole history is one read). Merge-safe: agents deploying updates must preserve all entry blocks below the PROTOCOL section; only the PROTOCOL block itself may be refreshed from this template.
+---
+
+# AGENT COMMS — 2026-11-06
+
+<PROTOCOL>
+## PROTOCOL (binding — follow like AGENTS.md)
+
+**When:** ≥1 agent or subagent is working at once (multiple branches, features, updates, bugs, docs). Solo? Still check in/out — the ledger is the audit trail.
+
+**Two channels:**
+- **This file** (`.agents/comms/{date}-team.txt`) — one file per UTC date; committed, append-only durable ledger. Never rotate per session or per hour. Updated via your task-branch commits; reaches everyone at merge.
+- **Live board** (`.agents/comms/{date}-team.live.txt`) — gitignored, at the **main repo path**. Append here by absolute path for immediate in-flight visibility. Never `git commit` it; never `git add` it. Main stays clean.
+
+**Read:** this file + the live board — at start, before any merge, and whenever blocked.
+
+**Write:** for every lifecycle event, append one entry block to **both** the live board (immediate) and this file in your worktree (durable — commit it). One writer per branch. Subagents do not write the shared files directly: report results to your orchestrator, who logs on your behalf with `parent:` set.
+
+**Skill distribution (persisted per-repo selection):** which `.agents/skills/` packs distribute to this repo is governed by the operator's persisted selection (`~/.config/ainish-coder/skills-selection.json`). `ainish-coder --rules` asks on a real terminal the FIRST time a repo has no saved selection, then applies that saved choice on every later run; `ainish-coder --select-skills [DIR]` reopens the choice and `ainish-coder --skills-list [DIR] [--json]` shows it. Agents and CI MUST use the headless path — `ainish-coder --rules <dir> --headless` or `ainish-coder --skills-sync <dir> --headless` — which applies the saved selection with no prompts. Do not hand-edit the selection file; run the interactive toggle instead. Scroll-channel packs (`8thfire-scrolls`, `ghost-layer-injector`, raw `.scrolls*/` payload) are never selectable here — explicit `--scrolls` only.
+
+**Timestamps — mandatory, bracketed, ISO-8601 (UTC `Z` form on this ledger):**
+- `start:` the instant the agent **begins** the action (input received / work begun).
+- `end:` the instant the agent **finishes** it (output produced / work handed off or halted).
+- **Every** entry has both. Abandoned mid-action → still close with `end:` + `status: abandoned`.
+
+\*\*Entry block:\*\*
+
+~~~
+### [<ISO-8601 timestamp>] <EVENT> | branch:<branch> | wt:<worktree-path>
+- start:<ISO-8601>               # input received / work began
+- end:<ISO-8601>                 # output produced / work ended
+- parent:<orchestrator>          # subagents only
+- scope:<paths/modules>
+- provenance:<source_commit=XXXXXXXXXXXX manifest_sha256=XXXXXXXXXXXX>   # optional but recommended
+- objective:<one line>
+- input:<one line — what was received or requested>
+- output:<one line — what was produced or handed off>
+- status:<new|in-progress|blocked|verifying|merged|abandoned>
+- blockers:<none | description>
+~~~
+
+**Provenance stamp (recommended on `checkin`):** embed the ainish-coder root commit SHA and the target's deployment-manifest digest so every work session is auditable against the exact ruleset it ran under. Generate it with `ainish-coder --rules-provenance <dir>`, which emits `source_commit=… manifest_sha256=…`. Verify every target's manifest signature with `ainish-coder --rules-verify [--json]`.
+
+</PROTOCOL>
+
+---
+
+### [2026-11-06T18:10:00Z] checkin | branch:main | wt:D:\Code\local-router
+- scope:.agents/tasks/2026-11-06-rag-driver-fallback-crossplatform-task.md
+- objective:Record whether local-router needs changes for the ainish-rag driver fallback (local-router -> openrouter -> zenmux -> local-model).
+- input:ainish-coder cross-platform chat asked for a proper task file if router updates were needed for the fallback to work.
+- output:Task file opened. Finding: the router needs NO change for the fallback - decision order is already openrouter,zenmux with both keys configured; tier 1 id openrouter-deepseek-v4.1-flash-1017 and tier 2 id zenmux-deepseek-v4.1-flash both route to the requested model and return DRIVER_OK; tier 4 mxfp4_moe id is advertised among 76 models but its backends (8888/8080) are down. The missing piece is entirely in ainish-rag, which has no driver transport.
+- status:new
+- blockers:18 uncommitted paths here (rules re-stamp, retired production-security pack, synced skills, AGENTS.md) block any work under the clean-status rule; the deploy manifest also records host-specific absolute paths, so mixed-host deploys dirty it and invalidate its signature.
+- compat:No app interface, schema, flag, or dependency change proposed. The deploy-manifest path fix is a value-format change inside an existing v1 field with a both-forms reader during the change window.
+
+### [2026-11-06T18:25:00Z] update | branch:main | wt:D:\Code\local-router
+- scope:.agents/tasks/2026-11-06-rag-driver-fallback-crossplatform-task.md
+- objective:Correct the task record: the ainish-rag driver ladder and local-router/fallback-models are two different orders.
+- input:Operator corrected the earlier claim that the router needs no change for the fallback.
+- output:Task file rewritten. The earlier version was wrong: it used tier-1 router aliases (openrouter-deepseek-v4.1-flash-1017, zenmux-deepseek-v4.1-flash) as evidence about tiers 2 and 3, but those aliases resolve INSIDE the router and say nothing about direct provider calls. Tiers 2 and 3 are direct OpenRouter and ZenMux calls with their own base URL and key; reusing a router alias for them would silently route back through tier 1 and collapse the separation.
+- status:new
+- blockers:Also found fallback-models is EMPTY on disk - router-settings.json holds "fallbackModelsText": "" and routes[0].models == [] - while docs/driver-models.md describes a 20-step chain headed by zai-glm-5.3-flashx. The doc is stale. Repopulating the shared chain is an operator decision and is explicitly not this task.
+- compat:Documentation-first; no interface, schema, flag, or dependency change.
+
+### [2026-11-06T19:25:00Z] checkout | branch:main | wt:D:\Code\local-router
+- start:2026-11-06T19:19:00Z
+- end:2026-11-06T19:25:00Z
+- scope:AGENTS.md, .agents/ainish-deploy.json, .agents/ainish-deploy.sig, .agents/skills/**
+- objective:Add an explicit English-only rule to the agent contract and deploy it to this target.
+- input:Operator: "English only and make sure that's clear in the AGENTS.md for this repo."
+- output:Clause added to the contract's Output discipline section at the SOURCE repo (ainish-coder 6717ac5), not by editing this target's copy - AGENTS.md is a managed path in .agents/ainish-deploy.json, so a local edit would be reverted by --rules-sync and would invalidate the signature. Text requires English for code, comments, commit messages, AGENTS.md, llms.txt, .agents/ records, and user-facing output, and allows non-English only for verbatim quoted input and pass-through data, each with an English gloss.
+- status:merged
+- blockers:none. This commit also clears the clean-status blocker recorded on the 2026-11-06 driver-fallback task.
+- compat:Contract/rules change only - no app interface, schema, flag, dependency, or runtime behaviour change. Targets pick it up through the existing --rules-sync path on their next hook or explicit sync; no migration beyond re-deploying the rules.
+- provenance:source_commit=6717ac5dbfa98c56c3ffbc6ea0e91a3a72d38024 manifest_sha256=bca61055f93ae820292a83e7c711a38f36ca59a075f255598feccada5b3909bb

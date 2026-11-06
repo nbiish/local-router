@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Probe the TypeSafe Jev Decisions API with a typed question batch.
 
-Dependency-free (stdlib only). Resolves the OpenRouter key exactly like the engine: environment
-first (consumer-prefixed names included), then the PQC store via `pqc-secrets export --json`.
+Dependency-free (stdlib only). Resolves the API key exactly like the engine: environment first
+(consumer-prefixed names included), then the PQC store via `pqc-secrets export --json`.
 The key is never printed, written, or passed on a recorded command line.
 
 Examples:
@@ -11,6 +11,8 @@ Examples:
         "criteria":{"true":"it connects to LanceDB","false":"it does not"}}}'
 
     python jev_probe.py --state-file state.txt --questions @questions.json --json
+    python jev_probe.py --api-url https://api.typesafe.ai/v1/systemone --images \
+        --state-file request-state.json --state-json --questions @image-questions.json
 """
 
 from __future__ import annotations
@@ -33,6 +35,8 @@ KEY_NAMES = (
     "LOCALROUTER_OPENROUTER_API_KEY",
     "LOCALROUTER_OPENROUTER_EMBED_API_KEY",
     "AINISHCODER_OPENROUTER_API_KEY",
+    "TYPESAFE_API_KEY",
+    "TYPESAFEAI_API_KEY",
 )
 
 
@@ -64,8 +68,8 @@ def _parse_export(text: str) -> dict:
     return out
 
 
-def resolve_key() -> str:
-    for name in KEY_NAMES:
+def resolve_key(key_names: tuple[str, ...]) -> str:
+    for name in key_names:
         value = os.environ.get(name)
         if value and value.strip():
             return value.strip()
@@ -97,13 +101,12 @@ def resolve_key() -> str:
             continue
         if proc.returncode == 0 and proc.stdout.strip():
             secrets = _parse_export(proc.stdout)
-            for name in KEY_NAMES:
+            for name in key_names:
                 if secrets.get(name):
                     return secrets[name]
 
     raise SystemExit(
-        "No OpenRouter key resolved. Set OPENROUTER_API_KEY (or store "
-        "LOCALROUTER_OPENROUTER_API_KEY in the PQC store)."
+        "No API key resolved. Set the selected environment key or store it in the PQC store."
     )
 
 
@@ -111,18 +114,30 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Probe the TypeSafe Jev Decisions API")
     parser.add_argument("--state", default=None, help="State text sent with every question")
     parser.add_argument("--state-file", default=None, help="Read state from a file instead")
+    parser.add_argument("--state-json", action="store_true", help="Parse the state input as a JSON value")
     parser.add_argument("--questions", required=True, help="Typed question batch (inline JSON or @path)")
     parser.add_argument("--model", default=os.environ.get("JEV_DECISION_MODEL", DEFAULT_MODEL))
+    parser.add_argument("--api-url", default=DECISIONS_URL, help="System One endpoint")
+    parser.add_argument("--typesafe-key-name", default=None, help="Environment/PQC key name for a TypeSafe endpoint")
+    parser.add_argument("--images", action="store_true", help="Send the TypeSafe image danger-zone header")
     parser.add_argument("--json", action="store_true", help="Print only the JSON response")
     args = parser.parse_args()
 
     if args.state_file:
         with open(args.state_file, "r", encoding="utf-8") as handle:
-            state = handle.read()
+            state_raw = handle.read()
     elif args.state is not None:
-        state = args.state
+        state_raw = args.state
     else:
         parser.error("one of --state or --state-file is required")
+    if args.state_json:
+        try:
+            state = json.loads(state_raw)
+        except ValueError as exc:
+            print(f"invalid state JSON: {exc}", file=sys.stderr)
+            return 2
+    else:
+        state = state_raw
 
     questions_raw = args.questions
     if questions_raw.startswith("@"):
@@ -137,18 +152,22 @@ def main() -> int:
         print("--questions must be a JSON object keyed by question id", file=sys.stderr)
         return 2
 
+    key_names = (args.typesafe_key_name,) if args.typesafe_key_name else KEY_NAMES
+    key = resolve_key(key_names)
     payload = json.dumps({"model": args.model, "state": state, "questions": questions}).encode("utf-8")
     request = urllib.request.Request(
-        DECISIONS_URL,
+        args.api_url,
         data=payload,
         headers={
-            "Authorization": f"Bearer {resolve_key()}",
+            "Authorization": "Bearer " + key,
             "Content-Type": "application/json",
             "HTTP-Referer": "https://github.com/nbiish/ainish-coder",
             "X-Title": "ainish-rag-jev-probe",
         },
         method="POST",
     )
+    if args.images:
+        request.add_header("TypeSafe-Danger-Zone-Images", "true")
 
     try:
         with urllib.request.urlopen(request, timeout=30) as response:

@@ -3,7 +3,7 @@ name: typesafe-jev
 description: >
   TypeSafe Jev (System One) decision models over OpenRouter's Decisions API, integrated into
   ainish-rag for calibrated retrieval routing, two-stage reranking, context freshness, and
-  faithfulness evaluation. Use when a judgment about code, documentation, or task state needs a
+  faithfulness evaluation, plus opt-in TypeSafe image and Box prototypes. Use when a judgment about code, documentation, or task state needs a
   calibrated probability instead of a keyword heuristic, when tuning or debugging the route,
   rerank, orient, gate, decide, or eval behaviour of ainish-rag, or when authoring typed noul,
   choice, and score questions with explicit criteria for any repository that ran
@@ -29,13 +29,35 @@ four competing ones.
 | Rerank retrieved chunks with judgments | `ainish-rag query "<request>"` (rerank is on by default) or `ainish-rag rerank "<request>"` |
 | Check an answer against evidence | `ainish-rag eval --context "<evidence>" --output "<answer>" --json` |
 | Probe the live model | `python .agents/skills/typesafe-jev/scripts/jev_probe.py --questions '<json>' --state "<state>"` |
+| Probe TypeSafe image/Box support | `python .agents/skills/typesafe-jev/scripts/jev_probe.py --api-url https://api.typesafe.ai/v1/systemone --typesafe-key-name TYPESAFE_API_KEY --images --questions '@questions.json' --state-file state.json` |
 
-Both prioritized transports are attempted before any heuristic: **OpenRouter** (latest Jev) and the
-loopback **Local Router** (`/api/decisions/status` fast path, then `/api/alpha/decisions`);
-`JEV_TRANSPORT_PRIORITY=local-router,openrouter` flips the order. Every command degrades to a
-calibrated local heuristic only when both fail, and says so in `source`
-(`openrouter:typesafe/jev-1.14-20261014`, `local-router:<url>:<model>`, or `local-calibrated`).
+The default transport order is **Local Router**, **OpenRouter**, configured direct **Jev/TypeSafe**,
+then configured **local-model** (`JEV_LOCAL_MODEL_URL`). Set `JEV_TRANSPORT_PRIORITY` to reorder
+these four stages. Every command degrades to a calibrated local heuristic only when all configured
+stages fail, and says so in `source` (`local-router:<url>:<model>`, `openrouter:typesafe/jev-1.14-20261014`,
+`jev:typesafe/jev-1.14`, `local-model:<url>`, or `local-calibrated`).
 **A failed Jev call is an error, not a "no"** — read `source` before trusting an answer.
+
+## Image and Box capabilities (danger zone)
+
+The upstream TypeSafe skill is installed here as this repository's `typesafe-jev` pack and is
+kept aligned with the upstream MIT skill guidance. Jev 1.13 and 1.14 accept image references in
+`state`, question `instructions`, and question `criteria`; Jev 1.14 adds the `box` primitive for
+normalized `{top, bottom, left, right}` bounding boxes. Send each image once in the top-level
+`assets` map, reference it with a collision-resistant key, and send
+`TypeSafe-Danger-Zone-Images: true` on every request containing an image or Box question.
+
+These features are explicitly **dreamer-ready**, not production-ready: request syntax, limits,
+accuracy, and answers may change. A Box always returns a box, even when the target is absent, so
+pair it with a Noul presence check and ignore the box when the Noul is below the application's
+threshold. Use confidence only as an application-controlled review signal; TypeSafe publishes no
+recommended Box threshold. Keep image questions narrow, decompose multimodal judgments, crop
+large images before locating small targets, and never let an image answer authorize a destructive
+action without deterministic validation or human review.
+
+See [image-capabilities.md](references/image-capabilities.md) for the current synopsis, request
+shape, and project-specific adoption map. The dependency-free probe supports `--images` and
+explicit `--api-url`; it resolves keys from the environment or PQC store without printing them.
 
 ## The judgment/decision split
 
@@ -61,15 +83,18 @@ response schema, including the failure modes that silently produce defaults, is 
   build, e.g. `typesafe/jev-1.14-20261014`). There is **no automatic downgrade** to older Jev ids:
   `JEV_DECISION_MODEL` is a diagnostic pin that `ainish-rag secrets` reports, and a retired id
   fails the call with its reason instead of silently using an older model.
-- **Transports** — OpenRouter's Decisions API is primary. Local Router
+- **Transports** — Local Router is primary, followed by OpenRouter, direct Jev/TypeSafe when
+  `JEV_API_URL` or `TYPESAFE_API_URL` and a `TYPESAFE_API_KEY`-family secret are configured, then
+  a decisions-compatible local model at `JEV_LOCAL_MODEL_URL` (optional
+  `JEV_LOCAL_MODEL_API_KEY`). Local Router
   (`http://127.0.0.1:11434`, override with `JEV_LOCAL_ROUTER_URL`) is an *additional typed
   transport*: `/api/alpha/decisions`, `/v1/decisions`, and `/decisions` accept this contract,
   advertise pinned `openrouter/jev-1.14` (and `zenmux/jev-1.14` when that key is configured) on
   `/v1/models`, and fail over between keyed providers while reporting `provider`/`dialect`/
   `attempts`. A chat-only alias (`openrouter-jev-router`) is general chat — it can be served by any
   model — and is never substituted for typed, calibrated decisions. `ainish-rag secrets` names the
-  usable route; the local route is tried after the OpenRouter attempt fails or when no key
-  resolves.
+  usable route. Direct Jev and local-model stages are opt-in and skipped when their endpoint is not
+  configured.
 - **Questions** — a JSON object keyed by question id. Every `noul`, `choice`, and `score`
   question **must** carry `criteria`; the API rejects the request without it.
   - `noul`: `criteria: { "true": "...", "false": "..." }` → answer `noul` (0–1).
@@ -181,5 +206,7 @@ assert exact probabilities).
   composing judgments into decisions, and keeping multi-agent work consistent.
 - [references/calibration-and-testing.md](references/calibration-and-testing.md) — live probing,
   threshold calibration, and anti-patterns.
+- [references/image-capabilities.md](references/image-capabilities.md) — TypeSafe image/Box
+  synopsis, Jev 1.14 changes, and safe adoption ideas for existing projects.
 - Upstream guidance — `https://docs.typesafe.ai/llms.txt` and the TypeSafe skill at
   `https://github.com/typesafe-ai/skills`.

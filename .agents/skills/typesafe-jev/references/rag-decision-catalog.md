@@ -15,20 +15,22 @@ in the question.
 
 ## Transport priority
 
-Both upstream transports are attempted before any local heuristic:
+The configured transport chain is attempted before any local heuristic:
 
-1. **OpenRouter Decisions API** (`https://openrouter.ai/api/alpha/decisions`, latest
-   `typesafe/jev-1.14`).
-2. **Local Router** (`http://127.0.0.1:11434`, override `JEV_LOCAL_ROUTER_URL`), discovered via
+1. **Local Router** (`http://127.0.0.1:11434`, override `JEV_LOCAL_ROUTER_URL`), discovered via
    `GET /api/decisions/status` (zero-token fast path: `ready`, `routes`, `advertised_models`) and
    then `/v1/models` + a minimal typed probe of `/api/alpha/decisions`, `/v1/decisions`,
    `/decisions`. A chat-only entry is reported, never substituted.
-3. Calibrated local heuristic only when both transports fail.
+2. **OpenRouter Decisions API** (`https://openrouter.ai/api/alpha/decisions`, latest
+   `typesafe/jev-1.14`).
+3. **Direct Jev/TypeSafe**, only when `JEV_API_URL` or `TYPESAFE_API_URL` and a matching key are
+   configured.
+4. **Configured local model**, only when `JEV_LOCAL_MODEL_URL` implements the typed Decisions API.
+5. Calibrated local heuristic only when all configured stages fail.
 
-`JEV_TRANSPORT_PRIORITY=local-router,openrouter` flips 1 and 2 (the local router then receives the
-keyed request first; the OpenRouter key is still never sent to loopback). `source` always names the
-transport that answered: `openrouter:<dated-model>`, `local-router:<url>:<model>`, or
-`local-calibrated`.
+`JEV_TRANSPORT_PRIORITY` can reorder the four network stages (the OpenRouter key is never sent to
+loopback). `source` always names the transport that answered: `local-router:<url>:<model>`,
+`openrouter:<dated-model>`, `jev:<model>`, `local-model:<url>`, or `local-calibrated`.
 
 ## route — `ainish-rag route "<request>"`
 

@@ -20,7 +20,9 @@ The key is resolved in memory only, in this order:
    `AINISHCODER_OPENROUTER_API_KEY`;
 2. the PQC store through `pqc-secrets export --json` (the store commonly holds the
    consumer-prefixed `LOCALROUTER_OPENROUTER_API_KEY`);
-3. otherwise the calibrated local fallback.
+3. direct Jev/TypeSafe and local-model credentials are resolved only when their endpoints are
+   explicitly configured;
+4. otherwise the calibrated local fallback is used after the transport chain is exhausted.
 
 Never write the key to disk, argv, logs, or a task record. `ainish-rag secrets` reports resolution
 status without the value.
@@ -52,8 +54,8 @@ The loopback Local Router (`http://127.0.0.1:11434`, or `JEV_LOCAL_ROUTER_URL`) 
 3. `POST {base}/api/alpha/decisions`, then `/v1/decisions`, then `/decisions` — the first route that
    answers a minimal typed probe is usable.
 
-Both transports are attempted before any heuristic. Default order is OpenRouter then Local Router;
-`JEV_TRANSPORT_PRIORITY=local-router,openrouter` flips it. The probe **never** sends the OpenRouter
+The default order is Local Router, OpenRouter, configured direct Jev/TypeSafe, then a configured
+local-model decisions endpoint. `JEV_TRANSPORT_PRIORITY` can reorder these stages. The probe **never** sends the OpenRouter
 key to loopback. A router that only exposes Jev over chat completions is reported by
 `ainish-rag secrets` as `Decisions Route: none (chat-only entry)` and is never substituted for
 typed, calibrated decisions — chat Jev routes can resolve to general models and carry no
@@ -78,6 +80,12 @@ Verified 2026-10-31 against Local Router 1.1.0 (`main` @ `471d3f6`, production `
 - Forcing the fallback transport is reproducible: export a deliberately invalid
   `OPENROUTER_API_KEY`, then `ainish-rag decide` reports
   `source: local-router:http://127.0.0.1:11434/api/alpha/decisions:typesafe/jev-1.14-20261014`.
+
+Direct Jev uses `JEV_API_URL` or `TYPESAFE_API_URL` with a `TYPESAFE_API_KEY`,
+`TYPESAFEAI_API_KEY`, `TYPESAFE_JEV_API_KEY`, or `JEV_API_KEY` secret. The optional fourth stage
+uses `JEV_LOCAL_MODEL_URL` and sends `JEV_LOCAL_MODEL_API_KEY` when present. Both endpoints must
+implement this typed Decisions request/response contract; a chat-completions endpoint is not a
+valid substitute.
   The router's own diagnostics are `GET /api/decisions/status[?probe=true]`.
 
 ## Request body

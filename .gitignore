@@ -160,8 +160,14 @@ audit.log.*
 # The daily team ledger .agents/comms/{date}-team.txt IS committed; this sidecar is not.
 .agents/comms/*-team.live.txt
 
-# Multimodal RAG local vector store and runtime process PID
-.agents/rag/
+# Multimodal RAG local vector store and runtime process PID.
+# Ignored as directory *contents* rather than as a directory, so the benchmark baseline below can
+# be re-included: git never descends into an ignored directory, so a `!.agents/rag/x` exception is
+# inert while `.agents/rag/` itself is ignored.
+.agents/rag/*
+# ...except the benchmark baseline, which is the committed floor every retrieval change is
+# measured against (Phase 0 of docs/rag-context-system-plan.md). It holds no secrets or vectors.
+!.agents/rag/bench-baseline.json
 
 # Rules auto-sync runtime artifacts (manifest and sync script ARE committed)
 .agents/ainish-sync.log
@@ -170,10 +176,14 @@ audit.log.*
 # Compiled native binaries (built locally via cargo or distributed wrappers)
 *.exe
 
+# Deployment smoke sandbox (created by 'ainish-coder --rules test'); never tracked.
+/test/
+
 # ═══════════════════════════════════════════════════════════════════════════
 # Project-specific patterns (preserved from existing .gitignore)
 # ═══════════════════════════════════════════════════════════════════════════
 
+.agents/rag/
 .config/
 .opencode/
 .workbuddy-ai/
