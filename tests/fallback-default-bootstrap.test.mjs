@@ -124,16 +124,31 @@ test.after(async () => {
   }
 });
 
-test('boot ships exactly the always-present empty system chain', async () => {
+test('boot ships the always-present empty chat chain alongside the purpose-scoped routes', async () => {
   const routes = await requestJson('/api/fallback-models');
   assert.equal(routes.response.status, 200);
   const data = routes.body?.data || [];
-  assert.equal(data.length, 1, 'only the system chain should exist');
-  assert.equal(data[0].routeId, 'fallback-models');
-  assert.deepEqual(data[0].models, [], 'system chain starts empty (no curated steps)');
+  // The invariant is that the chat chain exists and starts EMPTY — user-authored content only.
+  // The route set also carries the purpose-scoped routes (embedding/decision), so asserting a
+  // total count would test the seed list rather than this contract.
+  const system = data.find((route) => route.routeId === 'fallback-models');
+  assert.ok(system, 'the system chat chain must always exist');
+  assert.deepEqual(system.models, [], 'system chain starts empty (no curated steps)');
+
+  const purposeIds = data
+    .map((route) => route.routeId)
+    .filter((id) => id === 'fallback-embedding' || id === 'fallback-decision');
+  assert.deepEqual(purposeIds.sort(), ['fallback-decision', 'fallback-embedding'],
+    'purpose-scoped routes are seeded so tools have a stable id to call');
+
   const models = await requestJson('/v1/models');
   const localRouterEntries = (models.body?.data || []).filter((entry) => String(entry.id).startsWith('local-router/'));
-  assert.deepEqual(localRouterEntries.map((entry) => entry.id), ['local-router/fallback-models']);
+  const entryIds = localRouterEntries.map((entry) => entry.id).sort();
+  assert.deepEqual(entryIds, [
+    'local-router/fallback-decision',
+    'local-router/fallback-embedding',
+    'local-router/fallback-models'
+  ]);
 });
 
 test('toggle appends to the always-present empty system chain', async () => {
