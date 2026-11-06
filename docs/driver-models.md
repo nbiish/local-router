@@ -22,6 +22,36 @@ For `ainish-rag`'s driver calls, the intended order is:
 
 The driver model is **`deepseek-v4.1-flash`** (DeepSeek V4.1 Flash).
 
+## Model ids per tier (use these exact strings)
+
+The provider-facing ids differ per tier, and **a wrong id does not error — it silently
+falls through to the fallback chain.** Verified 2026-11-06: requesting
+`deepseek-v4.1-flash-latest`, `openrouter-deepseek-v4.1-flash-latest`, and
+`zenmux-deepseek-v4.1-flash-latest` all returned HTTP 200 with **`routed=auto`**, which is the
+generic `local-router/fallback-models` chain — not the requested model. A typo in a driver id
+therefore produces a *different model* rather than a failure, and the only signal is the `model`
+field of the response.
+
+Canonical ids to use:
+
+| Tier | Model id | Verified routing |
+|---|---|---|
+| local-router → OpenRouter | `openrouter-deepseek-v4.1-flash-1017` | `routed=deepseek/deepseek-v4.1-flash-1017` |
+| local-router → ZenMux | `zenmux-deepseek-v4.1-flash` | `routed=deepseek/deepseek-v4.1-flash` |
+| local-model | (see the quantization note below) | local backend, currently offline |
+
+OpenRouter stamps a snapshot suffix (`-1017`); ZenMux presents the unsuffixed family name. There is
+**no working `latest` alias** for this model on either provider — the `~`-prefixed rows in
+`provider-model-registries.ts` (e.g. `~deepseek/deepseek-v4-flash-latest`) are display-marker alias
+rows stripped by `normalizeModelAlias`, and they are not callable driver ids. Use the snapshot id
+and bump it deliberately.
+
+**Callers must verify `response.model`.** Because unknown ids resolve through the fallback chain
+instead of failing, a driver that only checks for HTTP 200 will happily run on whatever model the
+chain picked. Compare the returned `model` against the requested id, and treat a mismatch as a
+degraded call.
+
+
 ## Verified state of this machine (2026-11-06)
 
 Probed live against `http://127.0.0.1:11434`. These are measurements, not assumptions.
@@ -79,10 +109,11 @@ this is a ROCm/gfx build.
 
 **Available substitutes, in preference order:**
 
-1. `unsloth-nvidia-nemotron-3.5-lightning-30b-a3b-gguf-mxfp4_moe` — MoE-only MXFP4, the closest
-   format to the request and the only 4-bit MoE option present.
+1. `unsloth-nvidia-nemotron-3.5-lightning-30b-a3b-gguf-mxfp4_moe` — **the operator's chosen local
+   tier.** MoE-only MXFP4, the closest format to the original request and the only 4-bit MoE option
+   present.
 2. `unsloth-nvidia-nemotron-3.5-lightning-30b-a3b-gguf-ud-q8_k_xl` — 8-bit; higher fidelity, larger,
-   slower.
+   slower. Fallback only.
 3. `unsloth-nvidia-nemotron-3.5-lightning-30b-a3b-gguf` — default quant (full precision download).
 
 **No local NVFP4 weights are present** on this machine either (searched the Hugging Face / Unsloth
@@ -98,27 +129,31 @@ its last-known model ids stay advertised while Studio is closed, and requests su
 refusal rather than substituting an answer. **Tier 4 therefore fails today** — expected, and the
 reason tiers 1–3 must all be real fallbacks rather than decorative.
 
-## Do not repurpose the shared `fallback-models` chain
+## Two separate fallback orders — do not conflate them
 
-The live chain (20 steps) is shared by every client: VS Code, Claude Code, Cline, scripts. Its
-current head is `zai-glm-5.3-flashx`, and `openrouter-deepseek-v4.1-flash-1017` sits at position 17.
+There are **two independent** fallback orders on this machine, and they serve different purposes:
 
-Reordering it to satisfy the driver order would change model behaviour for **all** consumers, to
-serve one tool's preference. Don't.
+| Order | Lives in | Purpose |
+|---|---|---|
+| `local-router/fallback-models` | `~/.config/local-router/router-settings.json` | **Generic chat routing** for every client: VS Code, Claude Code, Cline, scripts. 20 steps, currently headed by `zai-glm-5.3-flashx`. |
+| Driver order (tier 1–4) | `ainish-rag` code (planned) | **`ainish-rag`'s driver calls only** — the four tiers above. |
 
-Instead, `ainish-rag` carries its own driver order (tier 1–4 above) as explicit model ids, and
-treats `local-router/fallback-models` only as a last-resort generic target. This keeps the operator's
-global routing intent intact and makes the driver order auditable in one place.
+The driver order is deliberately **not** implemented by reordering the shared chain. Repointing
+`fallback-models` would change model behaviour for every other consumer to suit one tool.
+`ainish-rag` carries its tiers as explicit model ids, and treats `local-router/fallback-models` only
+as a last-resort generic target. Keeping them separate also means the driver order is auditable in
+one place rather than buried in a 20-step chain.
 
 ## Requirements this places on ainish-rag
 
 1. Driver transport must be tiered `local-router → openrouter → zenmux → local-model` with per-tier
    timeouts and a reported `source`, mirroring the decision layer's discipline.
-2. Driver `max_tokens` must budget for reasoning tokens (see above), or empty-content responses will
+2. Driver ids must be the exact strings in the table above, and every response's `model` field must
+   be checked — unknown ids resolve via the fallback chain rather than failing.
+3. Driver `max_tokens` must budget for reasoning tokens (see above), or empty-content responses will
    be misread as transport failures.
-3. Local tier must name an **MXFP4_MOE or Q8_K_XL** Lightning id — an NVFP4 id will never resolve on
-   this build.
-4. Tier 4 must degrade cleanly when Unsloth Studio is closed (it is, today) rather than hanging.
+4. Local tier is `…-lightning-30b-a3b-gguf-mxfp4_moe`; an NVFP4 id will never resolve on this build.
+5. Tier 4 must degrade cleanly when Unsloth Studio is closed (it is, today) rather than hanging.
 
 ## Re-verification
 
