@@ -53,6 +53,18 @@ export function decisionEndpointEnvVar(providerName: string): string {
 
 export const DECISION_PROVIDERS: readonly DecisionProviderSpec[] = [
   {
+    name: 'typesafe',
+    label: 'TypeSafe System One API',
+    endpoint: 'https://api.typesafe.ai/v1/systemone',
+    dialect: 'typesafe',
+    modelPattern: /^typesafe\/jev-\d+(?:\.\d+)*$/,
+    latestModel: LATEST_DECISION_MODEL,
+    primitives: ['noul', 'choice', 'score'],
+    note:
+      'Direct source of the model: TypeSafe trains Jev, so this path has no reseller in front of it. ' +
+      'Key name TYPESAFE_API_KEY is the same one the fleet tooling already resolves.'
+  },
+  {
     name: 'openrouter',
     label: 'OpenRouter Decisions API',
     endpoint: 'https://openrouter.ai/api/alpha/decisions',
@@ -64,7 +76,7 @@ export const DECISION_PROVIDERS: readonly DecisionProviderSpec[] = [
       'HTTP-Referer': 'https://github.com/nbiish/local-router',
       'X-Title': 'local-router-decisions'
     },
-    note: 'Primary transport: proxies TypeSafe System One questions unchanged.'
+    note: 'Resold path to the same model: accepts the TypeSafe body unchanged.'
   },
   {
     name: 'zenmux',
@@ -78,8 +90,14 @@ export const DECISION_PROVIDERS: readonly DecisionProviderSpec[] = [
   }
 ] as const;
 
-/** Default provider preference. OpenRouter first: it is the engine primary. */
-export const DEFAULT_DECISION_ORDER: readonly string[] = ['openrouter', 'zenmux'];
+/**
+ * Default provider preference: the source first, then the resold paths.
+ *
+ * Ordering the direct API first is what makes the route resilient rather than merely redundant:
+ * every other provider is reselling this same model, so if TypeSafe is reachable it is the most
+ * current and the least likely to be rate-limited by an intermediary.
+ */
+export const DEFAULT_DECISION_ORDER: readonly string[] = ['typesafe', 'openrouter', 'zenmux'];
 
 export function decisionProvider(name: string): DecisionProviderSpec | undefined {
   const slug = name.trim().toLowerCase();
@@ -91,6 +109,45 @@ export function decisionEndpoint(spec: DecisionProviderSpec): string {
   const override = process.env[decisionEndpointEnvVar(spec.name)];
   const trimmed = typeof override === 'string' ? override.trim() : '';
   return trimmed || spec.endpoint;
+}
+
+/** Env var that overrides one provider's decision model id (e.g. a newly released build). */
+export function decisionModelEnvVar(providerName: string): string {
+  return `LOCAL_ROUTER_DECISION_${providerName.toUpperCase().replace(/[^A-Z0-9]+/g, '_')}_MODEL`;
+}
+
+/** Env var that overrides one provider's API key (the name the provider itself documents). */
+export function decisionKeyEnvVar(providerName: string): string {
+  const known: Record<string, string> = {
+    typesafe: 'TYPESAFE_API_KEY',
+    openrouter: 'OPENROUTER_API_KEY',
+    zenmux: 'ZENMUX_API_KEY'
+  };
+  return known[providerName.trim().toLowerCase()] || `${providerName.toUpperCase().replace(/[^A-Z0-9]+/g, '_')}_API_KEY`;
+}
+
+/**
+ * The model id a provider should be asked for.
+ *
+ * Providers do not adopt a new build on the same day: when a Jev release lands, the direct API
+ * usually has it first and a reseller follows later. A single global model id would therefore
+ * either block the direct path on an older build or send a reseller an id it rejects. This
+ * resolves per provider, so each can be pinned or advanced independently without a code change:
+ *
+ *   LOCAL_ROUTER_DECISION_TYPESAFE_MODEL=typesafe/jev-1.15
+ *   LOCAL_ROUTER_DECISION_ZENMUX_MODEL=typesafe/jev-1.14
+ *
+ * The value is canonicalised, and an unrecognised value is ignored rather than forwarded, so a
+ * typo cannot send a non-decision id to a decisions endpoint.
+ */
+export function decisionModelFor(spec: DecisionProviderSpec): string {
+  const override = process.env[decisionModelEnvVar(spec.name)];
+  const trimmed = typeof override === 'string' ? override.trim() : '';
+  if (trimmed) {
+    const canonical = canonicalizeDecisionId(trimmed);
+    if (canonical) return canonical;
+  }
+  return spec.latestModel;
 }
 
 /** Effective provider order: env override, then the catalog default. */
@@ -179,12 +236,22 @@ export function isDecisionModelId(id: string): boolean {
   return resolveDecisionModel(id).matched;
 }
 
-/** Providers expected to serve a canonical model, in preference order. */
+/**
+ * Providers expected to serve a canonical model, in preference order.
+ *
+ * A provider whose configured build differs from the requested one is excluded: sending it an id
+ * it publishes as unverified is how a chain records a misleading `model_not_supported` and burns a
+ * failover step. Providers on the same build, or with no per-provider pin, are candidates.
+ */
 export function decisionProvidersForModel(canonical: string): DecisionProviderSpec[] {
   const order = decisionProviderOrder();
   return order
     .map((name) => decisionProvider(name))
-    .filter((spec): spec is DecisionProviderSpec => Boolean(spec) && spec!.modelPattern.test(canonical));
+    .filter((spec): spec is DecisionProviderSpec => {
+      if (!spec) return false;
+      if (!spec.modelPattern.test(canonical)) return false;
+      return decisionModelFor(spec) === canonical;
+    });
 }
 
 /** Provider-qualified model ids advertised on `/v1/models` for discovery. */
