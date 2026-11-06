@@ -15,7 +15,7 @@ Branch: feat/config-ui-consolidation (from develop)
 - Fallback editing exists twice.
 - Providers panel + fallback page editor.
 - Keep ONLY fallback page editor.
-- Catalog rows: "＋ Fallback" button.
+- Catalog rows: "+ Fallback" button.
 - Stages model via ?add= on fallback page.
 - Auto-saves into existing chains.
 ####

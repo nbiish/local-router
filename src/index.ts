@@ -1667,7 +1667,7 @@ function loadPersistedFallbackModels() {
       let parsedRoute = parseFallbackModel(entry);
       if (!parsedRoute.ok && entry && typeof entry === 'object' && !Array.isArray(entry) && typeof entry.id === 'string' && Array.isArray(entry.models)) {
         // Lenient path (2026-08-24): the live toggle API legitimately creates
-        // 0/1-step chains (first "＋ Fallback" add, or an emptied chain kept as
+        // 0/1-step chains (first "+ Fallback" add, or an emptied chain kept as
         // the always-present system route). parseFallbackModel only accepts
         // ≥2, so persisted short chains silently vanished on restart. Accept
         // structurally valid short chains here; the API write path keeps the
@@ -5158,7 +5158,7 @@ cleanupObsoletePresetRoutes();
 applyRoutesConfigFileIfSet();
 
 // The system chain ALWAYS exists — empty by default (2026-08-24 follow-up):
-// it is the permanent landing pad for "＋ Fallback" staging and the cascade
+// it is the permanent landing pad for "+ Fallback" staging and the cascade
 // target for failed direct models. Zero curated steps are seeded; users add
 // their own. A config file may populate it; an explicit { fallbackModels: {} }
 // still leaves this one empty route present (by operator request).

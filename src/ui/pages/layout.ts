@@ -2272,7 +2272,7 @@ export function renderLayout(
           group.scrollIntoView({ behavior: 'smooth', block: 'start' });
         }
 
-        // "＋ Fallback" stages a model into the system fallback chain in
+        // "+ Fallback" stages a model into the system fallback chain in
         // place (the same POST the Fallback Routes page uses) — no
         // navigation, so the catalog keeps its scroll position and every
         // search box. Chain editing (reorder, extra chains) stays on the
@@ -2301,7 +2301,7 @@ export function renderLayout(
         }
 
         // On the Fallback Routes page: absorb a model from a ?add= deep link
-        // (the catalog's "＋ Fallback" stages in place now; links and
+        // (the catalog's "+ Fallback" stages in place now; links and
         // bookmarks keep working). The system chain always
         // exists (empty by default), so a plain ?add= param persists immediately
         // via the same toggle API the old per-row checkbox used — no ≥2
@@ -2618,7 +2618,7 @@ export function renderLayout(
                 + '</label>'
                 + '<button type="button" class="button-secondary" data-stage-fallback="' + escapeHtml(model.id) + '"'
                 + ' title="Stage ' + escapeHtml(model.id) + ' into the fallback-models chain — stays on this page"'
-                + ' style="padding: 1px 8px; font-size: 11px; white-space: nowrap;">＋ Fallback</button>'
+                + ' style="padding: 1px 8px; font-size: 11px; white-space: nowrap;">+ Fallback</button>'
                 + '</li>';
             }
             // No-match notice rides at the END of the list so real rows keep
@@ -2956,7 +2956,7 @@ export function renderLayout(
 
         // Fallback chain editing lives exclusively on the Fallback Routes
         // page (2026-08-24 consolidation) — the Providers page only stages
-        // models over to it via the per-model "＋ Fallback" button. The old
+        // models over to it via the per-model "+ Fallback" button. The old
         // chain selector / order-panel JS for this page was removed with it.
 
         async function loadCatalog() {

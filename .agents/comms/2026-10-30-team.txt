@@ -61,7 +61,7 @@ description: Agent Communication System protocol template. Deployed by `ainish-c
 - end:2026-10-30T22:41:27.2678809-04:00
 - scope:src/decisions/**; src/index.ts; tests/decisions*; docs/decisions.md; README.md; llms.txt
 - objective:ship decision-model transport (all three edge routes) across configured providers.
-- output:6 modules + wiring; 28 tests green; full suite has 2 pre-existing failures reproduced on main; live smoke on 11436 proved 200 via OpenRouter, honest ZenMux 404, pinned-provider failover, and inish-rag secrets reporting Decisions Route: .../api/alpha/decisions. Patch eval ADEQUATE (0.50, 254 anchored symbols, no canary leaks). Gate red only for pre-existing repo state (identical on main).
+- output:6 modules + wiring; 28 tests green; full suite has 2 pre-existing failures reproduced on main; live smoke on 11436 proved 200 via OpenRouter, honest ZenMux 404, pinned-provider failover, and ainish-rag secrets reporting Decisions Route: .../api/alpha/decisions. Patch eval ADEQUATE (0.50, 254 anchored symbols, no canary leaks). Gate red only for pre-existing repo state (identical on main).
 - status:verifying
 - blockers:none
 
@@ -79,7 +79,7 @@ description: Agent Communication System protocol template. Deployed by `ainish-c
 - end:2026-10-30T22:43:38.5934381-04:00
 - scope:production runtime 127.0.0.1:11434 (WSL), merged build 97f7cfd
 - objective:prove the decisions transport on the real port after merge.
-- output:prod PID 427237 (setsid-detached, parent /init) rebuilt from main and restarted. POST /api/alpha/decisions -> 200 in 429 ms via openrouter (typesafe/jev-1.14-20261014); /api/decisions/status ready=true with both providers keyed; chat for openrouter/jev-1.14 -> 400 with the decisions pointer; inish-rag secrets now reports Decisions Route: http://127.0.0.1:11434/api/alpha/decisions (fallback transport).
+- output:prod PID 427237 (setsid-detached, parent /init) rebuilt from main and restarted. POST /api/alpha/decisions -> 200 in 429 ms via openrouter (typesafe/jev-1.14-20261014); /api/decisions/status ready=true with both providers keyed; chat for openrouter/jev-1.14 -> 400 with the decisions pointer; ainish-rag secrets now reports Decisions Route: http://127.0.0.1:11434/api/alpha/decisions (fallback transport).
 - status:merged
 - blockers:none
 
@@ -187,6 +187,6 @@ description: Agent Communication System protocol template. Deployed by `ainish-c
 - scope:decision transport verification on production 127.0.0.1:11434 (WSL PID 445423, main 471d3f6)
 - objective:prove the operator-entered key makes the decision model work and is available to tooling.
 - input:operator added the OpenRouter key through /config.
-- output:KEY — pqc bundle now holds LOCALROUTER_OPENROUTER_API_KEY (names only inspected), loadedProviders=openrouter,xiaomi-mimo,ollama after a cold start with no runtime key entry. DISCOVERY — /v1/models exposes openrouter/jev-1.14 (capabilities.decisions=true, 262144 ctx) alongside the untouched chat alias openrouter-jev-router (decisions=false); /api/tags agrees. PROBE — openrouter 200 / 448 ms -> typesafe/jev-1.14-20261014. CONTENT — typed batch (noul+choice+score) 200 in 294 ms: noul 0.60; choice provider_resolver p=1.0; score 2.63 with legend and probabilities summing to 1.0; usage 461/72 tokens, cost 0. SEPARATION — chat for the decision id 400 with the decisions-route pointer; chat alias served by openai/gpt-6-luna. TOOLING — inish-rag secrets reports the Decisions Route; inish-rag decide -> noul 0.87 (source openrouter:typesafe/jev-1.14-20261014); inish-rag route -> needs_retrieval 0.69, architectural_wiki, freshness 0.07; forced primary failure -> source local-router:http://127.0.0.1:11434/api/alpha/decisions:typesafe/jev-1.14-20261014, noul 0.79. PERSISTENCE — production restarted (440868 -> 445423); key loaded from the bundle, probe 200/448 ms, decision call 200.
+- output:KEY — pqc bundle now holds LOCALROUTER_OPENROUTER_API_KEY (names only inspected), loadedProviders=openrouter,xiaomi-mimo,ollama after a cold start with no runtime key entry. DISCOVERY — /v1/models exposes openrouter/jev-1.14 (capabilities.decisions=true, 262144 ctx) alongside the untouched chat alias openrouter-jev-router (decisions=false); /api/tags agrees. PROBE — openrouter 200 / 448 ms -> typesafe/jev-1.14-20261014. CONTENT — typed batch (noul+choice+score) 200 in 294 ms: noul 0.60; choice provider_resolver p=1.0; score 2.63 with legend and probabilities summing to 1.0; usage 461/72 tokens, cost 0. SEPARATION — chat for the decision id 400 with the decisions-route pointer; chat alias served by openai/gpt-6-luna. TOOLING — ainish-rag secrets reports the Decisions Route; ainish-rag decide -> noul 0.87 (source openrouter:typesafe/jev-1.14-20261014); ainish-rag route -> needs_retrieval 0.69, architectural_wiki, freshness 0.07; forced primary failure -> source local-router:http://127.0.0.1:11434/api/alpha/decisions:typesafe/jev-1.14-20261014, noul 0.79. PERSISTENCE — production restarted (440868 -> 445423); key loaded from the bundle, probe 200/448 ms, decision call 200.
 - status:verified
 - blockers:none

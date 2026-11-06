@@ -2,7 +2,7 @@
 ### [2026-10-30T22:43:51.0588011-04:00] main
 **Changed:** Local Router now serves typed decision models on /api/alpha/decisions, /v1/decisions, and /decisions with per-provider dialects (OpenRouter typesafe passthrough; ZenMux strict array body with noul carried as a calibrated two-option choice), availability-only failover with per-attempt provenance, discovery on /v1/models + /api/tags (capabilities.decisions), a 400 chat guard, and /api/decisions/status / ?probe=true diagnostics. Merged 97f7cfd; prod 11434 rebuilt and verified (engine now reports a Decisions Route).
 
-Next step: add the decisions readiness line to the boot health monitor (unCatalogHealthCheck → health.json) and surface it on /config so an operator sees "decision transport: openrouter ready / zenmux not open" without calling the status API.
+Next step: add the decisions readiness line to the boot health monitor (runCatalogHealthCheck → health.json) and surface it on /config so an operator sees "decision transport: openrouter ready / zenmux not open" without calling the status API.
 
 - Adversarial/security: the decisions routes inherit loopback-only trust but now spend multiple providers' keys — keep the "ignore caller Authorization" invariant and add a regression test that a forged Authorization header never reaches an upstream.
 - Privacy/data-protection: decision state can carry repository content to a second provider on failover, so the provenance trail should be logged with provider identity (never payload) to make cross-provider egress auditable.
@@ -15,9 +15,9 @@ Next step: add the decisions readiness line to the boot health monitor (unCatal
 - Developer-experience/ergonomics: a chat request for a decision model now returns a 400 with the exact route to use; extend the same hint to /v1/responses streaming clients so IDE plugins surface the guidance instead of a generic error toast.
 
 ### [2026-10-31T01:12:15.1606952-04:00] main
-**Changed:** The OpenRouter Jev decision model is now pinned: lwaysAvailable rows bypass curation and configured-model filters, same-id catalog/override rows collapse to the decision row, decision ids are reserved against provider-model authoring, /api/show describes them, and the VS Code chat picker excludes them. Merged 7d0ea5c and verified on an isolated :11437 (single row across a curation clear, decisions 200 via OpenRouter). The 11434 restart is deferred: the shared PQC bundle was rewritten to PSIONICS_* names and the router cannot resolve them.
+**Changed:** The OpenRouter Jev decision model is now pinned: alwaysAvailable rows bypass curation and configured-model filters, same-id catalog/override rows collapse to the decision row, decision ids are reserved against provider-model authoring, /api/show describes them, and the VS Code chat picker excludes them. Merged 7d0ea5c and verified on an isolated :11437 (single row across a curation clear, decisions 200 via OpenRouter). The 11434 restart is deferred: the shared PQC bundle was rewritten to PSIONICS_* names and the router cannot resolve them.
 
-Next step: restore the router's consumer-prefixed key names (LOCALROUTER_OPENROUTER_API_KEY, …) in the PQC bundle additively, then restart 11434 and re-run inish-rag secrets to confirm the decisions route survives a cold boot.
+Next step: restore the router's consumer-prefixed key names (LOCALROUTER_OPENROUTER_API_KEY, …) in the PQC bundle additively, then restart 11434 and re-run ainish-rag secrets to confirm the decisions route survives a cold boot.
 
 - Adversarial/security: the vault rewrite silently invalidated the router's credential path while prod kept using stale in-memory keys — add a boot-time assertion that the expected canonical key names exist and fail loudly (or refuse to serve decisions) rather than advertising a transport it cannot authenticate.
 - Privacy/data-protection: pinning makes the decision id a permanent discovery beacon; ensure the response/provenance still never echoes state, so a pinned endpoint cannot become a content-exfiltration surface.
@@ -47,7 +47,7 @@ Next step: after the OpenRouter key is entered in /config, run the three verific
 ### [2026-10-31T01:37:21.1596735-04:00] main
 **Changed:** Verified the operator's key end-to-end on production: bundle persistence across a cold restart (PID 445423), discovery (openrouter/jev-1.14, decisions=true) next to the untouched chat alias, live probe 200/448 ms, a noul+choice+score batch 200/294 ms with probabilities summing to 1.0 and legend intact, chat separation (400 for the decision id, alias served by a general model), and tooling consumption including the local-router fallback transport (source: local-router:http://127.0.0.1:11434/api/alpha/decisions, noul 0.79).
 
-Next step: wire the decision transport into the repo's own quality gates by running one rerank-heavy inish-rag query and inish-rag eval against a real answer, and record their source in the ledger so rерanked retrieval is proven on the router, not only the direct decide/route calls.
+Next step: wire the decision transport into the repo's own quality gates by running one rerank-heavy ainish-rag query and ainish-rag eval against a real answer, and record their source in the ledger so reranked retrieval is proven on the router, not only the direct decide/route calls.
 
 - Adversarial/security: the router now holds a live OpenRouter key and an unauthenticated decisions route on loopback — add a regression that a forged caller Authorization header never reaches OpenRouter and that the route refuses non-loopback origins.
 - Privacy/data-protection: verification payloads carried repo paths in state; add a redaction pass option for decisions state so agent-supplied context cannot leak local paths to the provider by default.
