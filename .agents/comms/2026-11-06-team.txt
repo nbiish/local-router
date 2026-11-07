@@ -194,3 +194,17 @@ description: Agent Communication System protocol template. Deployed by `ainish-c
 - suite:274/276. The 2 failures (antigravity host-session detect, custom-provider catalog) are pre-existing and reproduce with this change stashed.
 - status:committed 1899d19, pending push
 - provenance:branch=main commit=1899d19
+
+### [2026-11-07T03:40:00Z] docs | branch:main | wt:D:\Code\local-router
+- start:2026-11-07T03:25:00Z
+- end:2026-11-07T03:40:00Z
+- scope:docs/driver-models.md
+- objective:Bring the driver-models contract up to date now that ainish-rag implements it, and correct claims the router update invalidated.
+- input:Operator reported the local-router update complete and asked to proceed with the ainish-rag tooling afterwards. ainish-rag had shipped its driver chain on 2026-11-07 (ainish-coder 811f32f) against this file, which still described the order as "planned".
+- output:Rewrote docs/driver-models.md from a requirement record into a shipped-order record. Added the ten-step chain ainish-rag now carries (four router steps then nous-portal, nebius, openrouter, zenmux, zai, xiaomi-mimo, then the local floor) with the reported-back model per step and measured latency from a live probe. Replaced the per-tier id table with the full canonical set including direct-provider ids. Corrected the decision-order block: status reports typesafe -> openrouter -> zenmux, not the openrouter -> zenmux pair the file claimed. Replaced the "local tier currently offline" claim, which was wrong twice: 8888 is reachable and advertises 31 models, and Studio requires a bearer key on every call including GET /v1/models while this machine's PQC store holds no UNSLOTH key. Corrected the shared-chain description (18 members headed by xiaomi-mimo then zai-glm), noted the coincidental overlap with ainish-rag steps 2-3 and why it means a green step 1 proves nothing about them, and rewrote re-verification around the new CLI.
+- finding:the re-verification block first named bare `localrouter`, which is not on PATH here (npm run setup installs the shims; it has not been run), and documented a `jq` pipeline for a tool that is not installed. Both would have sent the next reader into a dead end. It also documented `show --json` as returning a top-level step list when the chain actually lives under local_router_chain.members. All three corrected against real output.
+- finding-2:four version strings disagree - package.json 1.1.0, local-router.js 1.0.0, localrouter.js 0.1.0, server /api/version 0.33.3. The doc now says which to quote rather than picking one. Reconciling them is an operator call, not a docs edit.
+- verification:every chain id and every direct-provider id re-probed live against the running router; all ten steps answered DRIVER_OK with model_verified. Router catalogue display names confirm each router id's documented routing. tests/embedding-cli.test.mjs and tests/purpose-fallback-routes.test.mjs pass 18/18 - the two suites this update introduced. ainish-coder's 136 python tests and its gate stay green, confirming the docs change disturbed nothing downstream.
+- status:docs-only change, uncommitted in the working tree alongside pre-existing deploy-manifest and skills modifications that are not mine
+- blockers:none
+- compat:No code change. Documentation now names a ten-step order instead of four tiers, so any reader relying on "tier 1-4" should re-read. local-router's own fallback-models chain is untouched.
