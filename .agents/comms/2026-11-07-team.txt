@@ -100,3 +100,22 @@ description: Agent Communication System protocol template. Deployed by `ainish-c
 - blockers:none. StarNet caches its catalog at boot, so it needs a restart to read the new dial.
 - compat:Additive only — new optional fields on /v1/models entries. No request, CLI or schema change.
 - provenance:branch=main commit=f1c1f6d (local-router), e2e453a (ainish-coder)
+
+### [2026-11-07T23:15:00Z] FIX | branch:main | wt:D:\Code\local-router
+- start:2026-11-07T22:14:00Z
+- end:2026-11-07T23:15:00Z
+- scope:src/index.ts (modelCapabilities, ollama response + stream transform), src/reasoning.ts (sanitizeProviderRequestBody), tests/reasoning-ollama-wire.test.mjs, package.json
+- objective:Fix "This model has no adjustable reasoning" for a ZenMux model selected through local-router's Ollama proxy in StarNet, while the same model configured directly against OpenRouter works.
+- input:Operator: restarted StarNet fully, still no thinking settings; noted OpenRouter-direct works but the model under local-router (ollama proxy) reports no adjustable reasoning.
+- finding-1 (why the previous fix missed):the /v1 work only covered the OpenAI wire. A client reaching the router as an Ollama endpoint never reads /v1/models. StarNet's nativeOllama profile (registry.js id 'ollama', nativeOllama:true) takes everything from /api/show and reads message.thinking. Three gaps on that wire.
+- gap-1:/api/show never emitted "thinking" in the capabilities array; StarNet sets supportsReasoning=true only when that string is present, so the UI said exactly what the operator saw. modelCapabilities now pushes 'thinking' when the model supports reasoning.
+- gap-2:/api/chat returned only role and content, dropping the reasoning entirely. message.thinking (and generate's thinking) now carry it, including streamed deltas.
+- gap-3:think:false did not disable thinking. It normalized to enable_thinking:false, which ZenMux ignores (measured still 455 reasoning tokens), whereas reasoning_effort:"none" and thinking:{type:"disabled"} both gave 0. sanitizeProviderRequestBody now emits both portable off-dialects, so the toggle is real.
+- side-finding:zenmux-glm-5.3-free 404s upstream (invalid_model); it is a stale catalog entry, unrelated to reasoning. z-ai/glm-5.3 still advertises reasoning correctly.
+- verification-live:Ollama wire — /api/show -> ['completion','tools','vision','thinking']; /api/chat think:true 1274 thinking chars vs think:false 0; stream 851/1082 chunks with delta thinking. OpenAI wire still correct from the prior commit.
+- verification-test:new tests/reasoning-ollama-wire.test.mjs covers the capability, the embedding exclusion, message.thinking with think:false, and the streamed delta. Added to npm run verify:dials since it reads a live router. Both main assertions were verified to fail when their fix is reverted (capability removal; message.thinking removal) and pass when restored.
+- verification-suites:247 tests, 245 pass; the 2 failures reproduce at origin/main 42ea5f9.
+- status:merged
+- blockers:none. A full StarNet restart is required: it caches the catalog and the /api/show facts.
+- compat:Additive. The Ollama wire now returns `thinking` where it returned nothing; request normalization only rewrites the think/off state into dialects providers honour.
+- provenance:branch=main commit=603b4d3
