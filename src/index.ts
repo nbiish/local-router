@@ -278,12 +278,22 @@ const DECISION_FALLBACK_ROUTE_ID = 'fallback-decision';
  *
  * `dimensions` still matters — the providers' defaults differ (1536 vs 3072) — which is why the
  * handler holds a whole chain to the caller's pinned width.
+ *
+ * ORDER: OpenRouter leads, ZenMux is second. This is a deliberate operator pin, not a cost
+ * ordering (both bill $0.020/1M) and not an accident of catalog order. Because the seed is
+ * one-shot, the same pin is re-applied to an existing chain on every boot by
+ * `enforceEmbeddingProviderOrder`, so a chain written by an older build — or reordered in the UI to
+ * put ZenMux first — still starts on OpenRouter.
  */
 const EMBEDDING_FALLBACK_SEED: readonly string[] = [
-  'zenmux/openai/text-embedding-3-small',
   'openrouter/openai/text-embedding-3-small',
+  'zenmux/openai/text-embedding-3-small',
   'nous-portal/openai/text-embedding-3-small'
 ];
+
+/** The provider that must lead `fallback-embedding`, and the one it must precede. */
+const EMBEDDING_LEADING_PROVIDER = 'openrouter';
+const EMBEDDING_TRAILING_PROVIDER = 'zenmux';
 
 /**
  * Seed steps for `fallback-decision`.
@@ -1847,6 +1857,9 @@ function watchRouterSettingsFile(): void {
         });
         if (snapshot === lastAppliedSettingsSnapshot) return; // our own write
         if (applyRouterSettingsToStore()) {
+          // A hand-edited routes file can also reorder the embedding chain, so the same provider
+          // pin is re-applied here before the change is persisted.
+          enforceEmbeddingProviderOrder();
           persistFallbackModels();
           const sysRoute = fallbackModelStore[SYSTEM_FALLBACK_ROUTE_ID];
           const stepCount = Array.isArray(sysRoute?.models) ? sysRoute!.models.length : 0;
@@ -5366,6 +5379,7 @@ function ensurePurposeFallbackRoutes() {
 }
 ensurePurposeFallbackRoutes();
 reconcileEmbeddingChainModels();
+enforceEmbeddingProviderOrder();
 
 /** True when a route id names a purpose-scoped (non-chat) chain. */
 function isPurposeFallbackRoute(routeId: string): boolean {
@@ -5388,6 +5402,150 @@ function embeddingStepModel(step: string): string {
   if (resolved?.actualModel) return resolved.actualModel;
   const slash = step.indexOf('/');
   return (slash < 0 ? step : step.slice(slash + 1)).trim();
+}
+
+/** The provider behind a chain step, resolved through the catalog rather than string-sliced. */
+function embeddingStepProvider(step: string): string {
+  const resolved = resolveModelTarget(step);
+  if (resolved?.providerName) return canonicalProviderSlug(resolved.providerName);
+  const slash = step.indexOf('/');
+  return slash < 0 ? '' : canonicalProviderSlug(step.slice(0, slash));
+}
+
+type EmbeddingOrderPlan = {
+  models: string[];
+  changed: boolean;
+  /** Step added because the chain had a ZenMux step and no OpenRouter counterpart. */
+  inserted?: string;
+  /** Set when the pin could not be applied; the chain is returned untouched. */
+  skipped?: string;
+};
+
+/**
+ * Pins OpenRouter ahead of ZenMux in the embedding chain.
+ *
+ * The operator requires every embedding request to reach OpenRouter before ZenMux. Cost cannot
+ * express that — both bill $0.020/1M for `text-embedding-3-small` — so the order is a configured
+ * rule, not a derived one. Seeding is one-shot, so a chain written before this rule (or reordered
+ * in the UI against it) would keep the old order forever; this planner re-derives the order from
+ * the chain on every boot and after every edit.
+ *
+ * Two things keep it from doing damage:
+ *
+ *  - It only acts when the chain actually carries an enabled ZenMux step. Without that step there
+ *    is no pair to order, and a chain the operator built from other providers is left alone.
+ *  - A missing OpenRouter step is derived from the ZenMux step's own upstream model and is only
+ *    inserted when that provider/model resolves in the catalog. Injecting a step the router cannot
+ *    confirm would either fail every request or, worse, answer from a different embedding space —
+ *    a foreign vector is worse than no fallback at all.
+ *
+ * A step the operator explicitly disabled is never re-enabled: `disabledModels` is a per-step
+ * switch on a different axis than order, so re-enabling it here would silently overrule an
+ * intentional edit. The pin reports that it could not take effect instead.
+ */
+function planEmbeddingProviderOrder(route: FallbackModel): EmbeddingOrderPlan {
+  const steps = Array.isArray(route.models) ? route.models.slice() : [];
+  const unchanged: EmbeddingOrderPlan = { models: steps, changed: false };
+  if (steps.length === 0) return unchanged;
+
+  const disabled = new Set(route.disabledModels || []);
+  const active = steps.filter((step) => !disabled.has(step));
+  const trailStep = active.find((step) => embeddingStepProvider(step) === EMBEDDING_TRAILING_PROVIDER);
+  if (!trailStep) return unchanged;
+
+  let leadStep = active.find((step) => embeddingStepProvider(step) === EMBEDDING_LEADING_PROVIDER);
+  let inserted: string | undefined;
+
+  if (!leadStep) {
+    const upstream = embeddingStepModel(trailStep);
+    const candidate = `${EMBEDDING_LEADING_PROVIDER}/${upstream}`;
+    // The step is derived FROM the ZenMux step's own upstream model, so the vector space is
+    // identical by construction — that is the safety property, and it must not be inferred from
+    // curation state. What is checked is that the leading provider exists as a configured
+    // provider; a provider that cannot serve the model fails over to the next step, which is the
+    // ordinary fallback path and cannot produce a foreign vector.
+    if (!upstream || !getProviderSummary(EMBEDDING_LEADING_PROVIDER)) {
+      return {
+        models: steps,
+        changed: false,
+        skipped: `${EMBEDDING_LEADING_PROVIDER} is not a configured provider`
+      };
+    }
+    if (disabled.has(candidate)) {
+      return {
+        models: steps,
+        changed: false,
+        skipped: `${candidate} is disabled`
+      };
+    }
+    leadStep = candidate;
+    inserted = candidate;
+  }
+
+  // OpenRouter leads; every other step keeps the relative order the operator gave it.
+  const reordered = [leadStep, ...steps.filter((step) => step !== leadStep)];
+  const changed = inserted !== undefined
+    || reordered.some((step, index) => step !== steps[index]);
+  return changed ? { models: reordered, changed, inserted } : unchanged;
+}
+
+/**
+ * Applies the pin to the in-memory store without persisting.
+ *
+ * Exported so every chain write path (boot, `/api/fallback-models`, reorder) shares one rule: a
+ * chain is written in the operator's order and then corrected, so no surface can leave the route
+ * pointing at ZenMux first.
+ */
+export function applyEmbeddingProviderOrderToStore(): EmbeddingOrderPlan & { applied: boolean } {
+  const unchanged = { models: [] as string[], changed: false, applied: false };
+  const route = fallbackModelStore[EMBEDDING_FALLBACK_ROUTE_ID];
+  if (!route) return unchanged;
+
+  const plan = planEmbeddingProviderOrder(route);
+  if (plan.skipped || !plan.changed) return { ...plan, applied: false };
+
+  route.models = plan.models;
+  return { ...plan, applied: true };
+}
+
+/**
+ * Applies the OpenRouter-before-ZenMux pin and persists it.
+ *
+ * Runs at boot, so a chain written by an older build — or reordered while the router was stopped —
+ * is corrected before it serves anything. `LOCAL_ROUTER_ROUTES_CONFIG` suppresses it: an explicit
+ * routes file declares the route set and its order, which this must not rewrite.
+ */
+function enforceEmbeddingProviderOrder(): void {
+  if (String(process.env.LOCAL_ROUTER_ROUTES_CONFIG || '').trim()) return;
+  const route = fallbackModelStore[EMBEDDING_FALLBACK_ROUTE_ID];
+  if (!route) return;
+
+  const previous = route.models.slice();
+  const plan = applyEmbeddingProviderOrderToStore();
+  if (plan.skipped) {
+    console.warn(
+      `[router] "${EMBEDDING_FALLBACK_ROUTE_ID}" must lead with ${EMBEDDING_LEADING_PROVIDER}, ` +
+        `but ${plan.skipped}. Leaving the chain unchanged.`
+    );
+    return;
+  }
+  if (!plan.applied) return;
+
+  try {
+    persistFallbackModels();
+  } catch (error: any) {
+    route.models = previous;
+    console.error(
+      '[router] Failed to persist the embedding provider order:',
+      sanitizeDiagnosticText(String(error?.message || error))
+    );
+    return;
+  }
+  console.log(
+    `[router] "${EMBEDDING_FALLBACK_ROUTE_ID}" pinned to ${EMBEDDING_LEADING_PROVIDER} before ` +
+      `${EMBEDDING_TRAILING_PROVIDER}: ${plan.inserted ? `inserted ${plan.inserted}; ` : ''}` +
+      `${previous.join(' -> ')} becomes ${plan.models.join(' -> ')}.`
+  );
 }
 
 /**

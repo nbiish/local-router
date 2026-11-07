@@ -36,8 +36,40 @@ Measured 2026-11-06, same input, `dimensions: 768`, cosine similarity against
 | openrouter | `openai/text-embedding-3-large` | 0.006612 |
 
 So the fallback axis is the **provider**, never the model. The seeded chain is
-`text-embedding-3-small` on zenmux → openrouter → nous-portal, which are bit-identical, so a
+`text-embedding-3-small` on openrouter → zenmux → nous-portal, which are bit-identical, so a
 fallback step is invisible to the caller.
+
+### Provider order is pinned: OpenRouter before ZenMux
+
+OpenRouter leads and ZenMux follows. Both bill $0.020/1M for `text-embedding-3-small`, so this is
+not a cost ordering — it is a configured rule, which is why it cannot be derived and has to be
+enforced.
+
+Enforcement exists because seeding is one-shot. A chain written before this rule, or reordered in
+the `/config/fallback` editor to put ZenMux first, would otherwise keep the wrong order forever. The
+rule is therefore applied at every boundary that can write the route:
+
+| Boundary | Why |
+|---|---|
+| Boot (`enforceEmbeddingProviderOrder`) | Older stores and edits made while the router was stopped |
+| `POST /api/fallback-models` | Save / UI auto-save of the whole chain |
+| `POST /api/fallback-chain/reorder` | Drag-and-drop ordering |
+| `POST /api/fallback-chain/toggle`, `PUT /api/router-settings` | Step added or removed, which can complete or break the pair |
+| `router-settings.json` file watcher | A hand-edited file |
+
+Three properties keep the pin from doing damage:
+
+- It only acts when the chain carries an **enabled** ZenMux step. No ZenMux step means no pair to
+  order, so a chain an operator built from other providers is untouched.
+- A missing OpenRouter step is derived from the ZenMux step's own upstream model, so the vector
+  space is identical by construction. It is only inserted when OpenRouter is a configured provider;
+  if it is not, the pin logs that it could not take effect and leaves the chain alone rather than
+  inserting a step that would fail every request.
+- An explicitly **disabled** step is never re-enabled. Disable is a separate axis from order, so
+  silently switching it back on would overrule an intentional edit; the pin skips and says so.
+
+`LOCAL_ROUTER_ROUTES_CONFIG` suppresses the pin: an explicit routes file declares the route set and
+its order, and the router must not rewrite it.
 
 The cheaper model (`qwen3-embedding-8b` at $0.010/1M versus $0.020) and the higher-quality model
 (`text-embedding-3-large`) are both deliberately excluded. They belong in their own route, not in a
@@ -145,5 +177,8 @@ from a provider's model list; probe the route.
 - `fallback-embedding` is a purpose route, so it bypasses the chat capability filter. That filter
   looks each step up in the chat catalog, finds no entry for an embedding model, and would drop
   every step — leaving zero candidates.
+- The provider order in `fallback-embedding` is a **rule, not a default**. An operator edit that
+  contradicts it is corrected on write rather than only at the next boot; see "Provider order is
+  pinned" above for the boundaries that enforce it and the three exceptions.
 - `/api/fallback-models` lists all three routes. Address a route by id rather than by index; the
   set now contains more than one entry.

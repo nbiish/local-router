@@ -27,7 +27,8 @@ import {
   FallbackModel,
   FallbackModelParseResult,
   ProviderModel,
-  ProviderModelParseResult
+  ProviderModelParseResult,
+  applyEmbeddingProviderOrderToStore
 } from '../index';
 import type { RouterSettings, AgentProxyConfig } from '../config-persistence';
 import {
@@ -1315,6 +1316,10 @@ app.post('/api/fallback-models', (req: Request, res: Response) => {
   }
 
   fallbackModelStore[parsed.model.id] = cloneFallbackModel(parsed.model);
+  // The embedding route carries a fixed provider order (OpenRouter before ZenMux). Correcting it
+  // here rather than at the next boot means a save or reorder cannot leave the route answering
+  // from the wrong provider even once.
+  applyEmbeddingProviderOrderToStore();
 
   try {
     persistFallbackModels();
@@ -1463,6 +1468,9 @@ app.post('/api/fallback-chain/toggle', (req: Request, res: Response) => {
   }
 
   fallbackModelStore[routeId] = route;
+  // Removing the ZenMux step is what a disable looks like; adding a step can also complete the
+  // pair, so the provider order is re-checked on both branches.
+  applyEmbeddingProviderOrderToStore();
   try {
     persistFallbackModels();
   } catch (error: any) {
@@ -1512,6 +1520,9 @@ app.post('/api/fallback-chain/reorder', (req: Request, res: Response) => {
   const updated = cloneFallbackModel(route);
   updated.models = orderedIds.map((entry: string) => entry.trim());
   fallbackModelStore[routeId] = updated;
+  // A drag that puts ZenMux ahead of OpenRouter is corrected here, so the embedding route cannot
+  // serve from the wrong provider between this write and the next boot.
+  const orderPin = applyEmbeddingProviderOrderToStore();
 
   try {
     persistFallbackModels();
@@ -1526,7 +1537,8 @@ app.post('/api/fallback-chain/reorder', (req: Request, res: Response) => {
   return res.json({
     success: true,
     persisted: true,
-    route: { id: updated.id, models: [...updated.models], disabledModels: [...(updated.disabledModels || [])] }
+    route: { id: updated.id, models: [...updated.models], disabledModels: [...(updated.disabledModels || [])] },
+    providerOrderPinned: orderPin.applied ? orderPin.models : undefined
   });
 });
 
@@ -1565,6 +1577,8 @@ app.put('/api/router-settings', (req: Request, res: Response) => {
       fallbackModelStore['fallback-models'] = cloneFallbackModel(parsed.model);
     }
   }
+  // Bulk settings writes carry whole routes, so the embedding provider pin is re-applied here too.
+  applyEmbeddingProviderOrderToStore();
 
   try {
     persistFallbackModels();
