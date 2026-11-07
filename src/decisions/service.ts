@@ -20,6 +20,7 @@ import {
   decisionEndpoint,
   decisionModelFor,
   decisionModelEnvVar,
+  decisionWireModelFor,
   resolveDecisionModel,
   LATEST_DECISION_MODEL,
   type DecisionProviderSpec
@@ -236,8 +237,8 @@ export class DecisionService {
       let encoded;
       try {
         encoded = dialect.encode({
-          // Ask each provider for the build IT publishes, which may lag the newest release.
-          canonicalModel: decisionModelFor(spec),
+          // Ask each provider for the build IT publishes, in the vocabulary IT accepts.
+          canonicalModel: decisionWireModelFor(spec),
           state: request.state,
           questions: request.questions
         });
@@ -510,8 +511,12 @@ export class DecisionService {
       try {
         const headers = await this.deps.resolveProviderHeaders(spec.name);
         const dialect = decisionDialect(spec.dialect);
+        // Probe the model this provider is actually configured for, in the name it accepts, so a
+        // green probe means the real request path will work rather than merely that the endpoint
+        // exists.
+        const probeModel = decisionWireModelFor(spec);
         const encoded = dialect.encode({
-          canonicalModel: spec.latestModel,
+          canonicalModel: probeModel,
           state: 'probe',
           questions: PROBE_QUESTION
         });
@@ -526,7 +531,7 @@ export class DecisionService {
         let error: string | undefined;
         if (ok) {
           try {
-            const decoded = dialect.decode(upstream.body, PROBE_QUESTION, spec.latestModel);
+            const decoded = dialect.decode(upstream.body, PROBE_QUESTION, probeModel);
             model = decoded.model;
           } catch (decodeError) {
             ok = false;

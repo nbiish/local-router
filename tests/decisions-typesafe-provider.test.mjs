@@ -7,6 +7,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 
+const { decisionProvider, decisionModelFor, decisionWireModelFor } = await import('../build/decisions/catalog.js');
+
 /**
  * TypeSafe as the first decision transport, and per-provider model configuration.
  *
@@ -117,6 +119,41 @@ test('an unrecognised model override is ignored rather than forwarded', async (t
 
   assert.equal(provider(status, 'typesafe').configured_model, 'typesafe/jev-1.14',
     'a typo must fall back to the known build instead of sending a non-decision id upstream');
+});
+
+test('TypeSafe is asked for its own model name, not the reseller id', () => {
+  // Verified live 2026-11-06: TypeSafe's catalog lists `jev-latest` and `jev-preview`, and it
+  // answers 400 "Unknown model: typesafe/jev-1.14" for the versioned id the resellers use. The
+  // router must translate at the edge, or every call silently falls through to OpenRouter while
+  // appearing to succeed.
+  const ts = decisionProvider('typesafe');
+  const or = decisionProvider('openrouter');
+  const zm = decisionProvider('zenmux');
+
+  assert.equal(decisionModelFor(ts), 'typesafe/jev-1.14', 'the canonical id stays canonical for callers');
+  assert.equal(decisionWireModelFor(ts), 'jev-latest',
+    'TypeSafe must be sent its own published alias');
+  assert.equal(decisionWireModelFor(or), 'typesafe/jev-1.14',
+    'a reseller that speaks the canonical vocabulary gets the id unchanged');
+  assert.equal(decisionWireModelFor(zm), 'typesafe/jev-1.14');
+});
+
+test('a per-provider pin on TypeSafe becomes its native short form', () => {
+  const ts = decisionProvider('typesafe');
+  const previous = process.env.LOCAL_ROUTER_DECISION_TYPESAFE_MODEL;
+  try {
+    process.env.LOCAL_ROUTER_DECISION_TYPESAFE_MODEL = 'typesafe/jev-1.15';
+    assert.equal(decisionModelFor(ts), 'typesafe/jev-1.15');
+    assert.equal(decisionWireModelFor(ts), 'jev-1.15',
+      'a pinned build must be sent as the native short form, not the versioned reseller id');
+
+    // An operator who knows the exact native name can bypass translation entirely.
+    process.env.LOCAL_ROUTER_DECISION_TYPESAFE_MODEL = 'jev-preview';
+    assert.equal(decisionWireModelFor(ts), 'jev-preview');
+  } finally {
+    if (previous === undefined) delete process.env.LOCAL_ROUTER_DECISION_TYPESAFE_MODEL;
+    else process.env.LOCAL_ROUTER_DECISION_TYPESAFE_MODEL = previous;
+  }
 });
 
 test('a provider pinned to an older build is not offered the newer request', async (t) => {

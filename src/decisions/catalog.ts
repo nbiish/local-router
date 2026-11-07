@@ -36,6 +36,16 @@ export interface DecisionProviderSpec {
   modelPattern: RegExp;
   /** Newest known decision model id (`typesafe/jev-1.14`). */
   latestModel: string;
+  /**
+   * Model name this provider accepts on the wire, when it differs from the canonical id.
+   *
+   * Providers do not share one vocabulary: OpenRouter resells under `typesafe/jev-<version>`,
+   * while TypeSafe's own API publishes `jev-latest` / `jev-preview` and rejects the canonical
+   * form. The router keeps one canonical id for callers and translates at the edge.
+   */
+  wireModel?: string;
+  /** Default wire model for the canonical latest build, when `wireModel` is set. */
+  wireModelForLatest?: string;
   /** Question primitives the dialect can carry end to end. */
   primitives: readonly DecisionQuestionType[];
   /** Static headers the provider expects in addition to auth. */
@@ -45,6 +55,19 @@ export interface DecisionProviderSpec {
 
 /** Newest decision model shipped by TypeSafe; responses may carry a dated build. */
 export const LATEST_DECISION_MODEL = 'typesafe/jev-1.14';
+
+/**
+ * The model name TypeSafe itself accepts for the newest build.
+ *
+ * Verified against the live API 2026-11-06: TypeSafe's own catalog lists exactly two models,
+ * `jev-latest` and `jev-preview`, and it answers `400 api_usage_error "Unknown model:
+ * typesafe/jev-1.14"` for the canonical id the router used to send. The canonical
+ * `typesafe/jev-<version>` form is the reseller vocabulary (OpenRouter stamps it), not TypeSafe's.
+ * Because the direct API publishes an alias rather than a version, `jev-latest` is also the
+ * correct thing to send: it tracks whatever build TypeSafe currently serves, which is exactly the
+ * "use the available named Jev version" behaviour a fallback chain wants.
+ */
+export const TYPESAFE_NATIVE_LATEST_MODEL = 'jev-latest';
 
 /** Env var that overrides a provider's decisions endpoint (tests, staging). */
 export function decisionEndpointEnvVar(providerName: string): string {
@@ -59,10 +82,14 @@ export const DECISION_PROVIDERS: readonly DecisionProviderSpec[] = [
     dialect: 'typesafe',
     modelPattern: /^typesafe\/jev-\d+(?:\.\d+)*$/,
     latestModel: LATEST_DECISION_MODEL,
+    // TypeSafe publishes `jev-latest`, not a versioned id: verified live, it rejects
+    // `typesafe/jev-1.14` with api_usage_error "Unknown model". Sending the alias also means the
+    // direct path follows whatever build TypeSafe serves today without a code change.
+    wireModelForLatest: TYPESAFE_NATIVE_LATEST_MODEL,
     primitives: ['noul', 'choice', 'score'],
     note:
-      'Direct source of the model: TypeSafe trains Jev, so this path has no reseller in front of it. ' +
-      'Key name TYPESAFE_API_KEY is the same one the fleet tooling already resolves.'
+      'Direct source of the model: TypeSafe trains Jev. Accepts its own model names (jev-latest, ' +
+      'jev-preview) and rejects the versioned reseller id, so the router translates at the edge.'
   },
   {
     name: 'openrouter',
@@ -148,6 +175,33 @@ export function decisionModelFor(spec: DecisionProviderSpec): string {
     if (canonical) return canonical;
   }
   return spec.latestModel;
+}
+
+/**
+ * The model string to put on the wire for this provider.
+ *
+ * Most providers take the canonical id unchanged. TypeSafe publishes its own names, so the
+ * canonical `typesafe/jev-1.14` is translated to `jev-latest` (or, when an operator pins a
+ * different build with LOCAL_ROUTER_DECISION_TYPESAFE_MODEL, that build's version suffix, which is
+ * the closest native equivalent). This keeps one canonical id for callers and every provider's
+ * vocabulary private to that provider.
+ */
+export function decisionWireModelFor(spec: DecisionProviderSpec): string {
+  const canonical = decisionModelFor(spec);
+  if (!spec.wireModelForLatest) return canonical;
+
+  // An operator can bypass translation entirely by pinning the exact wire name.
+  const override = process.env[decisionModelEnvVar(spec.name)];
+  const trimmed = typeof override === 'string' ? override.trim() : '';
+  if (trimmed && /^[A-Za-z0-9][A-Za-z0-9._/-]*$/.test(trimmed) && !/^typesafe\/jev-/.test(trimmed)) {
+    return trimmed;
+  }
+
+  if (canonical === spec.latestModel) return spec.wireModelForLatest;
+  // A pinned older/newer build: use its native short form (jev-1.15), which TypeSafe accepts for
+  // builds it still serves.
+  const short = canonical.replace(/^typesafe\//, '');
+  return short || spec.wireModelForLatest;
 }
 
 /** Effective provider order: env override, then the catalog default. */

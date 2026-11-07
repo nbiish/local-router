@@ -48,10 +48,12 @@ test('advertised decision ids carry the provider prefix', () => {
   assert.equal(rows[0].canonical, 'typesafe/jev-1.14');
 });
 
-test('both configured providers claim the latest model; order is stable', () => {
+test('every configured provider claims the latest model; order is stable and source-first', () => {
+  // The direct API is the source of the model; the other two resell it. All three are candidates
+  // for the same build, and the order must put the source first.
   assert.deepEqual(
     decisionProvidersForModel('typesafe/jev-1.14').map((spec) => spec.name),
-    ['openrouter', 'zenmux']
+    ['typesafe', 'openrouter', 'zenmux']
   );
   assert.deepEqual(decisionProvidersForModel('typesafe/jev-router'), []);
 });
