@@ -2377,6 +2377,19 @@ function mapLiveRawModelsToCatalog(
     // capability flag on providers that publish arrays rather than flags.
     const arrayHasValue = (value: unknown, needle: string): boolean =>
       Array.isArray(value) && value.some((entry) => String(entry).toLowerCase() === needle);
+    // Same, addressed by dotted path (OpenRouter nests the list).
+    const arrayHasValuePath = (needle: string, ...paths: string[]): boolean => {
+      for (const path of paths) {
+        let value: unknown = raw;
+        for (const segment of path.split('.')) {
+          value = (value && typeof value === 'object' && !Array.isArray(value))
+            ? (value as Record<string, unknown>)[segment]
+            : undefined;
+        }
+        if (Array.isArray(value) && value.some((entry) => String(entry).toLowerCase() === needle)) return true;
+      }
+      return false;
+    };
     const stringHintPath = (...paths: string[]): string | undefined => {
       for (const path of paths) {
         let value: unknown = raw;
@@ -2396,18 +2409,29 @@ function mapLiveRawModelsToCatalog(
       // OpenAI/OpenRouter/ZenMux shape: a modality list, not a flag.
       || arrayHasValue(raw.input_modalities, 'image')
       || arrayHasValue(raw.inputModalities, 'image')
-      || arrayHasValue(raw.modalities, 'image');
+      || arrayHasValue(raw.modalities, 'image')
+      // OpenRouter nests it: architecture.input_modalities = ["text","image"].
+      || arrayHasValuePath('image', 'architecture.input_modalities', 'architecture.inputModalities');
     // Reasoning is the capability a harness gates its thinking selector on, so a
     // provider that publishes it must be believed. ZenMux reports
     // capabilities.reasoning=true for deepseek-v4.1-flash while the router was
     // advertising false, which removed the thinking control from every client
     // that reads /v1/models before offering it.
+    //
+    // OpenRouter publishes no boolean: it lists `reasoning` / `reasoning_effort`
+    // in supported_parameters and `include_reasoning` when the response can carry
+    // the text. Reading only booleans left every OpenRouter reasoning model
+    // advertised as non-reasoning — and OpenRouter is what most agents default to.
     const resolvedSupportsReasoning = booleanHint('supportsReasoning', false)
       || (booleanHintPath('wafer.capabilities.reasoning') ?? false)
       || (booleanHintPath('capabilities.reasoning') ?? false)
       || (booleanHintPath('capabilities.thinking') ?? false)
       || booleanHint('supports_reasoning', false)
-      || booleanHint('supportsReasoningEffort', false);
+      || booleanHint('supportsReasoningEffort', false)
+      || arrayHasValue(raw.supported_parameters, 'reasoning')
+      || arrayHasValue(raw.supported_parameters, 'reasoning_effort')
+      || arrayHasValue(raw.supportedParameters, 'reasoning')
+      || arrayHasValue(raw.supportedParameters, 'reasoning_effort');
     const resolvedSupportsTools = booleanHint('supportsTools', true)
       ?? booleanHintPath('wafer.capabilities.tools')
       ?? true;
@@ -2704,6 +2728,68 @@ function mergeProviderEndpointModels(providerName: string, models: ProviderModel
       ? a.model.localeCompare(b.model)
       : a.provider.localeCompare(b.provider)
   );
+  reconcileOverrideMetadataFromCache(providerName, models);
+}
+
+/**
+ * Bring persisted per-provider overrides in line with a fresh discovery.
+ *
+ * `effectiveProviderModels` prefers `modelStore` (the `provider-models.json`
+ * override store) over the endpoint cache, so an override row shadows the cache
+ * for as long as it exists. Refreshing only wrote the cache, which meant a
+ * provider's advertised capabilities could NEVER be corrected once an override
+ * had been persisted: the store kept whatever booleans it was created with.
+ *
+ * That is how OpenRouter's `deepseek/deepseek-v4.1-flash-1017` reported
+ * reasoning=false through /v1/models while the freshly refreshed cache row said
+ * true — the 538-row override block simply outlived every capability fix.
+ *
+ * Only the fields discovery actually answers for are copied: identity keys stay
+ * as the operator's store had them, and an explicit boolean in a newer discovery
+ * wins over a stale one. Nothing is invented; a model the refresh did not return
+ * keeps its existing override untouched.
+ */
+function reconcileOverrideMetadataFromCache(providerName: string, discovered: ProviderModel[]): void {
+  const overrides = modelStore[providerName];
+  if (!Array.isArray(overrides) || overrides.length === 0) return;
+  if (discovered.length === 0) return;
+
+  const byModel = new Map(discovered.map((model) => [model.model, model]));
+  let changed = false;
+
+  for (const override of overrides) {
+    const fresh = byModel.get(override.model);
+    if (!fresh) continue;
+
+    // Context/output: take the live ceiling when discovery published one.
+    if (fresh.contextLength > 0 && fresh.contextLength !== override.contextLength) {
+      override.contextLength = fresh.contextLength;
+      changed = true;
+    }
+    if (fresh.outputTokens > 0 && fresh.outputTokens !== override.outputTokens) {
+      override.outputTokens = fresh.outputTokens;
+      changed = true;
+    }
+    // Capabilities: a true must never be lost to a stale false, because that is
+    // what hides a harness's thinking or vision control.
+    for (const key of ['supportsTools', 'supportsImages', 'supportsCache', 'supportsReasoning'] as const) {
+      if (fresh[key] === true && override[key] !== true) {
+        override[key] = true;
+        changed = true;
+      }
+    }
+  }
+
+  if (!changed) return;
+  try {
+    persistProviderModels();
+    console.log(`[catalog] Reconciled ${providerName} override metadata from the refreshed catalog.`);
+  } catch (error: any) {
+    console.error(
+      '[catalog] Failed to persist reconciled provider overrides:',
+      sanitizeDiagnosticText(String(error?.message || error))
+    );
+  }
 }
 
 /**
