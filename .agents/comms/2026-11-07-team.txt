@@ -1,0 +1,67 @@
+---
+description: Agent Communication System protocol template. Deployed by `ainish-coder --rules` as `.agents/comms/{date}-team.txt` (one file per UTC date — the day's whole history is one read). Merge-safe: agents deploying updates must preserve all entry blocks below the PROTOCOL section; only the PROTOCOL block itself may be refreshed from this template.
+---
+
+# AGENT COMMS — 2026-11-07
+
+<PROTOCOL>
+## PROTOCOL (binding — follow like AGENTS.md)
+
+**When:** ≥1 agent or subagent is working at once (multiple branches, features, updates, bugs, docs). Solo? Still check in/out — the ledger is the audit trail.
+
+**Two channels:**
+- **This file** (`.agents/comms/{date}-team.txt`) — one file per UTC date; committed, append-only durable ledger. Never rotate per session or per hour. Updated via your task-branch commits; reaches everyone at merge.
+- **Live board** (`.agents/comms/{date}-team.live.txt`) — gitignored, at the **main repo path**. Append here by absolute path for immediate in-flight visibility. Never `git commit` it; never `git add` it. Main stays clean.
+
+**Read:** this file + the live board — at start, before any merge, and whenever blocked.
+
+**Write:** for every lifecycle event, append one entry block to **both** the live board (immediate) and this file in your worktree (durable — commit it). One writer per branch. Subagents do not write the shared files directly: report results to your orchestrator, who logs on your behalf with `parent:` set.
+
+**Skill distribution (persisted per-repo selection):** which `.agents/skills/` packs distribute to this repo is governed by the operator's persisted selection (`~/.config/ainish-coder/skills-selection.json`). `ainish-coder --rules` asks on a real terminal the FIRST time a repo has no saved selection, then applies that saved choice on every later run; `ainish-coder --select-skills [DIR]` reopens the choice and `ainish-coder --skills-list [DIR] [--json]` shows it. Agents and CI MUST use the headless path — `ainish-coder --rules <dir> --headless` or `ainish-coder --skills-sync <dir> --headless` — which applies the saved selection with no prompts. Do not hand-edit the selection file; run the interactive toggle instead. Scroll-channel packs (`8thfire-scrolls`, `ghost-layer-injector`, raw `.scrolls*/` payload) are never selectable here — explicit `--scrolls` only.
+
+**Timestamps — mandatory, bracketed, ISO-8601 (UTC `Z` form on this ledger):**
+- `start:` the instant the agent **begins** the action (input received / work begun).
+- `end:` the instant the agent **finishes** it (output produced / work handed off or halted).
+- **Every** entry has both. Abandoned mid-action → still close with `end:` + `status: abandoned`.
+
+\*\*Entry block:\*\*
+
+~~~
+### [<ISO-8601 timestamp>] <EVENT> | branch:<branch> | wt:<worktree-path>
+- start:<ISO-8601>               # input received / work began
+- end:<ISO-8601>                 # output produced / work ended
+- parent:<orchestrator>          # subagents only
+- scope:<paths/modules>
+- provenance:<source_commit=XXXXXXXXXXXX manifest_sha256=XXXXXXXXXXXX>   # optional but recommended
+- objective:<one line>
+- input:<one line — what was received or requested>
+- output:<one line — what was produced or handed off>
+- status:<new|in-progress|blocked|verifying|merged|abandoned>
+- blockers:<none | description>
+~~~
+
+**Provenance stamp (recommended on `checkin`):** embed the ainish-coder root commit SHA and the target's deployment-manifest digest so every work session is auditable against the exact ruleset it ran under. Generate it with `ainish-coder --rules-provenance <dir>`, which emits `source_commit=… manifest_sha256=…`. Verify every target's manifest signature with `ainish-coder --rules-verify [--json]`.
+
+</PROTOCOL>
+
+---
+
+### [2026-11-07T20:55:00Z] FIX | branch:main | wt:D:\Code\local-router
+- start:2026-11-07T17:05:00Z
+- end:2026-11-07T20:55:00Z
+- scope:src/index.ts, src/model-metadata.ts, src/reasoning.ts, tests/embedding-caps-advertisement.test.mjs, tests/model-context-metadata.test.mjs, tests/provider-keys.integration.test.mjs, package.json; paired fix in ainish-coder (src/pqc_dist.sh, .agents/skills/pqc-secrets)
+- objective:Make a ZenMux reasoning model selectable with a thinking mode from an external harness (StarNet), and unblock the investigation path.
+- input:Operator reported being unable to select a thinking mode for a ZenMux deepseek model, then authorised fixing the paired pqc-secrets tooling in ainish-coder.
+- blocker-1:pqc-secrets was fully dead in WSL. The PEP-723 header declared cryptography>=45.0 but asymmetric.mlkem only ships in 47.0 (verified: 45.0.7 and 46.0.5 raise ImportError; 47.0.0/48.0.1/50.0.2 export it). The import is module-level, so every command died before argument parsing, including list/store/verify. Floor raised to 47.0 and the import guarded with actionable guidance, exiting 78 (EX_CONFIG).
+- blocker-2:the launcher and the --pqc-install probe found uv with `command -v uv` only, so a non-interactive shell without ~/.local/bin on PATH fell through to a system python3 predating the floor. Both now share _pqc_find_uv; the launcher reports a missing uv instead of degrading silently. Fixed in ainish-coder, merged to its main, launcher reinstalled.
+- finding-1:a harness gates its thinking selector on capabilities.reasoning from /v1/models. ZenMux publishes {reasoning:true, max_tokens:384000, input_modalities:[image,text], context_length:1000000}; the router advertised reasoning=false, imageInput=false, max_output_tokens=4096. Three causes: readOutputHint did not know max_tokens; discovery read capability flags only from wafer.* paths; and localLoopbackRegisteredModels rebuilt rows for localhost-registered providers from hardcoded defaults, overwriting a correct cache row (same class of bug in registeredCustomProviderModels).
+- finding-2:stripReasoningMetadata removed reasoning/reasoning_content at every depth, so responses lost the thinking text while usage still billed reasoning tokens. Measured direct vs router: upstream carried reasoning (184 chars); through the router the message had only role and content.
+- gotcha-1:the first reasoning fix narrowed the key set but left a depth guard (depth>0 && key==='reasoning') that still dropped choices[0].message.reasoning at depth 2. It took a second commit; the live A/B comparison is what proved it.
+- gotcha-2:the ensure watchdog only starts a router when none is running, so a "restart" left a 16-hour-old process on stale code and masked both fixes. Build mtime and process start time are now checked before trusting any result.
+- verification-live:advertised entry reads reasoning=true, imageInput=true, max_output_tokens=384000, context_length=1000000. Non-stream returns reasoning (136 chars); stream carried reasoning_content in 9 of 35 deltas. PQC reads 24 secrets through the installed launcher, and uv isolation keeps system cryptography at 46.0.5 for pyopenssl's <47 pin.
+- verification-suites:local-router 245 tests / 243 pass; the 2 failures (antigravity host session, custom-providers CRUD) reproduce identically at origin/main 42ea5f9 in a detached worktree, so they are host-environment, not regressions. pqc-secrets 18 pass with the same 8 environment-only failures as baseline (darwin-arm64 cannot exec on Linux, no keychain), including 4 new regression tests that were verified to fail when either fix is reverted.
+- cleanup:removed the lr-base-check, lr-embed-order, lr-embed-serve and ac-pqc-crypto worktrees; deleted merged branches in both repos; pushed local-router 42ea5f9..785b9a3 and ainish-coder fab34e1..bb502d3.
+- status:merged
+- blockers:none. StarNet caches its model catalog at boot, so it needs a restart to observe the new capabilities.
+- compat:No CLI or schema break. Response bodies now include reasoning text where they previously omitted it; signatures and redacted_thinking are still stripped.
+- provenance:branch=main commit=785b9a3 (local-router), bb502d3 (ainish-coder)
