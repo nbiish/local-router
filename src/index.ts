@@ -283,7 +283,9 @@ const DECISION_FALLBACK_ROUTE_ID = 'fallback-decision';
  * ordering (both bill $0.020/1M) and not an accident of catalog order. Because the seed is
  * one-shot, the same pin is re-applied to an existing chain on every boot by
  * `enforceEmbeddingProviderOrder`, so a chain written by an older build — or reordered in the UI to
- * put ZenMux first — still starts on OpenRouter.
+ * put ZenMux first — still starts on OpenRouter. The pin only reorders steps that are present; a
+ * step an operator removed stays removed, because otherwise a failing provider could never be
+ * taken out of the chain.
  */
 const EMBEDDING_FALLBACK_SEED: readonly string[] = [
   'openrouter/openai/text-embedding-3-small',
@@ -5415,10 +5417,6 @@ function embeddingStepProvider(step: string): string {
 type EmbeddingOrderPlan = {
   models: string[];
   changed: boolean;
-  /** Step added because the chain had a ZenMux step and no OpenRouter counterpart. */
-  inserted?: string;
-  /** Set when the pin could not be applied; the chain is returned untouched. */
-  skipped?: string;
 };
 
 /**
@@ -5439,9 +5437,13 @@ type EmbeddingOrderPlan = {
  *    confirm would either fail every request or, worse, answer from a different embedding space —
  *    a foreign vector is worse than no fallback at all.
  *
- * A step the operator explicitly disabled is never re-enabled: `disabledModels` is a per-step
- * switch on a different axis than order, so re-enabling it here would silently overrule an
- * intentional edit. The pin reports that it could not take effect instead.
+ * A step the operator explicitly disabled, or removed, is never re-added: `disabledModels` records
+ * a per-step switch, but a deletion leaves no trace at all, so an absent step is indistinguishable
+ * from one that was never configured. Re-inserting it would mean an operator could never take a
+ * failing provider out of the chain — which is the opposite of resilience. Removal is therefore
+ * honoured as a decision: the pin only reorders the steps that are present. It re-seeds the pair
+ * only when the route is recreated from scratch (absent from the store), which `ensurePurposeFallbackRoutes`
+ * already handles.
  */
 function planEmbeddingProviderOrder(route: FallbackModel): EmbeddingOrderPlan {
   const steps = Array.isArray(route.models) ? route.models.slice() : [];
@@ -5453,40 +5455,13 @@ function planEmbeddingProviderOrder(route: FallbackModel): EmbeddingOrderPlan {
   const trailStep = active.find((step) => embeddingStepProvider(step) === EMBEDDING_TRAILING_PROVIDER);
   if (!trailStep) return unchanged;
 
-  let leadStep = active.find((step) => embeddingStepProvider(step) === EMBEDDING_LEADING_PROVIDER);
-  let inserted: string | undefined;
-
-  if (!leadStep) {
-    const upstream = embeddingStepModel(trailStep);
-    const candidate = `${EMBEDDING_LEADING_PROVIDER}/${upstream}`;
-    // The step is derived FROM the ZenMux step's own upstream model, so the vector space is
-    // identical by construction — that is the safety property, and it must not be inferred from
-    // curation state. What is checked is that the leading provider exists as a configured
-    // provider; a provider that cannot serve the model fails over to the next step, which is the
-    // ordinary fallback path and cannot produce a foreign vector.
-    if (!upstream || !getProviderSummary(EMBEDDING_LEADING_PROVIDER)) {
-      return {
-        models: steps,
-        changed: false,
-        skipped: `${EMBEDDING_LEADING_PROVIDER} is not a configured provider`
-      };
-    }
-    if (disabled.has(candidate)) {
-      return {
-        models: steps,
-        changed: false,
-        skipped: `${candidate} is disabled`
-      };
-    }
-    leadStep = candidate;
-    inserted = candidate;
-  }
+  const leadStep = active.find((step) => embeddingStepProvider(step) === EMBEDDING_LEADING_PROVIDER);
+  if (!leadStep) return unchanged;
 
   // OpenRouter leads; every other step keeps the relative order the operator gave it.
   const reordered = [leadStep, ...steps.filter((step) => step !== leadStep)];
-  const changed = inserted !== undefined
-    || reordered.some((step, index) => step !== steps[index]);
-  return changed ? { models: reordered, changed, inserted } : unchanged;
+  const changed = reordered.some((step, index) => step !== steps[index]);
+  return changed ? { models: reordered, changed } : unchanged;
 }
 
 /**
@@ -5502,7 +5477,7 @@ export function applyEmbeddingProviderOrderToStore(): EmbeddingOrderPlan & { app
   if (!route) return unchanged;
 
   const plan = planEmbeddingProviderOrder(route);
-  if (plan.skipped || !plan.changed) return { ...plan, applied: false };
+  if (!plan.changed) return { ...plan, applied: false };
 
   route.models = plan.models;
   return { ...plan, applied: true };
@@ -5522,13 +5497,6 @@ function enforceEmbeddingProviderOrder(): void {
 
   const previous = route.models.slice();
   const plan = applyEmbeddingProviderOrderToStore();
-  if (plan.skipped) {
-    console.warn(
-      `[router] "${EMBEDDING_FALLBACK_ROUTE_ID}" must lead with ${EMBEDDING_LEADING_PROVIDER}, ` +
-        `but ${plan.skipped}. Leaving the chain unchanged.`
-    );
-    return;
-  }
   if (!plan.applied) return;
 
   try {
@@ -5543,8 +5511,7 @@ function enforceEmbeddingProviderOrder(): void {
   }
   console.log(
     `[router] "${EMBEDDING_FALLBACK_ROUTE_ID}" pinned to ${EMBEDDING_LEADING_PROVIDER} before ` +
-      `${EMBEDDING_TRAILING_PROVIDER}: ${plan.inserted ? `inserted ${plan.inserted}; ` : ''}` +
-      `${previous.join(' -> ')} becomes ${plan.models.join(' -> ')}.`
+      `${EMBEDDING_TRAILING_PROVIDER}: ${previous.join(' -> ')} becomes ${plan.models.join(' -> ')}.`
   );
 }
 
@@ -6056,7 +6023,23 @@ function shouldCascadeDirectModelToSystemFallback(modelName: string): boolean {
   return true;
 }
 
-function candidateAvailability(modelName: string) {
+type CandidateAvailability = {
+  model: string;
+  provider: string | null;
+  resolved: boolean;
+  served: boolean;
+  keyConfigured: boolean;
+  status: 'ready' | 'no_key' | 'unavailable';
+  /** Present only for purpose-scoped routes, which report their chain rather than a provider. */
+  routeId?: string;
+  steps?: number;
+  activeSteps?: number;
+  readySteps?: number;
+  disabledSteps?: number;
+  unkeyedSteps?: number;
+};
+
+function candidateAvailability(modelName: string): CandidateAvailability {
   // Typed decision models are not chat-served and their transport is the decisions route, so the
   // generic provider/key logic below would report them as "unavailable" or attribute them to a
   // provider that does not exist ("typesafe"). Report what actually backstops them: any keyed
@@ -6069,12 +6052,47 @@ function candidateAvailability(modelName: string) {
       model: modelName,
       provider: keyed.length > 0 ? keyed[0].name : (providers[0]?.name ?? null),
       resolved: providers.length > 0,
+      // A typed decision model is served by the decisions API, never by chat completion.
+      served: false,
       keyConfigured: keyed.length > 0,
       status: providers.length === 0 ? 'unavailable' : keyed.length > 0 ? 'ready' : 'no_key'
     } as const;
   }
 
   const target = resolveModelTarget(modelName);
+
+  // A purpose-scoped route (`local-router/fallback-embedding`, `.../fallback-decision`) is not a
+  // provider model at all, so the generic path below reports `resolved: false` for a route that
+  // answers fine. That is the badge an operator trusts before pointing retrieval at the route, so
+  // it has to reflect the chain: ready when at least one active step is ready.
+  const purposeRoute = findFallbackModel(modelName);
+  if (purposeRoute && isPurposeFallbackRoute(purposeRoute.id)) {
+    // Count the CONFIGURED chain, not just the currently-keyed subset: `activeFallbackModels`
+    // drops steps whose provider has no key, and an operator reading "1 step" on a three-step
+    // chain cannot tell a shrinking chain from a missing key. Ready is still derived from what
+    // can actually answer right now.
+    const configured = Array.isArray(purposeRoute.models) ? purposeRoute.models : [];
+    const disabled = new Set(purposeRoute.disabledModels || []);
+    const active = activeFallbackModels(purposeRoute);
+    const members = active.map((step) => candidateAvailability(step));
+    const ready = members.filter((member) => member.status === 'ready');
+    const unkeyed = configured.filter((step) => !disabled.has(step) && !active.includes(step));
+    return {
+      model: modelName,
+      provider: FALLBACK_PROVIDER_NAME,
+      resolved: configured.length > 0,
+      served: members.length > 0,
+      keyConfigured: ready.length > 0,
+      status: members.length === 0 ? 'unavailable' : ready.length > 0 ? 'ready' : 'no_key',
+      routeId: purposeRoute.id,
+      steps: configured.length,
+      activeSteps: members.length,
+      readySteps: ready.length,
+      disabledSteps: disabled.size,
+      unkeyedSteps: unkeyed.length
+    } as const;
+  }
+
   // An embedding model is resolvable without being *served* as a chat model, so `served` alone is
   // the wrong signal. Known-to-the-catalog is what matters for a chain step.
   const served = Boolean(findProviderModel(modelName));
@@ -7227,6 +7245,18 @@ async function handleEmbeddingRequest(req: Request, res: Response) {
     );
     if (result.ok) {
       res.status(result.value.response.status);
+      // Observability for a multi-provider chain (2026-11-07): without this, a fallback is
+      // invisible — the caller sees a 200 and cannot tell which provider answered, so "is my
+      // resilience working?" is unanswerable in production. Expose the answered step plus any
+      // failed attempts as non-standard trace headers; the body stays byte-identical to upstream.
+      res.setHeader('x-local-router-embedding-provider', result.value.providerName);
+      res.setHeader('x-local-router-embedding-model', result.value.actualModel);
+      if (attempts.length > 0) {
+        res.setHeader(
+          'x-local-router-embedding-attempts',
+          attempts.map((a) => `${a.provider}:${a.errorType}`).join(',')
+        );
+      }
       // `response.arrayBuffer()` yields the *decoded* body, so forwarding the upstream
       // `content-encoding` (or the length it described) would tell the client to gunzip plain
       // JSON — every conforming client then fails with "incorrect header check". Drop every
