@@ -97,8 +97,10 @@ When `ainish-rag` is present in the repository, the context system is **one comm
 before the user's task begins or before the next step of an in-flight task:
 
 ```
-ainish-rag context --task "<what you are about to do>" [--budget N] [--json]
+ainish-rag --context --task "<what you are about to do>" [--budget N] [--json]
 ```
+
+`--context` and `context` are the same command; either spelling works.
 
 That single call is the whole interface. The engine does the rest: it routes the request, retrieves
 and reranks repository evidence, and returns one labelled injection. Do not chain `route`, `query`,
@@ -114,12 +116,18 @@ The injection arrives inside `<CONTEXT_INJECTION>` markers as labelled sections:
 | `elephant` | Session-aware synthesis: what this working session already established and what that changes about the retrieval | Continuity hint. It may be stale; the files win. |
 | `goldfish` | A stateless reviewer's gaps, contradictions, and risks | Deliberately sees no session history. Treat its objections as candidates to check, not verdicts. |
 
-Elephant and Goldfish are **two separate model calls**, and by default two **different** models: the
-drafter runs the chain's head step and the reviewer starts on a later step, preferring a different
-transport, so the reviewer is not the drafter's own model agreeing with itself. A `pair:` comment in
-the envelope names both and says whether they were distinct. Pin them per role when you want a
-specific split: `--elephant-model <id>` / `--goldfish-model <id>`, or the same values in
-`AINISH_RAG_ELEPHANT_MODEL` / `AINISH_RAG_GOLDFISH_MODEL`.
+Elephant and Goldfish are **two separate model calls**, made in sequence before anything is returned:
+the engine assembles the repository context, then asks the driver model twice — once for the
+Elephant synthesis, once for the Goldfish review — and only then emits the labelled injection. Both
+calls default to `local-router/fallback-models`, so the pair buys a **fresh-context review**: the
+reviewer reads the same evidence with no accumulated session state, which is the effect the split
+relies on. A `pair:` comment in the envelope names both and says whether they were the same model or
+distinct.
+
+Add `--distinct-reviewer` (or `AINISH_RAG_DISTINCT_REVIEWER=1`) when you want the stronger version —
+the reviewer starts on a different transport, so it is a different model with different blind spots.
+Pin either role explicitly with `--elephant-model <id>` / `--goldfish-model <id>`, or the same values
+in `AINISH_RAG_ELEPHANT_MODEL` / `AINISH_RAG_GOLDFISH_MODEL`.
 
 Orientation runs even when the route decides retrieval is unnecessary, because branch and tree state
 are true regardless of what the task needs. The other three degrade in a fixed order under budget
