@@ -261,8 +261,34 @@ export function sanitizeProviderRequestBody<T extends JsonObject>(
   // unsupported parameter (gpt-4o-mini + reasoning_effort → HTTP 400
   // invalid_reasoning_effort) only see parameters the caller actually sent.
   const next: JsonObject = { ...body };
-  if (next.think === true) {
-    next.enable_thinking = true; // normalize Ollama's boolean for OpenAI-shaped upstreams
+  if (next.think !== undefined || next.enable_thinking !== undefined) {
+    // Normalize Ollama's boolean `think` into a dialect the upstream honours.
+    //
+    // `enable_thinking` is NOT universal: measured against ZenMux
+    // deepseek/deepseek-v4.1-flash on 2026-11-07, `enable_thinking:false` still
+    // billed 455 reasoning tokens (ignored), while `reasoning_effort:'none'` and
+    // `thinking:{type:'disabled'}` both produced 0. Translating `think:false`
+    // into enable_thinking made the caller's "off" a no-op, so an Ollama-wire
+    // client could not actually disable thinking on that provider.
+    const wantsOff = next.think === false
+      || next.enable_thinking === false
+      || (isObject(next.thinking) && next.thinking.type === 'disabled')
+      || next.reasoning_effort === 'none';
+    const explicitOn = next.think === true
+      || next.enable_thinking === true
+      || (isObject(next.thinking) && next.thinking.type === 'enabled');
+
+    if (wantsOff) {
+      // Both portable dialects, so any provider that understands either one obeys.
+      next.reasoning_effort = 'none';
+      next.thinking = { type: 'disabled' };
+      delete next.enable_thinking;
+    } else if (explicitOn) {
+      // Keep the caller's own parameter when they already used a rich shape.
+      if (next.think === true && next.enable_thinking === undefined && next.thinking === undefined) {
+        next.enable_thinking = true;
+      }
+    }
   }
   delete next.think;
   return next as T;

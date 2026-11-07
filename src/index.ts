@@ -1325,10 +1325,22 @@ function providerModelDisplay(providerName: string, modelName: string) {
   return `${providerPresentationPrefix(providerName)}:${modelName}`;
 }
 
+/**
+ * Ollama's `capabilities` array, as returned by /api/show.
+ *
+ * `thinking` is the ONLY signal an Ollama-native client uses to decide whether to offer a
+ * reasoning control: StarNet's adapter sets `supportsReasoning = true` solely when this array
+ * contains `thinking`, and it never consults /v1/models on that path. Omitting it makes a
+ * reasoning model read as "This model has no adjustable reasoning", which is what happened to
+ * zenmux-deepseek-v4.1-flash when reached through the Ollama proxy.
+ *
+ * It is emitted next to the boolean so both protocols agree about the same model.
+ */
 function modelCapabilities(model: ProviderModel) {
   const capabilities = ['completion'];
   if (model.supportsTools) capabilities.push('tools');
   if (model.supportsImages) capabilities.push('vision');
+  if (model.supportsReasoning) capabilities.push('thinking');
   return capabilities;
 }
 
@@ -5885,10 +5897,15 @@ function createOllamaStreamTransform(model: string, isGenerate: boolean) {
             const choice = data.choices?.[0] || {};
             const delta = choice.delta || {};
             const content = delta.content || '';
+            // Ollama streams reasoning as `delta.thinking`. The upstream delta carries it under
+            // `reasoning` / `reasoning_content`; forwarding it under Ollama's name is what lets a
+            // client show thinking as it arrives instead of only in the final message.
+            const thinking = delta.reasoning ?? delta.reasoning_content ?? delta.thinking ?? '';
+            const thinkingText = typeof thinking === 'string' ? thinking : '';
             const toolCalls = openAIToolCallsToOllama(delta.tool_calls);
             const done = choice.finish_reason != null;
 
-            if (!content && toolCalls.length === 0 && !done) continue;
+            if (!content && !thinkingText && toolCalls.length === 0 && !done) continue;
 
             let ollamaChunk: any = {
               model: model,
@@ -5898,11 +5915,13 @@ function createOllamaStreamTransform(model: string, isGenerate: boolean) {
 
             if (isGenerate) {
               ollamaChunk.response = content;
+              if (thinkingText) ollamaChunk.thinking = thinkingText;
             } else {
               ollamaChunk.message = {
                 role: 'assistant',
                 content: content
               };
+              if (thinkingText) ollamaChunk.message.thinking = thinkingText;
               if (toolCalls.length > 0) {
                 ollamaChunk.message.tool_calls = toolCalls;
               }
@@ -7167,11 +7186,21 @@ async function sendSuccessfulProxyResponse(
     const choices = data.choices as Record<string, unknown>[] | undefined;
     const message = (choices?.[0]?.message as Record<string, unknown> | undefined) || {};
     const content = String(message.content || '');
+    // Ollama names the reasoning text `thinking` on the message. A client on this wire reads only
+    // that key, so dropping it means a reasoning model looks like it produced none — StarNet's
+    // adapter does exactly this. The upstream reasoning is carried through under both names it uses.
+    const reasoningText = String(
+      message.reasoning ?? message.reasoning_content ?? message.thinking ?? ''
+    );
     const toolCalls = openAIToolCallsToOllama(message.tool_calls);
     if (outputFormat === 'ollama_generate') {
-      res.json({ model, created_at: new Date().toISOString(), response: content, done: true, done_reason: 'stop' });
+      res.json({
+        model, created_at: new Date().toISOString(), response: content, done: true, done_reason: 'stop',
+        ...(reasoningText ? { thinking: reasoningText } : {})
+      });
     } else {
       const responseMessage: Record<string, unknown> = { role: 'assistant', content };
+      if (reasoningText) responseMessage.thinking = reasoningText;
       if (toolCalls.length > 0) responseMessage.tool_calls = toolCalls;
       res.json({ model, created_at: new Date().toISOString(), message: responseMessage, done: true, done_reason: 'stop' });
     }
