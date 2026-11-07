@@ -3284,7 +3284,52 @@ async function discoveryModelList(live = false): Promise<ProviderModel[]> {
 
 const MODEL_ENTRY_CREATED_TIMESTAMP = Math.floor(Date.now() / 1000);
 
+/**
+ * The reasoning dialects the router can actually translate, per provider family.
+ *
+ * This is the list a harness renders as a thinking-mode selector. A boolean
+ * `capabilities.reasoning` is not enough for that: StarNet (and any client that
+ * follows the same convention) reads `reasoningEfforts` / `effort.supported_levels`
+ * to build the dropdown, and falls back to a flat `['none', minimal, low, medium,
+ * high]` only when the model has a declared dial. With just a boolean it shows
+ * `['none']` — the selector is there but offers nothing but "off", which is
+ * exactly the reported symptom.
+ *
+ * These are the levels this provider family honours upstream, verified against
+ * ZenMux `deepseek/deepseek-v4.1-flash` on 2026-11-07 by measuring billed
+ * `reasoning_tokens` per level (minimal 422 < low 577 < medium 706 ≈ high 701),
+ * and `thinking:{type:'disabled'}` -> 0. `none` is always first because it means
+ * "send nothing", which every provider accepts.
+ */
+const REASONING_EFFORT_LEVELS = ['none', 'minimal', 'low', 'medium', 'high'] as const;
+
+/** Provider families that accept `reasoning_effort` (or an equivalent) upstream. */
+const REASONING_EFFORT_PROVIDER_PATTERN = /(deepseek|qwen|glm|z-ai|zai|minimax|moonshot|kimi|sapiens|openrouter|zenmux|opencode|nebius|xai|grok)/i;
+
+/** The reasoning dialects one model supports, or an empty list when it has no dial. */
+function reasoningEffortLevels(model: ProviderModel): string[] {
+  if (!model.supportsReasoning) return [];
+  // A fallback route aggregates its members: it has a dial when any member does.
+  // Its own provider slug is `local-router`, which names no upstream dialect, so
+  // the members are what decide. The route translates the level per-hop at
+  // request time, so offering the union is honest as long as one step can take it.
+  if (model.provider === FALLBACK_PROVIDER_NAME) {
+    const route = findFallbackModel(model.model);
+    if (!route) return [];
+    const members = activeFallbackModels(route)
+      .map((step) => findCatalogModel(step) || findProviderModel(step))
+      .filter(Boolean) as ProviderModel[];
+    return members.some((member) => reasoningEffortLevels(member).length > 0)
+      ? [...REASONING_EFFORT_LEVELS]
+      : [];
+  }
+  const haystack = `${model.provider}/${model.model}/${model.id}`;
+  if (!REASONING_EFFORT_PROVIDER_PATTERN.test(haystack)) return [];
+  return [...REASONING_EFFORT_LEVELS];
+}
+
 function openAIModelEntry(model: ProviderModel) {
+  const effortLevels = reasoningEffortLevels(model);
   return {
     id: model.id,
     object: 'model',
@@ -3299,9 +3344,22 @@ function openAIModelEntry(model: ProviderModel) {
       imageInput: model.supportsImages,
       caching: model.supportsCache,
       reasoning: model.supportsReasoning,
+      // Mirrored inside capabilities as well: xAI-shaped clients look here.
+      ...(effortLevels.length > 0 ? { reasoning_effort: effortLevels } : {}),
       // Typed decision models are served by /api/alpha/decisions, never chat.
       decisions: isDecisionModelId(model.model) || isDecisionModelId(model.id)
-    }
+    },
+    // Top-level declared dial (StarNet's `reasoningEfforts`) plus the vendor
+    // `effort.supported_levels` block it also reads. Both are the same list, so a
+    // client that reads either one gets a working selector. Absent entirely when
+    // the model has no dial, because an empty list would be read as "declared off".
+    ...(effortLevels.length > 0
+      ? {
+          reasoningEfforts: effortLevels,
+          effort: { supported_levels: effortLevels, default_level: 'medium' },
+          defaultReasoningLevel: 'medium'
+        }
+      : {})
   };
 }
 
