@@ -139,8 +139,6 @@ function stripReasoningMetadataInternal(value: unknown, depth: number): unknown 
 
   for (const [key, child] of Object.entries(value)) {
     if (RESPONSE_REASONING_SIGNATURE_KEYS.has(key)) continue;
-    if (depth > 0 && (key === 'thinking' || key === 'reasoning')) continue;
-
     output[key] = stripReasoningMetadataInternal(child, depth + 1);
   }
 
