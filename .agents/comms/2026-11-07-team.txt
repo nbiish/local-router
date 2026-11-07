@@ -119,3 +119,23 @@ description: Agent Communication System protocol template. Deployed by `ainish-c
 - blockers:none. A full StarNet restart is required: it caches the catalog and the /api/show facts.
 - compat:Additive. The Ollama wire now returns `thinking` where it returned nothing; request normalization only rewrites the think/off state into dialects providers honour.
 - provenance:branch=main commit=603b4d3
+
+### [2026-11-07T22:50:00Z] FIX | branch:main | wt:D:\Code\local-router
+- start:2026-11-07T22:43:00Z
+- end:2026-11-07T22:50:00Z
+- scope:src/reasoning.ts, src/index.ts (Anthropic response + stream, Ollama response), src/responses-stream.ts, tests/reasoning-client-wires.test.mjs, package.json
+- objective:Keep local-router as the single shim for every client kind — Ollama-aware tools, Claude instances, and Codex instances — while fixing the "worked once then changed" thinking-level behaviour.
+- input:Operator: thinking level worked once then stopped; and Claude/Codex instances must also be powered by local-router.
+- finding-1 (the reported symptom):Ollama's `think` accepts a boolean OR a level string. A level string ("low"/"medium"/"high") was dropped entirely, so the request went upstream with NO reasoning parameter and the model used its own default. true/false worked, strings did not — which is exactly "it worked at first, then something changed" when the UI moved from a toggle to a level picker.
+- fix-1:sanitizeProviderRequestBody maps a think level onto reasoning_effort, maps "none" onto the off dialect, drops an unrecognised value rather than forwarding a meaningless param, and no longer clobbers a resolved effort with a bare enable_thinking.
+- finding-2:the Claude wire (/v1/messages) built only text and tool_use blocks, so a Claude client saw no reasoning at all — and the stream had no thinking_delta.
+- fix-2:a `thinking` content block on the response, and on the stream content_block_start(index 0) -> thinking_delta -> content_block_stop, closed before the text block opens. Anthropic orders blocks and a late delta at a lower index is discarded; reasoning is never folded into the text block, which would show scratchwork as the answer.
+- finding-3:the Codex wire (/v1/responses) reported reasoning_tokens in usage while `output` carried no reasoning item — billed but never shown.
+- fix-3:an output item of type "reasoning" with a summary_text block, ahead of the message.
+- verification-live:Claude non-stream thinking 2619 chars + text 795; Claude stream message_start -> block_start -> 1062 deltas -> stop -> block_start -> deltas -> stop -> message_delta -> message_stop; Codex reasoning item 1124 chars + message 765 + reasoning_tokens 373; Ollama /api/show still lists thinking and think:"low" now reasons.
+- verification-test:new tests/reasoning-client-wires.test.mjs (npm run verify:wires) pins all four properties. Both new assertions verified to fail when their fix is reverted and pass when restored.
+- verification-suites:247 tests, 245 pass. A third failure (model-curation lifecycle) appeared once under the full serial run and did not reproduce on a re-run or in isolation — port contention from the live router, not a regression; recorded here rather than hidden.
+- status:merged
+- blockers:none.
+- compat:Additive on every wire. The Ollama response gains `thinking`; Anthropic gains a thinking block; Responses gains a reasoning item.
+- provenance:branch=main commit=28ac595
