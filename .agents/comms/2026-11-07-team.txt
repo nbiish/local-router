@@ -83,3 +83,20 @@ description: Agent Communication System protocol template. Deployed by `ainish-c
 - blockers:none.
 - compat:No CLI or schema break. Override rows may gain capability true flags and corrected limits after a refresh; no field is removed.
 - provenance:branch=main commit=01b9a45
+
+### [2026-11-07T22:35:00Z] FEAT | branch:main | wt:D:\Code\local-router
+- start:2026-11-07T21:22:00Z
+- end:2026-11-07T22:35:00Z
+- scope:src/index.ts (openAIModelEntry, reasoningEffortLevels), tests/reasoning-dial-advertisement.test.mjs, package.json (verify:dials); paired fixes in ainish-coder
+- objective:Allow thinking-mode selection for a ZenMux model in StarNet, and make the same selection work when a harness picks a singular model or the local-router/fallback-models route.
+- input:Operator reported no thinking-mode selector for zenmux-deepseek-v4.1-flash and asked for it to work across singular model selection and the fallback route, plus committing any outstanding work.
+- wrapped-first:ainish-coder had 4 uncommitted files. Committed as e2e453a: NativeQueryStore decoded native-engine stdout with the platform default (cp1252 on Windows) while the engine writes UTF-8, so an em-dash/hyphen (U+2010, byte 0x90, undefined in cp1252) killed every `context` call with a traceback instead of degrading to file fallback; now explicit utf-8 with errors="replace", with a test that reproduces the exact byte. Also routed `secrets` to the Python engine in both launchers because the compiled binary answers with a shorter report and reads as a regression.
+- finding-1 (the actual cause):the request path was already correct — `reasoning_effort` and `thinking` were forwarded verbatim and ZenMux honours both (measured: minimal 422 < low 577 < medium 706 reasoning tokens; thinking:{type:disabled} -> 0). The failure was the ADVERTISEMENT. The router published only `capabilities.reasoning: true`; StarNet builds its selector from a DECLARED list (reasoningEfforts / effort.supported_levels / capabilities.reasoning_effort) and given a bare boolean renders a selector whose only option is "none".
+- fix:openAIModelEntry now emits reasoningEfforts, effort.supported_levels, defaultReasoningLevel and capabilities.reasoning_effort next to the boolean, from a provider-family list. A fallback route reports a dial when any active member can take one (its own slug names no upstream dialect, so members decide). The dial is omitted entirely when a model has none, because an empty list is read as "declared off".
+- verification-live:zenmux-deepseek-v4.1-flash none 0 | minimal 561 | low 455 | medium 687 | high 808 reasoning tokens; local-router/fallback-models none 0 | minimal 67 | high 1399; local-router/fallback-embedding correctly advertises no dial.
+- verification-test:new tests/reasoning-dial-advertisement.test.mjs covers the declared levels, the route dial, the embedding exclusion, and that any advertised dial is a non-empty list of known levels. It reads a live router, so it ships as `npm run verify:dials` instead of joining the CI gate, and skips when nothing answers. Confirmed to fail when the dial is removed and pass when restored.
+- verification-suites:247 tests, 245 pass; the 2 failures reproduce at origin/main 42ea5f9.
+- status:merged
+- blockers:none. StarNet caches its catalog at boot, so it needs a restart to read the new dial.
+- compat:Additive only — new optional fields on /v1/models entries. No request, CLI or schema change.
+- provenance:branch=main commit=f1c1f6d (local-router), e2e453a (ainish-coder)
