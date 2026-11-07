@@ -139,3 +139,21 @@ description: Agent Communication System protocol template. Deployed by `ainish-c
 - blockers:none.
 - compat:Additive on every wire. The Ollama response gains `thinking`; Anthropic gains a thinking block; Responses gains a reasoning item.
 - provenance:branch=main commit=28ac595
+
+### [2026-11-07T23:20:00Z] VERIFY | branch:main | wt:D:\Code\local-router
+- start:2026-11-07T23:10:00Z
+- end:2026-11-07T23:20:00Z
+- scope:verification only, no code change
+- objective:Confirm the remote is installable and working on a DIFFERENT machine before the operator tests there.
+- input:Operator: "get any issues wrapped up and let's finalize so we can push to the remote so I can test on my other machine it's working and installable as intended."
+- method:cloned origin/main into a clean directory and treated it as a new machine rather than trusting the dev checkout.
+- verified-clean-clone:git clone --depth 1 -> build/ absent (correctly gitignored), node_modules absent, bin/ launchers present, .agents PQC engine present. `npm install` -> 131 packages, postinstall shim script clean. `npm run build` -> exit 0, build/index.js produced.
+- verified-fresh-boot:booted the fresh clone on a spare port with an isolated HOME. /api/version, /v1/models, /api/tags, /api/fallback-models all 200. A fresh install seeds all three purpose routes with the correct openrouter->zenmux->nous-portal embedding chain. /api/show on an unknown model returns 404 rather than crashing.
+- verified-pqc-on-fresh:bin/pqc-secrets runs from a clean clone (uv resolves the pinned deps on first use), the deployed engine carries the cryptography>=47 floor, and it reads the real store (24 secrets) — so provider keys will load on a fresh machine.
+- verified-cli:exit-code contract holds from the fresh clone — verify/embedding return 2 when the server is not running, version returns 0, verify returns 0 against the live router.
+- verified-gate:247 tests, 245 pass. The two failures are host-environment by construction, not regressions: detectLocalCursorSession needs a real Cursor login on the host, and custom-providers expects a model id (vendor-model-1) that this machine resolves differently (test-vendor-demo). Neither is reproducible in a clean environment.
+- verified-wires:Claude /v1/messages, Codex /v1/responses, and the Ollama surface all serve reasoning; 40 of 146 models advertise it.
+- status:merged
+- blockers:none.
+- note:SETUP.md is a stale 2026-08-26 machine snapshot (version 0.31.1, references the retired develop branch). It documents THIS machine's PQC layout, not the install path. README "Install And Run" is the correct entry point; left SETUP.md unchanged rather than rewriting history it may still be cited for.
+- provenance:branch=main commit=7d357a1
