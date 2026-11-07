@@ -59,17 +59,22 @@ rule is therefore applied at every boundary that can write the route:
 
 Three properties keep the pin from doing damage:
 
-- It only acts when the chain carries an **enabled** ZenMux step. No ZenMux step means no pair to
-  order, so a chain an operator built from other providers is untouched.
-- A missing OpenRouter step is derived from the ZenMux step's own upstream model, so the vector
-  space is identical by construction. It is only inserted when OpenRouter is a configured provider;
-  if it is not, the pin logs that it could not take effect and leaves the chain alone rather than
-  inserting a step that would fail every request.
+- It only acts when the chain carries an **enabled** ZenMux step **and** an enabled OpenRouter step.
+  No ZenMux step means no pair to order, so a chain an operator built from other providers is
+  untouched.
+- It **never re-adds a removed step.** Deletion is how an operator takes a failing provider out of
+  the chain, and a removal leaves no record (unlike disable), so re-inserting is indistinguishable
+  from overriding a deliberate decision. The pin reorders present steps only; the full pair is
+  re-seeded solely when the route is recreated from scratch.
 - An explicitly **disabled** step is never re-enabled. Disable is a separate axis from order, so
-  silently switching it back on would overrule an intentional edit; the pin skips and says so.
+  silently switching it back on would overrule an intentional edit.
 
 `LOCAL_ROUTER_ROUTES_CONFIG` suppresses the pin: an explicit routes file declares the route set and
 its order, and the router must not rewrite it.
+
+This matters for resilience specifically: an earlier revision re-inserted the missing OpenRouter
+step, which meant the toggle page could not actually remove a broken provider — the step came back
+on the same write. `removing the openrouter step keeps it removed through a boot` guards that.
 
 The cheaper model (`qwen3-embedding-8b` at $0.010/1M versus $0.020) and the higher-quality model
 (`text-embedding-3-large`) are both deliberately excluded. They belong in their own route, not in a
@@ -104,7 +109,25 @@ that 404 and fails over. See [`decisions.md`](./decisions.md).
 
 ainish-rag already prefers the router first in its decision transport
 (`local-router → openrouter → jev → local-model`). For embeddings it resolves a remote provider
-from environment variables, so pointing retrieval at this router is a configuration change:
+from environment variables.
+
+**Set `AINISH_EMBED_API_BASE` explicitly.** When it is unset, ainish-rag auto-detects a provider key
+from the PQC store (`OPENROUTER_API_KEY`, `LOCALROUTER_OPENROUTER_API_KEY`, `ZENMUX_*`, …) and calls
+that provider **directly**, which silently bypasses this router's failover and key brokerage. The
+route only carries resilience when the base points at the router.
+
+Generate the correct syntax for the shell you are in rather than hand-editing exports:
+
+```bash
+localrouter embedding-env --dimensions 768              # auto-detects the dialect
+localrouter embedding-env --shell powershell --dimensions 768
+localrouter embedding-env --shell posix --dimensions 768
+localrouter embedding-env --shell cmd|fish --dimensions 768
+localrouter embedding-env --json                        # for agents and scripts
+```
+
+PowerShell, cmd, POSIX shell, fish, WSL, macOS and Linux are covered because the output is chosen
+from a dialect argument instead of guessed from shell interpolation.
 
 ```bash
 export AINISH_EMBED_API_BASE="http://127.0.0.1:11434/v1"
@@ -115,6 +138,39 @@ export AINISH_EMBED_API_KEY="local-router"   # the router holds the real provide
 
 The key is a placeholder: the router authenticates to the providers itself. `AINISH_EMBED_DIM` is
 what keeps the index consistent, because it is passed through as `dimensions`.
+
+### Proving the backend is actually redundant
+
+Pointing at the route is not the same as having redundancy. `localrouter embedding` runs the same
+OpenAI-compatible request the tooling does and reports the chain plus the provider that answered:
+
+```bash
+localrouter embedding --dimensions 768
+```
+
+```
+Embedding route local-router/fallback-embedding — http://127.0.0.1:11434
+  route status: ready (3/3 steps ready)
+  chain (tried in order):
+    [ ] openrouter/openai/text-embedding-3-small  ready
+    [ ] zenmux/openai/text-embedding-3-small  ready
+    [ ] nous-portal/openai/text-embedding-3-small  ready
+  probe: 200 in 241ms — 1 vector(s), width 768
+  answered by: openrouter (openai/text-embedding-3-small)
+```
+
+A successful response carries `x-local-router-embedding-provider` and
+`x-local-router-embedding-model`, and `x-local-router-embedding-attempts` when an earlier step
+failed. Without those headers a failover is invisible: the caller sees a 200 and cannot tell
+whether resilience worked or the primary simply answered. They are trace headers only — the body
+stays byte-identical to the upstream response.
+
+### Keys
+
+Provider keys live in the PQC secrets store, not in environment variables or config files. The
+router loads them at boot and on drift, so a rotation is picked up without restarting clients.
+Verified live with all three embedding providers keyed from the WSL store
+(`LOCALROUTER_OPENROUTER_API_KEY`, `LOCALROUTER_ZENMUX_API_KEY`, `LOCALROUTER_NOUS_API_KEY`).
 
 For decisions, point the transport at the route name:
 
@@ -135,8 +191,7 @@ Both routes appear on `/config/fallback` alongside `fallback-models`, in the rou
 any other chain. That page is also what an agent or operator reads to learn which models and
 configurations back a route, so its readiness badges must match reality.
 
-`/api/routing/availability` backs those badges. Two things it had to get right, both fixed when
-these routes were added:
+`/api/routing/availability` backs those badges. Three things it had to get right:
 
 - A **catalogued** model is not the same as a **chat-served** model. Embedding models are
   catalogued but never curated for chat, so a check that required "served" reported every
@@ -144,6 +199,12 @@ these routes were added:
 - A typed decision model carries no provider in its id. The generic path read `typesafe/jev-1.14`
   as provider `typesafe` and reported `no_key`; it now reports the real decision transport
   (`openrouter`) and `ready` when any decision provider holds a key.
+- A **purpose route id itself** (`local-router/fallback-embedding`) is not a provider model, so the
+  generic path reported it `resolved: false` / `unavailable` while the route served fine. It now
+  reports the chain: `steps` (configured), `activeSteps`, `readySteps`, `unkeyedSteps` and
+  `disabledSteps`, with `ready` when at least one active step can answer. `steps` counts the
+  *configured* chain rather than the currently-keyed subset, because "1 step" on a three-step chain
+  cannot be told apart from a shrinking chain once key filtering is applied.
 
 A wrong badge is worse than no badge: an operator who reads "Unavailable" on a working route will
 either rewrite a good chain or stop trusting the page.

@@ -49,6 +49,29 @@ async function fetchJson(path, options = {}, host = DEFAULT_HOST, port = DEFAULT
   }
 }
 
+/**
+ * Raw request that returns the Response without throwing on a non-2xx status.
+ *
+ * Diagnostics need the status, headers and body of a failure, which `fetchJson` deliberately
+ * discards by throwing. Used by probes that must report *why* something is not serving.
+ */
+async function fetchRaw(path, options = {}, host = DEFAULT_HOST, port = DEFAULT_PORT) {
+  const url = `${baseUrl(host, port)}${path}`;
+  const controller = new AbortController();
+  const timeoutMs = options.timeoutMs ?? 60000;
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, {
+      method: options.method || 'GET',
+      headers: { ...(options.headers || {}) },
+      body: options.body,
+      signal: controller.signal
+    });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function probe(host = DEFAULT_HOST, port = DEFAULT_PORT) {
   try {
     await fetchJson('/api/provider-configs', { timeoutMs: 2000 }, host, port);
@@ -81,6 +104,7 @@ module.exports = {
   DEFAULT_PORT,
   baseUrl,
   fetchJson,
+  fetchRaw,
   probe,
   requireServer
 };

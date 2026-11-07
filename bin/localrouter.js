@@ -23,6 +23,11 @@ Usage:
   localrouter keys unset <provider> [--json]
   localrouter providers [--json]
   localrouter verify [--json]          Headless smoke checks (server, keys, catalog, fallback routes)
+  localrouter embedding [--dimensions N] [--json]
+                                       Verify the retrieval route end to end: chain readiness, a
+                                       real embedding request, and which provider answered
+  localrouter embedding-env [--shell posix|powershell|cmd|fish] [--dimensions N] [--json]
+                                       Print the env vars that point ainish-rag at this router
   localrouter config [--open]          Print or open http://127.0.0.1:11434/config
   localrouter route <set|unset|status|custom ...>
   localrouter version
@@ -83,6 +88,30 @@ function parseGlobalOptions(argv) {
     }
     if (token === '--env') {
       options.envVar = String(argv[i + 1] || '').trim();
+      i += 1;
+      continue;
+    }
+    if (token === '--dimensions' || token === '--dim') {
+      const parsed = Number.parseInt(argv[i + 1] || '', 10);
+      if (Number.isInteger(parsed) && parsed > 0) options.dimensions = parsed;
+      i += 1;
+      continue;
+    }
+    if (token === '--route') {
+      options.routeId = String(argv[i + 1] || '').trim();
+      i += 1;
+      continue;
+    }
+    if (token === '--input') {
+      options.input = String(argv[i + 1] || '');
+      i += 1;
+      continue;
+    }
+    if (token === '--shell') {
+      const requested = String(argv[i + 1] || '').trim().toLowerCase();
+      if (['powershell', 'cmd', 'posix', 'fish', 'sh', 'bash'].includes(requested)) {
+        options.shell = requested === 'sh' || requested === 'bash' ? 'posix' : requested;
+      }
       i += 1;
       continue;
     }
@@ -327,6 +356,163 @@ async function cmdVerify(options) {
   return ok ? 0 : 1;
 }
 
+/**
+ * `localrouter embedding` — verify the retrieval backend end to end.
+ *
+ * ainish-rag points at `local-router/fallback-embedding` and only ever sees a 200 or an error, so
+ * a silent failover (or a silently degraded chain) is invisible to it. This probes the route the
+ * way the tooling does and reports which provider actually answered, in an OpenAI-compatible
+ * request that runs the same on PowerShell, a POSIX shell, WSL, macOS and Linux because it is
+ * plain Node with no shell interpolation.
+ */
+async function cmdEmbedding(options) {
+  const probeResult = await client.probe(options.host, options.port);
+  if (!probeResult.running || probeResult.kind !== 'local-router') {
+    emitOrJson(options, { ok: false, baseUrl: probeResult.baseUrl, error: 'Local Router is not running' },
+      () => console.error('Local Router is not running'));
+    return 2;
+  }
+  const baseUrl = probeResult.baseUrl;
+  const routeId = options.routeId || 'local-router/fallback-embedding';
+  const dims = Number.isFinite(options.dimensions) ? options.dimensions : undefined;
+
+  const report = { ok: false, baseUrl, routeId, dimensions: dims || null, chain: [], probe: null, error: null };
+
+  // 1. Chain composition + per-step readiness, so a degraded chain is visible before a query.
+  try {
+    const availability = await client.fetchJson(
+      `/api/routing/availability?models=${encodeURIComponent(routeId)}`,
+      {}, options.host, options.port
+    );
+    const row = (availability.data || [])[0];
+    report.route = row || null;
+  } catch (error) {
+    report.error = `availability: ${error.message}`;
+  }
+
+  try {
+    const routes = await client.fetchJson('/api/fallback-models', {}, options.host, options.port);
+    const route = (routes.data || []).find((entry) => entry.routeId === 'fallback-embedding'
+      || entry.id === 'local-router/fallback-embedding');
+    if (route) {
+      const disabled = new Set(route.disabledModels || []);
+      for (const step of route.models || []) {
+        const stepRow = await client.fetchJson(
+          `/api/routing/availability?models=${encodeURIComponent(step)}`,
+          {}, options.host, options.port
+        ).catch(() => null);
+        const status = (stepRow?.data || [])[0] || null;
+        report.chain.push({
+          step,
+          enabled: !disabled.has(step),
+          status: status?.status || 'unknown',
+          provider: status?.provider || null
+        });
+      }
+    }
+  } catch (error) {
+    report.error = report.error ? `${report.error}; chain: ${error.message}` : `chain: ${error.message}`;
+  }
+
+  // 2. A real embedding round trip at the caller's pinned width. `dimensions` matters: the index
+  //    was built at one width, and a provider returning another is rejected on purpose.
+  try {
+    const startedAt = Date.now();
+    const response = await client.fetchRaw('/v1/embeddings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model: routeId, input: options.input || 'local-router embedding probe', ...(dims ? { dimensions: dims } : {}) })
+    }, options.host, options.port);
+    const durationMs = Date.now() - startedAt;
+    const body = await response.json().catch(() => null);
+    report.probe = {
+      status: response.status,
+      durationMs,
+      ok: response.ok,
+      provider: response.headers.get('x-local-router-embedding-provider'),
+      model: response.headers.get('x-local-router-embedding-model'),
+      failedAttempts: response.headers.get('x-local-router-embedding-attempts'),
+      width: body?.data?.[0]?.embedding?.length ?? null,
+      vectors: Array.isArray(body?.data) ? body.data.length : null,
+      error: response.ok ? null : (body?.error || body || null)
+    };
+    report.ok = response.ok;
+  } catch (error) {
+    report.error = report.error ? `${report.error}; probe: ${error.message}` : `probe: ${error.message}`;
+  }
+
+  emitOrJson(options, report, (value) => {
+    console.log(`Embedding route ${value.routeId} — ${value.baseUrl}`);
+    if (value.route) {
+      console.log(`  route status: ${value.route.status} (${value.route.readySteps ?? '?'}/${value.route.steps ?? '?'} steps ready)`);
+    }
+    if (value.chain.length > 0) {
+      console.log('  chain (tried in order):');
+      for (const step of value.chain) {
+        const mark = step.enabled ? ' ' : 'x';
+        console.log(`    [${mark}] ${step.step}  ${step.status}`);
+      }
+    }
+    const probe = value.probe;
+    if (probe) {
+      if (probe.ok) {
+        console.log(`  probe: ${probe.status} in ${probe.durationMs}ms — ${probe.vectors} vector(s), width ${probe.width}`);
+        console.log(`  answered by: ${probe.provider || 'unknown'} (${probe.model || '?'})`);
+        if (probe.failedAttempts) console.log(`  failed before it: ${probe.failedAttempts}`);
+      } else {
+        console.log(`  probe FAILED: ${probe.status} — ${JSON.stringify(probe.error)}`);
+      }
+    }
+    if (value.error) console.log(`  error: ${value.error}`);
+    console.log(value.ok ? 'Embedding route is serving.' : 'Embedding route is NOT serving.');
+  });
+
+  return report.ok ? 0 : 1;
+}
+
+/**
+ * Emit the environment that points ainish-rag at this router.
+ *
+ * Without an explicit `AINISH_EMBED_API_BASE`, ainish-rag auto-detects a provider key from the PQC
+ * store and calls OpenRouter directly — which silently bypasses this router's failover and key
+ * brokerage. The base must be set explicitly, and the correct syntax differs per shell and per OS,
+ * so the caller asks for a dialect instead of hand-editing exports.
+ */
+function emitEmbeddingEnvReport(options) {
+  const base = client.baseUrl(options.host, options.port);
+  const dims = Number.isFinite(options.dimensions) ? options.dimensions : null;
+  const values = {
+    AINISH_EMBED_API_BASE: `${base}/v1`,
+    AINISH_EMBED_MODEL: options.routeId || 'local-router/fallback-embedding',
+    AINISH_EMBED_API_KEY: 'local-router',
+    ...(dims ? { AINISH_EMBED_DIM: String(dims) } : {})
+  };
+
+  const dialect = options.shell || detectShellDialect();
+  const lines = Object.entries(values).map(([key, value]) => {
+    switch (dialect) {
+      case 'powershell':
+        return `$env:${key} = "${value}"`;
+      case 'cmd':
+        return `set ${key}=${value}`;
+      case 'fish':
+        return `set -gx ${key} ${value}`;
+      default:
+        return `export ${key}="${value}"`;
+    }
+  });
+
+  return { baseUrl: base, routeId: values.AINISH_EMBED_MODEL, shell: dialect, env: values, lines };
+}
+
+function detectShellDialect() {
+  if (process.platform === 'win32' && process.env.PSModulePath) return 'powershell';
+  if (process.platform === 'win32') return 'cmd';
+  const shell = path.basename(String(process.env.SHELL || 'sh')).toLowerCase();
+  if (shell.includes('fish')) return 'fish';
+  return 'posix';
+}
+
 function cmdConfig(options) {
   const url = `${client.baseUrl(options.host, options.port)}/config`;
   if (options.open) {
@@ -417,6 +603,21 @@ async function main() {
 
         if (command === 'verify') {
       return await cmdVerify(options);
+    }
+
+    if (command === 'embedding') {
+      return await cmdEmbedding(options);
+    }
+
+    if (command === 'embedding-env') {
+      const report = emitEmbeddingEnvReport(options);
+      emitOrJson(options, report, (value) => {
+        console.log(`# Point ainish-rag at ${value.baseUrl} (${value.shell} syntax)`);
+        console.log(`# Without AINISH_EMBED_API_BASE, ainish-rag auto-detects a provider key and`);
+        console.log(`# calls that provider directly, bypassing this router's failover.`);
+        for (const line of value.lines) console.log(line);
+      });
+      return 0;
     }
 
     if (command === 'config') {

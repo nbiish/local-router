@@ -22,7 +22,7 @@ import { setTimeout as delay } from 'node:timers/promises';
  *      from a different space.
  */
 
-async function bootRouter(t, { routes, providers, env, embeddingFor, routesConfig }) {
+async function bootRouter(t, { routes, providers, env, embeddingFor, routesConfig, failProviders }) {
   const home = mkdtempSync(join(tmpdir(), 'local-router-purpose-'));
   const calls = [];
 
@@ -36,6 +36,12 @@ async function bootRouter(t, { routes, providers, env, embeddingFor, routesConfi
       req.on('end', () => {
         const body = JSON.parse(raw);
         calls.push({ provider: providerName, model: body.model, dimensions: body.dimensions });
+        // Simulate a broken upstream so failover can be proven rather than assumed.
+        if (failProviders && failProviders.has(providerName)) {
+          res.writeHead(503, { 'content-type': 'application/json' });
+          res.end(JSON.stringify({ error: { message: 'upstream unavailable', type: 'server_error' } }));
+          return;
+        }
         const width = embeddingFor(body.model, body.dimensions, providerName);
         res.writeHead(200, { 'content-type': 'application/json' });
         res.end(JSON.stringify({
@@ -279,17 +285,83 @@ test('a persisted chain that starts on zenmux is corrected to lead with openrout
   const listed = await (await fetch(`${baseUrl}/api/fallback-models`)).json();
   const route = (listed.data || []).find((r) => r.id === 'local-router/fallback-embedding');
   assert.ok(route, 'embedding route must exist');
+  // A missing openrouter step is NOT invented: deleting a step is how an operator removes a failing
+  // provider, so the pin may only order the steps that are actually present.
   assert.deepEqual(route.models, [
-    'openrouter/openai/text-embedding-3-small',
     'zenmux/openai/text-embedding-3-small',
     'nous-portal/openai/text-embedding-3-small'
-  ], `openrouter must lead and no step may be lost: ${route.models.join(' -> ')}`);
+  ], `a removed step must stay removed: ${route.models.join(' -> ')}`);
 
   // The correction is persisted, so the route cannot flip back on the next boot.
   const persisted = JSON.parse(readFileSync(join(home, '.config', 'local-router', 'fallback-models.json'), 'utf8'));
   const saved = (persisted.routes || []).find((r) => r.id === 'fallback-embedding');
-  assert.equal(saved.models[0], 'openrouter/openai/text-embedding-3-small',
-    `the pinned order must survive a restart: ${saved.models.join(' -> ')}`);
+  assert.ok(!saved.models.includes('openrouter/openai/text-embedding-3-small'),
+    `the removed step must not be resurrected on disk: ${saved.models.join(' -> ')}`);
+});
+
+test('removing the openrouter step keeps it removed through a boot', async (t) => {
+  // Regression: the pin used to re-insert a missing openrouter step, so an operator could never
+  // take a failing provider out of the chain — the opposite of resilience. Removal is a decision.
+  const { baseUrl, logs } = await bootRouter(t, {
+    providers: null,
+    routes: [{
+      id: 'fallback-embedding',
+      models: [
+        'openrouter/openai/text-embedding-3-small',
+        'zenmux/openai/text-embedding-3-small',
+        'nous-portal/openai/text-embedding-3-small'
+      ]
+    }],
+    env: {},
+    embeddingFor: () => 768
+  });
+
+  const toggle = await fetch(`${baseUrl}/api/fallback-chain/toggle`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      modelId: 'openrouter/openai/text-embedding-3-small',
+      enabled: false,
+      routeId: 'fallback-embedding'
+    })
+  });
+  const toggled = await toggle.json();
+  assert.equal(toggle.status, 200, `${JSON.stringify(toggled)}\n${logs()}`);
+  assert.ok(!(toggled.route?.models || []).includes('openrouter/openai/text-embedding-3-small'),
+    `the removed step must not come back: ${JSON.stringify(toggled.route?.models)}`);
+
+  const after = await (await fetch(`${baseUrl}/api/fallback-models`)).json();
+  const route = (after.data || []).find((r) => r.id === 'local-router/fallback-embedding');
+  assert.deepEqual(route.models, [
+    'zenmux/openai/text-embedding-3-small',
+    'nous-portal/openai/text-embedding-3-small'
+  ], `removal must survive the write: ${route.models.join(' -> ')}`);
+});
+
+test('the embedding route reports ready when its chain has a ready step', async (t) => {
+  // The config page and every operator check reads this badge before pointing retrieval at the
+  // route. Reporting a working route as "unavailable" is what made an operator rewrite a good chain.
+  const { baseUrl, logs } = await bootRouter(t, {
+    providers: [
+      { name: 'openrouter', displayName: 'OpenRouter', keyEnvVar: 'OPENROUTER_API_KEY', models: ['openai/text-embedding-3-small'] }
+    ],
+    routes: [{
+      id: 'fallback-embedding',
+      models: ['openrouter/openai/text-embedding-3-small', 'zenmux/openai/text-embedding-3-small']
+    }],
+    env: { LOCALROUTER_OPENROUTER_API_KEY: 'test-key' },
+    embeddingFor: () => 768
+  });
+
+  const res = await fetch(`${baseUrl}/api/routing/availability?models=local-router/fallback-embedding`);
+  const body = await res.json();
+  const row = (body.data || [])[0];
+  assert.ok(row, `no availability row\n${logs()}`);
+  assert.equal(row.resolved, true, `the route must resolve: ${JSON.stringify(row)}`);
+  assert.equal(row.status, 'ready', `a route with a ready step must read ready: ${JSON.stringify(row)}`);
+  assert.equal(row.provider, 'local-router');
+  assert.equal(row.steps, 2, `both active steps must be counted: ${JSON.stringify(row)}`);
+  assert.ok(row.readySteps >= 1, `the keyed step must count as ready: ${JSON.stringify(row)}`);
 });
 
 test('a reorder that puts zenmux ahead of openrouter is corrected on write', async (t) => {
@@ -330,9 +402,9 @@ test('a reorder that puts zenmux ahead of openrouter is corrected on write', asy
   ], `openrouter must stay first after a drag: ${body.route.models.join(' -> ')}`);
 });
 
-test('an explicitly disabled openrouter step is not re-enabled by the order pin', async (t) => {
-  // Disable is a different axis than order: silently switching the step back on would overrule an
-  // intentional edit. The pin reports that it could not take effect instead.
+test('an explicitly disabled openrouter step is not resurrected', async (t) => {
+  // Disabled is a distinct state from removed: the step stays in the chain but is skipped at
+  // execution. The pin must not re-order it into first place as if it were active.
   const { baseUrl, logs } = await bootRouter(t, {
     providers: null,
     routes: [{
@@ -380,6 +452,45 @@ test('an explicit routes config file keeps its declared order', async (t) => {
     'zenmux/openai/text-embedding-3-small',
     'nous-portal/openai/text-embedding-3-small'
   ], `an explicit routes file owns the order: ${JSON.stringify(route?.models)}\n${logs()}`);
+});
+
+test('a failing primary step fails over to the next provider', async (t) => {
+  // The whole point of a multi-provider chain. With no trace header a failover is invisible: the
+  // caller gets a 200 and cannot tell whether resilience worked or the primary simply answered.
+  const { baseUrl, calls, logs } = await bootRouter(t, {
+    providers: [
+      { name: 'mock-a', displayName: 'A', keyEnvVar: 'MOCK_A_API_KEY', models: ['embed-model'] },
+      { name: 'mock-b', displayName: 'B', keyEnvVar: 'MOCK_B_API_KEY', models: ['embed-model'] }
+    ],
+    routes: [{
+      id: 'fallback-embedding',
+      models: ['mock-a/embed-model', 'mock-b/embed-model']
+    }],
+    env: { MOCK_A_API_KEY: 'k', MOCK_B_API_KEY: 'k' },
+    // mock-a is down; mock-b answers at the pinned width.
+    failProviders: new Set(['mock-a']),
+    embeddingFor: (_model, dimensions) => dimensions ?? 1536
+  });
+
+  const res = await fetch(`${baseUrl}/v1/embeddings`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ model: 'local-router/fallback-embedding', input: 'probe', dimensions: 768 })
+  });
+  const body = await res.json();
+  assert.equal(res.status, 200, `${JSON.stringify(body)}\n${logs()}`);
+  assert.equal(body.data[0].embedding.length, 768);
+
+  // The trace headers are the observability contract: which provider served it, and that a step
+  // failed first.
+  assert.equal(res.headers.get('x-local-router-embedding-provider'), 'mock-b',
+    'the answering provider must be reported');
+  assert.match(String(res.headers.get('x-local-router-embedding-attempts') || ''), /mock-a:upstream_http/,
+    `the failed attempt must be reported: ${res.headers.get('x-local-router-embedding-attempts')}`);
+
+  // Both providers must have been tried, in order.
+  assert.deepEqual(calls.map((call) => call.provider), ['mock-a', 'mock-b'],
+    `both steps must be attempted in order: ${JSON.stringify(calls)}`);
 });
 
 test('fallback-decision resolves to the canonical decision model', async (t) => {
