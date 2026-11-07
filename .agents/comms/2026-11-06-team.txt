@@ -179,3 +179,18 @@ description: Agent Communication System protocol template. Deployed by `ainish-c
 - open:NO TypeSafe key was present, so a live authenticated call to api.typesafe.ai is the one thing still unproven. Every shape used comes from the published OpenAPI spec. Once the operator stores TYPESAFE_API_KEY (or LOCALROUTER_TYPESAFE_API_KEY), /api/decisions/status flips key_configured to true and a probe proves the endpoint.
 - status:merged to main
 - provenance:branch=main commit=a362a61 merged
+### [2026-11-07T01:40:00Z] FIX | branch:main | wt:D:\Code\local-router
+- start:2026-11-07T01:15:00Z
+- end:2026-11-07T01:40:00Z
+- scope:src/decisions/catalog.ts, src/decisions/service.ts, tests/decisions-typesafe-provider.test.mjs, tests/decisions-dialects.test.mjs, docs/typesafe-provider.md
+- objective:Make fallback-decision actually use typesafe -> openrouter -> zenmux now that the operator added the TypeSafe key, using whatever named Jev version TypeSafe serves.
+- input:Operator: "I've added the jev typesafe key but we need to make sure the fallback-decision utilizes typesafe->openrouter->zenmux (since the decision model is not locked into models like the embedding constraints we can use the available named jev version available)."
+- finding:the direct tier was keyed and reachable but served ZERO production requests. TypeSafe's own catalog (GET /v1/models via /api/provider-models/typesafe/refresh) lists exactly two models, jev-latest and jev-preview, and it answers 400 api_usage_error "Unknown model: typesafe/jev-1.14" for the versioned id the router sent. The versioned typesafe/jev-<version> form is the RESELLER vocabulary (OpenRouter stamps it), not TypeSafe's.
+- why-it-was-invisible:every request recorded typesafe contract_error 400 then openrouter answered, so responses looked correct and the chain reported 200 while OpenRouter served 100% of traffic. The tell was OpenRouter's usage shape (is_byok, cost_details) arriving on a request that claimed typesafe was first. Only the local_router.attempts trail exposed it.
+- fix:one canonical id for callers, translated at the edge. TypeSafe receives jev-latest; resellers receive the canonical id unchanged. A per-provider pin becomes that build's native short form (jev-1.15); pinning an exact native name (jev-preview) bypasses translation. Sending the alias is also correct on its own merits: TypeSafe publishes no versioned id, so jev-latest follows whatever build it serves now (it reported jev-1.14.0) instead of pinning a version that will age out.
+- fix-2:the probe hardcoded spec.latestModel, so a green probe could never have detected this. It now probes the configured wire model, meaning green genuinely implies the real request path works.
+- verification-live:probe typesafe ok=true 200 model=jev-1.14.0; typesafe/jev-1.14 answered by typesafe in ONE attempt with no failover; openrouter/jev-1.14 answered by openrouter; zenmux/jev-1.14 records zenmux 404 then fails over to typesafe (declared order proven in the trail); fallback-decision answered by typesafe. Latency fell from ~1360 ms to ~300 ms.
+- test-honesty:two new unit tests cover the translation, and both were run against a build WITHOUT the fix and FAILED. Also restored tests/decisions-dialects.test.mjs, which the previous merge had reverted to its two-provider form - that reversion was caught by the suite.
+- suite:274/276. The 2 failures (antigravity host-session detect, custom-provider catalog) are pre-existing and reproduce with this change stashed.
+- status:committed 1899d19, pending push
+- provenance:branch=main commit=1899d19
