@@ -4,9 +4,14 @@ export type ThinkingLevel = 'none' | 'low' | 'medium' | 'high' | 'xhigh';
 
 export const DEFAULT_THINKING_LEVEL: ThinkingLevel = 'medium';
 
-const RESPONSE_REASONING_KEYS = new Set([
-  'reasoning_content',
-  'reasoningContent',
+/**
+ * Response keys that are ONLY valid for the upstream turn that produced them.
+ *
+ * Signatures and redacted blocks cannot be replayed: a later request (or a
+ * fallback hop to a different provider) rejects them. The readable reasoning
+ * text is NOT in this set — see stripReasoningMetadataInternal.
+ */
+const RESPONSE_REASONING_SIGNATURE_KEYS = new Set([
   'reasoning_details',
   'reasoningDetails',
   'redacted_thinking',
@@ -100,6 +105,27 @@ function normalizeExplicitThinkingRequest(value: JsonObject): JsonObject {
   return next;
 }
 
+/**
+ * Strip reasoning metadata from a provider RESPONSE.
+ *
+ * Scope (2026-11-07): this removes wire-format artifacts a client cannot use
+ * — signatures, redacted blocks, and array-shaped thinking blocks — so a
+ * response stays a valid OpenAI chat completion.
+ *
+ * It deliberately KEEPS the readable reasoning a reasoning model returns at
+ * the message level (`reasoning`, `reasoning_content`). Those are the actual
+ * thinking text, and every harness that offers a thinking mode reads them to
+ * display or persist it. Stripping them made a reasoning model look like it
+ * had none: measured against ZenMux `deepseek/deepseek-v4.1-flash`, the
+ * upstream body carried `reasoning` (217 chars) and the router returned a
+ * message with only `role` and `content`, while `completion_tokens_details
+ * .reasoning_tokens` still billed 42 reasoning tokens. The consumer could not
+ * show thinking it had paid for.
+ *
+ * Signatures stay stripped because they are only valid for the exact upstream
+ * conversation that produced them; forwarding them into a later request
+ * (especially across a fallback hop to another provider) is rejected.
+ */
 function stripReasoningMetadataInternal(value: unknown, depth: number): unknown {
   if (Array.isArray(value)) {
     return value
@@ -112,7 +138,7 @@ function stripReasoningMetadataInternal(value: unknown, depth: number): unknown 
   const output: JsonObject = {};
 
   for (const [key, child] of Object.entries(value)) {
-    if (RESPONSE_REASONING_KEYS.has(key)) continue;
+    if (RESPONSE_REASONING_SIGNATURE_KEYS.has(key)) continue;
     if (depth > 0 && (key === 'thinking' || key === 'reasoning')) continue;
 
     output[key] = stripReasoningMetadataInternal(child, depth + 1);

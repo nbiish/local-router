@@ -769,7 +769,12 @@ test('provider key save/reset lifecycle exposes configured source', async (t) =>
   });
   assert.equal(sanitizedChat.response.status, 200);
   assert.equal(sanitizedChat.body?.choices?.[0]?.message?.content, 'ok:deepseek-v4-pro');
-  assert.ok(!JSON.stringify(sanitizedChat.body).includes('reasoning_content'));
+  // Readable reasoning SURVIVES (2026-11-07): a harness that offers a thinking view reads this
+  // field, and stripping it made a reasoning model look like it had none while the usage block
+  // still billed reasoning tokens. Replay-un-safe artifacts (signatures, redacted blocks) still go.
+  assert.equal(sanitizedChat.body?.choices?.[0]?.message?.reasoning_content, 'hidden-response');
+  assert.ok(!JSON.stringify(sanitizedChat.body).includes('redacted_thinking'),
+    'redacted_thinking must not be forwarded to the client');
 
   const forwarded = upstreamRequests.at(-1)?.body;
   assert.equal(forwarded?.model, 'deepseek-v4-pro');
@@ -791,8 +796,9 @@ test('provider key save/reset lifecycle exposes configured source', async (t) =>
   assert.equal(streamResponse.status, 200);
   const streamText = await streamResponse.text();
   assert.ok(streamText.includes('stream-ok'));
-  assert.ok(!streamText.includes('reasoning_content'));
-  assert.ok(!streamText.includes('hidden-stream'));
+  // Delta reasoning is preserved for the same reason as the non-streaming field above.
+  assert.ok(streamText.includes('reasoning_content'), 'stream deltas must carry reasoning_content');
+  assert.ok(streamText.includes('hidden-stream'));
 
   upstreamRequests = [];
   const ollamaChat = await requestJson('/api/chat', {

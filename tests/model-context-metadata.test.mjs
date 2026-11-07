@@ -41,6 +41,12 @@ test('readOutputHint covers Gemini, Copilot, OpenRouter and Ollama shapes', () =
   assert.equal(readOutputHint({ capabilities: { limits: { max_output_tokens: 8192 } } }), 8192);
   assert.equal(readOutputHint({ model_info: { 'llama.max_output_tokens': 4096 } }), 4096);
   assert.equal(readOutputHint({ max_completion_tokens: 128000 }), 128000);
+  // ZenMux / OpenAI shape: `max_tokens` is the completion ceiling. The router used to ignore it
+  // and fall back to the 4096 default, so a client sizing a request from /v1/models asked for a
+  // fraction of what the model allows.
+  assert.equal(readOutputHint({ max_tokens: 384000 }), 384000);
+  assert.equal(readOutputHint({ capabilities: { max_output_tokens: 65536 } }), 65536);
+  assert.equal(readOutputHint({ maxOutputTokens: 32000 }), 32000);
   assert.equal(readOutputHint({}), undefined);
 });
 

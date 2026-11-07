@@ -946,18 +946,27 @@ function localLoopbackRegisteredModels(): ProviderModel[] {
     const modelNames = runtime && runtime.models.length > 0 ? runtime.models : record.models;
     for (const modelName of modelNames) {
       const id = defaultPresentedModelName(record.name, modelName);
+      // Prefer whatever discovery already learned about this model. The hardcoded defaults below
+      // exist only for a backend whose catalogue has not been probed yet — overwriting a
+      // discovered row with them reported reasoning=false and the 4096 default for a model that
+      // advertised otherwise, and every harness that gates its thinking selector on
+      // capabilities.reasoning then hid the control.
+      const discovered = endpointModelsCache.find(
+        (entry) => entry.provider === record.name && entry.model === modelName
+      );
       rows.push({
+        ...(discovered || {}),
         id,
         provider: record.name,
         model: modelName,
-        display: `${record.displayName || record.name}: ${modelName}`,
-        contextLength: DEFAULT_CONTEXT_LENGTH,
-        outputTokens: DEFAULT_OUTPUT_TOKENS,
-        supportsTools: false,
-        supportsImages: false,
-        supportsCache: false,
-        supportsReasoning: false,
-        tier: 'local'
+        display: discovered?.display || `${record.displayName || record.name}: ${modelName}`,
+        contextLength: discovered?.contextLength || DEFAULT_CONTEXT_LENGTH,
+        outputTokens: discovered?.outputTokens || DEFAULT_OUTPUT_TOKENS,
+        supportsTools: discovered?.supportsTools ?? false,
+        supportsImages: discovered?.supportsImages ?? false,
+        supportsCache: discovered?.supportsCache ?? false,
+        supportsReasoning: discovered?.supportsReasoning ?? false,
+        tier: discovered?.tier || 'local'
       });
     }
   }
@@ -1081,19 +1090,36 @@ function rawProviderCacheModels(providerName: string): ProviderModel[] {
 function registeredCustomProviderModels(providerName: string): ProviderModel[] {
   const provider = customProviderStore.find((entry) => entry.name === canonicalProviderSlug(providerName));
   if (!provider?.models?.length) return [];
-  return provider.models.map((model) => ({
-    id: `${provider.name}/${model}`,
-    provider: provider.name,
-    model,
-    display: `${provider.name}/${model}`,
-    contextLength: DEFAULT_CONTEXT_LENGTH,
-    outputTokens: DEFAULT_OUTPUT_TOKENS,
-    supportsTools: false,
-    supportsImages: false,
-    supportsCache: false,
-    supportsReasoning: false,
-    tier: 'custom'
-  }));
+  // Custom providers register model NAMES only, so the specs must come from the discovered cache
+  // when it has them. Returning hardcoded defaults here discarded real capability metadata: a
+  // ZenMux-shaped model advertising `capabilities.reasoning=true` and `max_tokens=384000` was
+  // served to clients as reasoning=false / 4096, which removed the thinking selector in every
+  // harness that gates on it.
+  const cached = rawProviderCacheModels(provider.name);
+  return provider.models.map((model) => {
+    const discovered = cached.find((entry) => entry.model === model);
+    if (discovered) {
+      return {
+        ...discovered,
+        id: discovered.id,
+        provider: provider.name,
+        model
+      };
+    }
+    return {
+      id: `${provider.name}/${model}`,
+      provider: provider.name,
+      model,
+      display: `${provider.name}/${model}`,
+      contextLength: DEFAULT_CONTEXT_LENGTH,
+      outputTokens: DEFAULT_OUTPUT_TOKENS,
+      supportsTools: false,
+      supportsImages: false,
+      supportsCache: false,
+      supportsReasoning: false,
+      tier: 'custom'
+    };
+  });
 }
 
 function effectiveProviderModels(rawProviderName: string): ProviderModel[] {
@@ -2347,6 +2373,10 @@ function mapLiveRawModelsToCatalog(
       const value = (raw as Record<string, unknown>)[key];
       return typeof value === 'string' && value.length > 0 ? value : undefined;
     };
+    // A modality list ("image", "text") carries the same meaning as a boolean
+    // capability flag on providers that publish arrays rather than flags.
+    const arrayHasValue = (value: unknown, needle: string): boolean =>
+      Array.isArray(value) && value.some((entry) => String(entry).toLowerCase() === needle);
     const stringHintPath = (...paths: string[]): string | undefined => {
       for (const path of paths) {
         let value: unknown = raw;
@@ -2362,9 +2392,22 @@ function mapLiveRawModelsToCatalog(
 
     const resolvedSupportsImages = booleanHint('supportsImages', false)
       || booleanHint('supports_vision', false)
-      || (booleanHintPath('wafer.capabilities.vision') ?? false);
+      || (booleanHintPath('wafer.capabilities.vision') ?? false)
+      // OpenAI/OpenRouter/ZenMux shape: a modality list, not a flag.
+      || arrayHasValue(raw.input_modalities, 'image')
+      || arrayHasValue(raw.inputModalities, 'image')
+      || arrayHasValue(raw.modalities, 'image');
+    // Reasoning is the capability a harness gates its thinking selector on, so a
+    // provider that publishes it must be believed. ZenMux reports
+    // capabilities.reasoning=true for deepseek-v4.1-flash while the router was
+    // advertising false, which removed the thinking control from every client
+    // that reads /v1/models before offering it.
     const resolvedSupportsReasoning = booleanHint('supportsReasoning', false)
-      || (booleanHintPath('wafer.capabilities.reasoning') ?? false);
+      || (booleanHintPath('wafer.capabilities.reasoning') ?? false)
+      || (booleanHintPath('capabilities.reasoning') ?? false)
+      || (booleanHintPath('capabilities.thinking') ?? false)
+      || booleanHint('supports_reasoning', false)
+      || booleanHint('supportsReasoningEffort', false);
     const resolvedSupportsTools = booleanHint('supportsTools', true)
       ?? booleanHintPath('wafer.capabilities.tools')
       ?? true;

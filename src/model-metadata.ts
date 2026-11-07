@@ -106,13 +106,23 @@ export function readOutputHint(raw: NumberRecord): number | undefined {
     'output_token_limit',
     'max_completion_tokens',
     'max_tokens_out',
-    'outputTokenLimit'
+    'outputTokenLimit',
+    // `max_tokens` is the OpenAI completion cap and what ZenMux publishes as the
+    // model's ceiling (deepseek-v4.1-flash advertises 384000). Without it the
+    // entry kept the 4096 default, and a client sizing its request from
+    // max_output_tokens sent a fifth of what the model allows.
+    'max_tokens',
+    'maxOutputTokens'
   ])
     ?? readPaths(raw, [
       'top_provider.max_completion_tokens',
       'limits.max_output_tokens',
       'limits.max_completion_tokens',
       'capabilities.limits.max_output_tokens',
+      // ZenMux/OpenAI-shape catalogs nest the ceiling under the model's own
+      // capabilities block.
+      'capabilities.max_output_tokens',
+      'capabilities.max_tokens',
       'info.max_output_tokens',
       'wafer.max_output_tokens'
     ])
