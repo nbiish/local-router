@@ -22,7 +22,7 @@ import { setTimeout as delay } from 'node:timers/promises';
  *      from a different space.
  */
 
-async function bootRouter(t, { routes, providers, env, embeddingFor }) {
+async function bootRouter(t, { routes, providers, env, embeddingFor, routesConfig }) {
   const home = mkdtempSync(join(tmpdir(), 'local-router-purpose-'));
   const calls = [];
 
@@ -71,6 +71,14 @@ async function bootRouter(t, { routes, providers, env, embeddingFor }) {
   }
   writeFileSync(join(configDir, 'router-settings.json'), JSON.stringify({ routes }, null, 2));
 
+  // An explicit routes file owns the route set and its order. Written into the same fixture home so
+  // this exercises one boot rather than a restart dance.
+  let routesConfigPath;
+  if (routesConfig) {
+    routesConfigPath = join(home, 'routes.json');
+    writeFileSync(routesConfigPath, JSON.stringify(routesConfig, null, 2));
+  }
+
   const port = String(28100 + Math.floor(Math.random() * 500));
   const baseUrl = `http://127.0.0.1:${port}`;
   const child = spawn(process.execPath, ['build/index.js'], {
@@ -78,6 +86,7 @@ async function bootRouter(t, { routes, providers, env, embeddingFor }) {
     env: {
       ...process.env, HOME: home, USERPROFILE: home, PORT: port,
       LOCAL_ROUTER_SKIP_PQC_LOAD: 'true', LOCAL_ROUTER_SKIP_OLLAMA_ENSURE: 'true', LOCAL_ROUTER_DEV: 'true',
+      ...(routesConfigPath ? { LOCAL_ROUTER_ROUTES_CONFIG: routesConfigPath } : {}),
       ...env
     },
     stdio: ['ignore', 'pipe', 'pipe']
@@ -194,6 +203,13 @@ test('the routes are seeded on first boot and left alone on later boots', async 
   assert.equal(upstreamModels.size, 1,
     `fallback steps must share one embedding model, found: ${[...upstreamModels].join(', ')}`);
 
+  // OpenRouter must lead ZenMux. The two bill the same price, so this order is an operator pin and
+  // the seed is the one place it is declared.
+  assert.deepEqual(embedding.models.slice(0, 2), [
+    'openrouter/openai/text-embedding-3-small',
+    'zenmux/openai/text-embedding-3-small'
+  ], `the embedding chain must start on openrouter: ${embedding.models.join(' -> ')}`);
+
   const decision = (listed.data || []).find((r) => r.id === 'local-router/fallback-decision');
   assert.deepEqual(decision.models, ['typesafe/jev-1.14']);
 
@@ -241,6 +257,129 @@ test('a persisted chain that mixes embedding models is reconciled on boot', asyn
   const persisted = JSON.parse(readFileSync(join(home, '.config', 'local-router', 'fallback-models.json'), 'utf8'));
   const saved = (persisted.routes || []).find((r) => r.id === 'fallback-embedding');
   assert.equal(new Set(saved.models.map((m) => m.slice(m.indexOf('/') + 1))).size, 1);
+});
+
+test('a persisted chain that starts on zenmux is corrected to lead with openrouter', async (t) => {
+  // Seeding is one-shot, so a chain written before the pin — or by an older build — keeps the old
+  // order forever unless the pin is re-applied at boot. This is the operator-visible symptom: the
+  // route answers from ZenMux even though the configured rule says OpenRouter first.
+  const { baseUrl, home } = await bootRouter(t, {
+    providers: null,
+    routes: [{
+      id: 'fallback-embedding',
+      models: [
+        'zenmux/openai/text-embedding-3-small',
+        'nous-portal/openai/text-embedding-3-small'
+      ]
+    }],
+    env: {},
+    embeddingFor: () => 768
+  });
+
+  const listed = await (await fetch(`${baseUrl}/api/fallback-models`)).json();
+  const route = (listed.data || []).find((r) => r.id === 'local-router/fallback-embedding');
+  assert.ok(route, 'embedding route must exist');
+  assert.deepEqual(route.models, [
+    'openrouter/openai/text-embedding-3-small',
+    'zenmux/openai/text-embedding-3-small',
+    'nous-portal/openai/text-embedding-3-small'
+  ], `openrouter must lead and no step may be lost: ${route.models.join(' -> ')}`);
+
+  // The correction is persisted, so the route cannot flip back on the next boot.
+  const persisted = JSON.parse(readFileSync(join(home, '.config', 'local-router', 'fallback-models.json'), 'utf8'));
+  const saved = (persisted.routes || []).find((r) => r.id === 'fallback-embedding');
+  assert.equal(saved.models[0], 'openrouter/openai/text-embedding-3-small',
+    `the pinned order must survive a restart: ${saved.models.join(' -> ')}`);
+});
+
+test('a reorder that puts zenmux ahead of openrouter is corrected on write', async (t) => {
+  // The /config/fallback editor lets an operator drag any order. The pin is a rule, not a default,
+  // so it must hold at the write boundary rather than wait for the next boot to undo the drag.
+  const { baseUrl, logs } = await bootRouter(t, {
+    providers: null,
+    routes: [{
+      id: 'fallback-embedding',
+      models: [
+        'openrouter/openai/text-embedding-3-small',
+        'zenmux/openai/text-embedding-3-small',
+        'nous-portal/openai/text-embedding-3-small'
+      ]
+    }],
+    env: {},
+    embeddingFor: () => 768
+  });
+
+  const reorder = await fetch(`${baseUrl}/api/fallback-chain/reorder`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      routeId: 'fallback-embedding',
+      orderedIds: [
+        'zenmux/openai/text-embedding-3-small',
+        'openrouter/openai/text-embedding-3-small',
+        'nous-portal/openai/text-embedding-3-small'
+      ]
+    })
+  });
+  const body = await reorder.json();
+  assert.equal(reorder.status, 200, `${JSON.stringify(body)}\n${logs()}`);
+  assert.deepEqual(body.route.models, [
+    'openrouter/openai/text-embedding-3-small',
+    'zenmux/openai/text-embedding-3-small',
+    'nous-portal/openai/text-embedding-3-small'
+  ], `openrouter must stay first after a drag: ${body.route.models.join(' -> ')}`);
+});
+
+test('an explicitly disabled openrouter step is not re-enabled by the order pin', async (t) => {
+  // Disable is a different axis than order: silently switching the step back on would overrule an
+  // intentional edit. The pin reports that it could not take effect instead.
+  const { baseUrl, logs } = await bootRouter(t, {
+    providers: null,
+    routes: [{
+      id: 'fallback-embedding',
+      models: [
+        'zenmux/openai/text-embedding-3-small',
+        'openrouter/openai/text-embedding-3-small',
+        'nous-portal/openai/text-embedding-3-small'
+      ],
+      disabledModels: ['openrouter/openai/text-embedding-3-small']
+    }],
+    env: {},
+    embeddingFor: () => 768
+  });
+
+  const listed = await (await fetch(`${baseUrl}/api/fallback-models`)).json();
+  const route = (listed.data || []).find((r) => r.id === 'local-router/fallback-embedding');
+  assert.deepEqual(route.models[0], 'zenmux/openai/text-embedding-3-small',
+    `the operator's order must be left alone when the pin cannot apply: ${route.models.join(' -> ')}`);
+  assert.deepEqual(route.disabledModels, ['openrouter/openai/text-embedding-3-small'],
+    'the disabled step must stay disabled');
+});
+
+test('an explicit routes config file keeps its declared order', async (t) => {
+  // An explicit routes file declares the route set AND its order, so the pin must stand down. It
+  // would otherwise rewrite an operator's whole routing contract on every boot.
+  const { baseUrl, logs } = await bootRouter(t, {
+    providers: null,
+    routes: [],
+    routesConfig: {
+      fallbackModels: {
+        'fallback-embedding': [
+          'zenmux/openai/text-embedding-3-small',
+          'nous-portal/openai/text-embedding-3-small'
+        ]
+      }
+    },
+    env: {},
+    embeddingFor: () => 768
+  });
+
+  const listed = await (await fetch(`${baseUrl}/api/fallback-models`)).json();
+  const route = (listed.data || []).find((r) => r.id === 'local-router/fallback-embedding');
+  assert.deepEqual(route?.models, [
+    'zenmux/openai/text-embedding-3-small',
+    'nous-portal/openai/text-embedding-3-small'
+  ], `an explicit routes file owns the order: ${JSON.stringify(route?.models)}\n${logs()}`);
 });
 
 test('fallback-decision resolves to the canonical decision model', async (t) => {
