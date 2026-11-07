@@ -261,7 +261,23 @@ export function sanitizeProviderRequestBody<T extends JsonObject>(
   // unsupported parameter (gpt-4o-mini + reasoning_effort → HTTP 400
   // invalid_reasoning_effort) only see parameters the caller actually sent.
   const next: JsonObject = { ...body };
-  if (next.think !== undefined || next.enable_thinking !== undefined) {
+  // Ollama accepts `think` as a boolean OR as a level string ("low"/"medium"/"high"), and its
+  // documented meaning is the same dial as reasoning_effort. A level string was being dropped
+  // entirely, so a client that sent think:"low" reached the provider with NO reasoning parameter
+  // and got whatever the model defaults to — the selection appeared to have no effect, and
+  // switching levels between turns looked like the setting had stopped working.
+  if (typeof next.think === 'string') {
+    const level = String(next.think).trim().toLowerCase();
+    if (VALID_EFFORT_LEVELS.has(level)) {
+      next.think = level === 'none' ? false : true;
+      if (level !== 'none') next.reasoning_effort = level;
+    } else {
+      // An unrecognised value is not a dial the provider knows; report it rather than
+      // forwarding a parameter that means nothing.
+      delete next.think;
+    }
+  }
+  if (next.think !== undefined || next.enable_thinking !== undefined || next.reasoning_effort !== undefined) {
     // Normalize Ollama's boolean `think` into a dialect the upstream honours.
     //
     // `enable_thinking` is NOT universal: measured against ZenMux
@@ -284,12 +300,17 @@ export function sanitizeProviderRequestBody<T extends JsonObject>(
       next.thinking = { type: 'disabled' };
       delete next.enable_thinking;
     } else if (explicitOn) {
-      // Keep the caller's own parameter when they already used a rich shape.
-      if (next.think === true && next.enable_thinking === undefined && next.thinking === undefined) {
+      // Send the level we resolved from a `think` string, else keep the caller's rich shape.
+      // Only invent `enable_thinking` when no explicit effort was chosen, because a level is the
+      // more precise signal and adding a second key can make a provider ignore the first.
+      if (next.reasoning_effort === undefined
+        && next.think === true
+        && next.enable_thinking === undefined
+        && next.thinking === undefined) {
         next.enable_thinking = true;
       }
     }
   }
   delete next.think;
-  return next as T;
+    return next as T;
 }

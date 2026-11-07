@@ -24,6 +24,19 @@ export function chatCompletionToResponsesResponse(chatData: any, presentedModel:
         : '';
 
   const output: any[] = [];
+  // A Responses client (Codex) reads reasoning from its own output item, not from the message text
+  // and not from usage alone. The usage block already reported reasoning_tokens while output carried
+  // no reasoning item, so the client was told tokens were spent on reasoning it was never shown.
+  const reasoningText = String(
+    message.reasoning ?? message.reasoning_content ?? message.thinking ?? ''
+  );
+  if (reasoningText) {
+    output.push({
+      type: 'reasoning',
+      id: `rs_${chatData?.id || cryptoRandomId()}`,
+      summary: [{ type: 'summary_text', text: reasoningText }]
+    });
+  }
   if (text) {
     output.push({
       type: 'message',

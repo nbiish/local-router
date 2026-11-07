@@ -14,6 +14,7 @@
     "validate:cline-kilo": "node scripts/validate-cline-kilo-catalog.mjs",
     "verify:decisions": "node scripts/verify-decisions.mjs",
     "verify:dials": "node --test tests/reasoning-dial-advertisement.test.mjs tests/reasoning-ollama-wire.test.mjs",
+    "verify:wires": "node --test tests/reasoning-client-wires.test.mjs",
     "validate:model-specs": "node --import tsx scripts/validate-model-specs.mts",
     "start": "node build/index.js",
     "dev": "tsx watch src/index.ts",

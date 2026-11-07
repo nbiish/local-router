@@ -7844,6 +7844,17 @@ function chatCompletionToAnthropicResponse(chatData: any, requestedModel?: strin
   const message = choice.message || {};
   const content: any[] = [];
 
+  // Anthropic carries reasoning as a dedicated content block, and a Claude client renders thinking
+  // ONLY from a block whose type is "thinking". Reporting the reasoning text under a "text" block
+  // would put the model's scratchwork into the visible answer, and omitting it entirely (what this
+  // did) made a reasoning model look like it had none on the Anthropic wire.
+  const reasoningText = String(
+    message.reasoning ?? message.reasoning_content ?? message.thinking ?? ''
+  );
+  if (reasoningText) {
+    content.push({ type: 'thinking', thinking: reasoningText, signature: '' });
+  }
+
   if (message.content) {
     content.push({
       type: 'text',
@@ -8003,6 +8014,7 @@ app.post(['/v1/messages', '/messages'], async (req: Request, res: Response) => {
     let messageStarted = false;
     let contentBlockStarted = false;
     let toolBlockStarted = false;
+    let thinkingBlockStarted = false;
     let messageDeltaSent = false;
     let messageStopped = false;
     let openAiSseBuffer = '';
@@ -8037,6 +8049,14 @@ app.post(['/v1/messages', '/messages'], async (req: Request, res: Response) => {
     };
 
     const closeOpenBlocks = () => {
+      // A thinking block must be closed before the text block opens, because Anthropic streams
+      // index blocks in order and a client that sees text at index N then a delta at index N-1
+      // discards the late one.
+      if (thinkingBlockStarted) {
+        writeSse('content_block_stop', { type: 'content_block_stop', index: 0 });
+        thinkingBlockStarted = false;
+        textIndex = 1;
+      }
       if (!contentBlockStarted && !toolBlockStarted) return;
       writeSse('content_block_stop', { type: 'content_block_stop', index: textIndex });
       contentBlockStarted = false;
@@ -8085,7 +8105,34 @@ app.post(['/v1/messages', '/messages'], async (req: Request, res: Response) => {
           const delta = choice.delta || {};
           ensureMessageStart(data);
 
+          // Thinking first: Anthropic orders blocks, and a Claude client renders the thinking
+          // panel only from a "thinking_delta". Without this the model's reasoning was dropped on
+          // the streaming wire even though the non-streaming path could return it.
+          const deltaThinking = delta.reasoning ?? delta.reasoning_content ?? delta.thinking;
+          if (typeof deltaThinking === 'string' && deltaThinking) {
+            if (!thinkingBlockStarted) {
+              writeSse('content_block_start', {
+                type: 'content_block_start',
+                index: 0,
+                content_block: { type: 'thinking', thinking: '', signature: '' }
+              });
+              thinkingBlockStarted = true;
+              textIndex = 1;
+            }
+            writeSse('content_block_delta', {
+              type: 'content_block_delta',
+              index: 0,
+              delta: { type: 'thinking_delta', thinking: deltaThinking }
+            });
+          }
+
           if (delta.content) {
+            if (thinkingBlockStarted) {
+              // Close reasoning before the answer starts so the client stops attributing deltas to it.
+              writeSse('content_block_stop', { type: 'content_block_stop', index: 0 });
+              thinkingBlockStarted = false;
+              textIndex = contentBlockStarted ? textIndex : 1;
+            }
             if (!contentBlockStarted) {
               writeSse('content_block_start', {
                 type: 'content_block_start',
