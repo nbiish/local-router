@@ -2,7 +2,7 @@
 # /// script
 # requires-python = ">=3.12"
 # dependencies = [
-#     "cryptography>=45.0",
+#     "cryptography>=47.0",
 #     "kyber-py>=0.2.0",
 # ]
 # ///
@@ -206,7 +206,7 @@ def _delete_sandbox_keychain_entry() -> None:
 _PROBE_PEP723 = (
     "# /// script\n"
     "# requires-python = \">=3.12\"\n"
-    "# dependencies = [\"cryptography>=45.0\"]\n"
+    "# dependencies = [\"cryptography>=47.0\"]\n"
     "# ///\n"
 )
 

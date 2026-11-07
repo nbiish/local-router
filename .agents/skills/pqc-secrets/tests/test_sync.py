@@ -2,7 +2,7 @@
 # /// script
 # requires-python = ">=3.12"
 # dependencies = [
-#     "cryptography>=45.0",
+#     "cryptography>=47.0",
 #     "kyber-py>=0.2.0",
 # ]
 # ///

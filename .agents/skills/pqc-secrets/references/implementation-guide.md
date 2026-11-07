@@ -63,7 +63,7 @@ Deep dives: `cross-repo-key-sharing.md` (one bundle, many repos),
 
 | Engine | Path | Commands | When |
 |---|---|---|---|
-| **Python (canonical)** | `uv run .agents/skills/pqc-secrets/scripts/pqc_secrets.py` | keygen, pack, export, verify, list, rename, migrate, setup, version | Default everywhere; newest `cryptography>=45` native ML-KEM-768; FIPS 203 seed-form keygens; vault read-side parity (ML-KEM identity) |
+| **Python (canonical)** | `uv run .agents/skills/pqc-secrets/scripts/pqc_secrets.py` | keygen, pack, export, verify, list, rename, migrate, setup, version | Default everywhere; newest `cryptography>=47` native ML-KEM-768; FIPS 203 seed-form keygens; vault read-side parity (ML-KEM identity) |
 | **Rust fast-path** | `bin/pqc-secrets.darwin-arm64` (source `src/pqc-secrets/`, RustCrypto `ml-kem`/`ml-dsa`) | keygen, pack, export, issue, envelope, vault | darwin/arm64 speed path; v1.2.0 (2026-08-30) — vault-first issuance + tamper evidence |
 
 Both write the **identical double-envelope bundle JSON** (verified parity

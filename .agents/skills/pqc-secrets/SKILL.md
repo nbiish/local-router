@@ -149,7 +149,7 @@ The PQC secrets system consists of a dual-implementation architecture to ensure 
 
 | Surface | Engine | Coverage | Status |
 |---|---|---|---|
-| Linux / WSL / generic (Windows: Ubuntu/WSL terminal) | **Python** (`pyca/cryptography>=45`, native ML-KEM-768, FIPS 203 seed form) via `uv run` | keygen, pack, export, verify, **list**, **rename**, **sync**, migrate, setup, version | **Canonical** — resolves to the newest `cryptography` on first run |
+| Linux / WSL / generic (Windows: Ubuntu/WSL terminal) | **Python** (`pyca/cryptography>=47`, native ML-KEM-768, FIPS 203 seed form) via `uv run` | keygen, pack, export, verify, **list**, **rename**, **sync**, migrate, setup, version | **Canonical** — resolves to the newest `cryptography` on first run |
 | darwin/arm64 | **Python** (same engine, same path) | all commands | Canonical |
 | darwin/arm64 | Rust `bin/pqc-secrets.darwin-arm64` | keygen, pack, export only | **Fast-path**, v1.1.0 (2026-08-30) — seed-form + legacy expanded stores both supported |
 
@@ -166,7 +166,7 @@ via WSL). Every command is shell-generic POSIX; the canonical Python engine runs
 platforms, and the Rust binary is an optional darwin/arm64 fast-path, never required.
 OS keystore opt-ins: macOS Keychain, Linux Secret Service.
 
-2. **Python Fallback (Secondary):** A script at `.agents/skills/pqc-secrets/scripts/pqc_secrets.py` uses the **native ML-KEM-768** from `pyca/cryptography>=45` (`cryptography.hazmat.primitives.asymmetric.mlkem`) and writes the same **double-envelope** bundle JSON as the Rust engine (keywrap layer + AAD). Since 2026-08-20 new keygens store the private key in FIPS 203 **seed form** (64 bytes `d‖z`); older stores holding the 2400-byte expanded form remain readable via the retained `kyber-py` decapsulation fallback, which prints a rotation hint.
+2. **Python Fallback (Secondary):** A script at `.agents/skills/pqc-secrets/scripts/pqc_secrets.py` uses the **native ML-KEM-768** from `pyca/cryptography>=47` (`cryptography.hazmat.primitives.asymmetric.mlkem`) and writes the same **double-envelope** bundle JSON as the Rust engine (keywrap layer + AAD). Since 2026-08-20 new keygens store the private key in FIPS 203 **seed form** (64 bytes `d‖z`); older stores holding the 2400-byte expanded form remain readable via the retained `kyber-py` decapsulation fallback, which prints a rotation hint.
 
 > [!NOTE] Engine parity (verified 2026-08-30)
 > Since 2026-08-20 the Python engine writes the **identical double-envelope**
@@ -468,8 +468,8 @@ One PQC bundle at `~/.config/pqc-secrets/secrets.bundle.json` is the single sour
 - **Rust Primary Engine:** `fips203` crate v0.4.x (pure Rust, no `unsafe`, no C FFI; implements final FIPS 203 ML-KEM-768 with ACVP KATs). Since v1.1.0 (2026-08-30) seed-form (FIPS 203 `d‖z`) keygen and expansion use RustCrypto `ml-kem` 0.3 (`FromSeed`/`Decapsulate`): `keygen` stores hex seeds (Python-readable), `export` accepts hex-or-base64 keychain material and engine-JSON-or-hex public-key files, and a cross-impl interop test (fips203 encaps ↔ ml-kem decaps) runs in `cargo test`. Alternatives verified 2026-08: RustCrypto `ml-kem` crate (type-safe param sets, no FFI), Cryspen/libcrux `libcrux-ml-kem` (formally verified).
 - **Rust Primary Dependencies:** `security-framework` (macOS Keychain), `aes-gcm`, `serde`, `serde_json`, `sha3`.
 - **Vault (v1.2.0, 2026-08-30):** `argon2` 0.6 (Argon2id KEK), `ml-dsa` 0.1 (FIPS 204 ML-DSA-65 signatures + signed audit chain), `rpassword` 7.5 (passphrase prompt); `zeroize` on all seed/KEK intermediates. Private-key seeds are held only in `Zeroizing` memory and never printed — fingerprints (`sha3:<16 hex>`) only.
-- **Python Fallback Engine (migrated 2026-08-20):** native `cryptography>=45` ML-KEM-768 (`MLKEM768PrivateKey.generate()` / `from_seed_bytes()` / `MLKEM768PublicKey.encapsulate()`) for all keygen, encapsulation, and seed-form decapsulation. `kyber-py` is imported lazily and used **only** to decapsulate legacy 2400-byte expanded-form private-key stores (written by older keygens or the Rust engine); those prints advise rotating via `keygen` + re-pack. Bundle JSON layout is unchanged and interoperable with the Rust engine.
-- **Python Fallback Dependencies:** Managed inline via UV script metadata — `cryptography>=45.0` (primary engine) and `kyber-py>=0.2.0` (legacy expanded-key reads only), auto-resolved by `uv run`.
+- **Python Fallback Engine (migrated 2026-08-20):** native `cryptography>=47` ML-KEM-768 (`MLKEM768PrivateKey.generate()` / `from_seed_bytes()` / `MLKEM768PublicKey.encapsulate()`) for all keygen, encapsulation, and seed-form decapsulation. `kyber-py` is imported lazily and used **only** to decapsulate legacy 2400-byte expanded-form private-key stores (written by older keygens or the Rust engine); those prints advise rotating via `keygen` + re-pack. Bundle JSON layout is unchanged and interoperable with the Rust engine.
+- **Python Fallback Dependencies:** Managed inline via UV script metadata — `cryptography>=47.0` (primary engine) and `kyber-py>=0.2.0` (legacy expanded-key reads only), auto-resolved by `uv run`.
 
 ---
 

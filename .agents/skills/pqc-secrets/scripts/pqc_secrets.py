@@ -2,7 +2,14 @@
 # /// script
 # requires-python = ">=3.12"
 # dependencies = [
-#     "cryptography>=45.0",
+#     # cryptography>=47 is REQUIRED, not merely preferred: `asymmetric.mlkem`
+#     # (ML-KEM-768, FIPS 203) first appears in 47.0. The floor used to read
+#     # ">=45.0", which resolves to a cryptography WITHOUT mlkem, so the
+#     # module-level `from ... import mlkem` raised ImportError and EVERY
+#     # command died before argument parsing — `list`, `export`, `store` and
+#     # `verify` included. The failure surfaced as a bare traceback, so an
+#     # operator could not tell a missing dependency from a broken store.
+#     "cryptography>=47.0",
 #     # argon2-cffi is pinned for vault.pqc identity unwrapping (vault-first
 #     # export when a vault exists — Phase 1 parity with the Rust vault core).
 #     "argon2-cffi==25.1.0",
@@ -59,9 +66,36 @@ import uuid
 from pathlib import Path
 
 from cryptography.hazmat.primitives import hashes
-from cryptography.hazmat.primitives.asymmetric import mlkem as _native_mlkem
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
+
+# ML-KEM-768 (FIPS 203) is the store's key-encapsulation primitive, so without it every command —
+# including read-only ones like `list` and `store` — is unusable. Import it defensively and explain
+# the fix, because the bare ImportError named an internal module path and read like a corrupted
+# install rather than an out-of-date dependency.
+try:
+    from cryptography.hazmat.primitives.asymmetric import mlkem as _native_mlkem
+except ImportError as _mlkem_error:  # pragma: no cover - environment guard
+    import cryptography as _cryptography
+
+    _engine = Path(__file__).resolve()
+    sys.stderr.write(
+        "pqc-secrets: the installed 'cryptography' has no ML-KEM-768 support.\n"
+        f"  installed: cryptography {getattr(_cryptography, '__version__', 'unknown')}\n"
+        "  required:  cryptography >= 47.0 (asymmetric.mlkem first shipped in 47.0)\n"
+        "\n"
+        "Fix (recommended, uses this script's pinned dependencies):\n"
+        f"  uv run --script {_engine} --help\n"
+        "\n"
+        "Or install the floor directly:\n"
+        "  python3 -m pip install --upgrade 'cryptography>=47.0'\n"
+        "\n"
+        "If the dependency is installed for a different interpreter than the one running this\n"
+        f"script, note that the active interpreter is {sys.executable}\n"
+        f"(cryptography resolved from {Path(_cryptography.__file__).parent}).\n"
+        f"\nOriginal error: {_mlkem_error}\n"
+    )
+    raise SystemExit(78)  # EX_CONFIG
 
 # ML-KEM-768 private-key material lengths (FIPS 203):
 #   64 bytes   = seed form (d || z) — stored by this engine since 2026-08-20;

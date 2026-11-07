@@ -2,7 +2,7 @@
 # /// script
 # requires-python = ">=3.12"
 # dependencies = [
-#     "cryptography>=45.0",
+#     "cryptography>=47.0",
 #     "argon2-cffi==25.1.0",
 # ]
 # ///

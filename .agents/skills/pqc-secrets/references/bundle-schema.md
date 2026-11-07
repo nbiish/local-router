@@ -37,7 +37,7 @@ AES-256-GCM ciphertext wrapped by ML-KEM-768.
 |---|---|---|---|
 | `version` | integer | yes | Bundle format version. Currently `1`. |
 | `alg` | string | yes | Algorithm descriptor. `ML-KEM-768` for v1. |
-| `engine` | string | yes | Producing engine: `rust-fips203` (macOS Rust binary), `py-native-mlkem` (Python native `cryptography>=45`, since 2026-08-20), or `kyber-py` (historical, pre-migration bundles). All engines interoperate — the JSON layout is identical. |
+| `engine` | string | yes | Producing engine: `rust-fips203` (macOS Rust binary), `py-native-mlkem` (Python native `cryptography>=47`, since 2026-08-20), or `kyber-py` (historical, pre-migration bundles). All engines interoperate — the JSON layout is identical. |
 | `created_utc` | string | yes | ISO 8601 UTC timestamp with microseconds. |
 | `recipient` | object | yes | Public key fingerprint (see below). |
 | `kem` | object | yes | ML-KEM-768 encapsulation of the wrapped key. |
