@@ -114,6 +114,13 @@ The injection arrives inside `<CONTEXT_INJECTION>` markers as labelled sections:
 | `elephant` | Session-aware synthesis: what this working session already established and what that changes about the retrieval | Continuity hint. It may be stale; the files win. |
 | `goldfish` | A stateless reviewer's gaps, contradictions, and risks | Deliberately sees no session history. Treat its objections as candidates to check, not verdicts. |
 
+Elephant and Goldfish are **two separate model calls**, and by default two **different** models: the
+drafter runs the chain's head step and the reviewer starts on a later step, preferring a different
+transport, so the reviewer is not the drafter's own model agreeing with itself. A `pair:` comment in
+the envelope names both and says whether they were distinct. Pin them per role when you want a
+specific split: `--elephant-model <id>` / `--goldfish-model <id>`, or the same values in
+`AINISH_RAG_ELEPHANT_MODEL` / `AINISH_RAG_GOLDFISH_MODEL`.
+
 Orientation runs even when the route decides retrieval is unnecessary, because branch and tree state
 are true regardless of what the task needs. The other three degrade in a fixed order under budget
 pressure — retrieved tail, then Goldfish, then Elephant, and orientation last, since it is the
