@@ -65,3 +65,21 @@ description: Agent Communication System protocol template. Deployed by `ainish-c
 - blockers:none. StarNet caches its model catalog at boot, so it needs a restart to observe the new capabilities.
 - compat:No CLI or schema break. Response bodies now include reasoning text where they previously omitted it; signatures and redacted_thinking are still stripped.
 - provenance:branch=main commit=785b9a3 (local-router), bb502d3 (ainish-coder)
+
+### [2026-11-07T21:20:00Z] FIX | branch:main | wt:D:\Code\local-router
+- start:2026-11-07T20:36:00Z
+- end:2026-11-07T21:20:00Z
+- scope:src/index.ts, tests/embedding-caps-advertisement.test.mjs
+- objective:After an operator reboot, confirm the reasoning work actually holds for the models agents use, and close the remaining gap.
+- input:"I've restarted the whole machine. Let's proceed."
+- post-reboot:the router self-started via the systemd user unit and linger (PID 679 owned 11434). One orphan process (952) was cleaned up. The build contained both earlier fixes; ZenMux deepseek verified reasoning=true, thinking returned 136 chars, embeddings 3/3 ready.
+- finding-1 (the real root cause of the original report):OpenRouter's copy of the same model still advertised reasoning=false. Root cause was NOT discovery. effectiveProviderModels prefers modelStore (provider-models.json overrides) over the endpoint cache, and a refresh only wrote the cache, so a 538-row OpenRouter override block written before the discovery fix shadowed the corrected cache forever. Every earlier capability fix was correct and invisible through /v1/models.
+- fix-1:mergeProviderEndpointModels now calls reconcileOverrideMetadataFromCache, copying the fields discovery answers for (context/output limits, capability booleans) into matching overrides and persisting. Only upgrades a capability to true and only takes a positive limit, so a stale override cannot erase live truth and nothing is invented for models the refresh did not return.
+- fix-2:discovery now reads the OpenRouter shape at all — reasoning from supported_parameters (reasoning / reasoning_effort), vision from architecture.input_modalities. Without this the reconcile would copy false.
+- verification-live:openrouter-deepseek-v4.1-flash-1017 went reasoning=false/imageInput=false -> reasoning=true/imageInput=true, max_output_tokens 393216; provider-models.json now persists supportsReasoning=true so a restart cannot resurrect the stale value. ZenMux variant unchanged at reasoning=true.
+- verification-test:new case seeds a stale override, asserts the shadow reproduces BEFORE a refresh, then asserts both the served entry and the persisted override are corrected. The persisted-file assertion was verified to fail when the reconcile call is removed and pass when restored — the earlier version of this test passed under mutation because the served view has a second corrector, which is recorded in the test as an explicit scope note.
+- verification-suites:247 tests, 245 pass; the 2 failures reproduce at origin/main 42ea5f9.
+- status:merged
+- blockers:none.
+- compat:No CLI or schema break. Override rows may gain capability true flags and corrected limits after a refresh; no field is removed.
+- provenance:branch=main commit=01b9a45
