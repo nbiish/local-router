@@ -321,6 +321,8 @@ The `LOCAL_ROUTER_DEV` flag enables:
 | `npm run build:watch` | Watch TypeScript files and recompile on change |
 | `npm run test:integration` | Run integration test suite |
 | `npm run test` | Alias for test:integration |
+| `npm run review:build` | Regenerate the work-review site data (`build/review-site/`) |
+| `npm run review:site` | Generate and serve the work-review site at `http://127.0.0.1:8777/` |
 | `npm run cli -- start` | Start the built server via CLI |
 
 ### Running Alongside Production Ollama
