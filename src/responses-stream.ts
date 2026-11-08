@@ -128,6 +128,16 @@ export function createResponsesFakeResponse(options: {
   let inputTokens = 0;
   let outputTokens = 0;
   let finishReason = '';
+  // Tool calls stream in as fragments keyed by index. A Responses client reads
+  // each one as its own `function_call` output item — an event name of our own
+  // invention (`response.output_tool_call.arguments.delta`) is not in the
+  // Responses vocabulary, so Codex silently dropped every tool call and hung
+  // waiting for an item that never arrived.
+  const toolCalls = new Map<number, { id: string; callId: string; name: string; args: string; added: boolean }>();
+  // The assistant message owns output_index 0 and tool calls follow it, so an
+  // index is fixed at the moment an item is announced and its deltas always
+  // address the same slot.
+  const toolIndex = (position: number) => position + 1;
 
   const finish = () => {
     onFinished?.();
@@ -159,9 +169,12 @@ export function createResponsesFakeResponse(options: {
     const choice = data?.choices?.[0] || {};
     const delta = choice.delta || {};
     if (choice.finish_reason) finishReason = String(choice.finish_reason);
-    ensureItem(delta.role);
 
     if (typeof delta.content === 'string' && delta.content.length > 0) {
+      // Announced here rather than on a role-only delta: an item that is
+      // `added` and never `done` leaves the client waiting for its completion,
+      // which is exactly the hang this shim used to cause.
+      ensureItem(delta.role);
       text += delta.content;
       emit({
         type: 'response.output_text.delta',
@@ -173,44 +186,118 @@ export function createResponsesFakeResponse(options: {
     }
 
     if (Array.isArray(delta.tool_calls) && delta.tool_calls.length > 0) {
-      for (const tc of delta.tool_calls) {
-        emit({
-          type: 'response.output_tool_call.arguments.delta',
-          response_id: responseId,
-          item_id: tc.id || `call_${cryptoRandomId()}`,
-          delta: tc.function?.arguments || ''
-        });
+      for (let position = 0; position < delta.tool_calls.length; position += 1) {
+        const tc = delta.tool_calls[position] || {};
+        const index = typeof tc.index === 'number' ? tc.index : position;
+        let entry = toolCalls.get(index);
+        if (!entry) {
+          entry = {
+            id: `fc_${cryptoRandomId()}`,
+            callId: tc.id || `call_${cryptoRandomId()}`,
+            name: tc.function?.name || '',
+            args: '',
+            added: false
+          };
+          toolCalls.set(index, entry);
+        }
+        if (tc.function?.name) entry.name = tc.function.name;
+        // OpenAI streams the call id on the first fragment only; keep the first
+        // one we see so the emitted function_call item and its deltas agree.
+        if (tc.id && !entry.added) entry.callId = tc.id;
+
+        if (!entry.added) {
+          entry.added = true;
+          emit({
+            type: 'response.output_item.added',
+            response_id: responseId,
+            output_index: toolIndex(index),
+            item: {
+              id: entry.id,
+              type: 'function_call',
+              status: 'in_progress',
+              call_id: entry.callId,
+              name: entry.name,
+              arguments: ''
+            }
+          });
+        }
+
+        const fragment = typeof tc.function?.arguments === 'string' ? tc.function.arguments : '';
+        if (fragment) {
+          entry.args += fragment;
+          emit({
+            type: 'response.function_call_arguments.delta',
+            response_id: responseId,
+            item_id: entry.id,
+            output_index: toolIndex(index),
+            delta: fragment
+          });
+        }
       }
     }
   };
 
   const finalize = () => {
-    ensureItem('assistant');
     const status = finishReason === 'length' ? 'incomplete' : 'completed';
     const content = [{ type: 'output_text', text, annotations: [] }];
 
     // Codex reads the terminal item/response content, not just the deltas: an
     // empty `output_text` here shows the turn as successful with no answer.
-    emit({
-      type: 'response.output_text.done',
-      response_id: responseId,
-      item_id: outputItemMsgId,
-      output_index: 0,
-      content_index: 0,
-      text
-    });
-    emit({
-      type: 'response.output_item.done',
-      response_id: responseId,
-      output_index: 0,
-      item: {
+    // With tool calls present the text item is only emitted when it carries
+    // content, so the terminal output stays in the order it streamed.
+    const output: any[] = [];
+    if (text) {
+      emit({
+        type: 'response.output_text.done',
+        response_id: responseId,
+        item_id: outputItemMsgId,
+        output_index: 0,
+        content_index: 0,
+        text
+      });
+      const messageItem = {
         id: outputItemMsgId,
         type: 'message',
         status,
         role: 'assistant',
         content
-      }
-    });
+      };
+      emit({
+        type: 'response.output_item.done',
+        response_id: responseId,
+        output_index: 0,
+        item: messageItem
+      });
+      output.push(messageItem);
+    }
+
+    const orderedTools = [...toolCalls.entries()].sort((a, b) => a[0] - b[0]);
+    for (const [position, entry] of orderedTools) {
+      const index = toolIndex(position);
+      emit({
+        type: 'response.function_call_arguments.done',
+        response_id: responseId,
+        item_id: entry.id,
+        output_index: index,
+        arguments: entry.args
+      });
+      const callItem = {
+        id: entry.id,
+        type: 'function_call',
+        status,
+        call_id: entry.callId,
+        name: entry.name,
+        arguments: entry.args
+      };
+      emit({
+        type: 'response.output_item.done',
+        response_id: responseId,
+        output_index: index,
+        item: callItem
+      });
+      output.push(callItem);
+    }
+
     emit({
       type: 'response.completed',
       response: {
@@ -220,13 +307,7 @@ export function createResponsesFakeResponse(options: {
         model: modelId,
         status,
         incomplete_details: status === 'incomplete' ? { reason: 'max_output_tokens' } : null,
-        output: [{
-          id: outputItemMsgId,
-          type: 'message',
-          role: 'assistant',
-          status,
-          content
-        }],
+        output,
         usage: {
           input_tokens: inputTokens,
           output_tokens: outputTokens,

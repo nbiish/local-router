@@ -8276,7 +8276,7 @@ app.post(['/v1/messages', '/messages'], async (req: Request, res: Response) => {
 // =====================================================================
 
 type ResponsesInputItem =
-  | { type?: string; role?: 'system' | 'developer' | 'user' | 'assistant'; content: any }
+  | { type?: string; role?: 'system' | 'developer' | 'user' | 'assistant'; content?: any; [key: string]: any }
   | string;
 
 function responsesInputToMessages(input: any, instructions?: string): any[] {
@@ -8302,6 +8302,40 @@ function responsesInputToMessages(input: any, instructions?: string): any[] {
       continue;
     }
     if (!item || typeof item !== 'object') continue;
+
+    // Codex replays its own turns as typed items. Chat-completions has no such
+    // items: a function call becomes an assistant `tool_calls` entry and its
+    // output becomes a `tool` message keyed by `tool_call_id`. Falling through
+    // to the role branch below used to append them as empty user messages, so
+    // the model never saw the tool result and re-issued the same call forever.
+    if (item.type === 'function_call') {
+      const call = item as any;
+      messages.push({
+        role: 'assistant',
+        content: '',
+        tool_calls: [{
+          id: call.call_id || call.id,
+          type: 'function',
+          function: {
+            name: call.name,
+            arguments: typeof call.arguments === 'string'
+              ? call.arguments
+              : JSON.stringify(call.arguments ?? {})
+          }
+        }]
+      });
+      continue;
+    }
+
+    if (item.type === 'function_call_output') {
+      const result = item as any;
+      messages.push({
+        role: 'tool',
+        tool_call_id: result.call_id,
+        content: typeof result.output === 'string' ? result.output : JSON.stringify(result.output ?? '')
+      });
+      continue;
+    }
 
     // Map developer/system to system, preserve user/assistant
     let role = item.role;
@@ -8347,6 +8381,22 @@ function responsesInputToMessages(input: any, instructions?: string): any[] {
   return messages;
 }
 
+function flattenResponsesTool(tool: any, namespacePrefix?: string): any {
+  if (!tool || typeof tool !== 'object') return null;
+  // Already in chat-completions shape — pass through untouched.
+  if (tool.type === 'function' && tool.function && typeof tool.function === 'object') return tool;
+  if (tool.type !== 'function' || typeof tool.name !== 'string' || !tool.name.trim()) return null;
+  const name = namespacePrefix ? `${namespacePrefix}__${tool.name}` : tool.name;
+  return {
+    type: 'function',
+    function: {
+      name,
+      description: tool.description || '',
+      parameters: tool.parameters || { type: 'object', properties: {} }
+    }
+  };
+}
+
 function translateResponsesRequestToChatBody(body: any): any {
   const translated: any = {};
 
@@ -8362,9 +8412,27 @@ function translateResponsesRequestToChatBody(body: any): any {
   if (Array.isArray(body.stop) || typeof body.stop === 'string') translated.stop = body.stop;
   if (body.metadata != null) translated.metadata = body.metadata;
 
-  // Tools: Responses API tools[] shape is the same as chat-completions tools[]
-  // (function name + description + parameters), so we can pass them through.
-  if (Array.isArray(body.tools)) translated.tools = body.tools;
+  // Tools: the Responses API declares a function tool flat
+  // ({type:'function', name, parameters}); chat-completions nests the same
+  // fields under `function`. Forwarded verbatim, an upstream rejects or
+  // ignores every tool and Codex appears to hang. Non-function tool types
+  // (web_search, namespace, ...) have no chat-completions equivalent and are
+  // dropped rather than sent as something no provider understands.
+  if (Array.isArray(body.tools)) {
+    const tools = body.tools
+      .filter((tool: any) => tool && typeof tool === 'object')
+      .map((tool: any) => {
+        if (tool.type === 'namespace' && Array.isArray(tool.tools)) {
+          // Codex groups tools under a namespace; flatten to plain functions so
+          // sub-agent tools stay reachable instead of vanishing with the group.
+          return tool.tools.map((inner: any) => flattenResponsesTool(inner, tool.name));
+        }
+        return [flattenResponsesTool(tool)];
+      })
+      .flat()
+      .filter((tool: any) => Boolean(tool));
+    if (tools.length > 0) translated.tools = tools;
+  }
   if (body.tool_choice != null) translated.tool_choice = body.tool_choice;
   if (body.stream != null) translated.stream = Boolean(body.stream);
 
