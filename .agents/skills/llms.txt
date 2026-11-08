@@ -1,0 +1,26 @@
+# `.agents/skills/` — On-Demand Workflow Contract
+
+## Purpose
+
+Skills are progressive-loaded procedures. Discovery metadata stays short; detailed references and scripts load only when the skill is selected.
+
+## Selection
+
+- Context, planning, checkpoints, and handoffs are handled by `ainish-rag context` (see `AGENTS.md` `<CONTEXT_INJECTION>`) rather than by a skill: the `orientation` section gathers branch, worktree, tree state, COMMS, and the task record in code, and the `goldfish` section is the stateless reviewer. The former `context-orchestration` skill is retired.
+- Use the built-in `ainish-security` context for security, prompt-injection, tool, RAG, and production controls. It is mandatory and deployed by `--rules`.
+- Use `typesafe-jev` for calibrated routing, reranking, faithfulness, and retrieval decisions.
+- Use `pqc-secrets` for secret storage and signing operations; security policy is already compiled into `ainish-security`. It is mandatory and deployed by `--rules`.
+- Use `wtf-is-going-on-mcp` when work spans machines: it records who is doing what, carries encrypted messages between peer agents, and dispatches addressable work to a paired machine's own tooling and keys (`task_*`). It records; Herdr runs the sessions.
+- Use domain skills only when their trigger matches; do not load every skill for every task.
+
+## Shared invariants
+
+Every skill must define a bounded procedure, explicit stop conditions, verification, and references relative to its own directory. Skills never store secrets, silently downgrade errors, or mutate shared ledgers on behalf of a subagent.
+
+## Child DOX index
+
+- [`ainish-security/`](./ainish-security/) — the single security contract: code, AI/agentic, secrets, PQC, supply chain, governance. Mandatory.
+- [`pqc-secrets/`](./pqc-secrets/) — secret operations and ML-DSA-65 signing. Mandatory.
+- [`typesafe-jev/`](./typesafe-jev/) — typed decision contract.
+- [`wtf-is-going-on-mcp/`](./wtf-is-going-on-mcp/) — cross-machine agent record, messaging, and task dispatch.
+- [`../templates/egm-design.md`](../templates/egm-design.md) — optional written design artifact; no longer a required gate.

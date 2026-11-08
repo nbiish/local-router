@@ -124,12 +124,26 @@ anything.
 |---|---|
 | Args | `[--json]` |
 | Exit codes | 0 always (an unreadable bundle is reported, not raised) |
-| Stdout | `store`, `source` (`env` / `host-interop` / `home` / `isolated`), `platform` (`wsl` / `win32` / `darwin` / `linux`), `bundle`, `bundleExists`, `keys`, `keyCount`, `isolated`, `explicitEnv` |
+| Stdout | `store`, `source` (`env` / `host-interop` / `home` / `isolated`), `platform` (`wsl` / `win32` / `darwin` / `linux`), `bundle`, `bundleExists`, `keys`, `keyCount`, `isolated`, `explicitEnv`, `otherStores` (every other candidate store with a key count), `shadowedStores` (only when a second store cannot be read here) |
 
-Resolution order: `PQC_CONFIG_DIR` → `PQC_SECRETS_DIR` → host-interop
-(WSL reads the Windows host store; Windows falls back to a WSL store only when
-it has no local bundle) → `~/.config/pqc-secrets`. `PQC_STORE_ISOLATED=1`
-disables interop.
+Resolution order: `PQC_CONFIG_DIR` → `PQC_SECRETS_DIR` → **the local
+`~/.config/pqc-secrets` when it holds keys** → host-interop (the Windows host
+store from WSL, or a WSL store from Windows) → `~/.config/pqc-secrets`.
+`PQC_STORE_ISOLATED=1` disables interop entirely.
+
+Precedence is **by keys, not existence** (2026-11-08). Both stores existing does
+not mean either is the right one: on the reference machine the Windows store held
+a single test fixture while the WSL store held 24 provider keys, and
+existence-only precedence picked the fixture. That made `pack` write into a
+store the router treated as secondary and made `list`/`export` show one key
+beside a router reading twenty-four — indistinguishable from "my keys are not
+persisting". A store wins only when it holds keys, and between two that do, the
+fuller one wins. A store whose identity differs (a separate keypair) cannot be
+decrypted here and reports `keyCount: 0` rather than a number it never verified.
+
+When more than one store exists, `store` lists the others and says which one is
+selected. A key written to the non-selected store is not lost, but nothing will
+read it until it is copied across with `pqc-secrets sync`.
 
 ### `pqc-secrets export`
 

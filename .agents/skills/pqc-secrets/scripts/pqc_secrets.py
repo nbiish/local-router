@@ -235,12 +235,63 @@ def _windows_wsl_store() -> Path | None:
     return None
 
 
+def _store_key_count(path: Path) -> int:
+    """How many secrets a store's bundle holds, or 0 when it cannot be read.
+
+    The bundle is encrypted, so counting means decrypting that store's own
+    private key and payload. This is deliberately best-effort and never raises:
+    a store whose key will not load (wrong identity, a stale Windows key, a
+    copy taken from another machine) cannot claim precedence, and the caller
+    falls through to the next candidate instead of dying during import.
+
+    Runs at import time, so it must stay cheap: it reads two small files and
+    does one ML-KEM decapsulation per candidate store.
+    """
+    bundle_path = path / "secrets.bundle.json"
+    key_path = path / "private.key.enc"
+    kek_path = path / "machine.kek"
+    if not bundle_path.is_file():
+        return 0
+    try:
+        bundle = json.loads(bundle_path.read_text(encoding="utf-8"))
+        # A vault-backed store keeps its identity in vault.pqc; that read path is
+        # passphrase-gated, so such a store is treated as readable-but-unknown
+        # and only claims precedence on the existence of a bundle.
+        if (path / "vault.pqc").is_file():
+            return 1
+        if not (key_path.is_file() and kek_path.is_file()):
+            return 0
+        payload = json.loads(key_path.read_text(encoding="utf-8"))
+        nonce = base64.b64decode(payload["nonce_b64"])
+        ciphertext = base64.b64decode(payload["ciphertext_b64"])
+        kek = kek_path.read_bytes()
+        sk = AESGCM(kek).decrypt(nonce, ciphertext, b"pqc-secrets:v1:private-key")
+        decrypted = _decrypt_bundle(bundle, sk)
+        entries = decrypted.get("secrets", decrypted) if isinstance(decrypted, dict) else {}
+        return len(entries) if isinstance(entries, dict) else 0
+    except Exception:
+        return 0
+
+
 def resolve_store() -> tuple[Path, str]:
     """Resolve the ONE store every tool on this machine should share.
 
     Order: explicit env (PQC_CONFIG_DIR, then the contract's PQC_SECRETS_DIR
-    alias) → host-interop store (WSL reads the Windows host store; Windows
-    falls back to a WSL store only when it has no local bundle) → ~/.config.
+    alias) → the local ~/.config store → host-interop store → ~/.config.
+
+    Precedence rule (2026-11-08): a store is only a candidate for "the" store
+    when it holds keys, and between two that both do, the fuller one wins. Before
+    this, WSL returned the Windows host store merely because it EXISTED. On the
+    reference machine that store held a single key while the local one held 24,
+    so `pqc-secrets pack` (the documented way to add a key) wrote to a 1-key
+    bundle the router did not treat as primary, and `pqc-secrets list` showed one
+    key next to a router reading twenty-four. That reads as "keys are not
+    persisting" and it is not survivable by any single-tool fix.
+
+    Host interop is preserved, not removed: when the local store is empty the
+    Windows store is still used, so a Windows-managed identity keeps working. The
+    difference is that an empty store no longer outranks a populated one.
+
     PQC_STORE_ISOLATED=1 keeps per-environment stores and skips interop, which
     is the escape hatch for intentionally separate identities.
     """
@@ -250,18 +301,28 @@ def resolve_store() -> tuple[Path, str]:
     local = Path.home() / ".config" / "pqc-secrets"
     if os.environ.get("PQC_STORE_ISOLATED") == "1":
         return local, "isolated"
+
+    local_has_bundle = _store_has_bundle(local)
+    local_keys = _store_key_count(local) if local_has_bundle else 0
+
+    def _prefer_host(host: Path | None) -> tuple[Path, str] | None:
+        """Host store beats local only when it actually holds more keys."""
+        if host is None:
+            return None
+        host_keys = _store_key_count(host)
+        if not local_has_bundle or host_keys > local_keys:
+            return host, "host-interop"
+        return None
+
     if _is_wsl():
-        host = _wsl_windows_store()
-        if host is not None:
-            return host, "host-interop"
-        return local, "home"
-    if os.name == "nt":
-        if _store_has_bundle(local):
+        # A populated local store is the answer; interop only fills an empty one.
+        if local_has_bundle and local_keys > 0:
             return local, "home"
-        host = _windows_wsl_store()
-        if host is not None:
-            return host, "host-interop"
-        return local, "home"
+        return _prefer_host(_wsl_windows_store()) or (local, "home")
+    if os.name == "nt":
+        if local_has_bundle and local_keys > 0:
+            return local, "home"
+        return _prefer_host(_windows_wsl_store()) or (local, "home")
     return local, "home"
 
 
@@ -1314,11 +1375,55 @@ def cmd_list(argv: list[str] | None = None) -> None:
         print(f"  {name}")
 
 
+def _other_store_candidates() -> list[dict]:
+    """Every other store this platform could have used, with what it holds.
+
+    Divergence visibility (2026-11-08): `store` used to report only the winner.
+    When a second store exists — the WSL<->Windows pair is the common case — an
+    operator needs to see it, because a key written to the loser looks like it
+    vanished. Each entry is name-of-store plus a key COUNT only; no values are
+    read out and none are printed.
+    """
+    seen = {str(CONFIG_DIR)}
+    out: list[dict] = []
+    local = Path.home() / ".config" / "pqc-secrets"
+    candidates: list[Path] = []
+    if _is_wsl():
+        host = _wsl_windows_store()
+        if host is not None:
+            candidates.append(host)
+        candidates.append(local)
+    elif os.name == "nt":
+        candidates.append(local)
+        wsl = _windows_wsl_store()
+        if wsl is not None:
+            candidates.append(wsl)
+    else:
+        candidates.append(local)
+
+    for path in candidates:
+        key = str(path)
+        if key in seen:
+            continue
+        seen.add(key)
+        has_bundle = _store_has_bundle(path)
+        out.append({
+            "store": key,
+            "bundleExists": has_bundle,
+            # A foreign-identity store cannot be decrypted here, so it honestly
+            # reports 0 rather than a number it did not verify.
+            "keyCount": _store_key_count(path) if has_bundle else 0,
+            "usable": _store_key_count(path) > 0 if has_bundle else False,
+        })
+    return out
+
+
 def cmd_store(argv: list[str] | None = None) -> None:
     """Report which store this process resolves — the cross-platform anchor.
 
-    Answers "am I reading the same bundle as the other shell/OS?" without
-    decrypting anything. `--json` for tooling.
+    Answers "am I reading the same bundle as the other shell/OS?" `--json` for
+    tooling. Also reports any OTHER store on this machine and whether it holds
+    keys, so a split between environments is visible instead of silent.
     """
     as_json = "--json" in list(argv or [])
     bundle_exists = BUNDLE_PATH.exists()
@@ -1331,6 +1436,10 @@ def cmd_store(argv: list[str] | None = None) -> None:
             raise
         except Exception as exc:  # corrupt bundle must not break `store`
             read_error = str(exc)
+    others = _other_store_candidates()
+    # A second store that exists but cannot be read is the exact shape of the
+    # WSL/Windows split: name it explicitly so nobody has to infer it.
+    shadowed = [o for o in others if o["bundleExists"] and not o["usable"]]
     payload = {
         "store": str(CONFIG_DIR),
         "source": STORE_SOURCE,
@@ -1341,7 +1450,11 @@ def cmd_store(argv: list[str] | None = None) -> None:
         "keyCount": len(names),
         "isolated": os.environ.get("PQC_STORE_ISOLATED") == "1",
         "explicitEnv": bool(os.environ.get("PQC_CONFIG_DIR") or os.environ.get("PQC_SECRETS_DIR")),
+        "otherStores": others,
     }
+    # Present only when something is worth the operator's attention.
+    if shadowed:
+        payload["shadowedStores"] = shadowed
     if read_error:
         payload["readError"] = read_error
     if as_json:
@@ -1354,6 +1467,27 @@ def cmd_store(argv: list[str] | None = None) -> None:
     print(f"keys:       {len(names) if not read_error else 'unreadable'}")
     if names:
         print(f"names:      {', '.join(names)}")
+    # Divergence is the operator-facing half of this command: a second store on
+    # this machine that holds keys looks to the user like "my keys vanished"
+    # when the CLI writes there, so name it and say which one won.
+    if others:
+        print("also found: ")
+        for other in others:
+            if other["bundleExists"]:
+                state = (
+                    f"{other['keyCount']} key(s), not selected"
+                    if other["usable"]
+                    else "present but unreadable here (different identity)"
+                )
+                print(f"            {other['store']}  —  {state}")
+            else:
+                print(f"            {other['store']}  —  no bundle")
+        if shadowed:
+            print(
+                "            ^ this machine has more than one store. A key written with "
+                "'pqc-secrets pack' goes to the one above; copy it with "
+                "'pqc-secrets sync' if the other is the one you meant."
+            )
     print(
         "hint:       explicit PQC_CONFIG_DIR/PQC_SECRETS_DIR wins; "
         "PQC_STORE_ISOLATED=1 keeps per-environment stores"

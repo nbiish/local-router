@@ -258,6 +258,15 @@ class VaultParityExport(SandboxedTestCase):
 class VaultFileShape(SandboxedTestCase):
     """Structural checks on the vault file itself (no key material asserted)."""
 
+    # vault.pqc is written by the Rust engine only, and the vendored binary is
+    # darwin/arm64. Without this guard the test tries to exec a Mach-O file on
+    # Linux and fails with `OSError: Exec format error` — a green-looking suite
+    # on macOS and a red one everywhere else, for a reason that says nothing
+    # about the Python engine this repo actually runs.
+    @unittest.skipUnless(
+        sys.platform == "darwin" and platform.machine() == "arm64" and RUST_BIN.is_file(),
+        "vault.pqc is written by the darwin/arm64 Rust engine, which cannot run here",
+    )
     def test_vault_file_is_0600_json_with_expected_keys(self):
         VaultSetup.ensure()
         vault_path = Path(_TMP_DIR) / "vault.pqc"

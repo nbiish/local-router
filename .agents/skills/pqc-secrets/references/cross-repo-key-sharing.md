@@ -50,7 +50,7 @@ ainish-coder --pqc-sync-targets --all      # refresh enrolled repos' vendored en
 
 | Question | Command | What it proves |
 |---|---|---|
-| Does *this* tool see the store? | `pqc-secrets store --json` | resolved path, `source` (`home`, `host-interop`, `isolated`, `env`), bundle presence, key names |
+| Does *this* tool see the store? | `pqc-secrets store --json` | resolved path, `source` (`home`, `host-interop`, `isolated`, `env`), bundle presence, key names, `otherStores` (any second store and its key count) |
 | Is the launcher installed here? | `ainish-coder --pqc-status --json` → `launcher` | path, `installed`, `onPath` |
 | Does Windows see the WSL store? | `--pqc-status` → `wsl` | `store` + `source` from the WSL engine |
 | Is every repo current? | `--pqc-status` → `targets[]` | `current`/`stale`/`missing` + per-repo selection |

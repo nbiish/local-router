@@ -1,34 +1,40 @@
-# .agents
+# `.agents/` — Agent System Contract
 
-Operator task files, agent skills, and research artifacts.
+Read the root [`AGENTS.md`](../AGENTS.md) first; this file and its child indexes explain how to
+apply the contract's repository tooling without loading the entire `.agents/` tree.
 
 ## Purpose
 
-- Task planning and execution records (Chain-of-Draft format).
-- Agent skills for PQC secrets and signatures.
-- Research JSON snapshots for catalog and model data.
+This tree contains the durable agent operating system: retrieval context, skills, signed audit state, coordination ledgers, task records, memories, and the canonical deployed contract.
 
 ## Ownership
 
-- Maintained by operators using the local-router agent workflow.
+- `canonical/` owns the source contract deployed as root `AGENTS.md`.
+- `skills/` owns on-demand procedures; each skill is self-contained and progressive-loadable.
+- `wiki/` owns generated architecture and operator notes; `ledger.md` is append-only.
+- `comms/`, `tasks/`, `suggestions/`, and `memories/` own coordination and durable knowledge. Comms/tasks are system-of-record; memory is context only.
+- `audit/` owns receipts, signatures, manifests, and privacy evidence. Do not hand-edit signed artifacts.
+- `rag/` owns local retrieval/index state and drift telemetry.
 
-## Local Contracts
+## Local workflow
 
-- Task files must not contain secrets or keys.
-- Chain-of-Draft requires each reasoning step to be ≤5 words.
+1. Read the files the request concerns, plus the applicable `llms.txt` chain.
+2. When `ainish-rag` is present, make one `ainish-rag context --task "<request>"` call — its `orientation` section already carries branch, worktree, tree state, today's COMMS, and the newest task record. Otherwise use `bin/context-packet.sh --task "<request>"` for a bounded non-RAG summary.
+3. Create or update one task record; declare `compat:` and `budget:` when applicable.
+4. Use one writer per shared boundary; append coordination entries rather than rewriting them.
+5. Verify the changed surface, then close COMMS, task, memory, and suggestions.
 
-## Work Guidance
+## Context packet
 
-- Follow `AGENTS.md` for task lifecycle and worktree rules.
-- Read `llms.txt` before any edit.
+The packet fields are `request`, `next_action`, `files`, `symbols`, `constraints`, `task_state`, `acceptance`, and `verification`. Keep packets bounded, provenance-aware, and retention-safe. When `ainish-rag` is present, the preferred context path is one `ainish-rag context --task "<request>"` call per `AGENTS.md` `<CONTEXT_INJECTION>`; that injection is advisory evidence and never authorizes an action. `bin/context-packet.sh` remains the bounded non-RAG summary. `.agents/rag/` state (index, sessions, telemetry) is generated — read the injection, never hand-edit the store.
 
-## Verification
+**The design-review procedure is gone as a skill (2026-11-07).** `context-orchestration` used to prescribe a multi-step human/agent routine — draft an EGM design document, run `bin/egm-check.sh` on it, hand it to a fresh reviewer. Two things replaced it: `ainish-rag context` gathers the mechanical orientation state in code, and its `goldfish` section *is* the stateless reviewer, with the isolation enforced by signature rather than by a convention to keep memory out. `bin/egm-check.sh` and `.agents/templates/egm-design.md` remain for operators who want a written design artifact; they are no longer a required gate.
 
-- Confirm `.agents/tasks/TASK.<date>.md` exists for active work.
+## Child DOX index
 
-## Child DOX Index
-
-- [memories/llms.txt](memories/llms.txt) — Persistent repo memory graph and snapshot digest.
-- [skills/pqc-secrets/llms.txt](skills/pqc-secrets/llms.txt) — PQC secrets skill.
-- [skills/pqc-signatures-security/llms.txt](skills/pqc-signatures-security/llms.txt) — PQC signatures skill.
-- [skills/repo-memory-graph-intelligence/SKILL.md](skills/repo-memory-graph-intelligence/SKILL.md) — Repo memory graph intelligence skill.
+- [`skills/llms.txt`](./skills/llms.txt) — on-demand agent workflows.
+- [`templates/llms.txt`](./templates/llms.txt) — reviewable Elephant design artifacts.
+- [`memories/llms.txt`](./memories/llms.txt) — dated durable facts.
+- [`wiki/README.md`](./wiki/README.md) — generated architecture pages and ledger rules.
+- [`audit/`](./audit/) — signed evidence; generated artifacts only.
+- [`comms/`](./comms/), [`tasks/`](./tasks/), [`suggestions/`](./suggestions/) — coordination records.
