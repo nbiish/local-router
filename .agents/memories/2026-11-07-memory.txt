@@ -1,0 +1,2 @@
+- 20:10 Work-review site landed for this repo: `scripts/review-site/` (generator + loopback static server + dependency-free app) over the COMMS ledgers, git history, tasks, memories, suggestions, research, and docs. `npm run review:site` generates `build/review-site/` and serves http://127.0.0.1:8777/.
+- 20:10 Ledger parser handles all three historical COMMS entry formats (old `- id:` with `>` block scalars, mid `[ts] agent event`, current `### [ts] EVENT | branch: | wt:`); the `<PROTOCOL>` block is stripped before parsing so its example header cannot become a fake entry.

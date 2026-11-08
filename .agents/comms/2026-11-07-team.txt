@@ -157,3 +157,20 @@ description: Agent Communication System protocol template. Deployed by `ainish-c
 - blockers:none.
 - note:SETUP.md is a stale 2026-08-26 machine snapshot (version 0.31.1, references the retired develop branch). It documents THIS machine's PQC layout, not the install path. README "Install And Run" is the correct entry point; left SETUP.md unchanged rather than rewriting history it may still be cited for.
 - provenance:branch=main commit=7d357a1
+
+### [2026-11-08T01:16:00Z] FEAT | branch:feat/review-site | wt:~/orca/workspaces/local-router/lr-review-site
+- start:2026-11-07T23:37:00Z
+- end:2026-11-08T01:16:00Z
+- scope:scripts/review-site/{generate.mjs,serve.mjs,app/}, package.json (review:build, review:site), README.md (Dev Scripts), .agents/tasks/2026-11-07-review-site.md
+- objective:give the operator a local browser site to intuitively explore this repo's recent work record — cycles, commits, findings, gotchas, verification, tasks, memories, docs.
+- input:operator asked to review all recent work for the repo and build a local site to explore the information.
+- output:read-only generator over the COMMS ledgers (all three historical entry formats; PROTOCOL stripped; `>` block scalars folded), git history (869 commits, 41 diffs bundled since 2026-11-01), task records, memories, suggestions, research, and docs; loopback static server on 8777; dependency-free app with overview, timeline, cycles, commits, records, docs and search views.
+- verification-live:every view exercised in a real browser at 127.0.0.1:8777 — activity chart shows the true Sep 24 - Oct 26 quiet period and the two work bursts; cycle drill-down groups findings/gotchas/verification/compat; commit diffs render colored; docs render markdown with TOC; search "typesafe" returns 38 highlighted matches; cycle filter narrows 115 -> 12; zero console errors.
+- verification-fixed:undated memory files (MEMORY.md, memories/llms.txt) collapsed into a T12:00:00 timeline bucket; now a file-date/mtime fallback, sorted last.
+- verification-suites:247 tests, 244 pass on this host. All 3 failures reproduce at the base commit 84b0b3a in the clean main checkout and are host-environment: agent-harness x2 assert against this machine's real Codex config (expected managed [model_providers.local-router], found the operator's model = "gpt-5.3-codex", status conflict), and custom-providers is the documented vendor-model-1 / test-vendor-demo id-resolution failure. check-english-only: OK.
+- gotcha-1:named background shell jobs lost their working directory and masked a failed npm exit behind a pipe; the first "green" gate run was npm ENOENT in $HOME. Re-run in a plain shell produced the real totals above.
+- masters:4 structure/operations (one command up, loopback-only, gitignored output); 9 comprehension (script header contracts + README Dev Scripts); 3 dependencies/provenance (zero new dependencies, node stdlib only).
+- status:merged
+- blockers:none.
+- compat:Additive tooling only — two npm scripts and scripts/review-site/; no request, CLI, schema, or runtime change. Generated output lands in gitignored build/review-site/.
+- provenance:branch=feat/review-site commit=1e7f415
