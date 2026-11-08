@@ -46,6 +46,7 @@ import { hasExplicitThinkingRequest, sanitizeProviderRequestBody, stripReasoning
 import {
   anthropicThinkingToChatFields,
   countCacheMarkers,
+  modelMatchesReasoningFamily,
   reasoningLevelsFor,
   resolveCachingPolicy,
   resolveReasoningPolicy,
@@ -3359,8 +3360,43 @@ function reasoningEffortLevels(model: ProviderModel): string[] {
     }
     return THINKING_LEVEL_ORDER.filter((level) => union.has(level));
   }
-  if (!model.supportsReasoning) return [];
+  if (!modelSupportsReasoning(model)) return [];
   return reasoningLevelsFor(model.provider, model.model);
+}
+
+/**
+ * Does this model reason?
+ *
+ * Two sources, in order: what the provider published, and what our policy knows
+ * about the family.
+ *
+ * The published flag alone was not enough. Only 3 of 1432 curated registry rows
+ * carry `supportsReasoning`, so on a live router 40 of 146 models claimed to
+ * reason while `pioneer`, `zai`, `antigravity`, `xiaomi-mimo`, `opencode-zen` and
+ * most of `kilo`/`nous-portal` claimed they did not — including ids the repo's own
+ * facts file records as reasoning. A client that reads `reasoning:false` never
+ * renders a thinking control, so the dial underneath was unreachable no matter how
+ * correct it was.
+ *
+ * The policy is authoritative only for providers we hold facts about. A custom
+ * provider an operator registered at runtime has no row, and keeps the original
+ * contract: believe exactly what it publishes.
+ */
+function modelSupportsReasoning(model: ProviderModel): boolean {
+  if (model.supportsReasoning) return true;
+  if (model.provider === FALLBACK_PROVIDER_NAME) {
+    const route = findFallbackModel(model.model);
+    if (!route) return false;
+    return activeFallbackModels(route).some((step) => {
+      const member = findCatalogModel(step) || findProviderModel(step);
+      return member ? modelSupportsReasoning(member) : false;
+    });
+  }
+  // Only a positive FAMILY fact may overrule a stale flag. A gateway's
+  // provider-level default says "this endpoint accepts an effort parameter", not
+  // "every model here reasons" — `meta-llama/llama-3.3-70b` on Kilo must not
+  // claim a dial because Kilo also serves GLM.
+  return modelMatchesReasoningFamily(model.provider, model.model);
 }
 
 /** True when this model reaches a provider that caches, by whatever mechanism. */

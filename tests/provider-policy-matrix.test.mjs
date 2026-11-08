@@ -10,7 +10,8 @@ import {
   resolveCachingPolicy,
   resolveReasoningPolicy,
   responsesReasoningToChatFields,
-  THINKING_LEVEL_ORDER
+  THINKING_LEVEL_ORDER,
+  modelMatchesReasoningFamily
 } from '../build/provider-policy.js';
 import { sanitizeProviderRequestBody } from '../build/reasoning.js';
 import { injectPromptCaching, translateResponsesRequestToChatBody } from '../build/index.js';
@@ -545,5 +546,64 @@ test('the default level is one every dialect can express', () => {
     if (policy.reasoning.dialect === 'none' || policy.reasoning.dialect === 'model-id') continue;
     assert.ok(policy.reasoning.levels.includes(DEFAULT_THINKING_LEVEL),
       `${name}: cannot express the default level ${DEFAULT_THINKING_LEVEL}`);
+  }
+});
+
+// ── 6. The capability flag must follow the family, not the endpoint ─────────
+
+test('a reasoning family is recognised on every provider that serves it', () => {
+  // `capabilities.reasoning` gates whether a client renders a thinking control at
+  // all, so a gateway that serves GLM must report it. Measured live on
+  // 2026-11-08: `pioneer`, `antigravity`, `xiaomi-mimo` and `opencode-zen` served
+  // reasoning models that all advertised `false` because only 3 of 1432 curated
+  // registry rows carried the flag.
+  const cases = [
+    ['pioneer', 'zai-org/GLM-5.2'],
+    ['pioneer', 'anthropic/pioneer/deepseek-ai/DeepSeek-V4-Flash'],
+    ['nous-portal', 'z-ai/glm-5.3-flash'],
+    ['antigravity', 'claude-opus-4-6'],
+    ['antigravity', 'gemini-3.7-flash'],
+    ['xiaomi-mimo', 'mimo-v2.6-pro'],
+    ['opencode-zen', 'glm-5.3-flash'],
+    ['kilo', 'z-ai/glm-5.3'],
+    ['zenmux', 'deepseek/deepseek-v4.1-flash'],
+    ['openrouter', 'moonshotai/kimi-k3']
+  ];
+  const failures = cases
+    .filter(([provider, model]) => !modelMatchesReasoningFamily(provider, model))
+    .map(([provider, model]) => `${provider}/${model} not recognised as a reasoning family`);
+  assert.deepEqual(failures, []);
+});
+
+test('a non-reasoning family is never claimed just because the gateway serves one', () => {
+  // The inverse guard. Kilo carries 500+ unrelated models; its provider-level
+  // default says "this endpoint accepts an effort parameter", NOT "every model
+  // here reasons". A Llama or a plain chat model must stay advertised as
+  // non-reasoning or the thinking selector appears where it cannot work.
+  const cases = [
+    ['kilo', 'meta-llama/llama-3.3-70b-instruct'],
+    ['kilo', 'mistralai/mistral-small-3'],
+    ['nous-portal', 'meta-llama/llama-3.1-405b'],
+    ['nous-portal', 'hermes-4-405b'],
+    ['openrouter', 'meta-llama/llama-3.1-8b-instruct'],
+    ['nebius', 'meta-llama/llama-3.3-70b-instruct']
+  ];
+  const failures = cases
+    .filter(([provider, model]) => modelMatchesReasoningFamily(provider, model))
+    .map(([provider, model]) => `${provider}/${model} wrongly claimed as a reasoning family`);
+  assert.deepEqual(failures, []);
+});
+
+test('a provider with no dial never claims a reasoning family', () => {
+  // Cursor bakes effort into the model id and TypeSafe serves typed decisions.
+  // Neither has a request field, so neither may claim family membership — that
+  // would let the capability fallback advertise a control with nothing behind it.
+  for (const [provider, model] of [
+    ['cursor', 'claude-opus-5-5-high'],
+    ['cursor', 'gpt-5-mini'],
+    ['typesafe', 'jev-1.14']
+  ]) {
+    assert.equal(modelMatchesReasoningFamily(provider, model), false,
+      `${provider}/${model} has no request dial and must not match a family`);
   }
 });

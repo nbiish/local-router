@@ -532,6 +532,22 @@ const FAMILY_OVERRIDES: readonly FamilyOverride[] = [
     note: 'llms.txt line 722 — Qwen/Step/MiniMax use enable_thinking'
   },
   {
+    // Gemini 2.5 and newer reason implicitly; the AI Studio OpenAI-compatible
+    // surface accepts reasoning_effort for them [INFERENCE: Google documents
+    // thinking_config on the native API, not this shim].
+    match: /gemini-(2\.[5-9]|[3-9])/i,
+    reasoning: { dialect: 'openai-effort', levels: EFFORT_FOUR },
+    note: 'Gemini 2.5+ implicit reasoning [INFERENCE]'
+  },
+  {
+    // MiMo V2.x is Xiaomi's reasoning-capable family. docs/caching/xiaomi-mimo.txt
+    // documents the cache side only, so the dialect is [INFERENCE] from the
+    // OpenAI-compatible surface it is served on.
+    match: /(^|\/)mimo/i,
+    reasoning: { dialect: 'openai-effort', levels: EFFORT_FOUR },
+    note: 'docs/caching/xiaomi-mimo.txt (MiMo served via an OpenAI-compatible API) [INFERENCE]'
+  },
+  {
     // gpt-oss / Nemotron / Qwen on vLLM-class servers take a boolean template
     // flag; reasoning_effort is only honoured for gpt-oss.
     match: /(gpt-oss|nemotron)/i,
@@ -613,6 +629,27 @@ export function reasoningLevelsFor(providerName: string, modelName?: string): Th
   const policy = resolveReasoningPolicy(providerName, modelName);
   if (policy.dialect === 'none' || policy.dialect === 'model-id') return [];
   return [...policy.levels];
+}
+
+/**
+ * Does the model id name a family we hold a positive reasoning fact about?
+ *
+ * This is deliberately narrower than `reasoningLevelsFor`. A gateway row
+ * (`kilo`, `nous-portal`, `pioneer`) covers hundreds of unrelated models, so its
+ * provider-level default says "this endpoint accepts an effort parameter", not
+ * "every model here reasons". `meta-llama/llama-3.3-70b` on Kilo must not
+ * advertise a thinking dial just because Kilo also serves GLM.
+ *
+ * True only when a family override — the place facts about a MODEL are recorded —
+ * matches. Used to decide whether the policy may overrule a stale published
+ * capability flag, so it can fill a gap but never invent one.
+ */
+export function modelMatchesReasoningFamily(providerName: string, modelName?: string): boolean {
+  const base = providerPolicyFor(providerName).reasoning;
+  if (base.dialect === 'none' || base.dialect === 'model-id') return false;
+  const model = String(modelName || '').trim();
+  if (!model) return false;
+  return FAMILY_OVERRIDES.some((override) => override.reasoning && modelMatches(override.match, model));
 }
 
 // ── Level normalisation ─────────────────────────────────────────────────────
