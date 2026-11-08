@@ -73,24 +73,24 @@
       "output": 128000,
       "tools": true,
       "vision": false,
-      "reasoning": false,
-      "source": "z.ai, deepinfra (April 2026)"
+      "reasoning": true,
+      "source": "z.ai, deepinfra (April 2026); reasoning confirmed 2026-11-08: 904 reasoning_tokens billed on ollama-glm-5.1-cloud"
     },
     "glm-5.3-flash": {
       "context": 1048576,
       "output": 131072,
       "tools": true,
       "vision": true,
-      "reasoning": false,
-      "source": "docs.z.ai GLM-5.3-Flash (October 2026): 1M context, 128K output, video/image/text/file input"
+      "reasoning": true,
+      "source": "docs.z.ai GLM-5.3-Flash (October 2026): 1M context, 128K output, video/image/text/file input; reasoning confirmed 2026-11-08: 598/701/699 reasoning_tokens billed on zai, zenmux and opencode-zen"
     },
     "glm-5.3-flashx": {
       "context": 1048576,
       "output": 131072,
       "tools": true,
       "vision": true,
-      "reasoning": false,
-      "source": "docs.z.ai GLM-5.3-Flash (October 2026): same limits as glm-5.3-flash"
+      "reasoning": true,
+      "source": "docs.z.ai GLM-5.3-Flash (October 2026): same limits as glm-5.3-flash; reasoning confirmed 2026-11-08: 886 reasoning_tokens billed on openrouter"
     },
     "glm-4.6v": {
       "context": 200000,
