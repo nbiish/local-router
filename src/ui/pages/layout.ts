@@ -1563,6 +1563,7 @@ export function renderLayout(
               '<select data-thinking-provider="' + escapeHtml(p.name) + '" onchange="saveProviderThinkingLevel(this)" style="width:auto;min-width:120px;">' +
                 '<option value=""' + (isGlobal ? ' selected' : '') + '>Global (' + escapeHtml(thinkingConfig.global || 'none') + ')</option>' +
                 '<option value="none"' + (level === 'none' && !isGlobal ? ' selected' : '') + '>none</option>' +
+                '<option value="minimal"' + (level === 'minimal' && !isGlobal ? ' selected' : '') + '>minimal</option>' +
                 '<option value="low"' + (level === 'low' && !isGlobal ? ' selected' : '') + '>low</option>' +
                 '<option value="medium"' + (level === 'medium' && !isGlobal ? ' selected' : '') + '>medium</option>' +
                 '<option value="high"' + (level === 'high' && !isGlobal ? ' selected' : '') + '>high</option>' +

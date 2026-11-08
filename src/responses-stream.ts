@@ -122,22 +122,35 @@ export function createResponsesFakeResponse(options: {
 }): ResponsesFakeResponse {
   const { emit, modelId, responseId, onFinished } = options;
   const outputItemMsgId = `msg_${cryptoRandomId()}`;
+  const reasoningItemId = `rs_${cryptoRandomId()}`;
+  let reasoningItemAdded = false;
+  // Output slots are allocated in announcement order and never reused, so a
+  // reasoning item, the answer, and each tool call each own a stable index.
+  // Both branches need this: the reasoning item shifts the message off 0, and a
+  // tool call must not collide with the text item.
+  let nextOutputIndex = 0;
+  const allocateOutputIndex = () => nextOutputIndex++;
   let itemAdded = false;
+  let messageOutputIndex = -1;
+  let reasoningOutputIndex = -1;
   let sseBuffer = '';
   let text = '';
   let inputTokens = 0;
   let outputTokens = 0;
+  // Cache and reasoning counters. Hardcoding these to 0 (what this did) made a
+  // streamed turn claim it cached nothing and reasoned about nothing, while the
+  // same request answered with correct numbers on the non-streaming path — so a
+  // warm cache was indistinguishable from a cold one on the wire Codex uses.
+  let cachedTokens = 0;
+  let reasoningTokens = 0;
+  let reasoningText = '';
   let finishReason = '';
   // Tool calls stream in as fragments keyed by index. A Responses client reads
   // each one as its own `function_call` output item — an event name of our own
   // invention (`response.output_tool_call.arguments.delta`) is not in the
   // Responses vocabulary, so Codex silently dropped every tool call and hung
   // waiting for an item that never arrived.
-  const toolCalls = new Map<number, { id: string; callId: string; name: string; args: string; added: boolean }>();
-  // The assistant message owns output_index 0 and tool calls follow it, so an
-  // index is fixed at the moment an item is announced and its deltas always
-  // address the same slot.
-  const toolIndex = (position: number) => position + 1;
+  const toolCalls = new Map<number, { id: string; callId: string; name: string; args: string; added: boolean; outputIndex: number }>();
 
   const finish = () => {
     onFinished?.();
@@ -146,10 +159,11 @@ export function createResponsesFakeResponse(options: {
   const ensureItem = (role?: string) => {
     if (itemAdded) return;
     itemAdded = true;
+    messageOutputIndex = allocateOutputIndex();
     emit({
       type: 'response.output_item.added',
       response_id: responseId,
-      output_index: 0,
+      output_index: messageOutputIndex,
       item: {
         id: outputItemMsgId,
         type: 'message',
@@ -165,10 +179,48 @@ export function createResponsesFakeResponse(options: {
   const absorb = (data: any) => {
     if (typeof data?.usage?.prompt_tokens === 'number') inputTokens = data.usage.prompt_tokens;
     if (typeof data?.usage?.completion_tokens === 'number') outputTokens = data.usage.completion_tokens;
+    const cached = data?.usage?.prompt_tokens_details?.cached_tokens
+      ?? data?.usage?.input_tokens_details?.cached_tokens
+      ?? data?.usage?.cached_tokens;
+    if (typeof cached === 'number') cachedTokens = cached;
+    const reasoned = data?.usage?.completion_tokens_details?.reasoning_tokens
+      ?? data?.usage?.output_tokens_details?.reasoning_tokens
+      ?? data?.usage?.reasoning_tokens;
+    if (typeof reasoned === 'number') reasoningTokens = reasoned;
 
     const choice = data?.choices?.[0] || {};
     const delta = choice.delta || {};
     if (choice.finish_reason) finishReason = String(choice.finish_reason);
+
+    // The Responses wire carries reasoning as its own output item. Without one the
+    // usage block claims reasoning tokens the client was never shown.
+    const thinking = delta.reasoning ?? delta.reasoning_content ?? delta.thinking;
+    if (typeof thinking === 'string' && thinking.length > 0) {
+      reasoningText += thinking;
+      if (!reasoningItemAdded) {
+        reasoningItemAdded = true;
+        reasoningOutputIndex = allocateOutputIndex();
+        emit({
+          type: 'response.output_item.added',
+          response_id: responseId,
+          output_index: reasoningOutputIndex,
+          item: {
+            id: reasoningItemId,
+            type: 'reasoning',
+            status: 'in_progress',
+            summary: []
+          }
+        });
+      }
+      emit({
+        type: 'response.reasoning_summary_text.delta',
+        response_id: responseId,
+        item_id: reasoningItemId,
+        output_index: reasoningOutputIndex,
+        summary_index: 0,
+        delta: thinking
+      });
+    }
 
     if (typeof delta.content === 'string' && delta.content.length > 0) {
       // Announced here rather than on a role-only delta: an item that is
@@ -196,7 +248,8 @@ export function createResponsesFakeResponse(options: {
             callId: tc.id || `call_${cryptoRandomId()}`,
             name: tc.function?.name || '',
             args: '',
-            added: false
+            added: false,
+            outputIndex: -1
           };
           toolCalls.set(index, entry);
         }
@@ -207,10 +260,11 @@ export function createResponsesFakeResponse(options: {
 
         if (!entry.added) {
           entry.added = true;
+          entry.outputIndex = allocateOutputIndex();
           emit({
             type: 'response.output_item.added',
             response_id: responseId,
-            output_index: toolIndex(index),
+            output_index: entry.outputIndex,
             item: {
               id: entry.id,
               type: 'function_call',
@@ -229,7 +283,7 @@ export function createResponsesFakeResponse(options: {
             type: 'response.function_call_arguments.delta',
             response_id: responseId,
             item_id: entry.id,
-            output_index: toolIndex(index),
+            output_index: entry.outputIndex,
             delta: fragment
           });
         }
@@ -240,18 +294,46 @@ export function createResponsesFakeResponse(options: {
   const finalize = () => {
     const status = finishReason === 'length' ? 'incomplete' : 'completed';
     const content = [{ type: 'output_text', text, annotations: [] }];
+    const output: any[] = [];
+
+    // Reasoning first: the Responses client reads it from its own output item, and
+    // Anthropic-style ordering (reasoning before the answer) is what makes the
+    // indices below stable.
+    if (reasoningText) {
+      const reasoningItem = {
+        id: reasoningItemId,
+        type: 'reasoning',
+        status,
+        summary: [{ type: 'summary_text', text: reasoningText }]
+      };
+      emit({
+        type: 'response.reasoning_summary_text.done',
+        response_id: responseId,
+        item_id: reasoningItemId,
+        output_index: reasoningOutputIndex,
+        summary_index: 0,
+        text: reasoningText
+      });
+      emit({
+        type: 'response.output_item.done',
+        response_id: responseId,
+        output_index: reasoningOutputIndex,
+        item: reasoningItem
+      });
+      output.push(reasoningItem);
+    }
 
     // Codex reads the terminal item/response content, not just the deltas: an
     // empty `output_text` here shows the turn as successful with no answer.
     // With tool calls present the text item is only emitted when it carries
     // content, so the terminal output stays in the order it streamed.
-    const output: any[] = [];
     if (text) {
+      if (!itemAdded) ensureItem('assistant');
       emit({
         type: 'response.output_text.done',
         response_id: responseId,
         item_id: outputItemMsgId,
-        output_index: 0,
+        output_index: messageOutputIndex,
         content_index: 0,
         text
       });
@@ -265,20 +347,19 @@ export function createResponsesFakeResponse(options: {
       emit({
         type: 'response.output_item.done',
         response_id: responseId,
-        output_index: 0,
+        output_index: messageOutputIndex,
         item: messageItem
       });
       output.push(messageItem);
     }
 
     const orderedTools = [...toolCalls.entries()].sort((a, b) => a[0] - b[0]);
-    for (const [position, entry] of orderedTools) {
-      const index = toolIndex(position);
+    for (const [, entry] of orderedTools) {
       emit({
         type: 'response.function_call_arguments.done',
         response_id: responseId,
         item_id: entry.id,
-        output_index: index,
+        output_index: entry.outputIndex,
         arguments: entry.args
       });
       const callItem = {
@@ -292,7 +373,7 @@ export function createResponsesFakeResponse(options: {
       emit({
         type: 'response.output_item.done',
         response_id: responseId,
-        output_index: index,
+        output_index: entry.outputIndex,
         item: callItem
       });
       output.push(callItem);
@@ -312,8 +393,8 @@ export function createResponsesFakeResponse(options: {
           input_tokens: inputTokens,
           output_tokens: outputTokens,
           total_tokens: inputTokens + outputTokens,
-          input_tokens_details: { cached_tokens: 0 },
-          output_tokens_details: { reasoning_tokens: 0 }
+          input_tokens_details: { cached_tokens: cachedTokens },
+          output_tokens_details: { reasoning_tokens: reasoningTokens }
         }
       }
     });
@@ -381,10 +462,26 @@ export function createResponsesFakeResponse(options: {
       if (!itemAdded) {
         const choice = data.choices?.[0] || {};
         const message = choice.message || {};
+        // Same ordering rule as the streaming path: a reasoning item, when the
+        // envelope carries one, takes the first slot so the answer does not
+        // collide with it.
+        const envelopeReasoning = (responsesEnvelope.output || []).find((item: any) => item.type === 'reasoning');
+        if (envelopeReasoning) {
+          const reasoningIndex = allocateOutputIndex();
+          emit({
+            type: 'response.output_item.added',
+            response_id: responseId,
+            output_index: reasoningIndex,
+            item: envelopeReasoning
+          });
+        }
+        const index = allocateOutputIndex();
+        messageOutputIndex = index;
+        itemAdded = true;
         emit({
           type: 'response.output_item.added',
           response_id: responseId,
-          output_index: 0,
+          output_index: index,
           item: {
             id: outputItemMsgId,
             type: 'message',

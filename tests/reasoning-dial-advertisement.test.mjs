@@ -16,15 +16,16 @@ import { join } from 'node:path';
  * Verified live against a running router on 2026-11-07; this file pins the advertisement so a
  * refactor cannot silently drop back to the boolean-only shape.
  *
- * NOTE: these assertions read a LIVE router, so they are not part of the CI gate
- * (`npm test`). Run them after deploying:
- *     npm run verify:dials          # against 127.0.0.1:11434
- *     LOCAL_ROUTER_TEST_URL=... npm run verify:dials
- * They skip rather than fail when no router answers, so a stale deploy cannot masquerade as a
- * passing test.
+ * These assertions need a LIVE router, so they are gated on an explicit
+ * `LOCAL_ROUTER_TEST_URL`: `npm test` runs offline and deterministic, and a stale
+ * deploy on the default port must never be mistaken for the build under test.
+ * Run them against the build you actually shipped:
+ *     npm run verify:dials          # spawns the router you point it at
+ *     LOCAL_ROUTER_TEST_URL=http://127.0.0.1:11435 npm run verify:dials
+ * They skip rather than fail when nothing answers.
  */
 
-const ROUTER = process.env.LOCAL_ROUTER_TEST_URL || 'http://127.0.0.1:11434';
+const ROUTER = process.env.LOCAL_ROUTER_TEST_URL || '';
 
 async function fetchModels() {
   const res = await fetch(`${ROUTER}/v1/models`);
@@ -34,6 +35,7 @@ async function fetchModels() {
 }
 
 function reachable() {
+  if (!ROUTER) return false;
   const probe = spawnSync(process.execPath, ['-e', `
     fetch('${ROUTER}/api/version').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1));
   `], { timeout: 5000 });

@@ -1,0 +1,57 @@
+Cursor (api2.cursor.sh, Cursor subscription / CLI OAuth session) — Prompt Caching
+Last verified: 2026-11-08
+
+Overview
+  Cursor's model endpoint is reached through a Cursor subscription or the
+  `cursor-agent` CLI's own OAuth session (slug `cursor`, base
+  https://api2.cursor.sh/v1). Cursor publishes inference documentation for the
+  editor and CLI products but NO request-level prompt-caching contract: no
+  cache_control parameters, no cache IDs, no TTL, and no documented cache-token
+  fields in the usage object.
+
+Mechanism
+  Server-side and opaque. [INFERENCE] Cursor's own product surface keeps a
+  conversation warm across turns inside a chat/composer session, which implies
+  prefix reuse at the serving layer, but nothing about that is exposed as a
+  client-addressable caching API.
+
+  Effort is expressed by the MODEL ID, not by a request field: rows are served
+  as `claude-opus-5-5-low`, `...-medium`, `...-high`, `...-max`, and `...-xhigh`
+  (plus `-fast` variants). Choosing a different id IS the reasoning dial, so a
+  request that sets `reasoning_effort` is sending a parameter nothing reads.
+
+Max configuration
+  Nothing client-configurable. The levers available to the router are:
+  - pick the model id whose baked-in effort matches the operator's intent
+    (that is the only way to change reasoning depth);
+  - keep the prompt prefix byte-identical across turns so any server-side prefix
+    reuse can hit.
+
+Limits & thresholds
+  None published. No breakpoint count, TTL, or minimum cacheable prefix is
+  documented for this endpoint.
+
+Pricing
+  Billed against the Cursor subscription (request/premium multipliers), not per
+  token. No cache read/write pricing is published, so any cache saving is not
+  separately observable on this surface.
+
+Maxing recipe
+  1. Express reasoning depth by model id; do not send an effort field.
+  2. Keep system prompt and tool definitions byte-stable across a session.
+  3. Reuse a conversation rather than restarting it, so whatever prefix reuse
+     the serving layer performs stays warm.
+  4. Read usage from Cursor's own console; per-response cache counters are not
+     exposed through this API.
+
+Local-router integration
+  The provider row is `model-id` for reasoning: it advertises no
+  `reasoningEfforts` dial, because a selector that cannot move is worse than no
+  selector. Cache policy is implicit-prefix with no sticky key and no marker
+  injection; `cache_control` is stripped because the endpoint is not documented
+  to accept it.
+
+Sources
+  https://cursor.com/docs
+  https://cursor.com/docs/models (model ids with effort suffixes)
+  https://cursor.com/docs/cli

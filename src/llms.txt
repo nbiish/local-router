@@ -9,6 +9,7 @@ TypeScript implementation of the local-router proxy.
 - Routing decision logic: auto-router, fallback chains, router candidates.
 - Config UI HTML renderers and API route registration.
 - Streaming, reasoning, pricing, and PQC secrets loading.
+- `provider-policy.ts` is the single source of truth for every agent harness.
 
 ## Ownership
 
@@ -20,6 +21,7 @@ TypeScript implementation of the local-router proxy.
 - Use only FIPS 203/204/205 algorithms for secrets operations.
 - No secrets in source code; provider keys loaded via environment or PQC bundle.
 - All output formats (`openai`, `ollama_chat`, `ollama_generate`, `openai_responses`) must stay backward compatible.
+- Reasoning and caching behaviour comes from `provider-policy.ts`, never from a provider-name test in a handler. A new provider needs a policy row (and its `docs/caching/<slug>.txt`) or `tests/provider-policy-docs.test.mjs` fails.
 
 ## Work Guidance
 

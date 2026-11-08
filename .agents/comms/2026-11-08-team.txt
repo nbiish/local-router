@@ -45,3 +45,15 @@ description: Agent Communication System protocol template. Deployed by `ainish-c
 </PROTOCOL>
 
 ---
+
+### [2026-11-08T16:45:00Z] start | branch:feat/reasoning-cache-policy | wt:D:\Code\lr-reasoning-policy
+- start:2026-11-08T16:45:00Z
+- end:2026-11-08T18:32:00Z
+- scope:src/provider-policy.ts (new), src/reasoning.ts, src/index.ts, src/responses-stream.ts, src/routes/config-api.ts, src/ui/pages/{thinking,layout}.ts, tests/*, docs/caching/*
+- objective:Verify per-provider maximum prompt caching and correct reasoning-level delivery for every {provider}-{model} pairing on every wire, with a gate that fails if it stops being true
+- input:Deep dive request — "100% verification" of caching and thinking levels across all configured providers and the fallback route
+- output:TASK.2026-11-08.reasoning-cache-policy.md; one declarative policy table (22 providers + 3 loopback) driving advertisement, translation on all four wires, and cache injection; 36 new gate tests (matrix 20 / wire-delivery 11 / docs 5); dropped `thinking` on /v1/messages and `reasoning` on /v1/responses fixed; breakpoint budget, per-provider TTL/retention/sticky key, stream usage visibility
+- status:done
+- blockers:none (validate:model-specs carries its pre-existing 101-error baseline; two host-dependent test failures pre-date this branch and reproduce on main)
+
+---

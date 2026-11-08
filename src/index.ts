@@ -42,7 +42,16 @@ function getOAuthStateSafe(name: string): OAuthProviderState | undefined {
   if (!isOAuthProviderName(name)) return undefined;
   return getOAuthState(name as OAuthProviderId);
 }
-import { sanitizeProviderRequestBody, stripReasoningMetadata, ThinkingLevel, DEFAULT_THINKING_LEVEL } from './reasoning';
+import { hasExplicitThinkingRequest, sanitizeProviderRequestBody, stripReasoningMetadata, ThinkingLevel, DEFAULT_THINKING_LEVEL } from './reasoning';
+import {
+  anthropicThinkingToChatFields,
+  countCacheMarkers,
+  reasoningLevelsFor,
+  resolveCachingPolicy,
+  resolveReasoningPolicy,
+  responsesReasoningToChatFields,
+  THINKING_LEVEL_ORDER
+} from './provider-policy';
 import { loadExpertLogs, LogEntryTracker, createUsageSpyStream } from './expert-logs';
 import { buildWraparoundExecutionPlan, buildEscalatingWraparoundPlan, buildMultiPassExecutionPlan, DEFAULT_FALLBACK_ROUNDS } from './execution-plan';
 import {
@@ -1334,13 +1343,16 @@ function providerModelDisplay(providerName: string, modelName: string) {
  * reasoning model read as "This model has no adjustable reasoning", which is what happened to
  * zenmux-deepseek-v4.1-flash when reached through the Ollama proxy.
  *
- * It is emitted next to the boolean so both protocols agree about the same model.
+ * It is emitted next to the boolean so both protocols agree about the same model — which is why
+ * it asks the same policy the OpenAI wire asks: a model whose effort is baked into its id (every
+ * `cursor-*` row) has reasoning but no adjustable dial, and advertising one would render a
+ * selector that cannot move.
  */
 function modelCapabilities(model: ProviderModel) {
   const capabilities = ['completion'];
   if (model.supportsTools) capabilities.push('tools');
   if (model.supportsImages) capabilities.push('vision');
-  if (model.supportsReasoning) capabilities.push('thinking');
+  if (reasoningEffortLevels(model).length > 0) capabilities.push('thinking');
   return capabilities;
 }
 
@@ -2027,6 +2039,26 @@ function waferZdrApiPayload() {
 
 function getEffectiveThinkingLevel(providerName: string): ThinkingLevel {
   return thinkingLevelStore[providerName] ?? systemPromptConfig.thinkingLevel ?? DEFAULT_THINKING_LEVEL;
+}
+
+/**
+ * Apply the operator's configured level, but only where the caller expressed none.
+ *
+ * `PUT /api/thinking-level` with `enabled: true` is the operator saying "these
+ * requests should think at this level". Without this the control persisted a
+ * value nothing ever read, so turning it on changed no request — the selector was
+ * present and inert, the same class of bug as advertising a dial the translator
+ * did not speak.
+ *
+ * Precedence is deliberate: a harness that states its own level always wins,
+ * because per-call configuration is a stronger signal than a server default.
+ */
+function applyConfiguredThinkingLevel(body: any, providerName: string): any {
+  if (!body || typeof body !== 'object') return body;
+  if (hasExplicitThinkingRequest(body)) return body;
+
+  const level = getEffectiveThinkingLevel(providerName);
+  return { ...body, reasoning_effort: level };
 }
 
 function thinkingLevelApiPayload() {
@@ -3297,51 +3329,59 @@ async function discoveryModelList(live = false): Promise<ProviderModel[]> {
 const MODEL_ENTRY_CREATED_TIMESTAMP = Math.floor(Date.now() / 1000);
 
 /**
- * The reasoning dialects the router can actually translate, per provider family.
+ * The reasoning dialects one model supports, or an empty list when it has no
+ * dial.
  *
  * This is the list a harness renders as a thinking-mode selector. A boolean
  * `capabilities.reasoning` is not enough for that: StarNet (and any client that
  * follows the same convention) reads `reasoningEfforts` / `effort.supported_levels`
- * to build the dropdown, and falls back to a flat `['none', minimal, low, medium,
- * high]` only when the model has a declared dial. With just a boolean it shows
- * `['none']` — the selector is there but offers nothing but "off", which is
- * exactly the reported symptom.
+ * to build the dropdown. With just a boolean it shows `['none']` — the selector
+ * is there but offers nothing but "off", which is exactly the reported symptom.
  *
- * These are the levels this provider family honours upstream, verified against
- * ZenMux `deepseek/deepseek-v4.1-flash` on 2026-11-07 by measuring billed
- * `reasoning_tokens` per level (minimal 422 < low 577 < medium 706 ≈ high 701),
- * and `thinking:{type:'disabled'}` -> 0. `none` is always first because it means
- * "send nothing", which every provider accepts.
+ * The list comes from `src/provider-policy.ts`, so it names the levels that
+ * upstream actually distinguishes. A boolean dialect advertises two states, not
+ * five: a dropdown offering "minimal" for a provider that reads a template flag
+ * is a control that does nothing when the operator picks it.
  */
-const REASONING_EFFORT_LEVELS = ['none', 'minimal', 'low', 'medium', 'high'] as const;
-
-/** Provider families that accept `reasoning_effort` (or an equivalent) upstream. */
-const REASONING_EFFORT_PROVIDER_PATTERN = /(deepseek|qwen|glm|z-ai|zai|minimax|moonshot|kimi|sapiens|openrouter|zenmux|opencode|nebius|xai|grok)/i;
-
-/** The reasoning dialects one model supports, or an empty list when it has no dial. */
 function reasoningEffortLevels(model: ProviderModel): string[] {
-  if (!model.supportsReasoning) return [];
-  // A fallback route aggregates its members: it has a dial when any member does.
-  // Its own provider slug is `local-router`, which names no upstream dialect, so
-  // the members are what decide. The route translates the level per-hop at
-  // request time, so offering the union is honest as long as one step can take it.
+  // A fallback route aggregates its members: it has a dial when any member does,
+  // offering the union because the route re-translates each hop. Its own slug is
+  // `local-router`, which names no upstream dialect, so members decide.
   if (model.provider === FALLBACK_PROVIDER_NAME) {
     const route = findFallbackModel(model.model);
     if (!route) return [];
     const members = activeFallbackModels(route)
       .map((step) => findCatalogModel(step) || findProviderModel(step))
       .filter(Boolean) as ProviderModel[];
-    return members.some((member) => reasoningEffortLevels(member).length > 0)
-      ? [...REASONING_EFFORT_LEVELS]
-      : [];
+    const union = new Set<string>();
+    for (const member of members) {
+      for (const level of reasoningLevelsFor(member.provider, member.model)) union.add(level);
+    }
+    return THINKING_LEVEL_ORDER.filter((level) => union.has(level));
   }
-  const haystack = `${model.provider}/${model.model}/${model.id}`;
-  if (!REASONING_EFFORT_PROVIDER_PATTERN.test(haystack)) return [];
-  return [...REASONING_EFFORT_LEVELS];
+  if (!model.supportsReasoning) return [];
+  return reasoningLevelsFor(model.provider, model.model);
+}
+
+/** True when this model reaches a provider that caches, by whatever mechanism. */
+function modelCachesPrompt(model: ProviderModel): boolean {
+  if (model.provider === FALLBACK_PROVIDER_NAME) {
+    const route = findFallbackModel(model.model);
+    if (!route) return false;
+    return activeFallbackModels(route).some((step) => {
+      const member = findCatalogModel(step) || findProviderModel(step);
+      if (!member) return false;
+      return resolveCachingPolicy(member.provider, member.model).mechanism !== 'none';
+    });
+  }
+  return resolveCachingPolicy(model.provider, model.model).mechanism !== 'none';
 }
 
 function openAIModelEntry(model: ProviderModel) {
   const effortLevels = reasoningEffortLevels(model);
+  const defaultLevel = model.provider === FALLBACK_PROVIDER_NAME
+    ? 'medium'
+    : resolveReasoningPolicy(model.provider, model.model).defaultLevel;
   return {
     id: model.id,
     object: 'model',
@@ -3354,7 +3394,17 @@ function openAIModelEntry(model: ProviderModel) {
     capabilities: {
       toolCalling: model.supportsTools,
       imageInput: model.supportsImages,
-      caching: model.supportsCache,
+      // `caching` reports whether a cache exists at all, which is a different
+      // question from whether this proxy can mark a breakpoint. Reporting the
+      // per-model registry flag made 142 of 146 live models claim "no caching"
+      // while the upstream was caching them anyway.
+      caching: modelCachesPrompt(model),
+      // `reasoning` reports the CAPABILITY (does this model produce reasoning?),
+      // which is what a provider publishes and what clients read to decide whether
+      // to show thinking output at all. Whether a level can be SELECTED is the
+      // separate `reasoningEfforts` dial below — a model that reasons but exposes
+      // no request field (every `cursor-*` row bakes effort into its id) is
+      // truthfully reported as reasoning-capable with no dial.
       reasoning: model.supportsReasoning,
       // Mirrored inside capabilities as well: xAI-shaped clients look here.
       ...(effortLevels.length > 0 ? { reasoning_effort: effortLevels } : {}),
@@ -3368,8 +3418,8 @@ function openAIModelEntry(model: ProviderModel) {
     ...(effortLevels.length > 0
       ? {
           reasoningEfforts: effortLevels,
-          effort: { supported_levels: effortLevels, default_level: 'medium' },
-          defaultReasoningLevel: 'medium'
+          effort: { supported_levels: effortLevels, default_level: defaultLevel },
+          defaultReasoningLevel: defaultLevel
         }
       : {})
   };
@@ -3847,6 +3897,7 @@ function fallbackChainInfo(model: ProviderModel) {
 
 function ollamaShowPayload(model: ProviderModel) {
   const chain = fallbackChainInfo(model);
+  const effortLevels = reasoningEffortLevels(model);
   return {
     license: '',
     modelfile: `FROM ${model.id}`,
@@ -3871,6 +3922,16 @@ function ollamaShowPayload(model: ProviderModel) {
     ...(chain ? { local_router_chain: chain } : {}),
     projector_info: {},
     capabilities: modelCapabilities(model),
+    // The dial, on the same wire. An Ollama-native client that reads
+    // `capabilities.thinking` renders a level selector, and without the list it
+    // can only offer "on" — so the levels it can render are declared here too,
+    // from the same policy the OpenAI wire advertises.
+    ...(effortLevels.length > 0
+      ? {
+          reasoning_efforts: effortLevels,
+          thought_process: { supported_levels: effortLevels, default_level: resolveReasoningPolicy(model.provider, model.model).defaultLevel }
+        }
+      : {}),
     modified_at: new Date().toISOString()
   };
 }
@@ -6549,19 +6610,131 @@ export function getPromptCacheKey(messages: any[], existingKey?: string): string
   return 'lr_' + Math.abs(hash).toString(16);
 }
 
-export function injectPromptCaching(body: any, providerName: string): any {
-  let newBody = { ...body };
+/**
+ * Re-stamp caller-supplied breakpoints with the policy's marker.
+ *
+ * A marker a client sent for provider A is normalised for provider B, so a stale
+ * TTL cannot survive onto a surface that does not accept it. The policy's TTL is
+ * the maximum that surface documents, which is the purpose of injecting at all: a
+ * client asking for `{type:'ephemeral'}` is asking for "whatever caching you can
+ * give me", and the policy knows that surface's maximum window.
+ */
+export function upgradeUntimedCacheMarkers(body: any, marker: Record<string, unknown>): any {
+  const upgrade = (part: any) => {
+    if (!part || typeof part !== 'object' || !part.cache_control) return part;
+    return { ...part, cache_control: { ...marker } };
+  };
 
-  // 1. Prevent any tool/IDE from disabling caching via body flags
-  const cacheOverrideKeys = ['cache', 'use_cache', 'no_cache', 'bypass_cache'];
-  for (const k of cacheOverrideKeys) {
-    if (k in newBody) {
-      delete newBody[k];
-    }
+  const next = { ...body };
+  if (Array.isArray(next.messages)) {
+    next.messages = next.messages.map((message: any) => {
+      if (!message || !Array.isArray(message.content)) return message;
+      return { ...message, content: message.content.map(upgrade) };
+    });
+  }
+  if (Array.isArray(next.tools)) {
+    next.tools = next.tools.map(upgrade);
+  }
+  return next;
+}
+
+/**
+ * Remove `cache_control` markers from the OLDEST breakpoint until at most
+ * `budget` remain, so a client that already marked its own prefixes (Claude
+ * Code ships four) cannot push the request over the upstream's cap and earn a
+ * 400 instead of a cache hit.
+ */
+export function trimCacheMarkers(body: any, budget: number): any {
+  if (!Array.isArray(body?.messages)) return body;
+  let remaining = countCacheMarkers(body);
+  if (remaining <= budget) return body;
+
+  const messages = [...body.messages];
+  for (let i = 0; i < messages.length && remaining > budget; i += 1) {
+    const message = messages[i];
+    if (!message || !Array.isArray(message.content)) continue;
+    const parts = message.content.map((part: any) => {
+      if (!part || typeof part !== 'object' || !part.cache_control) return part;
+      if (remaining <= budget) return part;
+      remaining -= 1;
+      const { cache_control, ...rest } = part;
+      return rest;
+    });
+    messages[i] = { ...message, content: parts };
   }
 
-  // 2. Strip provider.order to preserve sticky routing on OpenRouter
-  if (providerName === 'openrouter' || providerName === 'openrouter-presets') {
+  if (remaining > budget && Array.isArray(body.tools)) {
+    const tools = body.tools.map((tool: any) => {
+      if (!tool || typeof tool !== 'object' || !tool.cache_control) return tool;
+      if (remaining <= budget) return tool;
+      remaining -= 1;
+      const { cache_control, ...rest } = tool;
+      return rest;
+    });
+    return { ...body, messages, tools };
+  }
+
+  return { ...body, messages };
+}
+
+/**
+ * Mark a content slot as a cache breakpoint without disturbing anything else in
+ * it. A string body is expanded to the content-block array the marker needs;
+ * an array is marked on its last block, which is what caching the whole prefix
+ * up to that point requires.
+ */
+function markCacheBreakpoint(content: any, marker: Record<string, unknown>): { content: any; changed: boolean } {
+  if (typeof content === 'string') {
+    if (!content) return { content, changed: false };
+    return { content: [{ type: 'text', text: content, cache_control: marker }], changed: true };
+  }
+  if (Array.isArray(content) && content.length > 0) {
+    const lastIdx = content.length - 1;
+    const last = content[lastIdx];
+    if (last && typeof last === 'object' && last.cache_control) return { content, changed: false };
+    return {
+      content: content.map((part: any, idx: number) => (
+        idx === lastIdx && part && typeof part === 'object' ? { ...part, cache_control: marker } : part
+      )),
+      changed: true
+    };
+  }
+  return { content, changed: false };
+}
+
+/**
+ * Apply the provider's caching contract.
+ *
+ * Every decision here comes from `resolveCachingPolicy` (src/provider-policy.ts)
+ * rather than from the provider's name, because the facts differ per provider
+ * and per model family:
+ *
+ *   - `anthropic-cache-control` — explicit breakpoints, budgeted so a client
+ *     that marked its own prefixes stays inside the upstream cap.
+ *   - `openai-prompt-cache` / `implicit-prefix` / `kv-resident` — nothing to
+ *     mark; the levers are a sticky key and, where documented, a retention hint.
+ *   - `none` — markers are stripped so schema validation does not reject them.
+ *
+ * `includeStreamUsage` asks for the trailing usage chunk. Without it a streamed
+ * response frequently carries no `usage`, `cached_tokens` reads as 0, and
+ * `src/expert-logs.ts` reports `cold_start_or_eviction` for a cache that is in
+ * fact warm — caching cannot be verified at all.
+ */
+export function injectPromptCaching(body: any, providerName: string, modelName?: string): any {
+  const provider = canonicalProviderSlug(providerName);
+  const model = String(modelName || body?.model || '');
+  const policy = resolveCachingPolicy(provider, model);
+  let newBody: any = { ...body };
+
+  // 1. Prevent any tool/IDE from disabling caching via body flags.
+  const cacheOverrideKeys = ['cache', 'use_cache', 'no_cache', 'bypass_cache'];
+  for (const k of cacheOverrideKeys) {
+    if (k in newBody) delete newBody[k];
+  }
+
+  // 2. A manually pinned provider list disables sticky routing upstream, which
+  //    is the opposite of what a cache-warm request wants.
+  if (policy.stickyKey === 'session_id') {
     if (newBody.provider && typeof newBody.provider === 'object') {
       if ('order' in newBody.provider) {
         const cleanedProvider = { ...newBody.provider };
@@ -6580,139 +6753,110 @@ export function injectPromptCaching(body: any, providerName: string): any {
     newBody.prompt_cache_key || newBody.session_id
   );
 
-  const modelLower = String(newBody.model || '').toLowerCase();
-  const isOpenAiFamily = modelLower.startsWith('gpt-') || 
-                         modelLower.startsWith('o1-') || 
-                         modelLower.startsWith('o3-') || 
-                         modelLower.includes('chatgpt') ||
-                         modelLower.includes('gpt-4') ||
-                         modelLower.includes('gpt-5');
-
-  // Preserve thinking tokens in context for Z.ai GLM models
-  if (providerName === 'zai' || modelLower.includes('glm')) {
-    newBody.clear_thinking = false;
+  // 3. Retention hint: only where the upstream documents one. The old code sent
+  //    `prompt_cache_retention:'24h'` to every id starting with `gpt-`, which
+  //    included models that never accepted the field.
+  if (policy.retention) {
+    newBody.prompt_cache_retention = policy.retention;
+  } else {
+    delete newBody.prompt_cache_retention;
   }
 
-  // Ollama: set default keep_alive to '24h' if omitted so in-memory KV cache stays resident
-  if (providerName === 'ollama' && newBody.keep_alive === undefined) {
+  // 4. Residency / cache-warmth levers that are not request markers.
+  if (policy.extraBodyFields) {
+    for (const [key, value] of Object.entries(policy.extraBodyFields)) {
+      if (newBody[key] === undefined) newBody[key] = value;
+    }
+  }
+  if (policy.stickyKey === 'keep_alive' && newBody.keep_alive === undefined) {
     newBody.keep_alive = '24h';
   }
 
-  // OpenAI-family models: clean cache_control from messages and tools, set 24h retention and prompt_cache_key
-  if (isOpenAiFamily) {
-    const cleanedBody = stripCacheControl(newBody);
-    cleanedBody.prompt_cache_retention = '24h';
-    if (cacheKey) {
-      cleanedBody.prompt_cache_key = cacheKey;
-    }
-    return cleanedBody;
-  }
-
-  const supportsExplicitCacheControl = [
-    'zenmux',
-    'opencode-go',
-    'opencode-zen',
-    'xiaomi-mimo',
-    'wafer-serverless',
-    'openrouter',
-    'openrouter-presets',
-    'pioneer',
-    'nous-portal',
-    'cline',
-    'kilo'
-  ].includes(providerName);
-
-  // Providers not supporting Anthropic explicit cache_control markers:
-  // strip cache_control from messages & tools so upstream schema validation does not reject them.
-  if (!supportsExplicitCacheControl) {
+  if (policy.stripsCacheControl || policy.mechanism !== 'anthropic-cache-control') {
     newBody = stripCacheControl(newBody);
-
-    if (cacheKey) {
-      if (
-        providerName === 'nebius' ||
-        providerName === 'moonshot' ||
-        providerName === 'modal-proxy' ||
-        providerName === 'modal' ||
-        providerName === 'nvidia-nim' ||
-        providerName === 'zai' ||
-        modelLower.includes('kimi') ||
-        modelLower.includes('moonshot')
-      ) {
-        newBody.prompt_cache_key = cacheKey;
-      }
-    }
-    return newBody;
   }
 
-  // Explicit caching providers:
-  const cacheControlValue = { type: 'ephemeral', ttl: '1h' };
+  if (policy.mechanism === 'anthropic-cache-control' && policy.maxBreakpoints > 0) {
+    const marker: Record<string, unknown> = { type: 'ephemeral' };
+    if (policy.ttl === '1h') marker.ttl = '1h';
 
-  // 1. Tool Caching: cache tool schemas on the last tool definition
-  if (Array.isArray(newBody.tools) && newBody.tools.length > 0) {
-    const tools = newBody.tools.map((t: any, idx: number) => {
-      if (idx === newBody.tools.length - 1) {
-        return { ...t, cache_control: cacheControlValue };
+    // Extend a caller's marker only where they left the TTL open. An explicit
+    // TTL is a cost decision (Anthropic bills a 1h write at 2x), so it is kept.
+    if (policy.ttl === '1h') {
+      newBody = upgradeUntimedCacheMarkers(newBody, marker);
+    }
+
+    // Budget: the caller's own markers count against the same cap.
+    newBody = trimCacheMarkers(newBody, policy.maxBreakpoints);
+
+    let available = policy.maxBreakpoints - countCacheMarkers(newBody);
+
+    if (policy.toolBreakpoint && available > 0 && Array.isArray(newBody.tools) && newBody.tools.length > 0) {
+      const tools = [...newBody.tools];
+      const lastIdx = tools.length - 1;
+      const last = tools[lastIdx];
+      if (last && typeof last === 'object' && !last.cache_control) {
+        tools[lastIdx] = { ...last, cache_control: marker };
+        newBody.tools = tools;
+        available -= 1;
       }
-      return t;
-    });
-    newBody.tools = tools;
+    }
+
+    if (available > 0 && Array.isArray(newBody.messages) && newBody.messages.length > 0) {
+      const messages = [...newBody.messages];
+
+      // Breakpoint 1: the system prompt — the most stable, largest prefix.
+      const systemIdx = messages.findIndex((m: any) => m && m.role === 'system');
+      if (systemIdx !== -1 && messages[systemIdx]) {
+        const marked = markCacheBreakpoint(messages[systemIdx].content, marker);
+        if (marked.changed) {
+          messages[systemIdx] = { ...messages[systemIdx], content: marked.content };
+          available -= 1;
+        }
+      }
+
+      // Breakpoint 2: the turn before the newest user message — the rolling
+      // conversation prefix, which grows append-only across an agent loop.
+      if (available > 0) {
+        let lastUserIdx = -1;
+        for (let i = messages.length - 1; i >= 0; i -= 1) {
+          if (messages[i] && messages[i].role === 'user') {
+            lastUserIdx = i;
+            break;
+          }
+        }
+        const targetIdx = lastUserIdx > 0 ? lastUserIdx - 1 : messages.length - 2;
+        if (targetIdx > 0 && targetIdx !== systemIdx && messages[targetIdx]) {
+          const marked = markCacheBreakpoint(messages[targetIdx].content, marker);
+          if (marked.changed) {
+            messages[targetIdx] = { ...messages[targetIdx], content: marked.content };
+          }
+        }
+      }
+
+      newBody.messages = messages;
+    }
   }
 
-  // 2. Message Caching: system prompt + preceding conversation turn
-  if (Array.isArray(newBody.messages) && newBody.messages.length > 0) {
-    const newMessages = [...newBody.messages];
-
-    // System prompt breakpoint
-    const systemIdx = newMessages.findIndex((m: any) => m && m.role === 'system');
-    if (systemIdx !== -1 && newMessages[systemIdx]) {
-      const msg = { ...newMessages[systemIdx] };
-      if (typeof msg.content === 'string') {
-        msg.content = [{ type: 'text', text: msg.content, cache_control: cacheControlValue }];
-      } else if (Array.isArray(msg.content) && msg.content.length > 0) {
-        const lastPartIdx = msg.content.length - 1;
-        msg.content = msg.content.map((part: any, idx: number) => 
-          idx === lastPartIdx ? { ...part, cache_control: cacheControlValue } : part
-        );
-      }
-      newMessages[systemIdx] = msg;
-    }
-
-    // Find the last real user message index (ignoring synthetic failovers)
-    let lastUserIdx = -1;
-    for (let i = newMessages.length - 1; i >= 0; i--) {
-      const m = newMessages[i];
-      if (m && m.role === 'user') {
-        lastUserIdx = i;
-        break;
-      }
-    }
-
-    // Multi-turn breakpoint: mark the message preceding the latest user turn
-    const targetIdx = lastUserIdx > 0 ? lastUserIdx - 1 : newMessages.length - 2;
-    if (targetIdx > 0 && newMessages[targetIdx] && targetIdx !== systemIdx) {
-      const msg = { ...newMessages[targetIdx] };
-      if (typeof msg.content === 'string') {
-        msg.content = [{ type: 'text', text: msg.content, cache_control: cacheControlValue }];
-      } else if (Array.isArray(msg.content) && msg.content.length > 0) {
-        const lastPartIdx = msg.content.length - 1;
-        msg.content = msg.content.map((part: any, idx: number) => 
-          idx === lastPartIdx ? { ...part, cache_control: cacheControlValue } : part
-        );
-      }
-      newMessages[targetIdx] = msg;
-    }
-
-    newBody.messages = newMessages;
-  }
-
-  // OpenRouter sticky routing: session_id and prompt_cache_key for all models
-  if (providerName === 'openrouter' || providerName === 'openrouter-presets') {
-    if (cacheKey) {
+  // 5. Sticky key, in the field this upstream reads.
+  if (cacheKey) {
+    if (policy.stickyKey === 'session_id') {
       newBody.session_id = cacheKey;
       newBody.prompt_cache_key = cacheKey;
+    } else if (policy.stickyKey === 'prompt_cache_key') {
+      newBody.prompt_cache_key = cacheKey;
     }
-  } else if (cacheKey) {
-    newBody.prompt_cache_key = cacheKey;
+  }
+
+  // 6. Usage visibility on a streamed response.
+  if (policy.includeStreamUsage && newBody.stream) {
+    const streamOptions = (newBody.stream_options && typeof newBody.stream_options === 'object')
+      ? { ...newBody.stream_options }
+      : {};
+    if (streamOptions.include_usage === undefined) {
+      streamOptions.include_usage = true;
+      newBody.stream_options = streamOptions;
+    }
   }
 
   return newBody;
@@ -6993,14 +7137,22 @@ async function proxyModelAttempt(
     ...body,
     model: target.actualModel
   };
-  // Operator contract (2026-09-04): the proxy never sets a thinking default.
-  // Each call configures its own thinking/effort; sanitize is pure passthrough
-  // (Ollama `think` normalized to the portable `enable_thinking`).
-  const safeRequestBody = sanitizeProviderRequestBody(requestBody, {
+  // Operator contract (2026-09-04): the proxy never invents a thinking level.
+  // The caller's own level is re-expressed in whichever dialect this provider
+  // reads (`src/provider-policy.ts`).
+  //
+  // The one exception is the operator's explicit opt-in: `PUT /api/thinking-level`
+  // with `enabled: true` states a level that must actually be sent, otherwise the
+  // control is a no-op. It is applied only when the caller expressed nothing, so a
+  // harness that configures its own thinking still wins.
+  const effectiveBody = thinkingProxyEnabled
+    ? applyConfiguredThinkingLevel(requestBody, target.providerName)
+    : requestBody;
+  const safeRequestBody = sanitizeProviderRequestBody(effectiveBody, {
     providerName: target.providerName,
     modelName: target.actualModel
   });
-  const cachedRequestBody = injectPromptCaching(safeRequestBody, target.providerName);
+  const cachedRequestBody = injectPromptCaching(safeRequestBody, target.providerName, target.actualModel);
   const finalBody = provider.formatBody ? provider.formatBody(cachedRequestBody) : cachedRequestBody;
 
   const attemptStartedAt = Date.now();
@@ -7193,16 +7345,35 @@ async function sendSuccessfulProxyResponse(
       message.reasoning ?? message.reasoning_content ?? message.thinking ?? ''
     );
     const toolCalls = openAIToolCallsToOllama(message.tool_calls);
+    // Ollama's own usage fields. An Ollama-native harness reads prompt_eval_count
+    // (input) and eval_count (output); omitting them made every completion look
+    // like it consumed nothing, which hides both cost and cache behaviour.
+    const usageBlock = (data.usage || {}) as Record<string, unknown>;
+    const promptTokens = typeof usageBlock.prompt_tokens === 'number' ? usageBlock.prompt_tokens : 0;
+    const completionTokens = typeof usageBlock.completion_tokens === 'number' ? usageBlock.completion_tokens : 0;
+    const usageFields = {
+      prompt_eval_count: promptTokens,
+      eval_count: completionTokens,
+      ...(promptTokens + completionTokens > 0 ? { total_duration: Date.now() - requestStartedAt } : {})
+    };
     if (outputFormat === 'ollama_generate') {
       res.json({
         model, created_at: new Date().toISOString(), response: content, done: true, done_reason: 'stop',
-        ...(reasoningText ? { thinking: reasoningText } : {})
+        ...(reasoningText ? { thinking: reasoningText } : {}),
+        ...usageFields
       });
     } else {
       const responseMessage: Record<string, unknown> = { role: 'assistant', content };
       if (reasoningText) responseMessage.thinking = reasoningText;
       if (toolCalls.length > 0) responseMessage.tool_calls = toolCalls;
-      res.json({ model, created_at: new Date().toISOString(), message: responseMessage, done: true, done_reason: 'stop' });
+      res.json({
+        model,
+        created_at: new Date().toISOString(),
+        message: responseMessage,
+        done: true,
+        done_reason: 'stop',
+        ...usageFields
+      });
     }
   } else {
     res.json(data);
@@ -7887,6 +8058,17 @@ function chatCompletionToAnthropicResponse(chatData: any, requestedModel?: strin
   else if (choice.finish_reason === 'stop') stopReason = 'end_turn';
 
   const usage = chatData?.usage || {};
+  // A Claude client renders cache savings from these two fields, and Anthropic
+  // bills input_tokens as the UNCACHED remainder. Reporting the full prompt as
+  // input_tokens while omitting the cache counters showed a warm cache as a full
+  // price request.
+  const cacheRead = usage.prompt_tokens_details?.cached_tokens
+    ?? usage.cache_read_input_tokens
+    ?? 0;
+  const cacheWrite = usage.prompt_tokens_details?.cache_write_tokens
+    ?? usage.cache_creation_input_tokens
+    ?? 0;
+  const inputTokens = typeof usage.prompt_tokens === 'number' ? usage.prompt_tokens : 0;
 
   return {
     id: `msg_${chatData?.id || cryptoRandomId()}`,
@@ -7897,8 +8079,10 @@ function chatCompletionToAnthropicResponse(chatData: any, requestedModel?: strin
     stop_reason: stopReason,
     stop_sequence: null,
     usage: {
-      input_tokens: usage.prompt_tokens || 0,
-      output_tokens: usage.completion_tokens || 0
+      input_tokens: Math.max(0, inputTokens - cacheRead - cacheWrite),
+      output_tokens: usage.completion_tokens || 0,
+      ...(cacheRead > 0 ? { cache_read_input_tokens: cacheRead } : {}),
+      ...(cacheWrite > 0 ? { cache_creation_input_tokens: cacheWrite } : {})
     }
   };
 }
@@ -7926,6 +8110,17 @@ app.post(['/v1/messages', '/messages'], async (req: Request, res: Response) => {
     stream: body.stream || false,
     stop: body.stop_sequences
   };
+
+  // A Claude client states its reasoning as `thinking:{type:'enabled',budget_tokens}`
+  // — a shape no chat-completions upstream understands. Dropping it (what this
+  // did) meant a Claude client's thinking level never left the router, so the
+  // model fell back to whatever its own default is and the operator's choice had
+  // no effect. Translate the budget into effort here; `sanitizeProviderRequestBody`
+  // then re-expresses it in the target provider's dialect.
+  Object.assign(chatBody, anthropicThinkingToChatFields(body.thinking));
+  if (typeof body.reasoning_effort === 'string') {
+    chatBody.reasoning_effort = body.reasoning_effort;
+  }
 
   const messages: any[] = [];
   if (typeof body.system === 'string' && body.system.trim()) {
@@ -8397,7 +8592,14 @@ function flattenResponsesTool(tool: any, namespacePrefix?: string): any {
   };
 }
 
-function translateResponsesRequestToChatBody(body: any): any {
+/**
+ * `POST /v1/responses` → chat-completions body.
+ *
+ * Exported so the contract matrix can drive the real Codex translation instead
+ * of a hand-built approximation: an approximation would keep passing after the
+ * route stopped calling this function.
+ */
+export function translateResponsesRequestToChatBody(body: any): any {
   const translated: any = {};
 
   if (typeof body.model === 'string') translated.model = body.model;
@@ -8411,6 +8613,11 @@ function translateResponsesRequestToChatBody(body: any): any {
   if (body.user != null) translated.user = body.user;
   if (Array.isArray(body.stop) || typeof body.stop === 'string') translated.stop = body.stop;
   if (body.metadata != null) translated.metadata = body.metadata;
+
+  // Codex sends `reasoning: {effort: 'high'}`. Forwarded verbatim it means
+  // nothing to a chat-completions upstream, and dropping it silently pinned
+  // every Codex session to the provider's own default.
+  Object.assign(translated, responsesReasoningToChatFields(body.reasoning));
 
   // Tools: the Responses API declares a function tool flat
   // ({type:'function', name, parameters}); chat-completions nests the same

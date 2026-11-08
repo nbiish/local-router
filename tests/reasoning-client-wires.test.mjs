@@ -15,10 +15,12 @@ import { spawnSync } from 'node:child_process';
  * The failure mode is nasty because the request still succeeds: the client renders an answer with
  * no reasoning attached, and the usage block reports reasoning_tokens it was never shown.
  *
- * These read a LIVE router, so they ship as `npm run verify:wires` rather than the CI gate.
+ * These read a LIVE router, so they are gated on an explicit `LOCAL_ROUTER_TEST_URL`: a stale
+ * deploy on the default port must never be mistaken for the build under test. Run them with
+ * `npm run verify:wires` against the router you actually shipped.
  */
 
-const ROUTER = process.env.LOCAL_ROUTER_TEST_URL || 'http://127.0.0.1:11434';
+const ROUTER = process.env.LOCAL_ROUTER_TEST_URL || '';
 const MODEL = process.env.LOCAL_ROUTER_TEST_MODEL || 'zenmux-deepseek-v4.1-flash';
 const PROMPT = 'A train leaves 14:37 at 83km/h, another 41 minutes later at 97km/h. When does it catch up? Show your reasoning.';
 

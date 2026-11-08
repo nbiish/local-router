@@ -1733,7 +1733,7 @@ app.get('/api/thinking-level', (req: Request, res: Response) => {
 app.put('/api/thinking-level', (req: Request, res: Response) => {
   const { enabled, global: globalLevel, provider, level } = req.body ?? {};
 
-  const validLevels: ThinkingLevel[] = ['none', 'low', 'medium', 'high', 'xhigh'];
+  const validLevels: ThinkingLevel[] = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh'];
 
   if (enabled !== undefined) {
     if (typeof enabled !== 'boolean') {

@@ -1,0 +1,50 @@
+TypeSafe (api.typesafe.ai) — System One / Jev decision transport
+Last verified: 2026-11-08
+
+Overview
+  TypeSafe trains Jev, the calibrated decision model local-router serves as its
+  System One tier. The chat-compatible base (`https://api.typesafe.ai/v1`) is
+  registered only for key resolution and discovery; typed decisions go to
+  `/v1/systemone` on the same host (see `src/decisions/catalog.ts`). OpenRouter
+  and ZenMux resell the same model under their own `/decisions` surfaces.
+
+Mechanism
+  There is no prompt-caching surface here, and none is needed. A decision request
+  carries `{model, state, questions}` and returns `{model, answers, usage}` — a
+  single typed call per decision, not a growing conversational prefix. Nothing is
+  reused between calls except the model weights themselves.
+
+  The same applies to reasoning: a decision model is not a chat model with a
+  thinking dial. It answers calibrated questions; there is no
+  `reasoning_effort`/`enable_thinking`/`thinking` field in the contract, and
+  sending one would be a parameter the endpoint does not define.
+
+Max configuration
+  Nothing to configure. The decision contract's own knobs (question type, choice
+  set, state) are documented in `docs/decisions.md`; they are model inputs, not
+  cache or reasoning controls.
+
+Limits & thresholds
+  None published for caching. The decision service applies its own request
+  timeout (`LOCAL_ROUTER_DECISION_TIMEOUT_MS`, default 30s) and fails over across
+  keyed providers on availability errors, never on contract errors.
+
+Pricing
+  Not a per-token inference product on the decision path. `docs/typesafe-provider.md`
+  covers the provider arrangement.
+
+Maxing recipe
+  Not applicable — there is no prefix to warm and no reasoning level to select.
+  The correct behaviour for the router is to inject nothing, which is what the
+  policy row declares.
+
+Local-router integration
+  Reasoning row is `none` and caching row is `none`. Chat requests naming a
+  decision model are refused with a 400 pointing at the decisions route rather
+  than answered with general-model prose, and the contract matrix asserts that no
+  reasoning parameter and no cache marker is ever added for this provider.
+
+Sources
+  https://api.typesafe.ai/v1
+  docs/decisions.md (canonical decision contract)
+  docs/typesafe-provider.md (provider arrangement)

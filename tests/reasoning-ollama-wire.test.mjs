@@ -11,14 +11,15 @@ import { spawnSync } from 'node:child_process';
  * so a reasoning model showed "This model has no adjustable reasoning" even though the OpenAI wire
  * advertised the dial correctly.
  *
- * These read a LIVE router, so they ship as `npm run verify:dials` rather than the CI gate, and
- * skip when nothing answers.
+ * These read a LIVE router, so they are gated on an explicit `LOCAL_ROUTER_TEST_URL` and run via
+ * `npm run verify:dials` against the router you actually shipped. Skipped when nothing answers.
  */
 
-const ROUTER = process.env.LOCAL_ROUTER_TEST_URL || 'http://127.0.0.1:11434';
+const ROUTER = process.env.LOCAL_ROUTER_TEST_URL || '';
 const MODEL = process.env.LOCAL_ROUTER_TEST_MODEL || 'zenmux-deepseek-v4.1-flash';
 
 function reachable() {
+  if (!ROUTER) return false;
   const probe = spawnSync(process.execPath, ['-e', `
     fetch('${ROUTER}/api/version').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1));
   `], { timeout: 5000 });
