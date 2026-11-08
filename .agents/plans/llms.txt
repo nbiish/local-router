@@ -1,0 +1,76 @@
+# `.agents/plans/` — Plans of Record
+
+## Purpose
+
+One file per task: the plan an agent will follow, the clarifications that shaped it, and the todo
+list derived from both. A plan is written *before* implementation and read *during* it, which is what
+distinguishes it from `docs/` (forward-looking proposals that no agent is executing) and from
+`.agents/tasks/` (coordination state: lane, branch, status, verdict).
+
+The three artifacts split cleanly:
+
+| Artifact | Holds | Lifetime |
+|---|---|---|
+| `.agents/plans/*.plan.md` | Reasoning: problem, anchor facts, design, clarifications, todos, gates | The task, plus the history of how it was decided |
+| `.agents/tasks/*-task.md` | Coordination: lane, branch, status, scope, verdict, `plan:` pointer | The task, and the fleet's record of who was doing what |
+| `.agents/comms/{date}-team.txt` | Lifecycle lines: checkin, update, checkout | One UTC day |
+
+## Naming contract
+
+`.agents/plans/{YYYY-MM-DD}-{kebab-slug}.plan.md` — date of authoring, then a short slug matching
+the branch's topic (`feat/agents-plans-artifact` → `2026-11-08-plans-artifact.plan.md`). The `.plan.md`
+suffix is required: it is what the retrieval orientation globs for.
+
+Never rename or reuse a plan filename. Task records, COMMS lines, and commits point at these paths,
+and a renamed plan is a dangling reference in every one of them.
+
+## Ownership
+
+- The **authoring agent** (usually running the `question-me` skill) owns the file while
+  `status: designing`, and writes §1-§4 plus §6.
+- The **implementing agent** owns §5 checkboxes and the `status` field thereafter.
+- Any agent may append to §7 Open Decisions. No agent silently edits a locked clarification — a
+  clarification invalidated by implementation returns the plan to `status: designing`.
+- Shape and frontmatter keys are owned by [`.agents/templates/plan.md`](../templates/plan.md).
+
+## Local contracts
+
+1. Frontmatter is a parsing contract, not decoration: `ainish-rag` orientation reads `status` and
+   counts unchecked §5 boxes, and `bin/context-packet.sh` reads the same two fields. Keep the keys
+   and their `key: value` form exactly as the template defines them; the readers are line-based and
+   deliberately do not depend on a YAML library.
+2. `status` is one of `designing`, `ready`, `implementing`, `done`, `abandoned`. An unrecognized
+   value is treated as `designing` by readers — fail closed rather than assume progress.
+3. §4 Clarifications is append-only once `status` leaves `designing`. Every entry states whether the
+   operator was asked (`asked: operator`) or the codebase settled it (`asked: resolved from code`),
+   because the second class is what the operator cannot otherwise audit.
+4. §5 is the only section edited in place, and only by ticking boxes. Reordering or deleting a todo
+   destroys the record of what was planned versus what was actually done.
+5. Plans are committed. Unlike `.agents/comms/*-team.live.txt`, nothing here is a working scratch
+   file — a plan that is not in git is not a plan of record.
+
+## Work guidance
+
+- Write §1 Problem in the operator's terms before asking a single question. If you cannot, you are
+  not ready to interview.
+- Every §2 Anchor Fact names the file or command that established it. An unsourced fact is a guess
+  wearing a heading.
+- Derive §5 only after the decision tree is fully walked. A todo list built from a half-walked tree
+  encodes decisions nobody made.
+- Prefer one plan per outcome. See
+  [Plan Artifacts](../../skills/question-me/references/plan-artifacts.md) for the split thresholds.
+
+## Verification
+
+- Shape: `diff <(head -20 .agents/plans/<file>.plan.md) <(head -20 .agents/templates/plan.md)` shows
+  the frontmatter keys present and in order.
+- Frontmatter parses and `status` is a known value:
+  `grep -E '^status: (designing|ready|implementing|done|abandoned)$' .agents/plans/*.plan.md`
+- Every plan has a matching task record:
+  `for p in .agents/plans/*.plan.md; do t=$(sed -n 's/^task_record: //p' "$p"); test -f "$t" || echo "missing: $p -> $t"; done`
+- Orientation sees it: `ainish-rag --context --task "plan check"` names the newest plan and its open
+  todo count.
+
+## Child DOX Index
+
+None. This directory holds plan instances, not sub-documents.

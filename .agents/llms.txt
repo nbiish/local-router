@@ -5,7 +5,7 @@ apply the contract's repository tooling without loading the entire `.agents/` tr
 
 ## Purpose
 
-This tree contains the durable agent operating system: retrieval context, skills, signed audit state, coordination ledgers, task records, memories, and the canonical deployed contract.
+This tree contains the durable agent operating system: retrieval context, skills, signed audit state, coordination ledgers, task records, plans, memories, and the canonical deployed contract.
 
 ## Ownership
 
@@ -13,6 +13,7 @@ This tree contains the durable agent operating system: retrieval context, skills
 - `skills/` owns on-demand procedures; each skill is self-contained and progressive-loadable.
 - `wiki/` owns generated architecture and operator notes; `ledger.md` is append-only.
 - `comms/`, `tasks/`, `suggestions/`, and `memories/` own coordination and durable knowledge. Comms/tasks are system-of-record; memory is context only.
+- `plans/` owns the per-task plan of record: the problem, anchor facts, design, clarification ledger, and derived todos an agent follows while implementing. Distinct from `docs/` (forward-looking proposals) and from `tasks/` (coordination state).
 - `audit/` owns receipts, signatures, manifests, and privacy evidence. Do not hand-edit signed artifacts.
 - `rag/` owns local retrieval/index state and drift telemetry.
 
@@ -20,7 +21,9 @@ This tree contains the durable agent operating system: retrieval context, skills
 
 1. Read the files the request concerns, plus the applicable `llms.txt` chain.
 2. When `ainish-rag` is present, make one `ainish-rag context --task "<request>"` call — its `orientation` section already carries branch, worktree, tree state, today's COMMS, and the newest task record. Otherwise use `bin/context-packet.sh --task "<request>"` for a bounded non-RAG summary.
-3. Create or update one task record; declare `compat:` and `budget:` when applicable.
+3. Create or update one task record; declare `compat:` and `budget:` when applicable. When the work
+   was designed through `question-me`, the task record carries a `plan:` line pointing at
+   `.agents/plans/{date}-{slug}.plan.md` and does not restate the plan.
 4. Use one writer per shared boundary; append coordination entries rather than rewriting them.
 5. Verify the changed surface, then close COMMS, task, memory, and suggestions.
 
@@ -33,7 +36,8 @@ The packet fields are `request`, `next_action`, `files`, `symbols`, `constraints
 ## Child DOX index
 
 - [`skills/llms.txt`](./skills/llms.txt) — on-demand agent workflows.
-- [`templates/llms.txt`](./templates/llms.txt) — reviewable Elephant design artifacts.
+- [`plans/llms.txt`](./plans/llms.txt) — per-task plans of record (problem, clarifications, todos).
+- [`templates/llms.txt`](./templates/llms.txt) — reviewable design and plan templates.
 - [`memories/llms.txt`](./memories/llms.txt) — dated durable facts.
 - [`wiki/README.md`](./wiki/README.md) — generated architecture pages and ledger rules.
 - [`audit/`](./audit/) — signed evidence; generated artifacts only.

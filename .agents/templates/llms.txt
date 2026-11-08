@@ -1,0 +1,20 @@
+# `.agents/templates/` — Design Artifacts
+
+## Purpose
+
+Templates for durable, reviewable planning artifacts. Templates are not always-on instructions and should be loaded only for the matching workflow.
+
+## Ownership
+
+- `plan.md` is the per-task plan of record — frontmatter contract plus the seven sections (problem,
+  anchor facts, plan, clarifications, todos, verification, open decisions) an agent copies to
+  `.agents/plans/{date}-{slug}.plan.md`. Shape changes here propagate to every future plan.
+- `egm-design.md` is the Elephant design artifact consumed by Goldfish review and implementation readiness checks.
+- `masters.md` is the canonical definition of the nine advisory reasoning lenses.
+
+## Verification
+
+Validate a completed design with `bin/egm-check.sh --design <path>`.
+
+A plan is validated by the checks in [`.agents/plans/llms.txt`](../plans/llms.txt) § Verification —
+frontmatter keys present and in template order, `status` a known value, and a matching task record.
