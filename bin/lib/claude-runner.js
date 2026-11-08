@@ -70,12 +70,29 @@ const config = loadAgentProxyConfig();
 const isProxyEnabled = Boolean(config && config.claudeCode && config.claudeCode.enabled);
 
 if (isProxyEnabled) {
-  process.env.ANTHROPIC_BASE_URL = 'http://127.0.0.1:11434';
+  // Follow the configured port instead of assuming the default one: a router on
+  // a custom PORT is still the same gateway, and a hardcoded 11434 would send
+  // the session to whatever else happens to listen there.
+  const baseUrl = (process.env.LOCAL_ROUTER_BASE_URL || `http://127.0.0.1:${process.env.PORT || '11434'}`).replace(/\/+$/, '');
+  process.env.ANTHROPIC_BASE_URL = baseUrl;
   if (!process.env.ANTHROPIC_API_KEY) {
     process.env.ANTHROPIC_API_KEY = 'local-router';
   }
   if (!process.env.ANTHROPIC_AUTH_TOKEN) {
     process.env.ANTHROPIC_AUTH_TOKEN = 'local-router';
+  }
+  // Auto mode asks the API to run its action classifier server-side and passes
+  // the verdict back in `safeguard_results`. Local Router is not the Anthropic
+  // API: it rewrites the conversation into chat-completions, so the `safeguards`
+  // body field and `anthropic-beta` pairing cannot survive the translation and
+  // the server's verdict never comes back. Claude Code then reports that this
+  // session is not eligible and bills the classifier requests itself.
+  // Declaring that up front is the documented handling for a gateway that
+  // cannot provide the checks — it keeps auto mode working, keeps the billing
+  // predictable, and stops the notice appearing on every new session. Set here
+  // rather than system-wide so a direct Anthropic connection keeps the checks.
+  if (!process.env.CLAUDE_CODE_AUTO_MODE_SERVER) {
+    process.env.CLAUDE_CODE_AUTO_MODE_SERVER = '0';
   }
 }
 

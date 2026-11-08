@@ -12,8 +12,6 @@ const os = require('os');
 const { execFileSync } = require('child_process');
 const { spawnCli } = require('./cli-spawn');
 
-const PROFILE_NAME = 'local-router';
-
 function loadAgentProxyConfig() {
   try {
     const configPath = path.join(os.homedir(), '.config', 'local-router', 'agent-proxy-config.json');
@@ -80,18 +78,37 @@ function findRealCodex() {
   return null;
 }
 
-/** Inject the managed profile unless the operator chose one explicitly. */
-function withManagedProfile(args) {
-  const hasProfile = args.some(
-    (arg) => arg === '--profile' || arg === '-p' || arg.startsWith('--profile=') || arg.startsWith('-p=')
-  );
-  if (hasProfile) return args;
-  return ['--profile', PROFILE_NAME, ...args];
+/**
+ * Inject the managed provider through `-c` overrides.
+ *
+ * Codex reads `~/.codex/config.toml` from its own CODEX_HOME, and that home is
+ * per-platform: a profile written by the router running in WSL is invisible to
+ * the Windows Codex binary, which then happily falls back to api.openai.com and
+ * 401s on the placeholder key. `-c` key/value overrides apply to this one
+ * process on every platform, need no file, and leave an operator's config.toml
+ * untouched. Values are TOML, so strings stay quoted.
+ */
+function withManagedProvider(args, opts) {
+  const overrides = [
+    ['model_providers.local-router.name', '"Local Router"'],
+    ['model_providers.local-router.base_url', JSON.stringify(opts.baseUrl)],
+    ['model_providers.local-router.wire_api', '"responses"'],
+    ['model_providers.local-router.env_key', '"OPENAI_API_KEY"'],
+    ['model_provider', '"local-router"']
+  ];
+  if (opts.model) overrides.push(['model', JSON.stringify(opts.model)]);
+  const injected = overrides.flatMap(([key, value]) => ['-c', `${key}=${value}`]);
+  return [...injected, ...args];
 }
 
 const config = loadAgentProxyConfig();
 const interceptionEnabled = Boolean(config && config.codex && config.codex.enabled);
-const args = interceptionEnabled ? withManagedProfile(process.argv.slice(2)) : process.argv.slice(2);
+const args = interceptionEnabled
+  ? withManagedProvider(process.argv.slice(2), {
+      model: String(config.codex.model || '').trim(),
+      baseUrl: `http://127.0.0.1:${process.env.PORT || '11434'}/v1`
+    })
+  : process.argv.slice(2);
 
 if (interceptionEnabled && !process.env.OPENAI_API_KEY) {
   // The managed provider uses env_key = "OPENAI_API_KEY"; Local Router accepts
