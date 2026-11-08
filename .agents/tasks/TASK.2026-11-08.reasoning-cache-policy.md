@@ -64,27 +64,67 @@ out of a live router on `:11434`.
 
 ## Verification
 
-Three layers, all in `npm test`:
+Three layers, all in `npm test`, plus two live probes.
+
+### Offline, in the gate
 
 | Suite | What it proves |
 |---|---|
-| `tests/provider-policy-matrix.test.mjs` (20 tests) | Enumerates every curated-registry pairing (1432 rows), crosses it with every advertised level × 4 wires, and asserts the level reaches the dialect field the upstream reads. Plus: no invented level, opt-out always wins, breakpoint cap respected, markers stripped where rejected, retention only where documented, sticky key present, usage chunk requested. |
+| `tests/provider-policy-matrix.test.mjs` (23 tests) | Enumerates every curated-registry pairing (1432 rows), crosses it with every advertised level × 4 wires, and asserts the level reaches the dialect field the upstream reads. Plus: no invented level, opt-out always wins, breakpoint cap respected, markers stripped where rejected, retention only where documented, sticky key present, usage chunk requested, and both directions of the capability flag (a reasoning family is recognised on every provider that serves it; a Llama never claims one just because a gateway also serves GLM). |
 | `tests/provider-wire-delivery.integration.test.mjs` (11 tests) | Boots the real server against a fake upstream and inspects what actually leaves for each of the 4 wires — the guard against a handler bypassing the translator, which is exactly how the two dropped fields survived. Also asserts both advertisement wires agree and the operator toggle moves a real request. |
 | `tests/provider-policy-docs.test.mjs` (5 tests) | Registered provider → policy row → doc that cites it. A provider added without research now fails CI. |
 
-`prompt-caching.test.mjs` (19) and the three live probe suites were pulled into the
-gate. The live suites are now **opt-in** (`LOCAL_ROUTER_TEST_URL`): on this host the
-default port serves an older deployed router, and a gate that silently tests a stale
-deploy is worse than no gate.
+`prompt-caching.test.mjs` (19), `responses-codex-shapes.test.mjs` (4, previously
+never wired into the gate) and the three live probe suites were pulled in. The
+live suites are now **opt-in** (`LOCAL_ROUTER_TEST_URL`): on this host the
+default port serves an older deployed router, and a gate that silently tests a
+stale deploy is worse than no gate.
 
-Gate result: **313 tests, 299 pass, 12 skipped (live probes), 2 fail.** Both failures
-are pre-existing and reproduce identically on `main` before this branch:
-`detectLocalCursorSession` (no Cursor install on this host) and
-`custom provider CRUD` (`ok:test-vendor-demo` vs `ok:vendor-model-1`). Nothing in
-this change touches either path.
+Gate: **320 tests, 306 pass, 12 skipped (live probes), 2 fail.** Both failures
+reproduce identically on `main` before this branch: `detectLocalCursorSession`
+(no Cursor install on this host) and `custom provider CRUD`
+(`ok:test-vendor-demo` vs `ok:vendor-model-1`).
+
+### Live, against the deployed router (2026-11-08)
+
+`scripts/verify-live-policy.mjs` — the dial moves real upstream work:
+
+```
+effort:none    reasoning_tokens=   0
+effort:low     reasoning_tokens= 496
+effort:high    reasoning_tokens= 923      (zenmux-deepseek-v4.1-flash)
+```
+
+`scripts/verify-live-cache.mjs` — a stable ~1300-token prefix, cached/prompt on a
+repeat call:
+
+```
+zai-glm-5.3-flash                1280/1301   98.4%
+openrouter-deepseek-v4.1-flash   1280/1319   97.0%
+opencode-zen-glm-5.3-flash       1280/1350   94.8%
+zenmux-deepseek-v4.1-flash       1152/1319   87.3%
+```
+
+Advertisement, measured on the live router before and after:
+
+| | before | after |
+|---|---|---|
+| `capabilities.caching` true | 4 / 146 | 142 / 146 |
+| `capabilities.reasoning` true | 40 / 146 | 97 / 146 |
+| `reasoningEfforts` dial advertised | 30 / 146 | 81 / 146 |
+| dial advertised while `reasoning:false` | 10 | 0 |
+
+### A factual conflict the audit found
+
+`src/model-specs.json` recorded `glm-5.1`, `glm-5.3-flash` and `glm-5.3-flashx` as
+`reasoning: false`, contradicting the policy. It was measured rather than
+arbitrated: all three bill reasoning tokens on every provider tested (598/701/699
+on three providers for glm-5.3-flash; 904 for glm-5.1; 886 for glm-5.3-flashx), so
+the specs rows were stale and were corrected with the numbers recorded in each
+row's `source`. `zai-glm-5.3-flash` is step 2 of the chat fallback chain.
 
 `npm run validate:model-specs` is unchanged at its documented baseline (101
-pre-existing errors, 1151 unmatched) — this change adds no new drift.
+pre-existing errors, 1151 unmatched).
 
 ## Blocker / not done
 
