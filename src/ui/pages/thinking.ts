@@ -46,11 +46,15 @@ export function renderThinkingPage(params: {
           <label for="thinkingLevelSelect">Global Thinking Level</label>
           <select id="thinkingLevelSelect" onchange="saveThinkingLevel()">
             <option value="none">none — disable reasoning (VS Code safe)</option>
+            <option value="minimal">minimal — smallest reasoning budget</option>
             <option value="low">low — minimal reasoning</option>
             <option value="medium">medium — balanced reasoning</option>
             <option value="high">high — extended reasoning</option>
-            <option value="xhigh">xhigh — maximum reasoning</option>
+            <option value="xhigh">xhigh — maximum (degraded to high where unsupported)</option>
           </select>
+          <p class="muted" style="margin-top:8px;">Each provider is sent the levels it actually distinguishes.
+            A boolean surface (Kimi, GLM, Qwen, Step, MiniMax) receives on/off; an effort surface receives the level.
+            The model list reports the exact dial per model.</p>
         </div>
         <div class="form-group" id="providerThinkingLevels" style="margin-top:14px;">
           <label>Per-Provider Thinking Levels</label>

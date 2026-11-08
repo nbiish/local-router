@@ -122,11 +122,25 @@ export function createResponsesFakeResponse(options: {
 }): ResponsesFakeResponse {
   const { emit, modelId, responseId, onFinished } = options;
   const outputItemMsgId = `msg_${cryptoRandomId()}`;
+  const reasoningItemId = `rs_${cryptoRandomId()}`;
+  // A reasoning item, when one is emitted at all, always precedes the answer, so
+  // the message shifts to the next slot. Indices are fixed the moment an item is
+  // announced and every later event addresses the same slot.
+  let reasoningItemAdded = false;
+  const reasoningOutputIndex = () => 0;
+  const messageOutputIndex = () => (reasoningItemAdded ? 1 : 0);
   let itemAdded = false;
   let sseBuffer = '';
   let text = '';
   let inputTokens = 0;
   let outputTokens = 0;
+  // Cache and reasoning counters. Hardcoding these to 0 (what this did) made a
+  // streamed turn claim it cached nothing and reasoned about nothing, while the
+  // same request answered with correct numbers on the non-streaming path — so a
+  // warm cache was indistinguishable from a cold one on the wire Codex uses.
+  let cachedTokens = 0;
+  let reasoningTokens = 0;
+  let reasoningText = '';
   let finishReason = '';
 
   const finish = () => {
@@ -139,7 +153,7 @@ export function createResponsesFakeResponse(options: {
     emit({
       type: 'response.output_item.added',
       response_id: responseId,
-      output_index: 0,
+      output_index: messageOutputIndex(),
       item: {
         id: outputItemMsgId,
         type: 'message',
@@ -155,11 +169,48 @@ export function createResponsesFakeResponse(options: {
   const absorb = (data: any) => {
     if (typeof data?.usage?.prompt_tokens === 'number') inputTokens = data.usage.prompt_tokens;
     if (typeof data?.usage?.completion_tokens === 'number') outputTokens = data.usage.completion_tokens;
+    const cached = data?.usage?.prompt_tokens_details?.cached_tokens
+      ?? data?.usage?.input_tokens_details?.cached_tokens
+      ?? data?.usage?.cached_tokens;
+    if (typeof cached === 'number') cachedTokens = cached;
+    const reasoned = data?.usage?.completion_tokens_details?.reasoning_tokens
+      ?? data?.usage?.output_tokens_details?.reasoning_tokens
+      ?? data?.usage?.reasoning_tokens;
+    if (typeof reasoned === 'number') reasoningTokens = reasoned;
 
     const choice = data?.choices?.[0] || {};
     const delta = choice.delta || {};
     if (choice.finish_reason) finishReason = String(choice.finish_reason);
     ensureItem(delta.role);
+
+    // The Responses wire carries reasoning as its own output item. Without one the
+    // usage block claims reasoning tokens the client was never shown.
+    const thinking = delta.reasoning ?? delta.reasoning_content ?? delta.thinking;
+    if (typeof thinking === 'string' && thinking.length > 0) {
+      reasoningText += thinking;
+      if (!reasoningItemAdded) {
+        reasoningItemAdded = true;
+        emit({
+          type: 'response.output_item.added',
+          response_id: responseId,
+          output_index: reasoningOutputIndex(),
+          item: {
+            id: reasoningItemId,
+            type: 'reasoning',
+            status: 'in_progress',
+            summary: []
+          }
+        });
+      }
+      emit({
+        type: 'response.reasoning_summary_text.delta',
+        response_id: responseId,
+        item_id: reasoningItemId,
+        output_index: reasoningOutputIndex(),
+        summary_index: 0,
+        delta: thinking
+      });
+    }
 
     if (typeof delta.content === 'string' && delta.content.length > 0) {
       text += delta.content;
@@ -188,6 +239,34 @@ export function createResponsesFakeResponse(options: {
     ensureItem('assistant');
     const status = finishReason === 'length' ? 'incomplete' : 'completed';
     const content = [{ type: 'output_text', text, annotations: [] }];
+    const output: any[] = [];
+
+    // Reasoning first: the Responses client reads it from its own output item, and
+    // Anthropic-style ordering (reasoning before the answer) is what makes the
+    // indices below stable.
+    if (reasoningText) {
+      const reasoningItem = {
+        id: reasoningItemId,
+        type: 'reasoning',
+        status,
+        summary: [{ type: 'summary_text', text: reasoningText }]
+      };
+      emit({
+        type: 'response.reasoning_summary_text.done',
+        response_id: responseId,
+        item_id: reasoningItemId,
+        output_index: reasoningOutputIndex(),
+        summary_index: 0,
+        text: reasoningText
+      });
+      emit({
+        type: 'response.output_item.done',
+        response_id: responseId,
+        output_index: reasoningOutputIndex(),
+        item: reasoningItem
+      });
+      output.push(reasoningItem);
+    }
 
     // Codex reads the terminal item/response content, not just the deltas: an
     // empty `output_text` here shows the turn as successful with no answer.
@@ -195,22 +274,25 @@ export function createResponsesFakeResponse(options: {
       type: 'response.output_text.done',
       response_id: responseId,
       item_id: outputItemMsgId,
-      output_index: 0,
+      output_index: messageOutputIndex(),
       content_index: 0,
       text
     });
+    const messageItem = {
+      id: outputItemMsgId,
+      type: 'message',
+      status,
+      role: 'assistant',
+      content
+    };
     emit({
       type: 'response.output_item.done',
       response_id: responseId,
-      output_index: 0,
-      item: {
-        id: outputItemMsgId,
-        type: 'message',
-        status,
-        role: 'assistant',
-        content
-      }
+      output_index: messageOutputIndex(),
+      item: messageItem
     });
+    output.push(messageItem);
+
     emit({
       type: 'response.completed',
       response: {
@@ -220,19 +302,13 @@ export function createResponsesFakeResponse(options: {
         model: modelId,
         status,
         incomplete_details: status === 'incomplete' ? { reason: 'max_output_tokens' } : null,
-        output: [{
-          id: outputItemMsgId,
-          type: 'message',
-          role: 'assistant',
-          status,
-          content
-        }],
+        output,
         usage: {
           input_tokens: inputTokens,
           output_tokens: outputTokens,
           total_tokens: inputTokens + outputTokens,
-          input_tokens_details: { cached_tokens: 0 },
-          output_tokens_details: { reasoning_tokens: 0 }
+          input_tokens_details: { cached_tokens: cachedTokens },
+          output_tokens_details: { reasoning_tokens: reasoningTokens }
         }
       }
     });
