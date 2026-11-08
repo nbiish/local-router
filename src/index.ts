@@ -1353,7 +1353,10 @@ function modelCapabilities(model: ProviderModel) {
   const capabilities = ['completion'];
   if (model.supportsTools) capabilities.push('tools');
   if (model.supportsImages) capabilities.push('vision');
-  if (reasoningEffortLevels(model).length > 0) capabilities.push('thinking');
+  // Same question as `capabilities.reasoning` on the OpenAI wire — does this
+  // model reason — so both wires answer it the same way. The selectable levels
+  // are reported separately as `reasoning_efforts`.
+  if (modelSupportsReasoning(model)) capabilities.push('thinking');
   return capabilities;
 }
 
@@ -3436,12 +3439,16 @@ function openAIModelEntry(model: ProviderModel) {
       // while the upstream was caching them anyway.
       caching: modelCachesPrompt(model),
       // `reasoning` reports the CAPABILITY (does this model produce reasoning?),
-      // which is what a provider publishes and what clients read to decide whether
-      // to show thinking output at all. Whether a level can be SELECTED is the
-      // separate `reasoningEfforts` dial below — a model that reasons but exposes
-      // no request field (every `cursor-*` row bakes effort into its id) is
-      // truthfully reported as reasoning-capable with no dial.
-      reasoning: model.supportsReasoning,
+      // which is what a client reads to decide whether to show thinking output at
+      // all. Whether a level can be SELECTED is the separate `reasoningEfforts`
+      // dial below — a model that reasons but exposes no request field (every
+      // `cursor-*` row bakes effort into its id) is truthfully reported as
+      // reasoning-capable with no dial.
+      //
+      // The published per-model flag is unreliable: only 3 of 1432 curated
+      // registry rows carry it, so this must consult the policy's family facts or
+      // a live model reports `reasoning:false` while carrying a working dial.
+      reasoning: modelSupportsReasoning(model),
       // Mirrored inside capabilities as well: xAI-shaped clients look here.
       ...(effortLevels.length > 0 ? { reasoning_effort: effortLevels } : {}),
       // Typed decision models are served by /api/alpha/decisions, never chat.
