@@ -12,12 +12,19 @@ export interface ModelCapabilitySpecs {
   supportsImages: boolean;
   supportsTools: boolean;
   supportsCache?: boolean;
+  /** Does this model reason at all (capability)? */
   supportsReasoning?: boolean;
+  /**
+   * How many selectable thinking levels it exposes (0 = no request dial).
+   * Distinct from `supportsReasoning`: a model can reason at one fixed depth and
+   * still have no dial, so it cannot honour a caller-chosen level.
+   */
+  reasoningLevelCount?: number;
 }
 
 export interface SkippedCandidate {
   model: string;
-  reason: 'context_window_too_small' | 'no_multimodal_support' | 'unconfigured_key';
+  reason: 'context_window_too_small' | 'no_multimodal_support' | 'unconfigured_key' | 'no_reasoning_dial';
   contextLength: number;
   supportsImages: boolean;
 }
@@ -27,7 +34,9 @@ export interface FallbackFilterResult {
   skipped: SkippedCandidate[];
   requiredContext: number;
   requiresMultimodal: boolean;
-  error?: 'no_multimodal_models' | 'chain_empty';
+  /** True when the caller expressed a thinking intent and so needs a real dial. */
+  requiresReasoningDial: boolean;
+  error?: 'no_multimodal_models' | 'chain_empty' | 'no_reasoning_models';
 }
 
 /**
@@ -151,6 +160,36 @@ export function requestRequiresMultimodal(body: any): boolean {
 }
 
 /**
+ * Does the request express a thinking intent that a model without a request dial
+ * could not honour?
+ *
+ * Any explicit level counts, including "off": a model with no dial cannot be
+ * told to stop thinking either, so "no dial" is not eligible for a caller who
+ * asked for `none`. A request that says nothing about thinking needs nothing —
+ * that is the common case and stays untouched.
+ */
+export function requestRequiresReasoningDial(body: any): boolean {
+  if (!body || typeof body !== 'object') return false;
+
+  const extra = body.extra_body && typeof body.extra_body === 'object' ? body.extra_body : {};
+  const thinking = body.thinking && typeof body.thinking === 'object' ? body.thinking : undefined;
+
+  if (typeof body.think === 'boolean') return true;
+  if (typeof body.enable_thinking === 'boolean') return true;
+  if (typeof body.reasoning_effort === 'string' && body.reasoning_effort.trim()) return true;
+  if (thinking) {
+    if (thinking.type === 'enabled' || thinking.type === 'disabled') return true;
+    if (typeof thinking.enabled === 'boolean') return true;
+    if (typeof thinking.budget_tokens === 'number') return true;
+  }
+  if (typeof extra.enable_thinking === 'boolean') return true;
+  if (typeof extra.reasoning_effort === 'string' && extra.reasoning_effort.trim()) return true;
+  if (typeof extra.reasoning_budget === 'number') return true;
+
+  return false;
+}
+
+/**
  * Filters the active fallback chain candidates against context and multimodal requirements.
  */
 export function filterEligibleFallbackModels(
@@ -160,6 +199,7 @@ export function filterEligibleFallbackModels(
 ): FallbackFilterResult {
   const requiredContext = estimateRequestContext(body);
   const requiresMultimodal = requestRequiresMultimodal(body);
+  const requiresReasoningDial = requestRequiresReasoningDial(body);
 
   if (activeModels.length === 0) {
     return {
@@ -167,6 +207,7 @@ export function filterEligibleFallbackModels(
       skipped: [],
       requiredContext,
       requiresMultimodal,
+      requiresReasoningDial,
       error: 'chain_empty'
     };
   }
@@ -176,7 +217,8 @@ export function filterEligibleFallbackModels(
     return {
       modelId,
       contextLength: specs.contextLength || 64000,
-      supportsImages: Boolean(specs.supportsImages)
+      supportsImages: Boolean(specs.supportsImages),
+      reasoningLevelCount: Number(specs.reasoningLevelCount) || 0
     };
   });
 
@@ -184,12 +226,12 @@ export function filterEligibleFallbackModels(
   const skipped: SkippedCandidate[] = [];
 
   // Step 1: Multimodal filter
-  let multimodalFiltered = candidatesWithSpecs;
+  let candidates = candidatesWithSpecs;
   if (requiresMultimodal) {
-    multimodalFiltered = [];
+    candidates = [];
     for (const c of candidatesWithSpecs) {
       if (c.supportsImages) {
-        multimodalFiltered.push(c);
+        candidates.push(c);
       } else {
         skipped.push({
           model: c.modelId,
@@ -200,19 +242,54 @@ export function filterEligibleFallbackModels(
       }
     }
 
-    if (multimodalFiltered.length === 0) {
+    if (candidates.length === 0) {
       return {
         eligible: [],
         skipped,
         requiredContext,
         requiresMultimodal,
+        requiresReasoningDial,
         error: 'no_multimodal_models'
       };
     }
   }
 
-  // Step 2: Context length filter
-  for (const c of multimodalFiltered) {
+  // Step 2: Reasoning-dial filter.
+  //
+  // A caller who chose a thinking level needs a model that can be TOLD a level.
+  // Sending it to a model with no request dial silently runs at that model's own
+  // fixed depth and still answers 200, so the caller's setting appears to work
+  // and does nothing — the same class of silent downgrade as an advertised dial
+  // the translator cannot speak.
+  if (requiresReasoningDial) {
+    const withDial = [];
+    for (const c of candidates) {
+      if (c.reasoningLevelCount > 0) {
+        withDial.push(c);
+      } else {
+        skipped.push({
+          model: c.modelId,
+          reason: 'no_reasoning_dial',
+          contextLength: c.contextLength,
+          supportsImages: c.supportsImages
+        });
+      }
+    }
+    if (withDial.length === 0) {
+      return {
+        eligible: [],
+        skipped,
+        requiredContext,
+        requiresMultimodal,
+        requiresReasoningDial,
+        error: 'no_reasoning_models'
+      };
+    }
+    candidates = withDial;
+  }
+
+  // Step 3: Context length filter
+  for (const c of candidates) {
     if (c.contextLength >= requiredContext) {
       eligible.push(c.modelId);
     } else {
@@ -225,12 +302,14 @@ export function filterEligibleFallbackModels(
     }
   }
 
-  // Step 3: If no candidate has enough context (e.g. prompt is 1.5M tokens),
+  // Step 4: If no candidate has enough context (e.g. prompt is 1.5M tokens),
   // rather than failing with 0 attempts, pick the largest available models
   // in the active chain so we attempt execution on the best-capacity targets.
-  if (eligible.length === 0 && multimodalFiltered.length > 0) {
-    const maxContext = Math.max(...multimodalFiltered.map((c) => c.contextLength));
-    for (const c of multimodalFiltered) {
+  // `candidates` here is already narrowed by the vision and reasoning-dial
+  // gates, so this fallback can never reintroduce a model that fails them.
+  if (eligible.length === 0 && candidates.length > 0) {
+    const maxContext = Math.max(...candidates.map((c) => c.contextLength));
+    for (const c of candidates) {
       if (c.contextLength === maxContext) {
         eligible.push(c.modelId);
       }
@@ -241,6 +320,7 @@ export function filterEligibleFallbackModels(
     eligible,
     skipped,
     requiredContext,
-    requiresMultimodal
+    requiresMultimodal,
+    requiresReasoningDial
   };
 }

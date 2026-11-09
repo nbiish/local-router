@@ -43,6 +43,7 @@ import { syncSystemAgentEnv, agentHarnessEnv } from '../agent-env-sync';
 import { syncCodexHarnessConfig } from '../agent-codex-config';
 import { collectAgentHarnessStatus, verifyAgentHarness } from '../agent-harness-status';
 import { getExpertLogs, importExpertLogs, clearExpertLogs, analyzeLogs } from '../expert-logs';
+import { costBandFor, providerCoverageGaps } from '../fallback-topology';
 
 export interface ConfigApiDeps {
   agentProxyConfig?: AgentProxyConfig;
@@ -135,6 +136,14 @@ export interface ConfigApiDeps {
   DEFAULT_CHAIN_OF_DRAFT_PROMPT: string;
   DEFAULT_THINKING_LEVEL: ThinkingLevel;
   activeProviderModelList: () => ProviderModel[];
+  /** Chain steps that can actually serve right now (keyed providers only). */
+  activeFallbackModels: (route: FallbackModel) => string[];
+  /** Which provider a presented model id resolves to, for coverage reporting. */
+  resolveModelTarget: (modelName: string) => { providerName: string } | null;
+  /** Topology candidate for one chain step, or undefined when it does not resolve. */
+  topologyCandidateFor: (modelId: string) => any | undefined;
+  /** The cost-first ordering a route would get, without applying it. */
+  candidateOrderForRoute: (route: FallbackModel) => any[];
   cloneProviderModel: (model: ProviderModel) => ProviderModel;
   editableProviderModels: (providerName: string) => ProviderModel[];
   ensureCuratedOverrideSelection: (providerName: string) => void;
@@ -219,6 +228,10 @@ export function registerConfigApiRoutes(app: express.Express, deps: ConfigApiDep
     DEFAULT_CHAIN_OF_DRAFT_PROMPT,
     DEFAULT_THINKING_LEVEL,
     activeProviderModelList,
+    activeFallbackModels,
+    resolveModelTarget,
+    topologyCandidateFor,
+    candidateOrderForRoute,
     cloneProviderModel,
     editableProviderModels,
     ensureCuratedOverrideSelection,
@@ -1274,6 +1287,69 @@ app.get('/api/routing/availability', (req: Request, res: Response) => {
   const models = raw.split(',').map((entry) => entry.trim()).filter(Boolean);
   const data = models.map((modelName) => candidateAvailability(modelName));
   return res.json({ object: 'list', data });
+});
+
+/**
+ * Chain coverage: does the fallback chain actually use every provider the
+ * operator has configured, and is each provider reached by more than one step?
+ *
+ * Measured 2026-11-09: 15 providers were configured and `antigravity` — an
+ * entire OAuth subscription — appeared in the chain zero times, while
+ * `nebius` appeared with no key at all. Neither was visible anywhere the
+ * operator would look; both are reported here.
+ *
+ * Read-only. It never reshapes the chain: reordering is a deliberate act, and a
+ * diagnostic that mutates the thing it reports is not a diagnostic.
+ */
+app.get('/api/routing/coverage', (req: Request, res: Response) => {
+  const routeId = typeof req.query.route === 'string' && req.query.route.trim()
+    ? normalizeFallbackRouteId(req.query.route)
+    : 'fallback-models';
+  const route = fallbackModelStore[routeId];
+  if (!route) {
+    return res.status(404).json({ error: `Unknown fallback route "${routeId}".` });
+  }
+
+  const configuredProviders = providerConfigs()
+    .filter((provider) => provider.configured)
+    .map((provider) => provider.name);
+  const chainModels = activeFallbackModels(route);
+  const chainProviders = chainModels
+    .map((modelId) => resolveModelTarget(modelId)?.providerName)
+    .filter((provider): provider is string => Boolean(provider));
+
+  const gaps = providerCoverageGaps({
+    configuredProviders,
+    // Decisions-only and embedding-only providers cannot serve chat, so their
+    // absence from a chat chain is correct rather than a gap.
+    nonChatProviders: ['typesafe'],
+    chainProviders
+  });
+
+  const steps = chainModels.map((modelId) => {
+    const availability = candidateAvailability(modelId);
+    const candidate = topologyCandidateFor(modelId);
+    return {
+      model: modelId,
+      provider: availability.provider,
+      status: availability.status,
+      costBand: candidate ? costBandFor(candidate.tier, modelId, candidate.accessPath) : 'unknown',
+      contextLength: candidate?.contextLength ?? null,
+      reasoningLevels: candidate?.reasoningLevelCount ?? 0,
+      supportsVision: candidate?.supportsVision ?? false,
+      caches: candidate?.caches ?? false
+    };
+  });
+
+  return res.json({
+    route: routeId,
+    steps,
+    configuredProviders,
+    coverage: gaps,
+    // An ordered-by-cost view of what a correctly sorted chain would look like.
+    // Reported, never applied.
+    suggestedOrder: candidateOrderForRoute(route).map((candidate) => candidate.id)
+  });
 });
 
 app.post('/api/fallback-models', (req: Request, res: Response) => {

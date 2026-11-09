@@ -53,6 +53,10 @@ import {
   responsesReasoningToChatFields,
   THINKING_LEVEL_ORDER
 } from './provider-policy';
+import {
+  orderChainByCostThenCapability,
+  type TopologyCandidate
+} from './fallback-topology';
 import { loadExpertLogs, LogEntryTracker, createUsageSpyStream } from './expert-logs';
 import { buildWraparoundExecutionPlan, buildEscalatingWraparoundPlan, buildMultiPassExecutionPlan, DEFAULT_FALLBACK_ROUNDS } from './execution-plan';
 import {
@@ -3793,12 +3797,65 @@ function pruneDisallowedOllamaCloudRouting(): void {
   }
 }
 
+/**
+ * Build a topology candidate for one chain step, from the facts the router holds.
+ *
+ * Tier comes from the curated registry (the only complete source: only 7 of 147
+ * live models resolved a price entry on 2026-11-09). Capability comes from the
+ * same helpers the advertisement uses, so ordering, eligibility and the model
+ * list can never disagree about what a step can do.
+ */
+function topologyCandidateFor(modelId: string): TopologyCandidate | undefined {
+  const model = findCatalogModel(modelId) || findProviderModel(modelId);
+  if (!model) return undefined;
+  // Access path is a fact the router already holds, and it outranks the model's
+  // upstream tier label: OAuth subscriptions and loopback backends are capacity
+  // the operator has already paid for, so an `antigravity` model labelled
+  // tier:'paid' by Google must not sort behind metered per-token billing.
+  const accessPath: TopologyCandidate['accessPath'] = isOAuthProviderName(model.provider)
+    ? 'oauth'
+    : (isLocalLoopbackProvider(model.provider) ? 'local' : 'key');
+  return {
+    id: modelId,
+    tier: model.tier,
+    accessPath,
+    contextLength: model.contextLength || DEFAULT_CONTEXT_LENGTH,
+    outputTokens: model.outputTokens || DEFAULT_OUTPUT_TOKENS,
+    supportsVision: Boolean(model.supportsImages),
+    supportsTools: Boolean(model.supportsTools),
+    reasoningLevelCount: reasoningEffortLevels(model).length,
+    caches: resolveCachingPolicy(model.provider, model.model).mechanism !== 'none'
+  };
+}
+
+/**
+ * The cost-first order a route's active steps would take, WITHOUT applying it.
+ *
+ * Reported by `/api/routing/coverage` so an operator can see the difference
+ * between their chain and a cost-ordered one before committing to it. Steps with
+ * no resolvable model keep their authored position.
+ */
+function candidateOrderForRoute(route: FallbackModel): TopologyCandidate[] {
+  const active = activeFallbackModels(route);
+  const candidates: TopologyCandidate[] = [];
+  for (const modelId of active) {
+    const candidate = topologyCandidateFor(modelId);
+    if (candidate) candidates.push(candidate);
+  }
+  return orderChainByCostThenCapability(candidates);
+}
+
 function normalizeRoutingTierOrder(): void {
   // Empty-by-default world (2026-08-24): every chain in the store is
   // user-authored (or the always-present empty system chain). The old branch
   // that re-injected the curated DEFAULT_FALLBACK_ORDERED_IDS into the system
   // chain whenever the user "hadn't customized" is gone — it would stomp
   // staged single-model additions on every restart.
+  //
+  // 2026-11-09: the "Reorder by provider tier" log below used to fire on a
+  // dedupe pass that never compared tiers, so the chain kept whatever order the
+  // operator clicked — including subscription-billed steps ahead of free ones.
+  // The sort is now real, and cost-first by operator decision.
   let systemFallbackChanged = false;
   let otherFallbackChanged = false;
   for (const route of Object.values(fallbackModelStore)) {
@@ -3808,31 +3865,35 @@ function normalizeRoutingTierOrder(): void {
       || normalizeFallbackRouteId(route.id) === 'default'
     );
 
-    let nextModels: string[];
-    if (isSystemFallback) {
-      const deduped: string[] = [];
-      const seen = new Set<string>();
-      for (const modelId of route.models) {
-        const trimmed = String(modelId || '').trim();
-        if (!trimmed || seen.has(trimmed) || !findCatalogModel(trimmed)) continue;
-        seen.add(trimmed);
-        deduped.push(trimmed);
-      }
-      nextModels = deduped;
-    } else {
-      const deduped: string[] = [];
-      const seenModels = new Set<string>();
-      for (const modelId of route.models) {
-        const trimmed = String(modelId || '').trim();
-        if (!trimmed || seenModels.has(trimmed) || !findCatalogModel(trimmed)) continue;
-        seenModels.add(trimmed);
-        deduped.push(trimmed);
-      }
-      if (deduped.length === 0) continue;
-      nextModels = deduped;
+    const deduped: string[] = [];
+    const seen = new Set<string>();
+    for (const modelId of route.models) {
+      const trimmed = String(modelId || '').trim();
+      if (!trimmed || seen.has(trimmed) || !findCatalogModel(trimmed)) continue;
+      seen.add(trimmed);
+      deduped.push(trimmed);
     }
+    if (deduped.length === 0) continue;
 
-    if (nextModels.length === 0) continue;
+    // Order cost-first, but only over steps we hold facts for. A step with no
+    // resolvable model keeps its position rather than being silently dropped.
+    const candidates: TopologyCandidate[] = [];
+    for (const modelId of deduped) {
+      const candidate = topologyCandidateFor(modelId);
+      if (candidate) candidates.push(candidate);
+    }
+    let nextModels = deduped;
+    if (candidates.length === deduped.length && candidates.length > 1) {
+      nextModels = orderChainByCostThenCapability(candidates).map((candidate) => candidate.id);
+    } else if (candidates.length > 1) {
+      // Partial facts: reorder only the resolvable ones into their cost order,
+      // leaving unknown steps where the operator put them.
+      const ordered = orderChainByCostThenCapability(candidates).map((candidate) => candidate.id);
+      let cursor = 0;
+      nextModels = deduped.map((modelId) => (
+        topologyCandidateFor(modelId) ? ordered[cursor++] : modelId
+      ));
+    }
 
     const orderChanged = (
       nextModels.length !== route.models.length
@@ -5289,6 +5350,10 @@ const configApiDeps = {
   DEFAULT_CHAIN_OF_DRAFT_PROMPT,
   DEFAULT_THINKING_LEVEL,
   activeProviderModelList,
+  activeFallbackModels,
+  resolveModelTarget,
+  topologyCandidateFor,
+  candidateOrderForRoute,
   cloneProviderModel,
   editableProviderModels,
   ensureCuratedOverrideSelection,
@@ -7455,7 +7520,10 @@ export function fallbackExecutionPlan(fallbackRoute: FallbackModel, body?: any) 
         supportsImages: Boolean(m?.supportsImages),
         supportsTools: m?.supportsTools ?? true,
         supportsCache: Boolean(m?.supportsCache),
-        supportsReasoning: Boolean(m?.supportsReasoning)
+        supportsReasoning: m ? modelSupportsReasoning(m) : false,
+        // The dial count, not the capability: a caller who chose a level needs a
+        // model that can be told that level.
+        reasoningLevelCount: m ? reasoningEffortLevels(m).length : 0
       };
     }).eligible;
   })();
@@ -7857,7 +7925,8 @@ async function executeFallbackRoute(
       supportsImages: Boolean(m?.supportsImages),
       supportsTools: m?.supportsTools ?? true,
       supportsCache: Boolean(m?.supportsCache),
-      supportsReasoning: Boolean(m?.supportsReasoning)
+      supportsReasoning: m ? modelSupportsReasoning(m) : false,
+      reasoningLevelCount: m ? reasoningEffortLevels(m).length : 0
     };
   });
 
@@ -7873,7 +7942,30 @@ async function executeFallbackRoute(
       contextLength: s.contextLength,
       supportsImages: s.supportsImages,
       requiredContext: filterResult.requiredContext,
-      requiresMultimodal: filterResult.requiresMultimodal
+      requiresMultimodal: filterResult.requiresMultimodal,
+      requiresReasoningDial: filterResult.requiresReasoningDial
+    });
+  }
+
+  if (filterResult.error === 'no_reasoning_models') {
+    // A caller who chose a thinking level asked for something no step in this
+    // chain can deliver. Answering 200 while running at each model's own fixed
+    // depth is the silent downgrade this rejects; say so instead.
+    const status = 400;
+    const errorMsg = `Fallback model "${fallbackRoute.id}" has no reasoning-capable targets to honour the requested thinking level.`;
+    if (logTracker) {
+      logTracker.onFailure(status, 'unsupported_reasoning', errorMsg);
+      logTracker.onFinish(Date.now() - requestStartedAt);
+    }
+    return res.status(status).json({
+      error: errorMsg,
+      provider: 'local-router',
+      fallback: {
+        id: fallbackRoute.id,
+        requiresReasoningDial: true,
+        configuredTargets: fallbackRoute.models,
+        attempts: attemptLog
+      }
     });
   }
 
