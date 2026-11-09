@@ -1,0 +1,11 @@
+# AGENT COMMS — 2026-11-09
+
+### [2026-11-09T13:20:00Z] start | branch:feat/fallback-topology | wt:D:\Code\lr-fallback
+- start:2026-11-09T13:20:00Z
+- end:2026-11-09T15:05:00Z
+- scope:src/fallback-topology.ts (new), src/routing-capabilities.ts, src/routing-defaults.ts, src/routes/config-api.ts, src/index.ts, scripts/{seed,verify}-fallback-chain.mjs, tests/fallback-{topology,seed}.test.mjs
+- objective:Make the fallback chain use every configured provider the best way it can, with real cost ordering, no silent capability degradation, and no dead steps
+- input:"comprehensive backup logic so all providers and models are used the best way, including max caching and thinking/reasoning modes"
+- output:TASK.2026-11-09.fallback-topology.md; cost-first ordering (free/subscription/paid/unknown) with OAuth outranking tier labels; a reasoning-dial gate returning 400 instead of degrading; empty-completion failover; fact-generated 20-step chain covering all 14 chat providers applied live; /api/routing/coverage; 37 new gate tests
+- status:done
+- blockers:none (8 providers single-step and 3 paid-band steps unclassified for lack of a registry tier fact — both reported by /api/routing/coverage rather than hidden)
