@@ -40,6 +40,45 @@ test('classifyResponseContent: streaming single chunk without error returns stre
   assert.equal(classifyResponseContent(single, true, 200), 'streaming');
 });
 
+test('classifyResponseContent: an empty completion is a failed turn, not a success', () => {
+  // Measured live 2026-11-09: openrouter-lfm-3-1.7b-free with reasoning_effort
+  // 'high' returned HTTP 200, finish_reason 'length', 900 billed reasoning
+  // tokens, and content ''. That classified as 'generated', so the fallback chain
+  // accepted an empty answer and the caller got nothing while being billed.
+  const empty = JSON.stringify({
+    choices: [{ message: { role: 'assistant', content: '' }, finish_reason: 'length' }]
+  });
+  assert.equal(classifyResponseContent(empty, false, 200), 'instant_error');
+
+  const whitespace = JSON.stringify({ choices: [{ message: { content: '   \n ' }, finish_reason: 'stop' }] });
+  assert.equal(classifyResponseContent(whitespace, false, 200), 'instant_error');
+
+  // Reasoning text is not a reply: every thinking harness renders it separately.
+  const reasoningOnly = JSON.stringify({
+    choices: [{ message: { content: '', reasoning_content: 'long scratchwork' }, finish_reason: 'length' }]
+  });
+  assert.equal(classifyResponseContent(reasoningOnly, false, 200), 'instant_error');
+});
+
+test('classifyResponseContent: a tool-call-only turn is still a valid answer', () => {
+  // An agent turn that only issues a tool call has no content by design; failing
+  // it over would break every tool-using harness.
+  const toolOnly = JSON.stringify({
+    choices: [{
+      message: { content: null, tool_calls: [{ id: 'c1', function: { name: 'read_file', arguments: '{}' } }] },
+      finish_reason: 'tool_calls'
+    }]
+  });
+  assert.equal(classifyResponseContent(toolOnly, false, 200), 'generated');
+});
+
+test('classifyResponseContent: a content-block answer counts', () => {
+  const blocks = JSON.stringify({
+    choices: [{ message: { content: [{ type: 'text', text: 'an answer' }] }, finish_reason: 'stop' }]
+  });
+  assert.equal(classifyResponseContent(blocks, false, 200), 'generated');
+});
+
 test('isContentFailoverTrigger: only triggers on instant_error', () => {
   assert.equal(isContentFailoverTrigger('instant_error'), true);
   assert.equal(isContentFailoverTrigger('generated'), false);

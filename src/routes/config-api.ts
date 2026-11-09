@@ -1320,8 +1320,10 @@ app.get('/api/routing/coverage', (req: Request, res: Response) => {
 
   const gaps = providerCoverageGaps({
     configuredProviders,
-    // Decisions-only and embedding-only providers cannot serve chat, so their
-    // absence from a chat chain is correct rather than a gap.
+    // Only a decisions-only provider is genuinely non-chat. Ollama Cloud is a
+    // chat provider with documented free tiers, and the local loopback backend is
+    // a legitimate (if not preferred) target, so excluding either would hide a
+    // real gap behind a rule.
     nonChatProviders: ['typesafe'],
     chainProviders
   });

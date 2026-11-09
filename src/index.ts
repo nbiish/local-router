@@ -6576,6 +6576,21 @@ export function isClassifiedFailoverError(errorType: string): boolean {
 
 export type ContentClassification = 'generated' | 'streaming' | 'instant_error';
 
+/**
+ * Classify a provider's RESPONSE BODY (not its status) for failover purposes.
+ *
+ * `instant_error` means "this answered but produced nothing usable, so the chain
+ * must try the next step". The case that made this necessary was measured live on
+ * 2026-11-09: `openrouter-lfm-3-1.7b-free` with `reasoning_effort:'high'` returned
+ * HTTP 200, `finish_reason:'length'`, 900 billed reasoning tokens, and
+ * `content: ''` — the model spent its whole budget thinking and never answered.
+ * That classified as `generated`, so the chain accepted an empty answer as a
+ * success and the caller received nothing while being billed for it.
+ *
+ * An EMPTY completion with no tool calls is never a valid answer, whatever the
+ * provider claims. Reasoning text alone is not a reply either: every thinking
+ * harness shows reasoning separately from content.
+ */
 export function classifyResponseContent(
   responseBody: string,
   isStreamResponse: boolean,
@@ -6594,7 +6609,28 @@ export function classifyResponseContent(
   try {
     const parsed = JSON.parse(responseBody);
     if (parsed?.error) return 'instant_error';
-    if (Array.isArray(parsed?.choices) && parsed.choices.length > 0) return 'generated';
+    if (!Array.isArray(parsed?.choices) || parsed.choices.length === 0) return 'generated';
+
+    // A 200 whose only choice carries no answer is a failed turn, not a success.
+    // `reasoning` text alone does not count: every thinking harness renders it
+    // separately from the reply, so a caller would see an empty answer.
+    const choice = parsed.choices[0] || {};
+    const message = choice.message || {};
+    const content = message.content;
+    const hasContent = typeof content === 'string'
+      ? content.trim().length > 0
+      : (Array.isArray(content) && content.some((part) => (
+          part && typeof part === 'object' && typeof part.text === 'string' && part.text.trim().length > 0
+        )));
+    const hasToolCalls = Array.isArray(message.tool_calls) && message.tool_calls.length > 0;
+
+    if (!hasContent && !hasToolCalls) {
+      // `length` means it ran out of budget mid-thought: definitively unusable.
+      // Any other finish reason with no content is equally unusable.
+      return 'instant_error';
+    }
+
+    return 'generated';
   } catch {
     // not valid JSON — likely streaming SSE fragments
   }
