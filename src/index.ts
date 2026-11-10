@@ -102,7 +102,17 @@ import {
   unquoteSecretValue
 } from './pqc-key-resolver';
 import { catalogProviderSummaries } from './provider-registry';
-import { loadCurationConfigs, loadRouterSettings, ROUTER_SETTINGS_PATH, saveRouterSettings, loadAgentProxyConfig, AgentProxyConfig } from './config-persistence';
+import {
+  loadCurationConfigs,
+  loadRouterSettings,
+  routerSettingsLocation,
+  routerSettingsPath,
+  saveRouterSettings,
+  seedRouterSettings,
+  loadAgentProxyConfig,
+  AgentProxyConfig
+} from './config-persistence';
+import { describeConfigLocation } from './config-paths';
 import { normalizeGatewayChatCompletionBody } from './gateway-response';
 import {
   DEFAULT_FALLBACK_ORDERED_IDS,
@@ -1884,6 +1894,8 @@ function applyRouterSettingsToStore(): boolean {
 }
 
 function loadPersistedRouterSettings() {
+  const location = routerSettingsLocation();
+  console.log(`[config] chain config: ${describeConfigLocation(location)}`);
   try {
     if (applyRouterSettingsToStore()) {
       const sysRoute = fallbackModelStore[SYSTEM_FALLBACK_ROUTE_ID];
@@ -1900,16 +1912,21 @@ function loadPersistedRouterSettings() {
  * save the file → the running router picks it up within ~2s (no restart).
  * Re-entrant writes from persistFallbackModels are ignored via snapshot
  * comparison (content-addressed, not mtime-addressed).
+ *
+ * The path is resolved on every tick, not captured once: when the checkout copy
+ * does not exist yet, `fs.watchFile` still polls it (stat polling, which also
+ * works across a WSL/Windows mount) and fires when the file is created — so a
+ * chain synced in from another machine is applied without a restart.
  */
 function watchRouterSettingsFile(): void {
   if (!shouldServe || process.env.LOCAL_ROUTER_WATCH_SETTINGS === 'false') return;
-  if (process.env.LOCAL_ROUTER_WATCH_SETTINGS === 'false') return;
   let debounce: NodeJS.Timeout | undefined;
-  fs.watchFile(ROUTER_SETTINGS_PATH, { interval: 2000 }, () => {
+  fs.watchFile(routerSettingsPath(), { interval: 2000 }, () => {
     if (debounce) clearTimeout(debounce);
     debounce = setTimeout(() => {
       try {
-        if (!fs.existsSync(ROUTER_SETTINGS_PATH)) return;
+        const settingsPath = routerSettingsPath();
+        if (!fs.existsSync(settingsPath)) return;
         const settings = loadRouterSettings();
         const snapshot = JSON.stringify({
           fallbackModelsText: typeof settings?.fallbackModelsText === 'string' ? settings.fallbackModelsText : '',
@@ -5551,6 +5568,10 @@ loadPersistedFallbackModels();
 if (waferZdrEnabled) {
   console.log('[Wafer] ZDR enabled for GLM-5.1, Kimi-K2.6, deepseek-v4-pro');
 }
+// A build that reads the checkout copy must not lose the chain an older build
+// left in ~/.config/local-router, so the first boot copies it across once before
+// the loader (and then the watcher) treats the checkout file as authoritative.
+seedRouterSettings();
 loadPersistedRouterSettings();
 if (shouldServe) {
   watchRouterSettingsFile();

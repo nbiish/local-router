@@ -1,8 +1,18 @@
 import { renderLayout } from './layout';
+import { routerSettingsLocation } from '../../config-persistence';
+import { describeConfigLocation } from '../../config-paths';
+
+/** Paths are operator-controlled, so they are escaped before entering the page. */
+function escapePathText(value: string): string {
+  return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
 
 export function renderFallbackPage(params: {
   defaultFallbackModelsText: string;
 }): string {
+  // The page states where the chain actually lives on THIS machine, because the
+  // whole point of the repo-local file is that it differs from the old path.
+  const chainConfig = escapePathText(describeConfigLocation(routerSettingsLocation()));
   const body = `
       <div class="card">
         <div class="catalog-meta">
@@ -38,7 +48,7 @@ export function renderFallbackPage(params: {
           <button onclick="saveFallbackRoute()">Save Chain</button>
           <button class="button-secondary" onclick="configureVSCodePicker()">Refresh VS Code Picker</button>
         </div>
-        <p class="muted" style="margin:6px 0 0;">Edits auto-save and sync into the single source <code>~/.config/local-router/router-settings.json</code> (applied at boot, watched live). The ✕ button removes a model from the chain entirely; the checkbox only disables it. The <strong>fallback-models</strong> route is the safety net used when direct models fail.</p>
+        <p class="muted" style="margin:6px 0 0;">Edits auto-save into the authoritative chain file <code>${chainConfig}</code> (applied at boot, watched live). When this build runs from a git checkout the file lives in the checkout, so a synced clone reads the same chain; credentials and discovery caches stay in <code>~/.config/local-router</code>. The ✕ button removes a model from the chain entirely; the checkbox only disables it. The <strong>fallback-models</strong> route is the safety net used when direct models fail.</p>
         <div style="margin-top:14px;">
           <label>Fallback Order (drag to reorder · click toggle to enable/disable a model)</label>
           <div id="fallbackCandidateList" class="router-candidate-list">

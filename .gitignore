@@ -189,6 +189,9 @@ audit.log.*
 .workbuddy-ai/
 example-repos/
 node_modules
+# Live chain config for the checkout it sits in (repo-local config, 2026-11-10).
+# Written by the running router and carried to other machines by a repo sync, so it
+# stays untracked: a chain save must never dirty the worktree or block a git pull.
 router-settings.json
 src-tauri/gen/
 src-tauri/target/

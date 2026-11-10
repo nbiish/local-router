@@ -17,7 +17,7 @@ Candidates/steps availability in `/config` shows **Ready** (key configured), **N
 
 ## Fallback Chain Design
 
-- A chain is a plain ordered list of provider model ids, persisted in `~/.config/local-router/fallback-models.json` (`{ "version": 1, "models": [{ id, models: string[], disabledModels?: string[] }] }`).
+- A chain is a plain ordered list of provider model ids, authored in `router-settings.json` at the checkout root (`{ "fallbackModelsText": "…", "routes": [{ id, models: string[], disabledModels?: string[] }] }`). Since 2026-11-10 that file lives in the checkout — a synced clone therefore runs the same chain — and `~/.config/local-router/fallback-models.json` is only its derived cache. `LOCAL_ROUTER_CONFIG_DIR` pins the location; see README "Configuration Storage".
 - Steps may carry per-step enable flags (`disabledModels`) — a disabled step stays in the chain but is skipped at request time.
 - Chain ids must not reference other `local-router/*` routes (no cycles).
 - Steps resolve against the live provider catalog; unknown or unconfigured steps are skipped deterministically.

@@ -35,7 +35,6 @@ import {
   loadCurationConfigs,
   loadRouterSettings,
   saveCurationConfigs,
-  saveRouterSettings,
   loadAgentProxyConfig,
   saveAgentProxyConfig
 } from '../config-persistence';
@@ -1659,8 +1658,12 @@ app.put('/api/router-settings', (req: Request, res: Response) => {
   applyEmbeddingProviderOrderToStore();
 
   try {
+    // `persistFallbackModels` already writes the COMPLETE settings file (every
+    // route plus the chain text). A second `saveRouterSettings(settings)` here
+    // used to overwrite that file with `{ fallbackModelsText }` alone, silently
+    // dropping the purpose-scoped routes (fallback-embedding/fallback-decision)
+    // from the authoritative file on every bulk settings write.
     persistFallbackModels();
-    saveRouterSettings(settings);
   } catch (error: any) {
     return res.status(500).json({
       error: 'Failed to persist router settings.',
@@ -1677,8 +1680,9 @@ app.delete('/api/router-settings', (req: Request, res: Response) => {
     models: []
   };
   try {
+    // Same rule as PUT: the full route set stays in the file; only this route is
+    // reset. Writing `{}` afterwards would discard the other routes.
     persistFallbackModels();
-    saveRouterSettings({});
   } catch (error: any) {
     return res.status(500).json({
       error: 'Failed to reset router settings.',

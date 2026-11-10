@@ -145,7 +145,7 @@ There are **two independent** fallback orders on this machine, and they serve di
 
 | Order | Lives in | Purpose |
 |---|---|---|
-| `local-router/fallback-models` | `~/.config/local-router/router-settings.json` | **Generic chat routing** for every client: VS Code, Claude Code, Cline, scripts. 18 steps, currently headed by `xiaomi-mimo-mimo-v2.6-pro` then `zai-glm-5.3-flash`. |
+| `local-router/fallback-models` | `<checkout>/router-settings.json` (repo-local since 2026-11-10; was `~/.config/local-router/router-settings.json`) | **Generic chat routing** for every client: VS Code, Claude Code, Cline, scripts. 18 steps, currently headed by `xiaomi-mimo-mimo-v2.6-pro` then `zai-glm-5.3-flash`. |
 | Driver order (10 steps) | `ainish-rag` `src/rag/rag.py` (`DRIVER_CHAIN`) | **`ainish-rag`'s driver calls only** — the chain above. |
 
 The driver order is deliberately **not** implemented by reordering the shared chain. Repointing

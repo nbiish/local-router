@@ -230,13 +230,26 @@ Local Router enforces maximum caching and savings across all providers and model
 
 ## Configuration Storage
 
-Local Router writes non-secret route files (chains, catalogs, provider metadata) under your POSIX home directory:
+Local Router splits its files by lifetime:
 
 ```text
-~/.config/local-router
+<checkout>/router-settings.json      fallback chains — travels with the repository
+~/.config/local-router               credentials, catalogs, logs, health, backups — per machine
 ```
 
-(`~` is your macOS/Linux home directory, or your Ubuntu/WSL home on Windows.) It reads legacy `~/.config/fvs-code` files when the new files do not exist yet. Provider API keys are never written to these JSON files.
+The chain file lives in the checkout because that is the unit people sync (git clone, rsync, a
+desktop-to-laptop copy): after a sync both machines read the same chain instead of booting with
+their own. It is gitignored, so a chain save never dirties the worktree or blocks `git pull`. The
+machine directory holds everything that is genuinely this box's state — provider API keys are never
+written to either JSON file.
+
+(`~` is your macOS/Linux home directory, or your Ubuntu/WSL home on Windows.) It reads legacy
+`~/.config/fvs-code` files when the new files do not exist yet. Resolution order: a
+`LOCAL_ROUTER_CONFIG_DIR` pin (tests, CI, isolated installs) → a checkout root (a `.git` directory
+next to this project's `package.json`) → `~/.config/local-router`. An overridden `HOME`/`USERPROFILE`
+is treated as an isolated environment and keeps config inside that home, and a packaged build with no
+`.git` uses `~/.config/local-router`. The first boot of a build that knows about the checkout copy
+seeds it from the old machine file, so an existing chain is never dropped by the move.
 
 ## Security Notes
 

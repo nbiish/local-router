@@ -1,9 +1,50 @@
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
+import {
+  configLocation,
+  ConfigLocation,
+  machineConfigDir,
+  machineConfigPath,
+  portableConfigPath,
+  seedPortableConfigFile
+} from './config-paths';
 
-const LOCAL_ROUTER_CONFIG_DIR = path.join(os.homedir(), '.config', 'local-router');
-export const ROUTER_SETTINGS_PATH = path.join(LOCAL_ROUTER_CONFIG_DIR, 'router-settings.json');
+/** Machine-local files below (curation configs, harness config) stay per box. */
+const LOCAL_ROUTER_CONFIG_DIR = machineConfigDir();
+
+// ── Fallback chain config (portable) ────────────────────────────────────────
+// router-settings.json is the authoritative chain definition, and it is the one
+// config file that must be shared rather than copied: a fleet syncs the checkout,
+// so the checkout copy is what every machine reads. `config-paths.ts` owns that
+// decision (checkout → env pin → machine fallback); this module only reads and
+// writes it.
+
+const ROUTER_SETTINGS_FILE = 'router-settings.json';
+
+/** Authoritative location of the chain config on this machine right now. */
+export function routerSettingsLocation(): ConfigLocation {
+  return configLocation(ROUTER_SETTINGS_FILE);
+}
+
+/** Absolute path of the authoritative chain config. */
+export function routerSettingsPath(): string {
+  return portableConfigPath(ROUTER_SETTINGS_FILE);
+}
+
+/**
+ * The pre-2026-11-10 location. Still read when the authoritative file is absent
+ * (a machine that has not booted this build yet), then seeded into place by
+ * {@link seedRouterSettings} — so an existing chain is never silently dropped by
+ * the move.
+ */
+export function legacyRouterSettingsPath(): string {
+  return machineConfigPath(ROUTER_SETTINGS_FILE);
+}
+
+/** Copy the machine chain file into the checkout once, if the checkout has none. */
+export function seedRouterSettings(): boolean {
+  return seedPortableConfigFile(ROUTER_SETTINGS_FILE);
+}
 
 export type RouterSettings = {
   fallbackModelsText?: string;
@@ -12,22 +53,36 @@ export type RouterSettings = {
 };
 
 export function loadRouterSettings(): RouterSettings {
-  try {
-    if (!fs.existsSync(ROUTER_SETTINGS_PATH)) return {};
-    const raw = fs.readFileSync(ROUTER_SETTINGS_PATH, 'utf8');
-    const parsed = JSON.parse(raw);
-    if (parsed && typeof parsed === 'object') return parsed;
-  } catch (error) {
-    console.error('[config] failed to load router settings', error);
+  const primary = routerSettingsPath();
+  const candidates = [primary, legacyRouterSettingsPath()]
+    .map((candidate) => path.resolve(candidate))
+    .filter((candidate, index, all) => all.indexOf(candidate) === index);
+
+  for (const candidate of candidates) {
+    if (!fs.existsSync(candidate)) continue;
+    try {
+      const raw = fs.readFileSync(candidate, 'utf8');
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === 'object') return parsed;
+    } catch (error) {
+      // A corrupt authoritative file is NOT a reason to fall back to the legacy
+      // copy: that would silently resurrect a chain the operator already replaced.
+      // Report it as "no opinion" and let the boot log show why.
+      console.error(`[config] failed to load router settings from ${candidate}`, error);
+      return {};
+    }
   }
   return {};
 }
 
 export function saveRouterSettings(settings: RouterSettings): void {
+  const target = routerSettingsPath();
   try {
-    fs.mkdirSync(path.dirname(ROUTER_SETTINGS_PATH), { recursive: true, mode: 0o700 });
-    fs.writeFileSync(ROUTER_SETTINGS_PATH, JSON.stringify(settings, null, 2), { encoding: 'utf8', mode: 0o600 });
-    fs.chmodSync(ROUTER_SETTINGS_PATH, 0o600);
+    fs.mkdirSync(path.dirname(target), { recursive: true, mode: 0o700 });
+    const temporaryPath = `${target}.${process.pid}.tmp`;
+    fs.writeFileSync(temporaryPath, JSON.stringify(settings, null, 2), { encoding: 'utf8', mode: 0o600 });
+    fs.renameSync(temporaryPath, target);
+    fs.chmodSync(target, 0o600);
   } catch (error) {
     console.error('[config] failed to save router settings', error);
     throw error;
