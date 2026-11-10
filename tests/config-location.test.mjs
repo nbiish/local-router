@@ -253,3 +253,36 @@ test('the checkout copy is seeded once, then authoritative for reads, the watche
     rmSync(checkout, { recursive: true, force: true });
   }
 });
+
+test('a step this machine cannot resolve is kept in the shared chain, not deleted', async () => {
+  // Measured on the synced Mac checkout (2026-11-10): its catalog knew 14 of the
+  // 17 ids, one boot rewrote the shared chain file down to those 14, and the loss
+  // was only visible as a missing step. A machine that has not refreshed its
+  // providers yet must not edit the fleet's chain; an unknown step is skipped at
+  // request time instead.
+  const checkout = makeCheckout(mkdtempSync(join(tmpdir(), 'lr-config-unknown-')));
+  const home = mkdtempSync(join(tmpdir(), 'lr-config-unknown-home-'));
+  const checkoutSettings = join(checkout, 'router-settings.json');
+  const chain = ['zai-unresolvable-step-at-boot', 'zai-glm-5.3-flash'];
+  writeJson(checkoutSettings, {
+    fallbackModelsText: chain.join('\n'),
+    routes: [{ id: 'fallback-models', models: chain }]
+  });
+
+  await startServer({
+    HOME: home,
+    USERPROFILE: home,
+    LOCAL_ROUTER_REPO_ROOT: checkout
+  });
+
+  try {
+    assert.deepEqual(await systemChainModels(), chain, 'the unresolved step must survive the boot in memory');
+    const written = readJson(checkoutSettings);
+    const writtenRoute = (written.routes || []).find((route) => route.id === 'fallback-models');
+    assert.deepEqual(writtenRoute.models, chain, 'the unresolved step must survive the boot in the file');
+  } finally {
+    await stopServer();
+    rmSync(checkout, { recursive: true, force: true });
+    rmSync(home, { recursive: true, force: true });
+  }
+});

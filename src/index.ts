@@ -3886,14 +3886,20 @@ function normalizeRoutingTierOrder(): void {
     const seen = new Set<string>();
     for (const modelId of route.models) {
       const trimmed = String(modelId || '').trim();
-      if (!trimmed || seen.has(trimmed) || !findCatalogModel(trimmed)) continue;
+      if (!trimmed || seen.has(trimmed)) continue;
       seen.add(trimmed);
       deduped.push(trimmed);
     }
     if (deduped.length === 0) continue;
 
-    // Order cost-first, but only over steps we hold facts for. A step with no
-    // resolvable model keeps its position rather than being silently dropped.
+    // A step this machine's catalog cannot resolve is KEPT, not dropped. The chain
+    // file is now shared through the checkout, so dropping it would let a machine
+    // that has not run its provider refresh yet delete a real step and rewrite the
+    // file the whole fleet reads. Measured on 2026-11-10: the synced Mac checkout
+    // knew 14 of 17 ids, booted once, and persisted a 14-step chain — silently.
+    // An unknown step is already handled honestly downstream: request-time preflight
+    // skips it with a reason, and the ordering below leaves it where the operator
+    // put it because it carries no facts to sort by.
     const candidates: TopologyCandidate[] = [];
     for (const modelId of deduped) {
       const candidate = topologyCandidateFor(modelId);
