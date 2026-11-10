@@ -1,0 +1,66 @@
+---
+description: Agent Communication System protocol template. Deployed by `ainish-coder --rules` as `.agents/comms/{date}-team.txt` (one file per UTC date — the day's whole history is one read). Merge-safe: agents deploying updates must preserve all entry blocks below the PROTOCOL section; only the PROTOCOL block itself may be refreshed from this template.
+---
+
+# AGENT COMMS — 2026-11-10
+
+<PROTOCOL>
+## PROTOCOL (binding — follow like AGENTS.md)
+
+**When:** ≥1 agent or subagent is working at once (multiple branches, features, updates, bugs, docs). Solo? Still check in/out — the ledger is the audit trail.
+
+**Two channels:**
+- **This file** (`.agents/comms/{date}-team.txt`) — one file per UTC date; committed, append-only durable ledger. Never rotate per session or per hour. Updated via your task-branch commits; reaches everyone at merge.
+- **Live board** (`.agents/comms/{date}-team.live.txt`) — gitignored, at the **main repo path**. Append here by absolute path for immediate in-flight visibility. Never `git commit` it; never `git add` it. Main stays clean.
+
+**Read:** this file + the live board — at start, before any merge, and whenever blocked.
+
+**Write:** for every lifecycle event, append one entry block to **both** the live board (immediate) and this file in your worktree (durable — commit it). One writer per branch. Subagents do not write the shared files directly: report results to your orchestrator, who logs on your behalf with `parent:` set.
+
+**Skill distribution (persisted per-repo selection):** which `.agents/skills/` packs distribute to this repo is governed by the operator's persisted selection (`~/.config/ainish-coder/skills-selection.json`). `ainish-coder --rules` asks on a real terminal the FIRST time a repo has no saved selection, then applies that saved choice on every later run; `ainish-coder --select-skills [DIR]` reopens the choice and `ainish-coder --skills-list [DIR] [--json]` shows it. Agents and CI MUST use the headless path — `ainish-coder --rules <dir> --headless` or `ainish-coder --skills-sync <dir> --headless` — which applies the saved selection with no prompts. Do not hand-edit the selection file; run the interactive toggle instead. Scroll-channel packs (`8thfire-scrolls`, `ghost-layer-injector`, raw `.scrolls*/` payload) are never selectable here — explicit `--scrolls` only.
+
+**Timestamps — mandatory, bracketed, ISO-8601 (UTC `Z` form on this ledger):**
+- `start:` the instant the agent **begins** the action (input received / work begun).
+- `end:` the instant the agent **finishes** it (output produced / work handed off or halted).
+- **Every** entry has both. Abandoned mid-action → still close with `end:` + `status: abandoned`.
+
+\*\*Entry block:\*\*
+
+~~~
+### [<ISO-8601 timestamp>] <EVENT> | branch:<branch> | wt:<worktree-path>
+- start:<ISO-8601>               # input received / work began
+- end:<ISO-8601>                 # output produced / work ended
+- parent:<orchestrator>          # subagents only
+- scope:<paths/modules>
+- provenance:<source_commit=XXXXXXXXXXXX manifest_sha256=XXXXXXXXXXXX>   # optional but recommended
+- objective:<one line>
+- input:<one line — what was received or requested>
+- output:<one line — what was produced or handed off>
+- status:<new|in-progress|blocked|verifying|merged|abandoned>
+- blockers:<none | description>
+~~~
+
+**Provenance stamp (recommended on `checkin`):** embed the ainish-coder root commit SHA and the target's deployment-manifest digest so every work session is auditable against the exact ruleset it ran under. Generate it with `ainish-coder --rules-provenance <dir>`, which emits `source_commit=… manifest_sha256=…`. Verify every target's manifest signature with `ainish-coder --rules-verify [--json]`.
+
+</PROTOCOL>
+
+---
+
+### [2026-11-10T23:55:00Z] FEAT | branch:main | wt:D:\Code\local-router
+- start:2026-11-10T22:17:00Z
+- end:2026-11-10T23:55:00Z
+- scope:src/config-paths.ts (new), src/config-persistence.ts, src/index.ts, src/routes/config-api.ts, src/ui/pages/fallback.ts, tests/config-location.test.mjs, llms.txt, README.md, ROUTER.md, docs/driver-models.md, .gitignore, package.json; mac-18gb checkout reset to main
+- objective:Make the fallback chain config live in the repo checkout so the rsynced Mac reads it, then put both machines on the latest build with the operator's 17-model chain.
+- input:Operator: review recent changes and update the system so the config file saves within the repo (the rsynced mac-18gb reads the current config via sync) and both machines run the latest local-router with a specific 17-id fallback-models chain.
+- before:this box's WSL-hosted router served 17 steps from ~/.config/local-router while the rsynced Mac checkout served 1 step from its own home directory — same repo, different routing, nothing on disk comparing them.
+- change-1:a new resolver (src/config-paths.ts) puts operator config in the checkout (`<checkout>/router-settings.json`) and keeps credentials, discovery caches, logs, health and backups machine-local. Order: LOCAL_ROUTER_CONFIG_DIR pin (tests/CI) -> checkout root (.git next to a local-router package.json) -> machine root. An overridden HOME disables checkout detection so an isolated run can never rewrite a real chain; the first boot seeds the checkout copy from the old machine file instead of dropping it.
+- change-2:a step the local catalog cannot resolve is now KEPT, not deleted. Measured on the Mac: one boot rewrote the shared 17-step chain down to the 14 ids its catalog knew. Request-time preflight already skips unknown steps with a reason.
+- change-3:`PUT`/`DELETE /api/router-settings` no longer clobber the file with `{ fallbackModelsText }` after persistFallbackModels already wrote every route, which had been dropping fallback-embedding/fallback-decision from disk on every bulk write.
+- verification:new tests/config-location.test.mjs (7) incl. an end-to-end boot/seed/watch/write cycle and the unknown-step survival case; full suite 366 tests / 352 pass / 12 skipped with the same 2 failures that reproduce on unmodified main. Live on both machines: 17 steps, all ready, 0 unkeyed, and a real `local-router/fallback-models` completion answered ROUTER-OK. Both report currentVersion 1.1.0 / currentCommit be9b60b / hasUpdate false.
+- mac-history:the Mac's eight local commits (launchd reload fix, CLI version, SETUP.md, desktop-app contract, GitNexus retirement) were squashed onto main without the accidental 175 MB NVPAIR .dmg, which GitHub would reject; *.dmg/*.pkg are now gitignored. The Mac branch was backed up as backup/main-pre-sync-20261110 before its reset.
+- incident:PQC bundle lost 12 of 25 names at 17:34 local (13 LOCALROUTER_* -> 1 provider-mapped), invisible until a restart because the old process retained vanished keys in memory. Restored from secrets.bundle.json.bak.20261110T223358Z and forced an API resync (12 providers re-keyed); the writer is unidentified and that store has no audit.log.
+- known-gap:chain ORDER differs on two adjacent cursor steps between machines because the cost-first sorter breaks ties with local capability facts; the 17-model set is identical and cost bands hold. The operator's typed order is not preserved verbatim because the sorter has rewritten order at every boot since 2026-11-09.
+- status:merged
+- blockers:none for the config/deploy work; the PQC writer is an open question for the operator.
+- compat:Additive. Existing installs keep working from ~/.config/local-router and are seeded into the checkout on first boot; LOCAL_ROUTER_CONFIG_DIR and the legacy fvs-code paths still resolve.
+- provenance:branch=main commits=11ff822, 80891b9, be9b60b
