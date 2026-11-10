@@ -930,6 +930,53 @@ function renderWindowsOllamaPs1(realOllamaPath, routeMode, target) {
   ].join('\r\n');
 }
 
+// launchctl load -w is a no-op for a job that is ALREADY loaded: launchd keeps
+// its cached definition and silently ignores the rewritten plist on disk. The
+// watchdog then keeps running stale ProgramArguments — for example a node path
+// that has since moved or been pruned — and only fails once that binary is
+// gone, with no error at install time. Boot the job out first so the plist on
+// disk is always authoritative.
+//
+// Returns true only when launchd confirms the job is registered. A caller that
+// prints "installed" without checking this would lie: a sandboxed or
+// non-GUI-context process can be denied the launchd write (error 5) even
+// though the plist was written successfully.
+function launchAgentRegistered(label) {
+  const uid = typeof process.getuid === 'function' ? process.getuid() : null;
+  if (uid === null) return false;
+  const probe = spawnSync('launchctl', ['print', `gui/${uid}/${label}`], { stdio: 'ignore' });
+  return probe.status === 0;
+}
+
+function reloadLaunchAgent(plistPath, label) {
+  const uid = typeof process.getuid === 'function' ? process.getuid() : null;
+  if (uid !== null) {
+    const domain = `gui/${uid}`;
+    spawnSync('launchctl', ['bootout', `${domain}/${label}`], { stdio: 'ignore' });
+    spawnSync('launchctl', ['bootstrap', domain, plistPath], { stdio: 'ignore' });
+    if (launchAgentRegistered(label)) return true;
+  }
+  // Fallback for macOS releases without the bootstrap subcommand, or a domain
+  // that refuses to bootstrap the job. `launchctl load` exits 0 even when it
+  // fails, so its exit code proves nothing — confirm against the domain.
+  spawnSync('launchctl', ['unload', plistPath], { stdio: 'ignore' });
+  spawnSync('launchctl', ['load', '-w', plistPath], { stdio: 'ignore' });
+  return launchAgentRegistered(label);
+}
+
+// Report the real registration outcome instead of a blanket checkmark, and
+// hand back the exact command to run when launchd refused us.
+function reportLaunchAgentResult(ok, plistPath, label, successMessage) {
+  if (ok) {
+    console.log(successMessage);
+    return;
+  }
+  console.log(`⚠ LaunchAgent written but NOT registered: ${plistPath}`);
+  console.log('  launchd rejected the registration from this process. Load it from a normal');
+  console.log('  Terminal window (it also loads automatically at next login):');
+  console.log(`    launchctl bootstrap gui/$(id -u) "${plistPath}"`);
+}
+
 function setupDesktopAndServiceAutostart(routeMode, target) {
   const routerHost = routeMode === 'custom' ? target.host : '127.0.0.1';
   const routerPort = routeMode === 'custom' ? target.port : DEFAULT_PORT;
@@ -941,8 +988,17 @@ function setupDesktopAndServiceAutostart(routeMode, target) {
   if (process.platform === 'darwin') {
     // 1. launchctl setenv covers the CURRENT GUI session immediately...
     try {
-      spawnSync('launchctl', ['setenv', 'OLLAMA_HOST', '127.0.0.1:11435'], { stdio: 'ignore' });
-      console.log('✓ macOS GUI environment: launchctl setenv OLLAMA_HOST 127.0.0.1:11435');
+      const setenv = spawnSync('launchctl', ['setenv', 'OLLAMA_HOST', '127.0.0.1:11435'], { stdio: 'ignore' });
+      if (setenv.status === 0) {
+        console.log('✓ macOS GUI environment: launchctl setenv OLLAMA_HOST 127.0.0.1:11435');
+      } else {
+        // "Not privileged to set domain environment" — a sandboxed or
+        // non-GUI-context process cannot write the session env. The agent
+        // below still pins it at next login, so this is a warning, not a
+        // failure, but claiming success here would hide it.
+        console.log('⚠ macOS GUI environment NOT updated: launchctl setenv was denied.');
+        console.log('  The persistent LaunchAgent still pins OLLAMA_HOST=127.0.0.1:11435 at login.');
+      }
     } catch {}
 
     // ...and a per-user LaunchAgent plist makes it PERSISTENT across reboots
@@ -972,8 +1028,9 @@ function setupDesktopAndServiceAutostart(routeMode, target) {
         '</plist>'
       ].join('\n');
       fs.writeFileSync(envPlistPath, envPlistContent, 'utf8');
-      spawnSync('launchctl', ['load', '-w', envPlistPath], { stdio: 'ignore' });
-      console.log(`✓ macOS persistent OLLAMA_HOST agent installed: ${envPlistPath}`);
+      const envOk = reloadLaunchAgent(envPlistPath, 'com.localrouter.ollama-host');
+      reportLaunchAgentResult(envOk, envPlistPath, 'com.localrouter.ollama-host',
+        `✓ macOS persistent OLLAMA_HOST agent installed: ${envPlistPath}`);
     } catch (err) {
       console.log(`ℹ Persistent OLLAMA_HOST agent notice: ${err.message}`);
     }
@@ -1018,8 +1075,9 @@ function setupDesktopAndServiceAutostart(routeMode, target) {
         '</plist>'
       ].join('\n');
       fs.writeFileSync(plistPath, plistContent, 'utf8');
-      spawnSync('launchctl', ['load', '-w', plistPath], { stdio: 'ignore' });
-      console.log(`✓ macOS ensure watchdog LaunchAgent installed: ${plistPath}`);
+      const daemonOk = reloadLaunchAgent(plistPath, 'com.localrouter.daemon');
+      reportLaunchAgentResult(daemonOk, plistPath, 'com.localrouter.daemon',
+        `✓ macOS ensure watchdog LaunchAgent installed: ${plistPath}`);
     } catch (err) {
       console.log(`ℹ LaunchAgent registration notice: ${err.message}`);
     }
@@ -1136,8 +1194,17 @@ function removeDesktopAndServiceAutostart() {
   if (process.platform === 'darwin') {
     try {
       spawnSync('launchctl', ['unsetenv', 'OLLAMA_HOST'], { stdio: 'ignore' });
-      const plistPath = path.join(os.homedir(), 'Library', 'LaunchAgents', 'com.localrouter.daemon.plist');
-      if (fs.existsSync(plistPath)) {
+      const launchAgentsDir = path.join(os.homedir(), 'Library', 'LaunchAgents');
+      // Both agents must go. Leaving com.localrouter.ollama-host.plist behind
+      // would re-pin OLLAMA_HOST to 11435 at every login, so a later real
+      // Ollama.app install would bind the backend port and fight the router.
+      for (const label of ['com.localrouter.daemon', 'com.localrouter.ollama-host']) {
+        const plistPath = path.join(launchAgentsDir, `${label}.plist`);
+        if (!fs.existsSync(plistPath)) continue;
+        const uid = typeof process.getuid === 'function' ? process.getuid() : null;
+        if (uid !== null) {
+          spawnSync('launchctl', ['bootout', `gui/${uid}/${label}`], { stdio: 'ignore' });
+        }
         spawnSync('launchctl', ['unload', plistPath], { stdio: 'ignore' });
         fs.unlinkSync(plistPath);
         console.log(`Removed macOS LaunchAgent: ${plistPath}`);
@@ -1614,8 +1681,18 @@ function cmdEnv(options) {
   return 0;
 }
 
+// Single source of truth for the version string. Hardcoding it here drifts
+// from package.json on every release, which makes support reports ambiguous.
+function pkgVersion() {
+  try {
+    return require(path.join(__dirname, '..', 'package.json')).version;
+  } catch {
+    return '0.0.0';
+  }
+}
+
 function cmdVersion() {
-  console.log("ollama version is 0.6.4 (local-router 1.0.0)");
+  console.log(`ollama version is 0.6.4 (local-router ${pkgVersion()})`);
   return 0;
 }
 

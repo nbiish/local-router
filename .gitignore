@@ -175,6 +175,10 @@ audit.log.*
 
 # Compiled native binaries (built locally via cargo or distributed wrappers)
 *.exe
+# Installer artifacts (a 175 MB NVPAIR-Setup-*.dmg was committed once by accident;
+# GitHub rejects >100 MB files, so keep them out of the tree entirely)
+*.dmg
+*.pkg
 
 # Deployment smoke sandbox (created by 'ainish-coder --rules test'); never tracked.
 /test/

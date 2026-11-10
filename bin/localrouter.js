@@ -7,7 +7,15 @@ const path = require('path');
 const { spawn, spawnSync } = require('child_process');
 const client = require('./lib/localrouter-client');
 
-const VERSION = '0.1.0';
+// Read the version from package.json so the CLI, the server, and the release
+// tag can never disagree.
+const VERSION = (() => {
+  try {
+    return require(path.join(__dirname, '..', 'package.json')).version;
+  } catch {
+    return '0.0.0';
+  }
+})();
 
 function usage() {
   console.log(`Local Router CLI (Ollama-compatible ergonomics)

@@ -102,3 +102,120 @@ curation is active, so the served catalog reflects the toggled-on serving set.
   would require re-packing all values and is not required.
 - To re-read keys after packing outside Local Router: `POST /api/pqc-resync`
   (`{force:true}`) or restart.
+
+## 7. macOS (Apple Silicon / arm64) install notes
+
+Verified on macOS 27.0.1, arm64, Node 22.22.2. This section exists because the
+failure modes below are silent — each one leaves the CLI looking installed
+while nothing actually runs.
+
+### 7.1 Install path and PATH order
+
+`npm run setup` (`scripts/setup-platform.mjs`) links the CLIs into
+`~/.local/bin`, **not** into the npm global prefix:
+
+```
+~/.local/bin/local-router  -> <repo>/bin/local-router.js
+~/.local/bin/localrouter   -> <repo>/bin/local-router.js
+~/.local/bin/pqc-secrets   -> <repo>/bin/pqc-secrets
+~/.local/bin/ollama        -> drop-in shim (real ollama stays at /usr/local/bin/ollama)
+```
+
+`~/.local/bin` **must precede** `~/.local/npm-global/bin` and `/usr/local/bin`
+on `PATH`, otherwise the ollama shim loses to the real binary and `ollama serve`
+never routes through Local Router. Check with:
+
+```sh
+which -a ollama local-router localrouter
+```
+
+### 7.2 Dangling npm-global symlink trap
+
+A `npm link` / `npm i -g .` from an earlier checkout leaves this behind:
+
+```
+~/.local/npm-global/lib/node_modules/local-router -> /path/to/old/checkout   # dead
+~/.local/npm-global/bin/{local-router,localrouter,fvs-code}                  # dead shims
+```
+
+`npm ls -g` then prints `local-router@` with an **empty version**, and
+`which local-router` fails even though `~/.local/bin/local-router` is fine.
+If that directory is earlier on `PATH` than `~/.local/bin`, the dead shims win.
+Repair:
+
+```sh
+npm uninstall -g local-router
+rm -f ~/.local/npm-global/bin/{local-router,localrouter,fvs-code}
+npm run setup
+```
+
+`npm uninstall -g` removes the package directory but **leaves the bin shims**
+when the package was a symlink, so the explicit `rm` is required.
+
+### 7.3 LaunchAgents must be booted out, not just `load`ed
+
+`local-router route set` writes two agents:
+
+| Label | Purpose |
+| --- | --- |
+| `com.localrouter.ollama-host` | pins `OLLAMA_HOST=127.0.0.1:11435` across reboots |
+| `com.localrouter.daemon` | `local-router ensure` watchdog, every 120 s |
+
+`launchctl load -w` is a **no-op on an already-loaded job** — launchd keeps its
+cached definition and ignores the rewritten plist. The symptom is a watchdog
+still running an old `ProgramArguments` (e.g. a Node path that has since been
+pruned) that only fails once that binary disappears. `bin/local-router.js` now
+boots the job out and re-bootstraps so the on-disk plist is authoritative, and
+verifies registration with `launchctl print` because `launchctl load` exits
+`0` even when it fails.
+
+Confirm the running definition matches the plist:
+
+```sh
+launchctl print gui/$(id -u)/com.localrouter.daemon | grep -A3 'program ='
+```
+
+### 7.4 Registration can be denied (error 5)
+
+When `launchctl` runs from a sandboxed or non-interactive process, bootstrap is
+refused with `Bootstrap failed: 5: Input/output error` even for a minimal plist
+and even outside the sandbox. The plists are written correctly; only the
+registration is blocked. They load automatically at the next login. To load
+immediately, run in a normal Terminal:
+
+```sh
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.localrouter.daemon.plist
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.localrouter.ollama-host.plist
+```
+
+`route set` reports this case explicitly (`⚠ LaunchAgent written but NOT
+registered`) instead of printing a success checkmark.
+
+### 7.5 arm64 PQC engine
+
+`bin/pqc-secrets` is an architecture-dispatching wrapper. On darwin/arm64 the
+canonical engine is the Python ML-KEM-768 implementation (`uv run`); the Rust
+fast path `bin/pqc-secrets.darwin-arm64` covers `keygen`/`pack`/`export` only
+and routes the rest to Python. Verify with:
+
+```sh
+./bin/pqc-secrets version      # expect: py-native-mlkem (canonical python)
+node bin/pqc-doctor.js         # expect: OK lines per mapped provider key
+```
+
+Unmapped `AINISHCODER_*` seeds and `VAULT_PASSPHRASE` are expected to show as
+`UNMAPPED` — they are not provider keys.
+
+### 7.6 Full verification
+
+```sh
+npm install && npm run build && npm run setup
+node bin/local-router.js stop && node bin/local-router.js start
+node bin/localrouter.js verify
+curl -s http://127.0.0.1:11434/api/version
+```
+
+Expected: `Verify PASSED` with non-zero `catalog-custom` and `fallback-routes`.
+Both CLIs report the same version as `package.json` (`1.1.0`), read at runtime
+so they cannot drift.
+

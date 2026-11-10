@@ -74,18 +74,10 @@ Local Router dynamically evaluates the token context requirements and multimodal
 - **Advertised Model Specs (`fallbackModelPresentation`):**
   - `local-router/fallback-models` dynamically computes and advertises the MAXIMUM `context_length` (e.g. 1,048,576) and union of capabilities (`imageInput: true` if any active candidate supports images, tools, cache, reasoning) across active targets in `/v1/models` and `/api/tags`, ensuring agent harnesses know the route's full capacity.
 
-### Graph Intelligence Architecture & End-to-End Execution Flows (2026-09-03)
+### Graph Intelligence Architecture & End-to-End Execution Flows
 
-Local Router integrates a native **Three-Pillar Graph Intelligence Architecture** powered by GitNexus (AST & Code-Symbol layer), Graphify (Multimodal & synthesis layer), and Semantica (Decision governance layer) to provide deterministic, zero-blind-searching codebase navigation:
+Local Router's codebase intelligence is provided by **Graphify** (multimodal & synthesis layer) and **Semantica** (decision governance layer). The former GitNexus AST / LadybugDB symbol graph was retired in November 2026 — do not reintroduce it and do not restore `.gitnexus/` artifacts. Symbol-level navigation now goes through the `ainish-rag` tooling described in `AGENTS.md` (`ainish-rag query`, `--code`, `wiki`, `orient --inject`).
 
-- **GitNexus AST Knowledge Graph:**
-  - Complete repository symbol graph indexed into embedded LadybugDB (3,302 nodes, 10,425 edges, 128 clusters, 286 execution flows).
-  - CLI Runner: `node "$env:APPDATA/npm/node_modules/gitnexus/dist/cli/index.js"` (or `gitnexus` when in path).
-  - Primary Tools:
-    - `context <symbol>`: 360° symbol view of callers, callees, and participating execution flows.
-    - `impact <symbol>`: Blast radius calculation ($d=1, d=2, d=3$) with risk scoring (LOW/MEDIUM/HIGH/CRITICAL) and upstream caller mapping.
-    - `query "<concept>"`: Semantic and structural discovery of execution flows across modules.
-    - `detect-changes`: Maps git diff hunks to affected symbols and execution flows prior to commit.
 - **Architectural Flow Map (Request Lifecycle):**
   1. **Ingress:** Client requests land on Express route handlers (`/v1/chat/completions`, `/api/chat`, `/api/generate`, `/v1/responses`, `/v1/messages`).
   2. **Translation & Options:** Ollama payloads (`/api/chat`, `/api/generate`) translate via `ollamaMessagesToOpenAI` and `applyOllamaRequestOptions` into OpenAI request structure, encapsulated in defensive try/catch blocks to ensure compliant error responses (`{ error: string }`).
@@ -314,8 +306,14 @@ Whenever a tool or operator runs `local-router start` or `ollama serve` when the
 - **CLI Commands**: `local-router list` (or `ollama list`) to view formatted model tables, `local-router stop`, and `local-router status`.
 
 #### 3. Cross-Architecture Desktop Application & Corner System Tray Blueprint
-To match the native experience of desktop services (e.g. the Ollama desktop agent):
-- **Windows (x64 / arm64)**: Native notification area icon in the **bottom-right corner** taskbar system tray. Right-click context menu provides quick links to Open Dashboard, Manage Providers, Toggle Models, Restart Server, and Quit.
+**Long-term contract:** the desktop app must behave like the Ollama desktop agent — a tray/menu-bar resident service that owns the router lifecycle. The window is optional; the tray is not.
+
+- **Lifecycle is tray-owned:** Start, Stop, and Restart act on the router *service*, not on the window, and must succeed whether that service was started by the app, by a login agent, or by the CLI. Stopping the service must not quit the app; closing the window must never quit the app.
+- **Live status, never a static label:** the tray icon and menu reflect real state — `running`, `stopped`, `starting`, `error` — refreshed by polling `GET /api/version`, with the resolved port shown in the menu.
+- **Window-independent:** the app runs and routes with no window open; the window is a view onto `http://127.0.0.1:11434/config`, reopenable from the tray at any time.
+- **Login start is tray-only:** autostart launches hidden to the tray and must not pop a window at login.
+- **Install-safe launch:** the app resolves its runtime and server entry point from its own bundle — never from a repo-relative cwd or an inherited shell `PATH`.
+- **Windows (x64 / arm64)**: Native notification area icon in the **bottom-right corner** taskbar system tray. Right-click context menu provides quick links to Open Dashboard, Manage Providers, Toggle Models, Start/Stop Server, and Quit.
 - **macOS (Apple Silicon & Intel)**: Native Menu Bar extra icon in the **top-right corner** menu bar with dark/light mode template icons and instant status dropdown.
 - **Linux (x64 / aarch64)**: AppIndicator / StatusNotifierItem tray icon compatible with GNOME, KDE, and XFCE desktop environments.
 
