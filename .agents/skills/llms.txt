@@ -11,6 +11,7 @@ Skills are progressive-loaded procedures. Discovery metadata stays short; detail
 - Use `typesafe-jev` for calibrated routing, reranking, faithfulness, and retrieval decisions.
 - Use `pqc-secrets` for secret storage and signing operations; security policy is already compiled into `ainish-security`. It is mandatory and deployed by `--rules`.
 - Use `wtf-is-going-on-mcp` when work spans machines: it records who is doing what, carries encrypted messages between peer agents, and dispatches addressable work to a paired machine's own tooling and keys (`task_*`). It records; Herdr runs the sessions.
+- Use `security-first-agent` for work where a breach would be expensive: auth, crypto, secrets, CI, deployment, incident response, or anything touching agent authority. It reads the newest `.agents/` record directly rather than trusting a generated summary.
 - Use domain skills only when their trigger matches; do not load every skill for every task.
 
 ## Shared invariants
@@ -23,4 +24,5 @@ Every skill must define a bounded procedure, explicit stop conditions, verificat
 - [`pqc-secrets/`](./pqc-secrets/) — secret operations and ML-DSA-65 signing. Mandatory.
 - [`typesafe-jev/`](./typesafe-jev/) — typed decision contract.
 - [`wtf-is-going-on-mcp/`](./wtf-is-going-on-mcp/) — cross-machine agent record, messaging, and task dispatch.
+- [`security-first-agent/`](./security-first-agent/) — the operating posture for security-sensitive work: threat-model, least authority, read the primary `.agents` record instead of a summary, verify by read-back, fail closed.
 - [`../templates/egm-design.md`](../templates/egm-design.md) — optional written design artifact; no longer a required gate.
