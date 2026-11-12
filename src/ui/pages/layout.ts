@@ -3174,23 +3174,41 @@ export function renderLayout(
             }
             el.innerHTML = routes.map(function(route) {
               const flagged = (route.models || []).filter(function(m) { return (m.flags || []).length > 0; }).length;
+              const chainHealth = (payload.chainHealth || {})[route.routeId] || {};
+              const dead = chainHealth.dead || [];
+              const degraded = chainHealth.degraded || [];
+              const quarantinedByModel = {};
+              dead.concat(degraded).forEach(function(q) { quarantinedByModel[q.model] = q; });
               const header = '<div style="display:flex; justify-content:space-between; align-items:center; margin:12px 0 6px;">'
                 + '<strong>' + escapeHtml(route.routeId) + '</strong>'
                 + '<span class="muted">' + route.trajectories + ' trajectories · ' + Math.round((route.successRate || 0) * 100) + '% ok'
                 + (flagged ? ' · <span style="color:var(--danger-text);">' + flagged + ' flagged</span>' : '')
+                + (dead.length ? ' · <span style="color:var(--danger-text);">' + dead.length + ' quarantined (dead)</span>' : '')
+                + (degraded.length ? ' · <span style="color:var(--warning-text);">' + degraded.length + ' quarantined (degraded)</span>' : '')
                 + '</span></div>';
               const rows = (route.models || []).map(function(m) {
                 const flags = (m.flags || []).map(function(f) {
                   return '<span class="pill status-pill pending" style="margin-left:6px;">' + escapeHtml(f) + '</span>';
                 }).join('');
+                const q = quarantinedByModel[m.model];
+                const quarantineBadge = q
+                  ? '<span class="pill status-pill" style="margin-left:6px; color:var(--danger-text);" title="cooldown:' + escapeHtml(q.errorType) + ' until ' + escapeHtml(new Date(q.until).toISOString()) + '">quarantined</span>'
+                  : '';
+                const errorClasses = Object.keys(m.errorClasses || {}).map(function(k) {
+                  const color = (k === 'key_rejected' || k === 'out_of_funds')
+                    ? 'var(--danger-text)'
+                    : (k === 'usage_limit' ? 'var(--warning-text)' : 'var(--muted)');
+                  return '<span style="color:' + color + ';">' + escapeHtml(k) + ' ×' + m.errorClasses[k] + '</span>';
+                }).join(' · ');
                 const reasons = Object.keys(m.skipReasons || {}).map(function(k) { return k + ' ×' + m.skipReasons[k]; })
                   .concat(Object.keys(m.errorTypes || {}).map(function(k) { return k + ' ×' + m.errorTypes[k]; }));
                 return '<tr>'
-                  + '<td style="padding:6px 10px; font-weight:600;">' + escapeHtml(m.model) + flags + '</td>'
+                  + '<td style="padding:6px 10px; font-weight:600;">' + escapeHtml(m.model) + flags + quarantineBadge + '</td>'
                   + '<td style="padding:6px 10px; text-align:right;">' + m.planned + '</td>'
                   + '<td style="padding:6px 10px; text-align:right; color:var(--success-text);">' + m.answered + '</td>'
                   + '<td style="padding:6px 10px; text-align:right; color:var(--danger-text);">' + m.failed + '</td>'
                   + '<td style="padding:6px 10px; text-align:right; color:var(--warning-text);">' + m.skipped + '</td>'
+                  + '<td style="padding:6px 10px; font-size:12px;">' + (errorClasses || '<span class="muted">—</span>') + '</td>'
                   + '<td style="padding:6px 10px; font-size:12px; color:var(--muted);">' + escapeHtml(reasons.join(' · ') || '—') + '</td>'
                   + '</tr>';
               }).join('');
@@ -3201,6 +3219,7 @@ export function renderLayout(
                 + '<th style="padding:6px 10px; text-align:right;">Answered</th>'
                 + '<th style="padding:6px 10px; text-align:right;">Failed</th>'
                 + '<th style="padding:6px 10px; text-align:right;">Skipped</th>'
+                + '<th style="padding:6px 10px; text-align:left;">Error classes</th>'
                 + '<th style="padding:6px 10px; text-align:left;">Reasons</th>'
                 + '</tr></thead><tbody>' + rows + '</tbody></table></div>';
             }).join('');

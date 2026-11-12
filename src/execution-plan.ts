@@ -92,7 +92,10 @@ export function buildWraparoundExecutionPlan(
  * traversal completes without triggering a restart, i.e. the whole list is
  * exhausted.
  */
-export function buildEscalatingWraparoundPlan(models: string[]): ExecutionStage[] {
+export function buildEscalatingWraparoundPlan(
+  models: string[],
+  opts?: { skipRevisitsFor?: (model: string) => boolean }
+): ExecutionStage[] {
   const stages: ExecutionStage[] = [];
   if (models.length === 0) return stages;
 
@@ -103,15 +106,24 @@ export function buildEscalatingWraparoundPlan(models: string[]): ExecutionStage[
   // Each cycle costs at most `threshold` stages; the loop terminates once
   // threshold >= models.length (a full traversal then ends exhausted).
   const maxStages = (models.length * (models.length + 1)) / 2 + models.length;
+  // A stage is a wraparound REVISIT when its model already ran earlier in the
+  // plan. Health-quarantined members keep their first occurrence (the runtime
+  // preflight records the cooldown skip) but are not re-entered every cycle.
+  const attempted = new Set<string>();
 
   while (index < models.length && stages.length < maxStages) {
-    stages.push({
-      stage: `pass-${pass}-step-${index + 1}`,
-      model: models[index],
-      attempts: 1,
-      primary: stages.length === 0,
-      pass
-    });
+    const model = models[index];
+    const revisit = attempted.has(model);
+    if (!(revisit && opts?.skipRevisitsFor?.(model))) {
+      stages.push({
+        stage: `pass-${pass}-step-${index + 1}`,
+        model,
+        attempts: 1,
+        primary: stages.length === 0,
+        pass
+      });
+    }
+    attempted.add(model);
 
     failuresInCycle += 1;
     index += 1;

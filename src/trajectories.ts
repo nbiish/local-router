@@ -37,6 +37,8 @@ export interface TrajectoryStage {
   outcome: TrajectoryStageOutcome;
   /** For skipped stages: why (preflight errorType or capability-filter reason). */
   skipReason?: string;
+  /** Attempt made during the last-pass force-try despite an active cooldown (plan §4.2). */
+  forced?: boolean;
   errorType?: string;
   status?: number | null;
   errorMessage?: string;
@@ -405,6 +407,30 @@ export function listTrajectorySummaries(options: TrajectoryListOptions = {}): Tr
 // Health analysis — "is a chain member dead or silently skipped?"
 // ---------------------------------------------------------------------------
 
+/**
+ * The four stable error classes an operator or agent triages against
+ * (2026-11-12): a rejected key, an empty balance, a usage limit, or a usage
+ * error are four different fixes — key refresh, top-up, backoff, request
+ * change — and the raw errorType strings cannot carry that alone.
+ */
+export type ErrorClass = 'key_rejected' | 'out_of_funds' | 'usage_limit' | 'usage_error' | 'other';
+
+export function errorClassFor(errorType: string | null | undefined): ErrorClass {
+  switch (errorType) {
+    case 'upstream_http_auth':
+      return 'key_rejected';
+    case 'upstream_http_payment_required':
+      return 'out_of_funds';
+    case 'upstream_http_quota':
+    case 'upstream_http_rate_limit':
+      return 'usage_limit';
+    case 'upstream_http_invalid_request':
+      return 'usage_error';
+    default:
+      return 'other';
+  }
+}
+
 export interface ModelHealth {
   model: string;
   planned: number;
@@ -413,6 +439,8 @@ export interface ModelHealth {
   skipped: number;
   skipReasons: Record<string, number>;
   errorTypes: Record<string, number>;
+  /** Nonzero stable error-class counts over the window (§4.3). */
+  errorClasses: Record<string, number>;
   answerRate: number;
   lastError: string | null;
   lastSeen: string | null;
@@ -547,6 +575,24 @@ export function analyzeTrajectories(records?: TrajectoryRecord[]): TrajectoryHea
 
       const attempted = answered + failed;
       const flags: string[] = [];
+
+      // Stable error classes (§4.3): the same window, four triage buckets.
+      const errorClasses: Record<string, number> = {};
+      for (const key of Object.keys(errorTypes)) {
+        const cls = errorClassFor(key);
+        if (cls === 'other') continue;
+        errorClasses[cls] = (errorClasses[cls] || 0) + errorTypes[key];
+      }
+      const lastErrorClass = errorClassFor(lastError);
+      for (const cls of Object.keys(errorClasses)) {
+        // Flag a class when it is the member's current problem (last error) or
+        // repeats — a single transient rate limit on an answering member stays
+        // a count, not an alarm.
+        if (errorClasses[cls] >= 2 || cls === lastErrorClass) {
+          flags.push(cls);
+        }
+      }
+
       if (attempted >= MIN_OBSERVATIONS && answered === 0) {
         flags.push('never_answers');
       }
@@ -577,6 +623,7 @@ export function analyzeTrajectories(records?: TrajectoryRecord[]): TrajectoryHea
         skipped,
         skipReasons,
         errorTypes,
+        errorClasses,
         answerRate: obsList.length > 0 ? Math.round((answered / obsList.length) * 1000) / 1000 : 0,
         lastError,
         lastSeen,
@@ -599,6 +646,7 @@ export function analyzeTrajectories(records?: TrajectoryRecord[]): TrajectoryHea
         skipped: 0,
         skipReasons: {},
         errorTypes: {},
+        errorClasses: {},
         answerRate: 0,
         lastError: null,
         lastSeen: null,

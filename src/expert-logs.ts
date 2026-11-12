@@ -321,6 +321,7 @@ export class LogEntryTracker {
   /** Completion hook (e.g. trajectory capture) — invoked once, after the expert log is persisted. */
   public onComplete: ((log: ExpertLog) => void) | null = null;
   private streamingToolCalls = new Map<number, { id?: string; name?: string; arguments: string }>();
+  private finished = false;
 
   constructor(
     clientName: string,
@@ -581,6 +582,11 @@ export class LogEntryTracker {
   }
 
   public onFinish(durationMs: number): void {
+    // Idempotence guard (plan T6): a double flush would append one expert
+    // entry per call and double-count the rollups. The trajectory side already
+    // guards; this closes the expert-log side of the same flush.
+    if (this.finished) return;
+    this.finished = true;
     this.log.durationMs = durationMs;
 
     // Convert accumulated streaming tool calls to array

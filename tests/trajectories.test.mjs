@@ -172,10 +172,55 @@ test('analysis flags dead, always-skipped, and invisible chain members', () => {
   assert.deepEqual(byModel.get('good').flags, []);
   assert.ok(byModel.get('dead').flags.includes('never_answers'));
   assert.equal(byModel.get('dead').errorTypes.upstream_http_auth, 4);
+  // §4.3: failures roll up into the stable triage classes and flag the member.
+  assert.deepEqual(byModel.get('dead').errorClasses, { key_rejected: 4 });
+  assert.ok(byModel.get('dead').flags.includes('key_rejected'));
+  assert.deepEqual(byModel.get('good').errorClasses, {});
   assert.ok(byModel.get('ghost').flags.includes('always_skipped'));
   assert.equal(byModel.get('ghost').skipReasons.no_configured_key, 4);
   assert.ok(byModel.get('gone').flags.includes('missing_from_plan'));
   assert.equal(route.winnerCounts['p/good'], 4);
+});
+
+test('error classes aggregate into triage buckets and surface as flags', () => {
+  clearTrajectories();
+  const tracker = new TrajectoryTracker(
+    { client: 'c', presentedModel: 'local-router/chain-ec', routeKind: 'fallback', routeId: 'chain-ec' },
+    {}
+  );
+  tracker.setChain({
+    routeId: 'chain-ec',
+    configuredTargets: ['funds', 'limited', 'usage'],
+    excludedTargets: [],
+    eligibleTargets: ['funds', 'limited', 'usage'],
+    requiredContext: 1,
+    requiresMultimodal: false,
+    planStageCount: 3
+  });
+  tracker.addStage({
+    stage: 'pass-1-step-1', targetModel: 'funds', provider: 'p', actualModel: 'funds',
+    attempt: 1, stageAttempts: 1, outcome: 'failed', errorType: 'upstream_http_payment_required', status: 402
+  });
+  tracker.addStage({
+    stage: 'pass-1-step-2', targetModel: 'limited', provider: 'p', actualModel: 'limited',
+    attempt: 1, stageAttempts: 1, outcome: 'failed', errorType: 'upstream_http_rate_limit', status: 429
+  });
+  tracker.addStage({
+    stage: 'pass-1-step-3', targetModel: 'usage', provider: 'p', actualModel: 'usage',
+    attempt: 1, stageAttempts: 1, outcome: 'failed', errorType: 'upstream_http_invalid_request', status: 400
+  });
+  tracker.finish(makeLog({ status: 502, errorType: 'upstream_http_payment_required' }));
+
+  const report = analyzeTrajectories();
+  const route = report.routes.find((r) => r.routeId === 'chain-ec');
+  const byModel = new Map(route.models.map((m) => [m.model, m]));
+
+  assert.deepEqual(byModel.get('funds').errorClasses, { out_of_funds: 1 });
+  assert.ok(byModel.get('funds').flags.includes('out_of_funds'), 'a single out-of-funds is the member\'s current problem');
+  assert.deepEqual(byModel.get('limited').errorClasses, { usage_limit: 1 });
+  assert.ok(byModel.get('limited').flags.includes('usage_limit'));
+  assert.deepEqual(byModel.get('usage').errorClasses, { usage_error: 1 });
+  assert.ok(byModel.get('usage').flags.includes('usage_error'));
 });
 
 test('planned-but-unreached chain members are not flagged', () => {

@@ -51,6 +51,7 @@ import {
   analyzeTrajectories,
   clearTrajectories
 } from '../trajectories';
+import { healthRegistry } from '../health-registry';
 import { costBandFor, providerCoverageGaps } from '../fallback-topology';
 
 export interface ConfigApiDeps {
@@ -1756,7 +1757,9 @@ app.get('/api/trajectories', (req: Request, res: Response) => {
 });
 
 app.get('/api/trajectories/health', (_req: Request, res: Response) => {
-  return res.json(analyzeTrajectories());
+  // chainHealth: live quarantine state (plan T5) beside the window analysis —
+  // agents get "why is this member skipped" and "what class of error" in one call.
+  return res.json({ ...analyzeTrajectories(), chainHealth: healthRegistry.snapshot() });
 });
 
 app.get('/api/trajectories/export', (_req: Request, res: Response) => {
