@@ -45,7 +45,6 @@ export const DEFAULT_FALLBACK_SUBSCRIPTION_IDS: readonly string[] = [
 // Metered billing. Tried last, cheapest first.
 export const DEFAULT_FALLBACK_PAID_IDS: readonly string[] = [
   'kilo-moonshotai-kimi-latest-paid',
-  'pioneer-moonshotai-kimi-k3',
   'opencode-zen-deepseek-v4-flash',
   'cline-z-ai-glm-5.2',
   'commandcode-deepseek-v4-flash',
@@ -128,7 +127,6 @@ export const PRESET_FALLBACK_ROUTES: readonly PresetFallbackRoute[] = [
       'xiaomi-mimo-mimo-v2.6-pro',
       'zai-glm-5.3-flash',
       'openrouter-free',
-      'pioneer-moonshotai-kimi-k3',
       'kilo-moonshotai-kimi-latest-paid'
     ] as const
   }

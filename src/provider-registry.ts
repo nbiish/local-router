@@ -46,8 +46,18 @@ export const PROVIDER_REGISTRY: readonly ProviderRegistryEntry[] = [
     note: 'Direct TypeSafe System One (Jev) API; decisions use /v1/systemone'
   },
   { name: 'xiaomi-mimo', endpoint: 'https://token-plan-sgp.xiaomimimo.com/v1', keyEnvVar: 'XIAOMI_MIMO_API_KEY' },
-  { name: 'opencode-go', endpoint: 'https://opencode.ai/zen/go/v1', keyEnvVar: 'OPENCODE_API_KEY' },
-  { name: 'opencode-zen', endpoint: 'https://opencode.ai/zen/v1', keyEnvVar: 'OPENCODE_ZEN_API_KEY' },
+  {
+    name: 'opencode-go',
+    endpoint: 'https://opencode.ai/inference/openai/v1',
+    keyEnvVar: 'OPENCODE_API_KEY',
+    note: 'Console inference (2026-11); keys are oc_sk_…; free-tier models 403 outside OpenCode — paid balance or Go subscription required'
+  },
+  {
+    name: 'opencode-zen',
+    endpoint: 'https://opencode.ai/inference/openai/v1',
+    keyEnvVar: 'OPENCODE_ZEN_API_KEY',
+    note: 'Console inference (2026-11); keys are oc_sk_…; free-tier models 403 outside OpenCode — paid balance required'
+  },
   { name: 'zai', endpoint: 'https://api.z.ai/api/coding/paas/v4', keyEnvVar: 'ZAI_API_KEY', note: 'GLM Coding Plan; anthropic base at /api/anthropic' },
   { name: 'ollama', endpoint: 'http://127.0.0.1:11435/v1', keyEnvVar: 'OLLAMA_API_KEY', note: 'Local backend; cloud tags served via ollama signin session' },
   { name: 'cline', endpoint: 'https://api.cline.bot/api/v1', keyEnvVar: 'CLINE_API_KEY' },
@@ -56,7 +66,7 @@ export const PROVIDER_REGISTRY: readonly ProviderRegistryEntry[] = [
   { name: 'antigravity', endpoint: 'https://generativelanguage.googleapis.com/v1beta', keyEnvVar: 'ANTIGRAVITY_API_KEY', note: 'Google AI Studio (Gemini API) surface' },
   { name: 'github-copilot', endpoint: 'https://api.githubcopilot.com', keyEnvVar: 'GITHUB_COPILOT_API_KEY' },
   { name: 'cursor', endpoint: 'https://api2.cursor.sh/v1', keyEnvVar: 'CURSOR_API_KEY', note: 'Cursor subscription / CLI OAuth session' },
-  { name: 'pioneer', endpoint: 'https://api.pioneer.ai/v1', keyEnvVar: 'PIONEER_API_KEY' },
+  { name: 'fastino', endpoint: 'https://api.fastino.ai/v1', keyEnvVar: 'FASTINO_API_KEY', note: 'formerly pioneer (api.pioneer.ai); legacy pioneer-* ids still resolve' },
   { name: 'nous-portal', endpoint: 'https://inference-api.nousresearch.com/v1', keyEnvVar: 'NOUS_API_KEY' }
 ] as const;
 
