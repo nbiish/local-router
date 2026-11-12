@@ -498,6 +498,7 @@ export function renderLayout(
         <a href="/config/thinking" class="nav-link">Prompt &amp; Thinking</a>
         <a href="/config/agents" class="nav-link">Agents</a>
         <a href="/config/efficiency" class="nav-link">Token Efficiency</a>
+        <a href="/config/trajectories" class="nav-link">Trajectories</a>
       </nav>
       <div class="sidebar-footer">
         <div class="theme-panel-compact">
@@ -3065,6 +3066,206 @@ export function renderLayout(
           }
         }
 
+        // ── Trajectories page (/config/trajectories) — chain health + stage timelines ──
+
+        function trajectoryOutcomeBadge(outcome) {
+          if (outcome === 'answered') return '<span class="pill status-pill configured">answered</span>';
+          if (outcome === 'skipped') return '<span class="pill status-pill pending">skipped</span>';
+          return '<span class="pill status-pill" style="color:var(--danger-text);">failed</span>';
+        }
+
+        function trajectoryDetailHtml(record) {
+          const chain = record.chain;
+          let html = '';
+          if (chain) {
+            html += '<div style="margin-bottom:8px; font-size:12px;">'
+              + '<strong>Chain ' + escapeHtml(chain.routeId) + '</strong> — configured: ' + escapeHtml((chain.configuredTargets || []).join(', '))
+              + '<br>eligible: ' + escapeHtml((chain.eligibleTargets || []).join(', ') || '—')
+              + '<br>excluded: ' + escapeHtml((chain.excludedTargets || []).map(function(e) { return e.model + ' (' + e.reason + ')'; }).join(', ') || '—')
+              + '<br>plan stages: ' + escapeHtml(String(chain.planStageCount))
+              + '</div>';
+          }
+          html += '<div style="font-size:12px;">' + (record.stages || []).map(function(s) {
+            const reason = s.skipReason
+              ? ' — ' + escapeHtml(s.skipReason)
+              : (s.errorType ? ' — ' + escapeHtml(s.errorType) + (s.errorMessage ? ': ' + escapeHtml(s.errorMessage) : '') : '');
+            const timing = s.ms != null ? ' <span class="muted">(' + escapeHtml(String(s.ms)) + 'ms)</span>' : '';
+            const wait = s.waitBeforeRetrySeconds ? ' <span class="muted">waited ' + escapeHtml(String(s.waitBeforeRetrySeconds)) + 's</span>' : '';
+            return '<div style="padding:2px 0; border-bottom:1px solid var(--border);">'
+              + trajectoryOutcomeBadge(s.outcome)
+              + ' <code>' + escapeHtml(s.stage) + '</code> '
+              + '<strong>' + escapeHtml(s.targetModel) + '</strong>'
+              + (s.provider ? ' <span class="muted">via ' + escapeHtml(s.provider) + (s.actualModel && s.actualModel !== s.targetModel ? '/' + escapeHtml(s.actualModel) : '') + '</span>' : '')
+              + reason + timing + wait
+              + '</div>';
+          }).join('') + '</div>';
+          const result = record.result || {};
+          html += '<div style="margin-top:8px; font-size:12px;"><strong>Result:</strong> HTTP ' + escapeHtml(String(result.status || 0))
+            + (result.answeredBy ? ' — answered by <strong>' + escapeHtml(result.answeredBy.provider + '/' + result.answeredBy.model) + '</strong>' : ' — no answer')
+            + (result.errorType ? ' (' + escapeHtml(result.errorType) + ')' : '')
+            + ' <span class="muted">· ' + escapeHtml(String(record.durationMs || 0)) + 'ms'
+            + ' · prompt ' + escapeHtml(String(result.usage ? result.usage.promptTokens : 0))
+            + ' / completion ' + escapeHtml(String(result.usage ? result.usage.completionTokens : 0))
+            + ' / cached ' + escapeHtml(String(result.usage ? result.usage.cachedTokens : 0))
+            + ' · $' + escapeHtml(Number(result.cost ? result.cost.total : 0).toFixed(4)) + '</span></div>';
+          const receipts = record.receipts || {};
+          const receiptNames = Object.keys(receipts);
+          if (receiptNames.length > 0) {
+            html += '<div style="margin-top:8px; font-size:12px;"><strong>Receipts:</strong> '
+              + receiptNames.map(function(name) {
+                  const r = receipts[name];
+                  return '<code>' + escapeHtml(name) + '</code> ' + escapeHtml(r.sha.slice(0, 15)) + '… (' + escapeHtml(String(r.chars)) + ' chars)';
+                }).join(' · ')
+              + ' <span class="muted">— full payloads via /api/trajectories/' + escapeHtml(record.id) + '?part=…</span></div>';
+          }
+          return html;
+        }
+
+        async function toggleTrajectoryDetail(id) {
+          const detailEl = document.getElementById('traj-detail-' + id);
+          if (!detailEl) return;
+          if (detailEl.style.display === 'block') {
+            detailEl.style.display = 'none';
+            return;
+          }
+          if (detailEl.getAttribute('data-loaded') !== '1') {
+            try {
+              const res = await fetch('/api/trajectories/' + encodeURIComponent(id));
+              if (!res.ok) throw new Error('HTTP ' + res.status);
+              const record = await res.json();
+              detailEl.innerHTML = trajectoryDetailHtml(record);
+              detailEl.setAttribute('data-loaded', '1');
+            } catch (error) {
+              detailEl.innerHTML = '<div class="muted">Failed to load trajectory detail: ' + escapeHtml(error && error.message ? error.message : String(error)) + '</div>';
+            }
+          }
+          detailEl.style.display = 'block';
+        }
+
+        // Delegated row expansion: inline onclick with quoted args dies in this
+        // template-literal context (the backslash is consumed), so rows carry
+        // data-traj-id and one listener handles all of them.
+        document.addEventListener('click', function(event) {
+          const target = event.target && typeof event.target.closest === 'function' ? event.target : null;
+          const row = target ? target.closest('[data-traj-id]') : null;
+          if (row) {
+            toggleTrajectoryDetail(row.getAttribute('data-traj-id'));
+          }
+        });
+
+        async function loadTrajectoryHealth() {
+          const el = document.getElementById('trajectoryHealth');
+          if (!el) return;
+          try {
+            const res = await fetch('/api/trajectories/health');
+            if (!res.ok) throw new Error('HTTP ' + res.status);
+            const payload = await res.json();
+            const routes = Array.isArray(payload.routes) ? payload.routes : [];
+            const filterEl = document.getElementById('trajectoryRouteFilter');
+            if (filterEl) {
+              const current = filterEl.value;
+              filterEl.innerHTML = '<option value="">all routes</option>' + routes.map(function(r) {
+                return '<option value="' + escapeHtml(r.routeId) + '"' + (r.routeId === current ? ' selected' : '') + '>' + escapeHtml(r.routeId) + ' (' + r.trajectories + ')</option>';
+              }).join('');
+            }
+            if (routes.length === 0) {
+              el.innerHTML = '<div class="muted">No trajectories recorded yet — make a few model calls and refresh.</div>';
+              return;
+            }
+            el.innerHTML = routes.map(function(route) {
+              const flagged = (route.models || []).filter(function(m) { return (m.flags || []).length > 0; }).length;
+              const header = '<div style="display:flex; justify-content:space-between; align-items:center; margin:12px 0 6px;">'
+                + '<strong>' + escapeHtml(route.routeId) + '</strong>'
+                + '<span class="muted">' + route.trajectories + ' trajectories · ' + Math.round((route.successRate || 0) * 100) + '% ok'
+                + (flagged ? ' · <span style="color:var(--danger-text);">' + flagged + ' flagged</span>' : '')
+                + '</span></div>';
+              const rows = (route.models || []).map(function(m) {
+                const flags = (m.flags || []).map(function(f) {
+                  return '<span class="pill status-pill pending" style="margin-left:6px;">' + escapeHtml(f) + '</span>';
+                }).join('');
+                const reasons = Object.keys(m.skipReasons || {}).map(function(k) { return k + ' ×' + m.skipReasons[k]; })
+                  .concat(Object.keys(m.errorTypes || {}).map(function(k) { return k + ' ×' + m.errorTypes[k]; }));
+                return '<tr>'
+                  + '<td style="padding:6px 10px; font-weight:600;">' + escapeHtml(m.model) + flags + '</td>'
+                  + '<td style="padding:6px 10px; text-align:right;">' + m.planned + '</td>'
+                  + '<td style="padding:6px 10px; text-align:right; color:var(--success-text);">' + m.answered + '</td>'
+                  + '<td style="padding:6px 10px; text-align:right; color:var(--danger-text);">' + m.failed + '</td>'
+                  + '<td style="padding:6px 10px; text-align:right; color:var(--warning-text);">' + m.skipped + '</td>'
+                  + '<td style="padding:6px 10px; font-size:12px; color:var(--muted);">' + escapeHtml(reasons.join(' · ') || '—') + '</td>'
+                  + '</tr>';
+              }).join('');
+              return header + '<div style="overflow-x:auto;"><table style="width:100%; border-collapse:collapse; font-size:13px;">'
+                + '<thead><tr style="background:var(--surface-soft); border-bottom:2px solid var(--border);">'
+                + '<th style="padding:6px 10px; text-align:left;">Model</th>'
+                + '<th style="padding:6px 10px; text-align:right;">Planned</th>'
+                + '<th style="padding:6px 10px; text-align:right;">Answered</th>'
+                + '<th style="padding:6px 10px; text-align:right;">Failed</th>'
+                + '<th style="padding:6px 10px; text-align:right;">Skipped</th>'
+                + '<th style="padding:6px 10px; text-align:left;">Reasons</th>'
+                + '</tr></thead><tbody>' + rows + '</tbody></table></div>';
+            }).join('');
+          } catch (error) {
+            el.innerHTML = '<div class="muted">Failed to load chain health: ' + escapeHtml(error && error.message ? error.message : String(error)) + '</div>';
+          }
+        }
+
+        async function loadTrajectoryList() {
+          const el = document.getElementById('trajectoryList');
+          if (!el) return;
+          const routeEl = document.getElementById('trajectoryRouteFilter');
+          const outcomeEl = document.getElementById('trajectoryOutcomeFilter');
+          const params = new URLSearchParams();
+          if (routeEl && routeEl.value) params.set('route', routeEl.value);
+          if (outcomeEl && outcomeEl.value) params.set('outcome', outcomeEl.value);
+          params.set('limit', '50');
+          try {
+            const res = await fetch('/api/trajectories?' + params.toString());
+            if (!res.ok) throw new Error('HTTP ' + res.status);
+            const payload = await res.json();
+            const rows = Array.isArray(payload.trajectories) ? payload.trajectories : [];
+            if (rows.length === 0) {
+              el.innerHTML = '<div class="muted">No trajectories match.</div>';
+              return;
+            }
+            el.innerHTML = rows.map(function(t) {
+              const ok = t.status >= 200 && t.status < 300;
+              const winner = t.answeredBy
+                ? escapeHtml(t.answeredBy.provider + '/' + t.answeredBy.model)
+                : '<span style="color:var(--danger-text);">none (' + escapeHtml(t.errorType || 'error') + ')</span>';
+              const stages = t.stageCount + ' stage' + (t.stageCount === 1 ? '' : 's')
+                + (t.skippedStages ? ', ' + t.skippedStages + ' skipped' : '')
+                + (t.failedStages ? ', ' + t.failedStages + ' failed' : '');
+              return '<div style="border-bottom:1px solid var(--border); padding:8px 0;">'
+                + '<div style="display:flex; justify-content:space-between; gap:10px; cursor:pointer; align-items:center;" data-traj-id="' + escapeHtml(t.id) + '">'
+                + '<div style="flex:1; min-width:0;">'
+                + '<code style="font-size:11px;">' + escapeHtml(t.timestamp) + '</code> '
+                + '<strong>' + escapeHtml(t.presentedModel) + '</strong> '
+                + '<span class="pill catalog" style="font-size:11px;">' + escapeHtml(t.routeKind) + (t.routeId ? ' · ' + escapeHtml(t.routeId) : '') + '</span> '
+                + '<span class="muted" style="font-size:12px;">→ ' + winner + ' · ' + escapeHtml(stages) + ' · ' + escapeHtml(String(t.durationMs)) + 'ms · $' + escapeHtml(Number(t.costTotal || 0).toFixed(4)) + ' · ' + escapeHtml(t.client) + '</span>'
+                + '</div>'
+                + (ok ? '<span class="pill status-pill configured">' + t.status + '</span>' : '<span class="pill status-pill" style="color:var(--danger-text);">' + t.status + '</span>')
+                + '</div>'
+                + '<div id="traj-detail-' + escapeHtml(t.id) + '" style="display:none; margin-top:8px; padding:10px; background:var(--surface-soft); border-radius:6px;"></div>'
+                + '</div>';
+            }).join('');
+          } catch (error) {
+            el.innerHTML = '<div class="muted">Failed to load trajectories: ' + escapeHtml(error && error.message ? error.message : String(error)) + '</div>';
+          }
+        }
+
+        async function clearTrajectories() {
+          if (!window.confirm('Delete all trajectory records and spilled payloads?')) return;
+          try {
+            const res = await fetch('/api/trajectories', { method: 'DELETE' });
+            if (!res.ok) throw new Error('HTTP ' + res.status);
+            setMessage('Trajectory log cleared.', 'success');
+            loadTrajectoryHealth();
+            loadTrajectoryList();
+          } catch (error) {
+            setMessage('Failed to clear trajectory log: ' + (error && error.message ? error.message : String(error)), 'error');
+          }
+        }
+
         initializeThemeScale();
         safeInit('hydrateOllamaVersionBadge', hydrateOllamaVersionBadge);
         safeInit('loadProviderConfigs', loadProviderConfigs);
@@ -3085,6 +3286,8 @@ export function renderLayout(
         safeInit('updateActiveNavLinks', updateActiveNavLinks);
         safeInit('loadAgentProxyConfig', loadAgentProxyConfig);
         safeInit('loadAgentHarnessStatus', loadAgentHarnessStatus);
+        safeInit('loadTrajectoryHealth', loadTrajectoryHealth);
+        safeInit('loadTrajectoryList', loadTrajectoryList);
 
         function bindOAuthProviderButtons(listEl) {
           listEl.querySelectorAll('button[data-copy-code]').forEach((button) => {

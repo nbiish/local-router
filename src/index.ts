@@ -58,6 +58,7 @@ import {
   type TopologyCandidate
 } from './fallback-topology';
 import { loadExpertLogs, LogEntryTracker, createUsageSpyStream } from './expert-logs';
+import { TrajectoryTracker, TrajectoryChain, TrajectoryExcludedTarget } from './trajectories';
 import { buildWraparoundExecutionPlan, buildEscalatingWraparoundPlan, buildMultiPassExecutionPlan, DEFAULT_FALLBACK_ROUNDS } from './execution-plan';
 import {
   filterEligibleFallbackModels,
@@ -7781,6 +7782,42 @@ async function handleEmbeddingRequest(req: Request, res: Response) {
     });
   }
 
+  // Trajectory capture (2026-11-12) — same record shape as chat, so an agent
+  // reading trajectories.jsonl sees every model call, not only chat calls.
+  const embeddingStartedAt = Date.now();
+  const rawEmbeddingClient = req.headers['x-local-router-client'];
+  const embeddingClient = typeof rawEmbeddingClient === 'string'
+    ? rawEmbeddingClient
+    : Array.isArray(rawEmbeddingClient) ? rawEmbeddingClient[0] : 'unknown';
+  const trajectory = new TrajectoryTracker(
+    {
+      client: embeddingClient,
+      presentedModel,
+      routeKind: fallbackRoute ? 'fallback' : 'direct',
+      routeId: fallbackRoute ? fallbackRoute.id : null
+    },
+    body
+  );
+  if (fallbackRoute) {
+    const excluded: TrajectoryExcludedTarget[] = [];
+    const candidateModels = new Set(candidates.map((c) => c.model));
+    const disabledSet = new Set(fallbackRoute.disabledModels || []);
+    for (const model of fallbackRoute.models) {
+      if (!candidateModels.has(model)) {
+        excluded.push({ model, reason: disabledSet.has(model) ? 'disabled_toggle' : 'no_configured_key' });
+      }
+    }
+    trajectory.setChain({
+      routeId: fallbackRoute.id,
+      configuredTargets: fallbackRoute.models.slice(),
+      excludedTargets: excluded,
+      eligibleTargets: candidates.map((c) => c.model),
+      requiredContext: 0,
+      requiresMultimodal: false,
+      planStageCount: candidates.length
+    });
+  }
+
   // Width pinning. Providers disagree on default width for the same model family (1536 vs 3072),
   // and a fallback step that silently returns a different width poisons the caller's vector
   // index — the vectors are accepted, then compared against incompatible neighbours. When the
@@ -7805,6 +7842,21 @@ async function handleEmbeddingRequest(req: Request, res: Response) {
       chainPinsWidth ? pinnedDimensions : undefined
     );
     if (result.ok) {
+      trajectory.addStage({
+        stage: 'stage' in stage ? String(stage.stage) : 'direct',
+        targetModel: stage.model,
+        provider: result.value.providerName,
+        actualModel: result.value.actualModel,
+        attempt: 1,
+        stageAttempts: 1,
+        outcome: 'answered',
+        status: result.value.response.status,
+        ms: Date.now() - embeddingStartedAt
+      });
+      trajectory.finish({
+        status: result.value.response.status,
+        durationMs: Date.now() - embeddingStartedAt
+      });
       res.status(result.value.response.status);
       // Observability for a multi-provider chain (2026-11-07): without this, a fallback is
       // invisible — the caller sees a 200 and cannot tell which provider answered, so "is my
@@ -7844,12 +7896,33 @@ async function handleEmbeddingRequest(req: Request, res: Response) {
       status: result.error.status || 502,
       message: result.error.message
     });
+    trajectory.addStage({
+      stage: 'stage' in stage ? String(stage.stage) : 'direct',
+      targetModel: stage.model,
+      provider: result.error.providerName || null,
+      actualModel: result.error.actualModel || null,
+      attempt: 1,
+      stageAttempts: 1,
+      outcome: 'failed',
+      errorType: result.error.errorType,
+      status: result.error.status || 502,
+      errorMessage: result.error.message,
+      ms: Date.now() - embeddingStartedAt
+    });
   }
 
   // A failure where every candidate was an unkeyed provider is a configuration problem, not an
   // upstream error: say so instead of returning a bare 502 that looks like a provider outage.
   const allUnkeyed = attempts.length > 0 && attempts.every((a) => a.errorType === 'provider_config');
   const last = attempts[attempts.length - 1] || {};
+  trajectory.finish({
+    status: Number(last.status) || 502,
+    durationMs: Date.now() - embeddingStartedAt,
+    errorType: typeof last.errorType === 'string' ? last.errorType : 'fallback_exhaustion',
+    errorMessage: allUnkeyed
+      ? `No keyed provider can serve embedding model "${presentedModel}".`
+      : 'All embedding fallback stages failed.'
+  });
   return res.status(Number(last.status) || 502).json({
     error: allUnkeyed
       ? `No keyed provider can serve embedding model "${presentedModel}". Set a key for: ${attempts
@@ -7887,8 +7960,24 @@ async function handleChatCompletion(req: Request, res: Response, bodyOverrides?:
     );
     logTracker.setRequestDetails(body);
 
+    // Trajectory capture (2026-11-12, DeepSeek-harness pattern): every request
+    // gets a full stage timeline — including models skipped before execution —
+    // flushed through the expert-log completion hook so no error path is lost.
+    const trajectory = new TrajectoryTracker(
+      {
+        client: clientName,
+        presentedModel: String(model),
+        routeKind: fallbackRoute ? 'fallback' : 'direct',
+        routeId: fallbackRoute ? fallbackRoute.id : null
+      },
+      body
+    );
+    logTracker.onComplete = (finishedLog) => {
+      trajectory.finish(finishedLog);
+    };
+
     if (fallbackRoute) {
-      return executeFallbackRoute(fallbackRoute, body, model, stream, requestRoute, outputFormat, requestStartedAt, res, logTracker);
+      return executeFallbackRoute(fallbackRoute, body, model, stream, requestRoute, outputFormat, requestStartedAt, res, logTracker, trajectory);
     }
 
     // Direct model — try it, then cascade to system fallback on failure
@@ -7904,6 +7993,17 @@ async function handleChatCompletion(req: Request, res: Response, bodyOverrides?:
 
     if (directModelResult.ok) {
       logTracker.onSuccess(directModelResult.value.providerName, directModelResult.value.actualModel, directModelResult.value.response.status);
+      trajectory.addStage({
+        stage: 'direct',
+        targetModel: String(model),
+        provider: directModelResult.value.providerName,
+        actualModel: directModelResult.value.actualModel,
+        attempt: 1,
+        stageAttempts: 1,
+        outcome: 'answered',
+        status: directModelResult.value.response.status,
+        ms: Date.now() - requestStartedAt
+      });
       return sendSuccessfulProxyResponse(
         res,
         model,
@@ -7924,12 +8024,39 @@ async function handleChatCompletion(req: Request, res: Response, bodyOverrides?:
         `[proxy] Direct model "${model}" failed on provider "${directModelResult.error.providerName}" — ` +
         `${cascadeDetail} — cascading to system fallback "${sysFallback.id}".`
       );
-      return executeFallbackRoute(sysFallback, body, model, stream, requestRoute, outputFormat, requestStartedAt, res, logTracker);
+      trajectory.addStage({
+        stage: 'direct',
+        targetModel: String(model),
+        provider: directModelResult.error.providerName || null,
+        actualModel: directModelResult.error.actualModel || null,
+        attempt: 1,
+        stageAttempts: 1,
+        outcome: 'failed',
+        errorType: directModelResult.error.errorType,
+        status: directModelResult.error.status || null,
+        errorMessage: sanitizeDiagnosticText(directModelResult.error.message, 220),
+        providerErrorPreview: sanitizeDiagnosticText(directModelResult.error.responseText || '', 280)
+      });
+      trajectory.markCascade(sysFallback.id);
+      return executeFallbackRoute(sysFallback, body, model, stream, requestRoute, outputFormat, requestStartedAt, res, logTracker, trajectory);
     }
     if (directModelResult.error.errorType === 'upstream_http') {
       const errorBody = directModelResult.error.responseText || directModelResult.error.message;
       const errStatus = directModelResult.error.status || 502;
       logTracker.onFailure(errStatus, directModelResult.error.errorType, directModelResult.error.message);
+      trajectory.addStage({
+        stage: 'direct',
+        targetModel: String(model),
+        provider: directModelResult.error.providerName || null,
+        actualModel: directModelResult.error.actualModel || null,
+        attempt: 1,
+        stageAttempts: 1,
+        outcome: 'failed',
+        errorType: directModelResult.error.errorType,
+        status: errStatus,
+        errorMessage: sanitizeDiagnosticText(directModelResult.error.message, 220),
+        providerErrorPreview: sanitizeDiagnosticText(directModelResult.error.responseText || '', 280)
+      });
       logTracker.onFinish(Date.now() - requestStartedAt);
       return res.status(errStatus).send(errorBody);
     }
@@ -7945,6 +8072,18 @@ async function handleChatCompletion(req: Request, res: Response, bodyOverrides?:
             : 500;
 
     logTracker.onFailure(directStatus, directModelResult.error.errorType, directModelResult.error.message);
+    trajectory.addStage({
+      stage: 'direct',
+      targetModel: String(model),
+      provider: directModelResult.error.providerName || null,
+      actualModel: directModelResult.error.actualModel || null,
+      attempt: 1,
+      stageAttempts: 1,
+      outcome: 'failed',
+      errorType: directModelResult.error.errorType,
+      status: directStatus,
+      errorMessage: sanitizeDiagnosticText(directModelResult.error.message, 220)
+    });
     logTracker.onFinish(Date.now() - requestStartedAt);
 
     return res.status(directStatus).json({
@@ -7977,7 +8116,8 @@ async function executeFallbackRoute(
   outputFormat: CompletionOutputFormat,
   requestStartedAt: number,
   res: Response,
-  logTracker?: LogEntryTracker
+  logTracker?: LogEntryTracker,
+  trajectory?: TrajectoryTracker
 ) {
   const activeModels = activeFallbackModels(fallbackRoute);
   const filterResult = filterEligibleFallbackModels(activeModels, body, (modelId) => {
@@ -7992,6 +8132,34 @@ async function executeFallbackRoute(
       reasoningLevelCount: m ? reasoningEffortLevels(m).length : 0
     };
   });
+
+  // Trajectory chain snapshot: operator intent (configured), what could not
+  // even be planned (with the reason), and what the request actually ran.
+  // Disabled/no-key models are invisible in `attemptLog` — this is where the
+  // "a configured model silently stopped being tried" bug class becomes
+  // detectable after the fact.
+  const chainSnapshot: TrajectoryChain = {
+    routeId: fallbackRoute.id,
+    configuredTargets: fallbackRoute.models.slice(),
+    excludedTargets: [],
+    eligibleTargets: filterResult.eligible.slice(),
+    requiredContext: filterResult.requiredContext,
+    requiresMultimodal: filterResult.requiresMultimodal,
+    planStageCount: 0
+  };
+  const activeSet = new Set(activeModels);
+  const disabledSet = new Set(fallbackRoute.disabledModels || []);
+  for (const model of fallbackRoute.models) {
+    if (activeSet.has(model)) continue;
+    chainSnapshot.excludedTargets.push({
+      model,
+      reason: disabledSet.has(model) ? 'disabled_toggle' : 'no_configured_key'
+    });
+  }
+  for (const s of filterResult.skipped) {
+    chainSnapshot.excludedTargets.push({ model: s.model, reason: s.reason });
+  }
+  trajectory?.setChain(chainSnapshot);
 
   const attemptLog: Array<Record<string, unknown>> = [];
 
@@ -8074,6 +8242,7 @@ async function executeFallbackRoute(
   }
 
   const plan = fallbackExecutionPlan(fallbackRoute, body);
+  chainSnapshot.planStageCount = plan.length;
   let lastFailure: AttemptFailure | null = null;
 
   for (let stageIndex = 0; stageIndex < plan.length; stageIndex += 1) {
@@ -8095,6 +8264,19 @@ async function executeFallbackRoute(
         errorMessage: sanitizeDiagnosticText(preflightFailure.message, 220),
         skipped: true
       });
+      trajectory?.addStage({
+        stage: stage.stage,
+        targetModel: stage.model,
+        provider: preflightFailure.providerName || null,
+        actualModel: preflightFailure.actualModel || null,
+        attempt: 0,
+        stageAttempts: stage.attempts,
+        outcome: 'skipped',
+        skipReason: preflightFailure.errorType,
+        errorType: preflightFailure.errorType,
+        status: preflightFailure.status || null,
+        errorMessage: sanitizeDiagnosticText(preflightFailure.message, 220)
+      });
       continue;
     }
 
@@ -8115,6 +8297,7 @@ async function executeFallbackRoute(
         failoverErrorType: isClassifiedFailoverError(lastFailure?.errorType || '') ? (lastFailure as AttemptFailure).errorType : undefined
       };
 
+      const attemptStartedAt = Date.now();
       const result = await proxyModelAttempt(
         preservedBody,
         requestRoute,
@@ -8130,6 +8313,17 @@ async function executeFallbackRoute(
         if (logTracker) {
           logTracker.onSuccess(result.value.providerName, result.value.actualModel, result.value.response.status);
         }
+        trajectory?.addStage({
+          stage: stage.stage,
+          targetModel: stage.model,
+          provider: result.value.providerName,
+          actualModel: result.value.actualModel,
+          attempt,
+          stageAttempts: stage.attempts,
+          outcome: 'answered',
+          status: result.value.response.status,
+          ms: Date.now() - attemptStartedAt
+        });
         return sendSuccessfulProxyResponse(
           res,
           presentedModel,
@@ -8161,11 +8355,40 @@ async function executeFallbackRoute(
         const waitSeconds = attempt < stage.attempts ? fallbackRetryDelaySeconds(attempt) : 0;
         entry.waitBeforeRetrySeconds = waitSeconds;
         attemptLog.push(entry);
+        trajectory?.addStage({
+          stage: stage.stage,
+          targetModel: stage.model,
+          provider: result.error.providerName || null,
+          actualModel: result.error.actualModel || null,
+          attempt,
+          stageAttempts: stage.attempts,
+          outcome: 'failed',
+          errorType: result.error.errorType,
+          status: result.error.status || null,
+          errorMessage: sanitizeDiagnosticText(result.error.message, 220),
+          providerErrorPreview: sanitizeDiagnosticText(result.error.responseText || '', 280),
+          waitBeforeRetrySeconds: waitSeconds,
+          ms: Date.now() - attemptStartedAt
+        });
         if (waitSeconds > 0) {
           await waitMs(waitSeconds * 1000);
         }
       } else {
         attemptLog.push(entry);
+        trajectory?.addStage({
+          stage: stage.stage,
+          targetModel: stage.model,
+          provider: result.error.providerName || null,
+          actualModel: result.error.actualModel || null,
+          attempt,
+          stageAttempts: stage.attempts,
+          outcome: 'failed',
+          errorType: result.error.errorType,
+          status: result.error.status || null,
+          errorMessage: sanitizeDiagnosticText(result.error.message, 220),
+          providerErrorPreview: sanitizeDiagnosticText(result.error.responseText || '', 280),
+          ms: Date.now() - attemptStartedAt
+        });
       }
     }
   }

@@ -21,6 +21,7 @@ import { renderFallbackPage } from '../ui/pages/fallback';
 import { renderThinkingPage } from '../ui/pages/thinking';
 import { renderAgentsPage } from '../ui/pages/agents';
 import { renderEfficiencyPage } from '../ui/pages/efficiency';
+import { renderTrajectoriesPage } from '../ui/pages/trajectories';
 import {
   ProviderSummary,
   CustomProviderRecord,
@@ -42,6 +43,14 @@ import { syncSystemAgentEnv, agentHarnessEnv } from '../agent-env-sync';
 import { syncCodexHarnessConfig } from '../agent-codex-config';
 import { collectAgentHarnessStatus, verifyAgentHarness } from '../agent-harness-status';
 import { getExpertLogs, importExpertLogs, clearExpertLogs, analyzeLogs } from '../expert-logs';
+import {
+  listTrajectorySummaries,
+  getTrajectory,
+  readReceiptPayload,
+  readTrajectoryLogRaw,
+  analyzeTrajectories,
+  clearTrajectories
+} from '../trajectories';
 import { costBandFor, providerCoverageGaps } from '../fallback-topology';
 
 export interface ConfigApiDeps {
@@ -292,6 +301,15 @@ export function registerConfigApiRoutes(app: express.Express, deps: ConfigApiDep
 
   app.get('/config/efficiency', (req: Request, res: Response) => {
     const html = renderEfficiencyPage({
+      defaultFallbackModelsText: DEFAULT_FALLBACK_MODELS_TEXT
+    });
+    // Config pages are live state (keys, catalog, routes) — never cacheable.
+    res.setHeader('Cache-Control', 'no-store');
+    res.send(html);
+  });
+
+  app.get('/config/trajectories', (req: Request, res: Response) => {
+    const html = renderTrajectoriesPage({
       defaultFallbackModelsText: DEFAULT_FALLBACK_MODELS_TEXT
     });
     // Config pages are live state (keys, catalog, routes) — never cacheable.
@@ -1720,6 +1738,56 @@ app.delete('/api/logs', (req: Request, res: Response) => {
 
 app.get('/api/logs/analyze', (req: Request, res: Response) => {
   return res.json(analyzeLogs());
+});
+
+// ── Trajectory Traces (2026-11-12: fallback-chain observability) ──
+// Machine-readable mirror of ~/.config/local-router/trajectories/trajectories.jsonl
+// so agents can inspect every model call and every skipped chain member.
+
+app.get('/api/trajectories', (req: Request, res: Response) => {
+  return res.json({
+    trajectories: listTrajectorySummaries({
+      limit: req.query.limit ? Number(req.query.limit) : undefined,
+      route: typeof req.query.route === 'string' ? req.query.route : undefined,
+      outcome: req.query.outcome === 'success' || req.query.outcome === 'failure' ? req.query.outcome : undefined,
+      since: typeof req.query.since === 'string' ? req.query.since : undefined
+    })
+  });
+});
+
+app.get('/api/trajectories/health', (_req: Request, res: Response) => {
+  return res.json(analyzeTrajectories());
+});
+
+app.get('/api/trajectories/export', (_req: Request, res: Response) => {
+  res.setHeader('Content-Type', 'application/x-ndjson; charset=utf-8');
+  res.setHeader('Content-Disposition', 'attachment; filename="trajectories.jsonl"');
+  return res.send(readTrajectoryLogRaw());
+});
+
+app.get('/api/trajectories/:id', (req: Request, res: Response) => {
+  const record = getTrajectory(String(req.params.id));
+  if (!record) {
+    return res.status(404).json({ error: 'Trajectory not found.' });
+  }
+  const part = typeof req.query.part === 'string' ? req.query.part : '';
+  if (part) {
+    if (part !== 'request' && part !== 'response' && part !== 'thinking' && part !== 'toolCalls') {
+      return res.status(400).json({ error: 'Unknown part. Use request|response|thinking|toolCalls.' });
+    }
+    const text = readReceiptPayload(record.receipts[part]);
+    if (text == null) {
+      return res.status(404).json({ error: 'Payload not retained — only the preview survived.' });
+    }
+    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+    return res.send(text);
+  }
+  return res.json(record);
+});
+
+app.delete('/api/trajectories', (_req: Request, res: Response) => {
+  clearTrajectories();
+  return res.json({ success: true });
 });
 
 
