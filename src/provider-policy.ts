@@ -418,10 +418,10 @@ export const PROVIDER_POLICIES: Record<string, ProviderPolicy> = {
     })
   },
 
-  pioneer: {
-    reasoning: effortPolicy(EFFORT_FIVE, 'docs/caching/pioneer.txt — /v1/chat/completions over Claude and GPT families'),
-    caching: anthropicCache('docs/caching/pioneer.txt — 4 markers, 1h TTL, content-block arrays required (plain-string system prompts cannot carry a marker)', {
-      minCacheableTokens: 1024
+  fastino: {
+    reasoning: effortPolicy(EFFORT_FIVE, 'docs/caching/fastino.txt — Nemotron family on api.fastino.ai; reasoning dial unverified on the new host 2026-11-12'),
+    caching: implicitCache('docs/caching/fastino.txt — api.fastino.ai OpenAI-compatible chat verified 2026-11-12; the retired pioneer wire cache_control/retention markers are NOT re-verified on the new host — inject nothing client-side, sticky key only [INFERENCE]', {
+      stickyKey: 'prompt_cache_key'
     })
   },
 

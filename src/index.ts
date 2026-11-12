@@ -443,11 +443,13 @@ const PROVIDER_PRESENTATION_PREFIXES: Record<string, string> = {
 
 /**
  * Legacy provider slugs → canonical provider names. `openrouter-presets` was
- * renamed to `openrouter` (2026-08-18); persisted overrides, routing configs,
- * and older API calls may still reference the legacy slug.
+ * renamed to `openrouter` (2026-08-18); `pioneer` was renamed to `fastino`
+ * (2026-11-12). Persisted overrides, routing configs, and older API calls may
+ * still reference the legacy slug.
  */
 const LEGACY_PROVIDER_SLUG_ALIASES: Record<string, string> = {
-  'openrouter-presets': 'openrouter'
+  'openrouter-presets': 'openrouter',
+  'pioneer': 'fastino'
 };
 
 export function canonicalProviderSlug(providerName: string): string {
@@ -1422,6 +1424,19 @@ function providerModelAliases(model: ProviderModel) {
     }
   }
 
+  // pioneer → fastino (2026-11-12): chains, agent configs, and trajectory
+  // history reference the old pioneer-* presented forms. Alias them
+  // structurally (same templates, old provider name) so every lookup resolves
+  // the fastino record without renaming what the operator did not touch.
+  if (model.provider === 'fastino') {
+    const pioneerId = defaultPresentedModelName('pioneer', model.model);
+    aliases.add(pioneerId);
+    aliases.add(providerModelDisplay('pioneer', model.model));
+    aliases.add(`pioneer/${model.model}`);
+    aliases.add(`pioneer/${pioneerId}`);
+    aliases.add(`pioneer-${model.model}`);
+  }
+
   for (const alias of [...aliases]) {
     if (alias && !alias.includes(':')) {
       aliases.add(`${alias}:latest`);
@@ -2281,39 +2296,87 @@ function seedRegistryCatalogIfNeeded(): void {
 
 function loadModelSourceConfig(): void {
   const persistedPath = existingPath(MODEL_SOURCE_CONFIG_PATH, LEGACY_MODEL_SOURCE_CONFIG_PATH);
-  if (!fs.existsSync(persistedPath)) return;
+  if (fs.existsSync(persistedPath)) {
+    try {
+      const parsed = JSON.parse(fs.readFileSync(persistedPath, 'utf8'));
+      if (parsed && (parsed.source === 'custom' || parsed.source === 'endpoints')) {
+        modelSourceConfig.source = parsed.source;
+      }
+      if (typeof parsed.catalogMigrationVersion === 'number') {
+        modelSourceConfig.catalogMigrationVersion = parsed.catalogMigrationVersion;
+      }
+      if (typeof parsed.filterConfigured === 'boolean') {
+        modelSourceConfig.filterConfigured = parsed.filterConfigured;
+      }
+      if (typeof parsed.curationEnabled === 'boolean') {
+        modelSourceConfig.curationEnabled = parsed.curationEnabled;
+      }
+      if (Array.isArray(parsed.curatedEndpointModelKeys)) {
+        const curatedKeys: string[] = parsed.curatedEndpointModelKeys
+          .map((key: unknown) => String(key || '').trim())
+          .filter((key: string) => key.length > 0);
+        modelSourceConfig.curatedEndpointModelKeys = Array.from(new Set(curatedKeys))
+          .slice(0, MAX_CURATED_ENDPOINT_MODEL_KEYS);
+      }
+      if (typeof parsed.defaultCurationConfig === 'string' && parsed.defaultCurationConfig.trim()) {
+        modelSourceConfig.defaultCurationConfig = parsed.defaultCurationConfig.trim();
+      }
+      if (Array.isArray(parsed.operatorClearedProviders)) {
+        const clearedProviders: string[] = parsed.operatorClearedProviders
+          .map((provider: unknown) => String(provider || '').trim())
+          .filter((provider: string) => provider.length > 0);
+        modelSourceConfig.operatorClearedProviders = Array.from(new Set(clearedProviders)).sort();
+      }
+    } catch (error: any) {
+      console.error('Failed to load persisted model source config:', sanitizeDiagnosticText(String(error?.message || error)));
+    }
+  }
+
+  // Federated catalog selection (2026-11-12): router-settings.json wins over
+  // the per-machine file so every synced machine serves the same tool-visible
+  // selection (plan T4). A machine that predates the federation publishes its
+  // local selection once, then follows the federated file like everyone else.
   try {
-    const parsed = JSON.parse(fs.readFileSync(persistedPath, 'utf8'));
-    if (parsed && (parsed.source === 'custom' || parsed.source === 'endpoints')) {
-      modelSourceConfig.source = parsed.source;
-    }
-    if (typeof parsed.catalogMigrationVersion === 'number') {
-      modelSourceConfig.catalogMigrationVersion = parsed.catalogMigrationVersion;
-    }
-    if (typeof parsed.filterConfigured === 'boolean') {
-      modelSourceConfig.filterConfigured = parsed.filterConfigured;
-    }
-    if (typeof parsed.curationEnabled === 'boolean') {
-      modelSourceConfig.curationEnabled = parsed.curationEnabled;
-    }
-    if (Array.isArray(parsed.curatedEndpointModelKeys)) {
-      const curatedKeys: string[] = parsed.curatedEndpointModelKeys
-        .map((key: unknown) => String(key || '').trim())
-        .filter((key: string) => key.length > 0);
-      modelSourceConfig.curatedEndpointModelKeys = Array.from(new Set(curatedKeys))
-        .slice(0, MAX_CURATED_ENDPOINT_MODEL_KEYS);
-    }
-    if (typeof parsed.defaultCurationConfig === 'string' && parsed.defaultCurationConfig.trim()) {
-      modelSourceConfig.defaultCurationConfig = parsed.defaultCurationConfig.trim();
-    }
-    if (Array.isArray(parsed.operatorClearedProviders)) {
-      const clearedProviders: string[] = parsed.operatorClearedProviders
-        .map((provider: unknown) => String(provider || '').trim())
-        .filter((provider: string) => provider.length > 0);
-      modelSourceConfig.operatorClearedProviders = Array.from(new Set(clearedProviders)).sort();
+    const federated = loadRouterSettings().catalogSelection;
+    if (federated) {
+      if (Array.isArray(federated.curatedKeys)) {
+        const curatedKeys = federated.curatedKeys
+          .map((key: unknown) => String(key || '').trim())
+          .filter((key: string) => key.length > 0);
+        modelSourceConfig.curatedEndpointModelKeys = Array.from(new Set(curatedKeys))
+          .slice(0, MAX_CURATED_ENDPOINT_MODEL_KEYS);
+      }
+      if (Array.isArray(federated.clearedProviders)) {
+        const cleared = federated.clearedProviders
+          .map((provider: unknown) => String(provider || '').trim())
+          .filter((provider: string) => provider.length > 0);
+        modelSourceConfig.operatorClearedProviders = Array.from(new Set(cleared)).sort();
+      }
+    } else if (modelSourceConfig.curatedEndpointModelKeys.length > 0) {
+      persistFederatedCatalogSelection();
+      console.log('[config] published local catalog selection to router-settings.json (federated).');
     }
   } catch (error: any) {
-    console.error('Failed to load persisted model source config:', sanitizeDiagnosticText(String(error?.message || error)));
+    console.error('Failed to apply federated catalog selection:', sanitizeDiagnosticText(String(error?.message || error)));
+  }
+}
+
+/**
+ * Federated catalog selection (2026-11-12): the curation toggle state travels
+ * in router-settings.json beside the chain. Read-merge-write PRESERVES
+ * routes/fallbackModelsText (the 2026-11-10 bulk-write hazard — one writer per
+ * file boundary), and a federation failure never fails the local save.
+ */
+function persistFederatedCatalogSelection(): void {
+  try {
+    const merged = loadRouterSettings();
+    merged.catalogSelection = {
+      curatedKeys: [...modelSourceConfig.curatedEndpointModelKeys],
+      clearedProviders: [...modelSourceConfig.operatorClearedProviders]
+    };
+    saveRouterSettings(merged);
+  } catch (error: any) {
+    console.error('[config] failed to federate catalog selection:', sanitizeDiagnosticText(String(error?.message || error)));
   }
 }
 
@@ -2326,6 +2389,7 @@ function persistModelSourceConfig(): void {
   });
   fs.renameSync(temporaryPath, MODEL_SOURCE_CONFIG_PATH);
   fs.chmodSync(MODEL_SOURCE_CONFIG_PATH, 0o600);
+  persistFederatedCatalogSelection();
 }
 
 function filterConfiguredModels(models: ProviderModel[]): ProviderModel[] {
@@ -3096,7 +3160,6 @@ async function refreshProviderEndpointModels(providerName: string, options?: { p
     PROVIDER_ENDPOINT_REFRESH_TIMEOUT_MS,
     `Provider ${providerName} model refresh timed out after ${PROVIDER_ENDPOINT_REFRESH_TIMEOUT_MS / 1000}s`
   );
-  const knownKeysBefore = new Set(endpointModelsCache.map((model) => endpointModelCurationKey(model)));
   mergeProviderEndpointModels(providerName, fetched.models);
   persistEndpointModelsCache();
   // preserveCuration (2026-09-04): automated re-checks (PQC resync, fallback
@@ -3105,33 +3168,11 @@ async function refreshProviderEndpointModels(providerName: string, options?: { p
   const deselectedCount = options?.preserveCuration
     ? 0
     : deselectProviderCurationKeys(providerName);
-  // New-discovery auto-curation (2026-09-04): a model that appears upstream
-  // (e.g. a provider ships a new flash model) is served immediately instead
-  // of waiting for a manual check — that is the whole point of a live
-  // refresh. Existing selections are untouched.
-  // Exception: if the operator has intentionally deselected this provider
-  // (zero models curated for providerName), newly discovered models must NOT
-  // be auto-curated, preserving the operator's deliberate off selection.
-  if (options?.preserveCuration) {
-    const providerCuratedBefore = modelSourceConfig.curatedEndpointModelKeys.some(
-      (key) => key.startsWith(`${providerName}::`)
-    );
-    if (providerCuratedBefore) {
-      let curated = 0;
-      for (const model of fetched.models) {
-        const key = endpointModelCurationKey(model);
-        if (!knownKeysBefore.has(key) && !modelSourceConfig.curatedEndpointModelKeys.includes(key)) {
-          modelSourceConfig.curatedEndpointModelKeys.push(key);
-          curated += 1;
-        }
-      }
-      if (curated > 0) {
-        modelSourceConfig.curatedEndpointModelKeys.sort();
-        persistModelSourceConfig();
-        console.log(`[catalog] Auto-curated ${curated} newly discovered ${providerName} model(s).`);
-      }
-    }
-  }
+  // New discoveries are HIDDEN by default (operator decision 2026-11-12,
+  // plan §4.2, retiring the 2026-09-04 auto-curation contract): a model that
+  // appears upstream lands in the catalog view unchecked and reaches tools
+  // only when the operator toggles it on. Explicit admissions (custom-editor
+  // upserts, registered local backends) still pre-check themselves.
   return { models: fetched.models, deselectedCount, source: fetched.source, note: fetched.note };
 }
 
@@ -4559,6 +4600,20 @@ function ensurePqcKeypair(bin?: string): boolean {
 }
 
 function loadKeysFromEnvironment(): number {
+  // pioneer → fastino (2026-11-12): a key stored under the old provider's env
+  // name (UI save or PQC bundle) keeps working after the rename instead of
+  // orphaning the provider. A key already present under the new name wins.
+  const legacyPioneer = (process.env['LOCALROUTER_PIONEER_API_KEY']
+    || process.env['LOCAL_ROUTER_PIONEER_API_KEY']
+    || '').trim();
+  const currentFastino = (process.env['LOCALROUTER_FASTINO_API_KEY']
+    || process.env['LOCAL_ROUTER_FASTINO_API_KEY']
+    || '').trim();
+  if (legacyPioneer && !currentFastino) {
+    process.env['LOCALROUTER_FASTINO_API_KEY'] = legacyPioneer;
+    console.log('[keys] migrated legacy PIONEER_API_KEY to FASTINO_API_KEY (pioneer → fastino).');
+  }
+
   const allSummaries = allProviderSummaries();
   let count = 0;
   for (const summary of allSummaries) {
@@ -5585,6 +5640,7 @@ seedRegistryBaselines();
 reconcileRegistryMetadata();
 if (shouldServe) {
   startCatalogHealthMonitor();
+  startCatalogAutoRefresh();
 }
 mergeBaselineProviderModelOverrides();
 seedRegistryCatalogIfNeeded();
@@ -6334,6 +6390,41 @@ function startCatalogHealthMonitor(): void {
     runCatalogHealthCheck();
     void probeFirstFallbackTargetReachability();
   }, HEALTH_PROBE_INTERVAL_MS);
+  timer.unref?.();
+}
+
+// ── Catalog auto-refresh (2026-11-12) ─────────────────────────────────────
+// "Latest models every 3 hours if a valid key is present" (operator ask): each
+// keyed provider is re-probed on a fixed cadence so the catalog view tracks
+// what the upstream actually serves. Discoveries land UNCHECKED (plan §4.2);
+// only the operator's toggle admits a model to tools.
+
+function catalogRefreshIntervalMs(): number {
+  const hours = Number(process.env.LOCAL_ROUTER_CATALOG_REFRESH_HOURS ?? '3');
+  return Number.isFinite(hours) && hours > 0 ? hours * 60 * 60 * 1000 : 0;
+}
+
+async function runCatalogAutoRefresh(): Promise<void> {
+  for (const summary of allProviderSummaries()) {
+    // The local ollama backend has its own staleness refresh.
+    if (summary.name === 'ollama') continue;
+    if (!providerIsCallable(summary.name)) continue;
+    try {
+      const { models } = await refreshProviderEndpointModels(summary.name, { preserveCuration: true });
+      console.log(`[catalog] auto-refresh ${summary.name}: ${models.length} model(s)`);
+    } catch (error: any) {
+      console.warn(`[catalog] auto-refresh ${summary.name} failed:`, sanitizeDiagnosticText(String(error?.message || error)));
+    }
+  }
+}
+
+function startCatalogAutoRefresh(): void {
+  const intervalMs = catalogRefreshIntervalMs();
+  if (!shouldServe || intervalMs === 0) return;
+  // First tick a minute after boot (clear of startup traffic), then on cadence.
+  const bootTimer = setTimeout(() => { void runCatalogAutoRefresh(); }, 60 * 1000);
+  bootTimer.unref?.();
+  const timer = setInterval(() => { void runCatalogAutoRefresh(); }, intervalMs);
   timer.unref?.();
 }
 

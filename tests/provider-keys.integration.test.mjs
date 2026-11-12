@@ -881,22 +881,16 @@ test('provider key save/reset lifecycle exposes configured source', async (t) =>
     'Expected endpoint-only model from fake upstream'
   );
 
-  // Live refresh auto-curates new models (2026-09-04); verify auto-curation, then toggle off/on.
+  // Discoveries land UNCHECKED (operator decision 2026-11-12, plan §4.2,
+  // retiring the 2026-09-04 auto-curation contract): the refreshed model is in
+  // the catalog view but not in the served selection until toggled on.
   const curationBefore = await requestJson('/api/model-curation');
   assert.equal(curationBefore.response.status, 200);
   const toggleKey = `${selectedProvider.name}::endpoint-only-model`;
   assert.ok(
-    curationBefore.body?.selectedKeys?.includes(toggleKey),
-    'Newly discovered model is auto-curated on live refresh'
+    !curationBefore.body?.selectedKeys?.includes(toggleKey),
+    'Newly discovered model lands hidden on live refresh'
   );
-
-  const selectionWithoutKey = (curationBefore.body?.selectedKeys || []).filter((k) => k !== toggleKey);
-  const toggleOff = await requestJson('/api/model-curation', {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ selectedKeys: selectionWithoutKey, force: true })
-  });
-  assert.equal(toggleOff.response.status, 200);
 
   const preToggleCatalog = await requestJson('/v1/models');
   assert.equal(
@@ -905,7 +899,7 @@ test('provider key save/reset lifecycle exposes configured source', async (t) =>
     'Untoggled endpoint-only model must not serve'
   );
 
-  const augmentedSelection = [...selectionWithoutKey, toggleKey];
+  const augmentedSelection = [...(curationBefore.body?.selectedKeys || []), toggleKey];
   const toggleOn = await requestJson('/api/model-curation', {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },

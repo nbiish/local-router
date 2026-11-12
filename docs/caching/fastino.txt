@@ -1,3 +1,22 @@
+Fastino (api.fastino.ai) — Prompt Caching
+Last verified: 2026-11-12 (wire only — caching behavior NOT re-verified; see status below)
+
+Overview
+  Fastino (formerly Pioneer, api.pioneer.ai) is the first-party home of the
+  Nemotron-3.5 Lightning/Super-VL family plus GLiNER utility models. The wire
+  is OpenAI-compatible chat (POST https://api.fastino.ai/v1/chat/completions,
+  Bearer $FASTINO_API_KEY), verified live 2026-11-12 with the operator's
+  request example. Model list: https://api.fastino.ai/v1/models (public, 14).
+
+Caching status (2026-11-12)
+  UNVERIFIED on the new host. The cache_control markers (4, 1h TTL,
+  content-block arrays) and prompt_cache_retention below were measured against
+  the retired api.pioneer.ai wire and are NOT re-measured on api.fastino.ai.
+  Until they are, the policy row injects no client cache markers and only a
+  sticky prompt_cache_key [INFERENCE] — see the note in src/provider-policy.ts.
+
+--- Historical: api.pioneer.ai measurements (wire retired 2026-11-12) ---
+
 Pioneer — api.pioneer.ai (docs.pioneer.ai) — Prompt Caching
 Last verified: 2026-08-23
 

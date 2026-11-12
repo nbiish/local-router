@@ -50,6 +50,17 @@ export type RouterSettings = {
   fallbackModelsText?: string;
   /** Named chain routes (single-source mirror of the runtime chain set). */
   routes?: Array<{ id: string; models: string[]; disabledModels?: string[] }>;
+  /**
+   * Federated catalog curation (2026-11-12): which models tools may see
+   * (`curatedKeys` = `provider::model`) and which providers the operator
+   * deliberately cleared. Travels with the checkout like the chain, so every
+   * machine serves the same selection; the per-machine
+   * model-source-config.json is only the fallback/migration source.
+   */
+  catalogSelection?: {
+    curatedKeys?: string[];
+    clearedProviders?: string[];
+  };
 };
 
 export function loadRouterSettings(): RouterSettings {

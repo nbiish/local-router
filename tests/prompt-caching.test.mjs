@@ -2,22 +2,6 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { injectPromptCaching, getPromptCacheKey, extractMessageText, stripCacheControl } from '../build/index.js';
 
-test('Minimax M3 model on Pioneer gets cache_control with ttl: "1h"', () => {
-  const body = {
-    model: 'pioneer/minimax-m3',
-    messages: [
-      { role: 'system', content: 'You are a helpful assistant.' },
-      { role: 'user', content: 'a'.repeat(900) }
-    ]
-  };
-  
-  const result = injectPromptCaching(body, 'pioneer');
-  assert.equal(result.prompt_cache_retention, undefined);
-  assert.deepEqual(result.messages[0].content, [
-    { type: 'text', text: 'You are a helpful assistant.', cache_control: { type: 'ephemeral', ttl: '1h' } }
-  ]);
-});
-
 test('Minimax M3 model on ZenMux gets cache_control with custom ttl: "1h"', () => {
   const body = {
     model: 'zenmux/minimax-m3',
@@ -48,35 +32,17 @@ test('GPT model on Pioneer gets prompt_cache_retention: "24h" and no cache_contr
   assert.equal(typeof result.messages[0].content, 'string');
 });
 
-test('DeepSeek model on Pioneer gets cache_control with ttl: "1h"', () => {
+test('Tiny prompts get no client markers on conservative wires', () => {
   const body = {
-    model: 'pioneer/deepseek-v4-pro',
-    messages: [
-      { role: 'system', content: 'You are a helpful assistant.' },
-      { role: 'user', content: 'a'.repeat(900) }
-    ]
-  };
-  
-  const result = injectPromptCaching(body, 'pioneer');
-  assert.equal(result.prompt_cache_retention, undefined);
-  assert.deepEqual(result.messages[0].content, [
-    { type: 'text', text: 'You are a helpful assistant.', cache_control: { type: 'ephemeral', ttl: '1h' } }
-  ]);
-});
-
-test('Tiny prompts are modified under new protocol', () => {
-  const body = {
-    model: 'pioneer/minimax-m3',
+    model: 'fastino/nvidia/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-NVFP4',
     messages: [
       { role: 'system', content: 'Short prompt' },
       { role: 'user', content: 'Short' }
     ]
   };
   
-  const result = injectPromptCaching(body, 'pioneer');
-  assert.deepEqual(result.messages[0].content, [
-    { type: 'text', text: 'Short prompt', cache_control: { type: 'ephemeral', ttl: '1h' } }
-  ]);
+  const result = injectPromptCaching(body, 'fastino');
+  assert.equal(typeof result.messages[0].content, 'string');
 });
 
 test('Leftover cache_control is stripped and simplified when falling back to OpenAI-family models', () => {
@@ -131,21 +97,21 @@ test('Cache_control is preserved and updated when falling back to supported prov
   ]);
 });
 
-test('OpenAI model gets prompt_cache_key parameter for sticky routing', () => {
+test('fastino gets a sticky prompt_cache_key and no client cache markers (new wire, caching unverified)', () => {
   const body = {
-    model: 'pioneer/gpt-4o',
+    model: 'fastino/nvidia/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-NVFP4',
     messages: [
       { role: 'system', content: 'You are a coding assistant.' },
       { role: 'user', content: 'Explain prompt caching.' }
     ]
   };
 
-  const result = injectPromptCaching(body, 'pioneer');
-  assert.equal(result.prompt_cache_retention, '24h');
+  const result = injectPromptCaching(body, 'fastino');
+  assert.equal(typeof result.messages[0].content, 'string', 'no content-block markers on an unverified wire');
   assert.ok(result.prompt_cache_key.startsWith('lr_'));
-  
+
   // Verify stability (same prompt must yield same cache key)
-  const result2 = injectPromptCaching(body, 'pioneer');
+  const result2 = injectPromptCaching(body, 'fastino');
   assert.equal(result2.prompt_cache_key, result.prompt_cache_key);
 });
 

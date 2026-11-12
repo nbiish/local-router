@@ -554,12 +554,11 @@ test('the default level is one every dialect can express', () => {
 test('a reasoning family is recognised on every provider that serves it', () => {
   // `capabilities.reasoning` gates whether a client renders a thinking control at
   // all, so a gateway that serves GLM must report it. Measured live on
-  // 2026-11-08: `pioneer`, `antigravity`, `xiaomi-mimo` and `opencode-zen` served
+  // 2026-11-08: `antigravity`, `xiaomi-mimo` and `opencode-zen` served
   // reasoning models that all advertised `false` because only 3 of 1432 curated
-  // registry rows carried the flag.
+  // registry rows carried the flag. (`pioneer` was in the measured set; it was
+  // retired 2026-11-12 and its cases removed with it.)
   const cases = [
-    ['pioneer', 'zai-org/GLM-5.2'],
-    ['pioneer', 'anthropic/pioneer/deepseek-ai/DeepSeek-V4-Flash'],
     ['nous-portal', 'z-ai/glm-5.3-flash'],
     ['antigravity', 'claude-opus-4-6'],
     ['antigravity', 'gemini-3.7-flash'],
