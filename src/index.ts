@@ -58,7 +58,8 @@ import {
   type TopologyCandidate
 } from './fallback-topology';
 import { loadExpertLogs, LogEntryTracker, createUsageSpyStream } from './expert-logs';
-import { TrajectoryTracker, TrajectoryChain, TrajectoryExcludedTarget } from './trajectories';
+import { TrajectoryTracker, TrajectoryChain, TrajectoryExcludedTarget, TrajectoryRecord } from './trajectories';
+import { healthRegistry } from './health-registry';
 import { buildWraparoundExecutionPlan, buildEscalatingWraparoundPlan, buildMultiPassExecutionPlan, DEFAULT_FALLBACK_ROUNDS } from './execution-plan';
 import {
   filterEligibleFallbackModels,
@@ -213,13 +214,22 @@ type ModelTarget = {
   presentedModel?: string;
 };
 
+/** Type guard: narrow an unknown candidate field to a resolved ModelTarget. */
+function isModelTarget(value: unknown): value is ModelTarget {
+  return typeof value === 'object' && value !== null
+    && 'providerName' in value && typeof value.providerName === 'string'
+    && 'actualModel' in value && typeof value.actualModel === 'string';
+}
+
 type AttemptFailure = {
-  errorType: 'unknown_model' | 'provider_not_found' | 'provider_config' | 'upstream_http' | 'upstream_parse_error' | 'upstream_http_quota' | 'upstream_http_payment_required' | 'upstream_http_auth' | 'upstream_http_rate_limit' | 'upstream_http_unavailable' | 'upstream_http_invalid_request' | 'decision_model_requires_decisions_api' | 'embedding_dimension_mismatch' | 'proxy_runtime';
+  errorType: 'unknown_model' | 'provider_not_found' | 'provider_config' | 'upstream_http' | 'upstream_parse_error' | 'upstream_http_quota' | 'upstream_http_payment_required' | 'upstream_http_auth' | 'upstream_http_rate_limit' | 'upstream_http_unavailable' | 'upstream_http_invalid_request' | 'decision_model_requires_decisions_api' | 'embedding_dimension_mismatch' | 'proxy_runtime' | 'health_cooldown';
   providerName?: string;
   actualModel?: string;
   status?: number;
   message: string;
   responseText?: string;
+  /** For health_cooldown skips: `cooldown:<errorType>`, recorded verbatim. */
+  cooldownReason?: string;
 };
 
 type AttemptSuccess = {
@@ -970,7 +980,14 @@ function localLoopbackRegisteredModels(): ProviderModel[] {
     if (runtime?.live === false && !offlineTolerant) continue;
     const modelNames = runtime && runtime.models.length > 0 ? runtime.models : record.models;
     for (const modelName of modelNames) {
-      const id = defaultPresentedModelName(record.name, modelName);
+      // Operator-assigned presented ids win: the custom-editor upsert (toggle
+      // store override) is an intentional edit, and rebuilding this row with
+      // `defaultPresentedModelName` used to overwrite it in
+      // `providerCatalogModels` — the presented alias then missed
+      // `findProviderModel`, fell through to the raw provider/model split,
+      // and the alias was forwarded upstream as the wire model (plan T4).
+      const override = (modelStore[canonicalProviderSlug(record.name)] || []).find((m) => m.model === modelName);
+      const id = override?.id || defaultPresentedModelName(record.name, modelName);
       // Prefer whatever discovery already learned about this model. The hardcoded defaults below
       // exist only for a backend whose catalogue has not been probed yet — overwriting a
       // discovered row with them reported reasoning=false and the 4096 default for a model that
@@ -981,17 +998,18 @@ function localLoopbackRegisteredModels(): ProviderModel[] {
       );
       rows.push({
         ...(discovered || {}),
+        ...(override || {}),
         id,
         provider: record.name,
         model: modelName,
-        display: discovered?.display || `${record.displayName || record.name}: ${modelName}`,
-        contextLength: discovered?.contextLength || DEFAULT_CONTEXT_LENGTH,
-        outputTokens: discovered?.outputTokens || DEFAULT_OUTPUT_TOKENS,
-        supportsTools: discovered?.supportsTools ?? false,
-        supportsImages: discovered?.supportsImages ?? false,
-        supportsCache: discovered?.supportsCache ?? false,
-        supportsReasoning: discovered?.supportsReasoning ?? false,
-        tier: discovered?.tier || 'local'
+        display: override?.display || discovered?.display || `${record.displayName || record.name}: ${modelName}`,
+        contextLength: override?.contextLength || discovered?.contextLength || DEFAULT_CONTEXT_LENGTH,
+        outputTokens: override?.outputTokens || discovered?.outputTokens || DEFAULT_OUTPUT_TOKENS,
+        supportsTools: override?.supportsTools ?? discovered?.supportsTools ?? false,
+        supportsImages: override?.supportsImages ?? discovered?.supportsImages ?? false,
+        supportsCache: override?.supportsCache ?? discovered?.supportsCache ?? false,
+        supportsReasoning: override?.supportsReasoning ?? discovered?.supportsReasoning ?? false,
+        tier: override?.tier || discovered?.tier || 'local'
       });
     }
   }
@@ -6247,7 +6265,10 @@ function catalogHealthSnapshot(): Record<string, unknown> {
     cacheCount: cached,
     pqcBundleLoaded,
     bridges,
-    systemChain: (fallbackModelStore[SYSTEM_FALLBACK_ROUTE_ID]?.models || []).slice()
+    systemChain: (fallbackModelStore[SYSTEM_FALLBACK_ROUTE_ID]?.models || []).slice(),
+    // Fallback-chain quarantine (plan T5): which members are on health cooldown
+    // right now and why — dead (key_rejected/out_of_funds) vs degraded (others).
+    chainHealth: healthRegistry.snapshot()
   };
 }
 
@@ -6522,7 +6543,19 @@ function candidateAvailability(modelName: string): CandidateAvailability {
   };
 }
 
-function fallbackStagePreflight(modelName: string): AttemptFailure | null {
+function fallbackStagePreflight(modelName: string, chainId?: string): AttemptFailure | null {
+  // Health quarantine (plan T2): a member on cooldown is not attempted at all.
+  // This is also the mid-request gate — a member that failed into quarantine
+  // earlier in this request's wraparound stops being re-entered here.
+  const verdict = healthRegistry.mayAttempt(chainId ?? null, modelName);
+  if (!verdict.allowed) {
+    return {
+      errorType: 'health_cooldown',
+      message: `Model "${modelName}" is quarantined until ${new Date(verdict.until).toISOString()} after ${verdict.errorType} — skipping to next stage.`,
+      cooldownReason: verdict.reason
+    };
+  }
+
   const target = resolveModelTarget(modelName);
   if (!target || !target.actualModel || isLocalRouterProviderName(target.providerName)) {
     // Graceful cascade: an unresolvable stage is a soft skip, not a
@@ -6570,20 +6603,30 @@ function fallbackStagePreflight(modelName: string): AttemptFailure | null {
   return null;
 }
 
-export function classifyHttpFailure(status: number, bodyText: string): AttemptFailure['errorType'] {
-  if (status === 401 || status === 403) return 'upstream_http_auth';
-  if (status === 402 || status === 429) return 'upstream_http_quota';
-  if (status === 402) return 'upstream_http_payment_required';
-  if (status === 413 || status === 429) return 'upstream_http_rate_limit';
-  if (status >= 500 && status < 600) return 'upstream_http_unavailable';
-  if (status === 400 || status === 422) return 'upstream_http_invalid_request';
+// Body-text evidence for money problems. Providers disagree on the status code
+// for them (OpenAI reports `insufficient_quota` as 429; gateways answer
+// 400/402), and an empty balance must never be counted as a usage limit.
+const OUT_OF_FUNDS_RE = /insufficient[_\s-]?quota|exceeded your current quota|insufficient[_\s-]?(funds|credit|balance)|out[_\s-]?of[_\s-]?(funds|credit|balance|money)|zero[_\s-]?balance|billing|payment|invoice|overdue|past[_\s-]?due|subscription[_\s-]?expired|declined|top[_\s-]?up/;
+const AUTH_RE = /invalid[_\s-]?api[_\s-]?key|unauthorized|auth|credentials|access[_\s-]?denied|token[_\s-]?invalid|expired[_\s-]?key/;
+const USAGE_LIMIT_RE = /rate[_\s-]?limit|too many requests|usage[_\s-]?limit|quota|requests per/;
+const USAGE_ERROR_RE = /api[_\s-]?usage[_\s-]?error|unknown model|context[_\s-]?length|invalid[_\s-]?request|bad[_\s-]?request|validation|does not support|maximum.*tokens/;
+const UNAVAILABLE_RE = /unavailable|maintenance|downtime|temporarily[_\s-]?unavailable|service[_\s-]?unavailable/;
 
+export function classifyHttpFailure(status: number, bodyText: string): AttemptFailure['errorType'] {
   const lower = String(bodyText || '').toLowerCase();
-  if (/invalid[_\s-]?api[_\s-]?key|unauthorized|auth|credentials|access[_\s-]?denied|token[_\s-]?invalid|expired[_\s-]?key/.test(lower)) return 'upstream_http_auth';
-  if (/quota|limit|rate[_\s-]?limit|usage[_\s-]?limit|billing|balance|insufficient/.test(lower)) return 'upstream_http_quota';
-  if (/payment|overdue|past[_\s-]?due|invoice|subscription[_\s-]?expired/.test(lower)) return 'upstream_http_payment_required';
-  if (/unavailable|maintenance|downtime|temporarily[_\s-]?unavailable|service[_\s-]?unavailable/.test(lower)) return 'upstream_http_unavailable';
-  if (/invalid[_\s-]?request|bad[_\s-]?request|validation/.test(lower)) return 'upstream_http_invalid_request';
+  // Money first: 402 is unambiguous, and body evidence beats the status code
+  // (an `insufficient_quota` 429 is a dead balance, not a rate limit).
+  if (status === 402) return 'upstream_http_payment_required';
+  if (OUT_OF_FUNDS_RE.test(lower)) return 'upstream_http_payment_required';
+  if (status === 401 || status === 403) return 'upstream_http_auth';
+  if (AUTH_RE.test(lower)) return 'upstream_http_auth';
+  if (status === 429) return 'upstream_http_rate_limit';
+  if (status >= 500 && status < 600) return 'upstream_http_unavailable';
+  if (UNAVAILABLE_RE.test(lower)) return 'upstream_http_unavailable';
+  // 413 is payload-too-large: a request shape problem, not a rate limit.
+  if (status === 400 || status === 413 || status === 422) return 'upstream_http_invalid_request';
+  if (USAGE_LIMIT_RE.test(lower)) return 'upstream_http_quota';
+  if (USAGE_ERROR_RE.test(lower)) return 'upstream_http_invalid_request';
 
   return 'upstream_http';
 }
@@ -7594,7 +7637,12 @@ export function fallbackExecutionPlan(fallbackRoute: FallbackModel, body?: any) 
   // Escalating wraparound (2026-09-04): failure → next model; after two
   // fallback failures retry the top of the list (usage-reset), then escalate
   // the per-cycle failure threshold (3, 4, …) until the list is exhausted.
-  return buildEscalatingWraparoundPlan(eligible);
+  // Wraparound revisits of health-quarantined members are omitted (plan T3):
+  // their first occurrence stays (the preflight records the cooldown skip),
+  // but dead members are not re-entered every cycle.
+  return buildEscalatingWraparoundPlan(eligible, {
+    skipRevisitsFor: (model) => !healthRegistry.mayAttempt(fallbackRoute.id, model).allowed
+  });
 }
 
 type EmbeddingSuccess = {
@@ -7757,6 +7805,15 @@ async function proxyEmbeddingAttempt(
   }
 }
 
+// Feed the health registry (plan T1) at stage resolution, not at request end:
+// a failure must quarantine BEFORE the wraparound re-enters the member later
+// in the same request (T3's goal is "not re-entered mid-request"). The
+// trajectory log stays purely observational; quarantine is derived eagerly
+// from the same evidence, one outcome per executed stage.
+function recordStageOutcome(chainId: string | null, model: string, outcome: 'answered' | 'failed', errorType?: string | null): void {
+  healthRegistry.recordOutcome({ chainId, model, outcome, errorType: errorType ?? null });
+}
+
 async function handleEmbeddingRequest(req: Request, res: Response) {
   const body = req.body || {};
   const presentedModel = String(body.model || '').trim();
@@ -7782,6 +7839,24 @@ async function handleEmbeddingRequest(req: Request, res: Response) {
     });
   }
 
+  // Health quarantine (plan T2): quarantined members are not attempted on the
+  // embedding path either. They become cooldown exclusions and run only as the
+  // §4.2 force-try tail after every runnable candidate has failed.
+  const cooldownReasonByModel = new Map<string, string>();
+  const runnableCandidates: typeof candidates = [];
+  const quarantinedCandidates: typeof candidates = [];
+  for (const stage of candidates) {
+    const verdict = fallbackRoute
+      ? healthRegistry.mayAttempt(fallbackRoute.id, stage.model)
+      : { allowed: true as const };
+    if (verdict.allowed) {
+      runnableCandidates.push(stage);
+    } else {
+      cooldownReasonByModel.set(stage.model, verdict.reason);
+      quarantinedCandidates.push(stage);
+    }
+  }
+
   // Trajectory capture (2026-11-12) — same record shape as chat, so an agent
   // reading trajectories.jsonl sees every model call, not only chat calls.
   const embeddingStartedAt = Date.now();
@@ -7800,18 +7875,20 @@ async function handleEmbeddingRequest(req: Request, res: Response) {
   );
   if (fallbackRoute) {
     const excluded: TrajectoryExcludedTarget[] = [];
-    const candidateModels = new Set(candidates.map((c) => c.model));
+    const runnableModels = new Set(runnableCandidates.map((c) => c.model));
     const disabledSet = new Set(fallbackRoute.disabledModels || []);
     for (const model of fallbackRoute.models) {
-      if (!candidateModels.has(model)) {
-        excluded.push({ model, reason: disabledSet.has(model) ? 'disabled_toggle' : 'no_configured_key' });
-      }
+      if (runnableModels.has(model)) continue;
+      excluded.push({
+        model,
+        reason: cooldownReasonByModel.get(model) || (disabledSet.has(model) ? 'disabled_toggle' : 'no_configured_key')
+      });
     }
     trajectory.setChain({
       routeId: fallbackRoute.id,
       configuredTargets: fallbackRoute.models.slice(),
       excludedTargets: excluded,
-      eligibleTargets: candidates.map((c) => c.model),
+      eligibleTargets: runnableCandidates.map((c) => c.model),
       requiredContext: 0,
       requiresMultimodal: false,
       planStageCount: candidates.length
@@ -7830,8 +7907,13 @@ async function handleEmbeddingRequest(req: Request, res: Response) {
     : undefined;
   const chainPinsWidth = pinnedDimensions !== undefined && Boolean(fallbackRoute);
   const attempts: Array<Record<string, unknown>> = [];
-  for (const stage of candidates) {
-    const stageTarget = 'target' in stage ? (stage as { target?: ModelTarget }).target : undefined;
+  // Runnable candidates first; quarantined ones last as the §4.2 force-try tail
+  // (reached only when everything else failed — a stale answer beats a 502).
+  const orderedCandidates = [...runnableCandidates, ...quarantinedCandidates];
+  for (let candidateIndex = 0; candidateIndex < orderedCandidates.length; candidateIndex += 1) {
+    const stage = orderedCandidates[candidateIndex];
+    const forced = candidateIndex >= runnableCandidates.length;
+    const stageTarget = 'target' in stage && isModelTarget(stage.target) ? stage.target : undefined;
     const stageModelName = stageTarget
       ? `${stageTarget.providerName}/${stageTarget.actualModel}`
       : stage.model;
@@ -7842,6 +7924,7 @@ async function handleEmbeddingRequest(req: Request, res: Response) {
       chainPinsWidth ? pinnedDimensions : undefined
     );
     if (result.ok) {
+      recordStageOutcome(fallbackRoute ? fallbackRoute.id : null, stage.model, 'answered');
       trajectory.addStage({
         stage: 'stage' in stage ? String(stage.stage) : 'direct',
         targetModel: stage.model,
@@ -7851,7 +7934,8 @@ async function handleEmbeddingRequest(req: Request, res: Response) {
         stageAttempts: 1,
         outcome: 'answered',
         status: result.value.response.status,
-        ms: Date.now() - embeddingStartedAt
+        ms: Date.now() - embeddingStartedAt,
+        ...(forced ? { forced: true } : {})
       });
       trajectory.finish({
         status: result.value.response.status,
@@ -7887,6 +7971,7 @@ async function handleEmbeddingRequest(req: Request, res: Response) {
       });
       return res.send(Buffer.from(await result.value.response.arrayBuffer()));
     }
+    recordStageOutcome(fallbackRoute ? fallbackRoute.id : null, stage.model, 'failed', result.error.errorType);
     attempts.push({
       stage: 'stage' in stage ? stage.stage : 'direct',
       targetModel: stage.model,
@@ -7894,7 +7979,8 @@ async function handleEmbeddingRequest(req: Request, res: Response) {
       actualModel: result.error.actualModel || null,
       errorType: result.error.errorType,
       status: result.error.status || 502,
-      message: result.error.message
+      message: result.error.message,
+      ...(forced ? { forcedAfterQuarantine: true } : {})
     });
     trajectory.addStage({
       stage: 'stage' in stage ? String(stage.stage) : 'direct',
@@ -7907,7 +7993,8 @@ async function handleEmbeddingRequest(req: Request, res: Response) {
       errorType: result.error.errorType,
       status: result.error.status || 502,
       errorMessage: result.error.message,
-      ms: Date.now() - embeddingStartedAt
+      ms: Date.now() - embeddingStartedAt,
+      ...(forced ? { forced: true } : {})
     });
   }
 
@@ -8244,13 +8331,15 @@ async function executeFallbackRoute(
   const plan = fallbackExecutionPlan(fallbackRoute, body);
   chainSnapshot.planStageCount = plan.length;
   let lastFailure: AttemptFailure | null = null;
+  const attemptedModels = new Set<string>();
 
   for (let stageIndex = 0; stageIndex < plan.length; stageIndex += 1) {
     const stage = plan[stageIndex];
 
-    const preflightFailure = fallbackStagePreflight(stage.model);
+    const preflightFailure = fallbackStagePreflight(stage.model, fallbackRoute.id);
     if (preflightFailure) {
       lastFailure = preflightFailure;
+      const skipReason = preflightFailure.cooldownReason || preflightFailure.errorType;
       attemptLog.push({
         fallbackRoute: fallbackRoute.id,
         stage: stage.stage,
@@ -8261,6 +8350,7 @@ async function executeFallbackRoute(
         actualModel: preflightFailure.actualModel || null,
         status: preflightFailure.status || null,
         errorType: preflightFailure.errorType,
+        reason: skipReason,
         errorMessage: sanitizeDiagnosticText(preflightFailure.message, 220),
         skipped: true
       });
@@ -8272,7 +8362,7 @@ async function executeFallbackRoute(
         attempt: 0,
         stageAttempts: stage.attempts,
         outcome: 'skipped',
-        skipReason: preflightFailure.errorType,
+        skipReason,
         errorType: preflightFailure.errorType,
         status: preflightFailure.status || null,
         errorMessage: sanitizeDiagnosticText(preflightFailure.message, 220)
@@ -8298,6 +8388,7 @@ async function executeFallbackRoute(
       };
 
       const attemptStartedAt = Date.now();
+      attemptedModels.add(stage.model);
       const result = await proxyModelAttempt(
         preservedBody,
         requestRoute,
@@ -8310,6 +8401,7 @@ async function executeFallbackRoute(
       );
 
       if (result.ok) {
+        recordStageOutcome(fallbackRoute.id, stage.model, 'answered');
         if (logTracker) {
           logTracker.onSuccess(result.value.providerName, result.value.actualModel, result.value.response.status);
         }
@@ -8337,6 +8429,7 @@ async function executeFallbackRoute(
       }
 
       lastFailure = result.error;
+      recordStageOutcome(fallbackRoute.id, stage.model, 'failed', result.error.errorType);
       const entry: Record<string, unknown> = {
         fallbackRoute: fallbackRoute.id,
         stage: stage.stage,
@@ -8391,6 +8484,103 @@ async function executeFallbackRoute(
         });
       }
     }
+  }
+
+  // §4.2 last pass: the plan is exhausted and the only members left are on
+  // health cooldown. A stale answer beats a 502 — force-try each quarantined
+  // member ONCE, but only those this request never actually attempted: a
+  // member that failed mid-request carries the freshest possible evidence, and
+  // re-hammering it is exactly what the cooldown exists to stop. Attempts are
+  // recorded as forced stages so the trajectory stays honest about why an
+  // attempt happened despite the cooldown.
+  const forcedMembers = healthRegistry
+    .quarantined(fallbackRoute.id)
+    .filter((member) => fallbackRoute.models.includes(member.model) && !attemptedModels.has(member.model));
+  for (let i = 0; i < forcedMembers.length; i += 1) {
+    const member = forcedMembers[i];
+    const forcedStage = `last-pass-${i + 1}`;
+    const attemptStartedAt = Date.now();
+    const result = await proxyModelAttempt(
+      buildFailoverPreservedBody(body, member.model),
+      requestRoute,
+      outputFormat,
+      presentedModel,
+      member.model,
+      Boolean(stream),
+      requestStartedAt,
+      {
+        route: fallbackRoute.id,
+        stage: forcedStage,
+        stageIndex: plan.length + i + 1,
+        stageAttempts: 1,
+        attempt: 1,
+        targetModel: member.model,
+        totalStages: plan.length + forcedMembers.length,
+        primaryStage: false,
+        failoverErrorType: isClassifiedFailoverError(lastFailure?.errorType || '') ? (lastFailure as AttemptFailure).errorType : undefined
+      }
+    );
+
+    if (result.ok) {
+      recordStageOutcome(fallbackRoute.id, member.model, 'answered');
+      if (logTracker) {
+        logTracker.onSuccess(result.value.providerName, result.value.actualModel, result.value.response.status);
+      }
+      trajectory?.addStage({
+        stage: forcedStage,
+        targetModel: member.model,
+        provider: result.value.providerName,
+        actualModel: result.value.actualModel,
+        attempt: 1,
+        stageAttempts: 1,
+        outcome: 'answered',
+        status: result.value.response.status,
+        ms: Date.now() - attemptStartedAt,
+        forced: true
+      });
+      return sendSuccessfulProxyResponse(
+        res,
+        presentedModel,
+        Boolean(stream),
+        requestRoute,
+        requestStartedAt,
+        outputFormat,
+        result.value,
+        logTracker
+      );
+    }
+
+    lastFailure = result.error;
+    recordStageOutcome(fallbackRoute.id, member.model, 'failed', result.error.errorType);
+    attemptLog.push({
+      fallbackRoute: fallbackRoute.id,
+      stage: forcedStage,
+      targetModel: member.model,
+      attempt: 1,
+      stageAttempts: 1,
+      provider: result.error.providerName || null,
+      actualModel: result.error.actualModel || null,
+      status: result.error.status || null,
+      errorType: result.error.errorType,
+      errorMessage: sanitizeDiagnosticText(result.error.message, 220),
+      providerErrorPreview: sanitizeDiagnosticText(result.error.responseText || '', 280),
+      forcedAfterQuarantine: true
+    });
+    trajectory?.addStage({
+      stage: forcedStage,
+      targetModel: member.model,
+      provider: result.error.providerName || null,
+      actualModel: result.error.actualModel || null,
+      attempt: 1,
+      stageAttempts: 1,
+      outcome: 'failed',
+      errorType: result.error.errorType,
+      status: result.error.status || null,
+      errorMessage: sanitizeDiagnosticText(result.error.message, 220),
+      providerErrorPreview: sanitizeDiagnosticText(result.error.responseText || '', 280),
+      ms: Date.now() - attemptStartedAt,
+      forced: true
+    });
   }
 
   const terminalFailure = lastFailure as AttemptFailure | null;

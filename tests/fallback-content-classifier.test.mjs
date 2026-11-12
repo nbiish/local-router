@@ -90,8 +90,22 @@ test('classifyHttpFailure: 401/403 maps to auth', () => {
   assert.equal(classifyHttpFailure(403, ''), 'upstream_http_auth');
 });
 
-test('classifyHttpFailure: 429 maps to quota', () => {
-  assert.equal(classifyHttpFailure(429, ''), 'upstream_http_quota');
+test('classifyHttpFailure: 429 maps to rate limit; money evidence beats it', () => {
+  assert.equal(classifyHttpFailure(429, ''), 'upstream_http_rate_limit');
+  // OpenAI reports `insufficient_quota` as 429 — an empty balance, not a rate limit.
+  assert.equal(classifyHttpFailure(429, 'insufficient_quota'), 'upstream_http_payment_required');
+  assert.equal(
+    classifyHttpFailure(429, 'You exceeded your current quota, please check your plan and billing details'),
+    'upstream_http_payment_required'
+  );
+});
+
+test('classifyHttpFailure: 402 maps to payment required (out of funds)', () => {
+  assert.equal(classifyHttpFailure(402, ''), 'upstream_http_payment_required');
+});
+
+test('classifyHttpFailure: 413 is a request-shape error, not a rate limit', () => {
+  assert.equal(classifyHttpFailure(413, ''), 'upstream_http_invalid_request');
 });
 
 test('classifyHttpFailure: 502/503 maps to unavailable', () => {
@@ -101,9 +115,16 @@ test('classifyHttpFailure: 502/503 maps to unavailable', () => {
 
 test('classifyHttpFailure: body text patterns override status', () => {
   assert.equal(classifyHttpFailure(200, 'invalid api key provided'), 'upstream_http_auth');
-  assert.equal(classifyHttpFailure(200, 'billing quota exceeded'), 'upstream_http_quota');
+  // Out-of-funds evidence wins over a bare "quota" mention: a balance problem
+  // is fixed by top-up, a usage limit by backoff — never the same fix.
+  assert.equal(classifyHttpFailure(200, 'billing quota exceeded'), 'upstream_http_payment_required');
+  assert.equal(classifyHttpFailure(200, 'insufficient balance: top up your account'), 'upstream_http_payment_required');
   assert.equal(classifyHttpFailure(200, 'subscription expired'), 'upstream_http_payment_required');
+  assert.equal(classifyHttpFailure(200, 'usage limit exceeded for this hour'), 'upstream_http_quota');
+  assert.equal(classifyHttpFailure(200, 'rate limit exceeded'), 'upstream_http_quota');
   assert.equal(classifyHttpFailure(200, 'service unavailable temporarily'), 'upstream_http_unavailable');
+  assert.equal(classifyHttpFailure(200, 'api_usage_error: unknown model: foo'), 'upstream_http_invalid_request');
+  assert.equal(classifyHttpFailure(200, 'context_length_exceeded'), 'upstream_http_invalid_request');
 });
 
 test('isClassifiedFailoverError: quota and unavailable trigger, auth does not', () => {
