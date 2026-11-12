@@ -318,6 +318,8 @@ export function analyzeLogs(): LogAnalysis {
 
 export class LogEntryTracker {
   public log: ExpertLog;
+  /** Completion hook (e.g. trajectory capture) — invoked once, after the expert log is persisted. */
+  public onComplete: ((log: ExpertLog) => void) | null = null;
   private streamingToolCalls = new Map<number, { id?: string; name?: string; arguments: string }>();
 
   constructor(
@@ -631,6 +633,9 @@ export class LogEntryTracker {
     // Add to logs and persist
     expertLogs = [this.log, ...expertLogs].slice(0, MAX_LOGS_ENTRIES);
     saveExpertLogs();
+    if (this.onComplete) {
+      this.onComplete(this.log);
+    }
   }
 }
 
