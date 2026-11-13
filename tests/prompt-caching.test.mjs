@@ -32,7 +32,7 @@ test('GPT model on Pioneer gets prompt_cache_retention: "24h" and no cache_contr
   assert.equal(typeof result.messages[0].content, 'string');
 });
 
-test('Tiny prompts get no client markers on conservative wires', () => {
+test('tiny prompts are marked too — the marker count is the only budget (max caching)', () => {
   const body = {
     model: 'fastino/nvidia/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-NVFP4',
     messages: [
@@ -42,7 +42,9 @@ test('Tiny prompts get no client markers on conservative wires', () => {
   };
   
   const result = injectPromptCaching(body, 'fastino');
-  assert.equal(typeof result.messages[0].content, 'string');
+  assert.deepEqual(result.messages[0].content, [
+    { type: 'text', text: 'Short prompt', cache_control: { type: 'ephemeral', ttl: '1h' } }
+  ]);
 });
 
 test('Leftover cache_control is stripped and simplified when falling back to OpenAI-family models', () => {
@@ -97,7 +99,23 @@ test('Cache_control is preserved and updated when falling back to supported prov
   ]);
 });
 
-test('fastino gets a sticky prompt_cache_key and no client cache markers (new wire, caching unverified)', () => {
+test('fastino gets maximum cache_control markers (4 breakpoints, 1h TTL)', () => {
+  const body = {
+    model: 'fastino/nvidia/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-NVFP4',
+    messages: [
+      { role: 'system', content: 'You are a coding assistant.' },
+      { role: 'user', content: 'a'.repeat(900) }
+    ]
+  };
+
+  const result = injectPromptCaching(body, 'fastino');
+  assert.equal(result.prompt_cache_retention, undefined);
+  assert.deepEqual(result.messages[0].content, [
+    { type: 'text', text: 'You are a coding assistant.', cache_control: { type: 'ephemeral', ttl: '1h' } }
+  ]);
+});
+
+test('fastino gets a sticky prompt_cache_key alongside the markers', () => {
   const body = {
     model: 'fastino/nvidia/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-NVFP4',
     messages: [
@@ -107,7 +125,6 @@ test('fastino gets a sticky prompt_cache_key and no client cache markers (new wi
   };
 
   const result = injectPromptCaching(body, 'fastino');
-  assert.equal(typeof result.messages[0].content, 'string', 'no content-block markers on an unverified wire');
   assert.ok(result.prompt_cache_key.startsWith('lr_'));
 
   // Verify stability (same prompt must yield same cache key)
