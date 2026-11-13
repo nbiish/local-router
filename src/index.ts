@@ -521,6 +521,8 @@ const modelSourceConfig: {
   filterConfigured: boolean;
   curationEnabled: boolean;
   curatedEndpointModelKeys: string[];
+  /** `provider::model` keys archived out of the config lists (federated). */
+  archivedModelKeys: string[];
   defaultCurationConfig?: string;
   operatorClearedProviders: string[];
 } = {
@@ -528,6 +530,7 @@ const modelSourceConfig: {
   filterConfigured: true,
   curationEnabled: false,
   curatedEndpointModelKeys: [],
+  archivedModelKeys: [],
   operatorClearedProviders: []
 };
 const MAX_CURATED_ENDPOINT_MODEL_KEYS = 5000;
@@ -2318,6 +2321,12 @@ function loadModelSourceConfig(): void {
         modelSourceConfig.curatedEndpointModelKeys = Array.from(new Set(curatedKeys))
           .slice(0, MAX_CURATED_ENDPOINT_MODEL_KEYS);
       }
+      if (Array.isArray(parsed.archivedModelKeys)) {
+        const archivedKeys: string[] = parsed.archivedModelKeys
+          .map((key: unknown) => String(key || '').trim())
+          .filter((key: string) => key.length > 0);
+        modelSourceConfig.archivedModelKeys = Array.from(new Set(archivedKeys));
+      }
       if (typeof parsed.defaultCurationConfig === 'string' && parsed.defaultCurationConfig.trim()) {
         modelSourceConfig.defaultCurationConfig = parsed.defaultCurationConfig.trim();
       }
@@ -2352,6 +2361,12 @@ function loadModelSourceConfig(): void {
           .filter((provider: string) => provider.length > 0);
         modelSourceConfig.operatorClearedProviders = Array.from(new Set(cleared)).sort();
       }
+      if (Array.isArray(federated.archivedKeys)) {
+        const archived = federated.archivedKeys
+          .map((key: unknown) => String(key || '').trim())
+          .filter((key: string) => key.length > 0);
+        modelSourceConfig.archivedModelKeys = Array.from(new Set(archived));
+      }
     } else if (modelSourceConfig.curatedEndpointModelKeys.length > 0) {
       persistFederatedCatalogSelection();
       console.log('[config] published local catalog selection to router-settings.json (federated).');
@@ -2372,7 +2387,8 @@ function persistFederatedCatalogSelection(): void {
     const merged = loadRouterSettings();
     merged.catalogSelection = {
       curatedKeys: [...modelSourceConfig.curatedEndpointModelKeys],
-      clearedProviders: [...modelSourceConfig.operatorClearedProviders]
+      clearedProviders: [...modelSourceConfig.operatorClearedProviders],
+      archivedKeys: [...modelSourceConfig.archivedModelKeys]
     };
     saveRouterSettings(merged);
   } catch (error: any) {
@@ -2593,7 +2609,15 @@ function mapLiveRawModelsToCatalog(
       // context/output value is only kept when upstream publishes none.
       providerModels.push({
         ...matchingBaseline,
+        // Identity is the LIVE upstream id (2026-11-12): a baseline lends
+        // metadata only. Spreading its `model`/`display` made case/alias twins
+        // (`DeepSeek-V4-Pro` vs `deepseek-v4-pro`, `-1017` build variants)
+        // collide on the curation key and the fetch dedupe deleted the live
+        // row — silently shrinking a provider's catalog on every refresh.
         id: presentedId,
+        provider: providerName,
+        model: modelId,
+        display: providerModelDisplay(providerName, modelId),
         contextLength: readContextHint(raw) ?? matchingBaseline.contextLength ?? DEFAULT_CONTEXT_LENGTH,
         outputTokens: readOutputHint(raw) ?? matchingBaseline.outputTokens ?? DEFAULT_OUTPUT_TOKENS,
         supportsImages: resolvedSupportsImages || Boolean(matchingBaseline.supportsImages),

@@ -2379,6 +2379,7 @@ export function renderLayout(
 
         let curationCatalogData = [];
         let curationSelectedKeys = new Set();
+        let curationArchivedKeys = new Set();
         let curationEnabled = false;
 
         function catalogRowKey(provider, model) {
@@ -2409,6 +2410,7 @@ export function renderLayout(
             curationCatalogData = Array.isArray(payload?.data) ? payload.data : [];
             curationEnabled = Boolean(payload?.curationEnabled);
             curationSelectedKeys = new Set(Array.isArray(payload?.selectedKeys) ? payload.selectedKeys : []);
+            curationArchivedKeys = new Set(Array.isArray(payload?.archivedKeys) ? payload.archivedKeys : []);
 
             // Off-by-default (2026-08-22): an empty selection is valid — it
             // serves only ollama + composites until the operator checks the
@@ -2565,6 +2567,9 @@ export function renderLayout(
             catalogEl.querySelectorAll('input[data-row-key]').forEach(function(input) {
               input.checked = curationSelectedKeys.has(input.getAttribute('data-row-key'));
             });
+            catalogEl.querySelectorAll('input[data-archive-key]').forEach(function(input) {
+              input.checked = !curationArchivedKeys.has(input.getAttribute('data-archive-key'));
+            });
           }
           const toggleEl = document.getElementById('curationToggle');
           if (toggleEl) toggleEl.checked = curationEnabled;
@@ -2612,12 +2617,18 @@ export function renderLayout(
             for (let m = 0; m < models.length; m++) {
               const model = models[m];
               const key = catalogRowKey(group.provider, model.model);
+              // Archived models leave the provider list entirely (2026-11-12)
+              // and reappear in the restore section below.
+              if (curationArchivedKeys.has(key)) continue;
               const checked = curationSelectedKeys.has(key) ? ' checked' : '';
               html += '<li data-search="' + escapeHtml(rowSearchText(model)) + '" style="display: flex; gap: 12px; align-items: center;">'
                 + '<label class="flag-toggle" style="display: flex; gap: 8px; align-items: flex-start; flex: 1;">'
                 + '<input type="checkbox" data-row-key="' + escapeHtml(key) + '"' + checked + ' onchange="toggleCatalogRow(this.dataset.rowKey, this.checked)">'
                 + '<span><strong>' + escapeHtml(model.id) + '</strong><br><span class="muted">' + escapeHtml(model.display || model.model || '') + '</span></span>'
                 + '</label>'
+                + '<label class="flag-toggle" style="display: flex; gap: 4px; align-items: center; font-size: 11px; white-space: nowrap;" title="Serve toggle is the left checkbox; this one shows ' + escapeHtml(model.id) + ' in the config lists — uncheck to archive it out of the way">'
+                + '<input type="checkbox" data-archive-key="' + escapeHtml(key) + '" checked onchange="toggleArchiveRow(this.dataset.archiveKey, this.checked)">'
+                + '<span class="muted">show</span></label>'
                 + '<button type="button" class="button-secondary" data-stage-fallback="' + escapeHtml(model.id) + '"'
                 + ' title="Stage ' + escapeHtml(model.id) + ' into the fallback-models chain — stays on this page"'
                 + ' style="padding: 1px 8px; font-size: 11px; white-space: nowrap;">+ Fallback</button>'
@@ -2627,6 +2638,39 @@ export function renderLayout(
             // the first-child border rule and the notice itself shows clean.
             html += '<li class="provider-model-empty" data-provider-empty style="display: none; border-top: 0;">No models match this provider search.</li>'
               + '</ul></section>';
+          }
+
+          // Archived models (2026-11-12): hidden from every provider list
+          // above, restorable here. Archiving is presentation state — the
+          // model stays discovered, chainable and servable; this is the
+          // "oops, bring it back" surface.
+          const archivedRows = [];
+          for (let p = 0; p < curationCatalogData.length; p++) {
+            const group = curationCatalogData[p];
+            const models = (group && Array.isArray(group.models)) ? group.models : [];
+            for (let m = 0; m < models.length; m++) {
+              const key = catalogRowKey(group.provider, models[m].model);
+              if (curationArchivedKeys.has(key)) archivedRows.push({ group: group, model: models[m], key: key });
+            }
+          }
+          if (archivedRows.length > 0) {
+            html += '<section class="provider-group" data-archived-section>'
+              + '<h3>Archived models <span class="muted">(' + archivedRows.length + ' — hidden from the lists above; tick "show" to restore)</span></h3>'
+              + '<ul class="model-list">';
+            for (let a = 0; a < archivedRows.length; a++) {
+              const row = archivedRows[a];
+              const served = curationSelectedKeys.has(row.key) ? ' checked' : '';
+              html += '<li data-search="' + escapeHtml(rowSearchText(row.model)) + '" style="display: flex; gap: 12px; align-items: center;">'
+                + '<label class="flag-toggle" style="display: flex; gap: 8px; align-items: flex-start; flex: 1;">'
+                + '<input type="checkbox" data-row-key="' + escapeHtml(row.key) + '"' + served + ' onchange="toggleCatalogRow(this.dataset.rowKey, this.checked)">'
+                + '<span><strong>' + escapeHtml(row.model.id) + '</strong><br><span class="muted">' + escapeHtml(row.group.provider + ':' + (row.model.display || row.model.model || '')) + '</span></span>'
+                + '</label>'
+                + '<label class="flag-toggle" style="display: flex; gap: 4px; align-items: center; font-size: 11px; white-space: nowrap;" title="Restore ' + escapeHtml(row.model.id) + ' to the ' + escapeHtml(row.group.provider) + ' list">'
+                + '<input type="checkbox" data-archive-key="' + escapeHtml(row.key) + '" onchange="toggleArchiveRow(this.dataset.archiveKey, this.checked)">'
+                + '<span class="muted">show</span></label>'
+                + '</li>';
+            }
+            html += '</ul></section>';
           }
 
           catalogEl.innerHTML = (html
@@ -2715,6 +2759,20 @@ export function renderLayout(
             curationSelectedKeys.delete(key);
           }
           syncCurationSelection();
+          scheduleCurationAutoSave();
+        }
+
+        // Archive toggle (2026-11-12): checked = shown in the provider list,
+        // unchecked = archived to the restore section. Rows move between the
+        // two surfaces, so the list rebuilds; selection state is untouched.
+        function toggleArchiveRow(key, checked) {
+          if (!key) return;
+          if (checked) {
+            curationArchivedKeys.delete(key);
+          } else {
+            curationArchivedKeys.add(key);
+          }
+          renderCurationCatalog();
           scheduleCurationAutoSave();
         }
 
@@ -2912,7 +2970,8 @@ export function renderLayout(
           try {
             const reqPayload = {
               enabled: curationEnabled,
-              selectedKeys: Array.from(curationSelectedKeys)
+              selectedKeys: Array.from(curationSelectedKeys),
+              archivedKeys: Array.from(curationArchivedKeys)
             };
             if (force) reqPayload.force = true;
             const res = await fetch('/api/model-curation', {

@@ -60,6 +60,8 @@ export type RouterSettings = {
   catalogSelection?: {
     curatedKeys?: string[];
     clearedProviders?: string[];
+    /** `provider::model` keys archived out of the config lists (restore-able). */
+    archivedKeys?: string[];
   };
 };
 
