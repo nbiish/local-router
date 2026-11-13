@@ -79,6 +79,7 @@ export interface ConfigApiDeps {
     filterConfigured: boolean;
     curationEnabled: boolean;
     curatedEndpointModelKeys: string[];
+    archivedModelKeys: string[];
     defaultCurationConfig?: string;
   };
   persistModelSourceConfig: () => void;
@@ -635,6 +636,7 @@ app.get('/api/model-curation', (req: Request, res: Response) => {
     curationEnabled: modelSourceConfig.curationEnabled,
     selectedKeys: modelSourceConfig.curatedEndpointModelKeys,
     selectedCount: modelSourceConfig.curatedEndpointModelKeys.length,
+    archivedKeys: modelSourceConfig.archivedModelKeys,
     totalModels: state.endpointModelsCache.length,
     data: grouped
   });
@@ -664,7 +666,7 @@ function guardCurationReplacement(
 }
 
 app.put('/api/model-curation', (req: Request, res: Response) => {
-  const { enabled, selectedKeys, activate } = req.body || {};
+  const { enabled, selectedKeys, activate, archivedKeys } = req.body || {};
 
   if (enabled !== undefined && typeof enabled !== 'boolean') {
     return res.status(400).json({ error: 'enabled must be a boolean.' });
@@ -709,6 +711,21 @@ app.put('/api/model-curation', (req: Request, res: Response) => {
     modelSourceConfig.curatedEndpointModelKeys = nextKeys;
   }
 
+  // Archive state (2026-11-12): reversible presentation toggle — no merge
+  // guard; an archived model stays discoverable and restorable.
+  if (archivedKeys !== undefined) {
+    if (!Array.isArray(archivedKeys)) {
+      return res.status(400).json({ error: 'archivedKeys must be an array of "provider::model" strings.' });
+    }
+    const invalidArchive = archivedKeys.find((key: unknown) => typeof key !== 'string' || !key.includes('::'));
+    if (invalidArchive !== undefined) {
+      return res.status(400).json({ error: 'archivedKeys entries must be "provider::model" strings.' });
+    }
+    modelSourceConfig.archivedModelKeys = Array.from(new Set(
+      archivedKeys.map((key: string) => key.trim()).filter(Boolean)
+    ));
+  }
+
   // Curation cannot be disabled in the single-catalog regime (2026-08-20):
   // the toggle selection IS the catalog. `enabled: false` is ignored.
   modelSourceConfig.curationEnabled = true;
@@ -719,7 +736,8 @@ app.put('/api/model-curation', (req: Request, res: Response) => {
     success: true,
     curationEnabled: modelSourceConfig.curationEnabled,
     selectedCount: modelSourceConfig.curatedEndpointModelKeys.length,
-    selectedKeys: modelSourceConfig.curatedEndpointModelKeys
+    selectedKeys: modelSourceConfig.curatedEndpointModelKeys,
+    archivedKeys: modelSourceConfig.archivedModelKeys
   });
 });
 

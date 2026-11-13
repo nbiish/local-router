@@ -158,6 +158,10 @@ function aliasKeys(modelId: string): string[] {
 /**
  * Find the registry/cache row that describes a live model id. Exact ids win;
  * otherwise aliases are compared with and without the vendor namespace.
+ *
+ * Metadata ONLY: callers must never take the matched row's `model`/`identity`
+ * fields — alias matching deliberately pairs case and build-suffix twins
+ * (`DeepSeek-V4-Pro` ~ `deepseek-v4-pro`), which are distinct upstream ids.
  */
 export function pickBaselineModel<T extends { model: string }>(baselines: T[], modelId: string): T | undefined {
   const exact = baselines.find((row) => row.model === modelId);
