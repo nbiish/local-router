@@ -106,6 +106,15 @@ test.after(async () => {
 });
 
 test('case/alias twins survive a refresh with their own identity', async () => {
+  // Seed a persisted override store first — the shadowing path: a modelStore
+  // entry used to make the management view return ONLY overrides.
+  const upsert = await requestJson('/api/provider-models/fastino/models', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ model: 'operator-added-model', id: 'fastino-operator-added', contextLength: 8192, outputTokens: 4096 })
+  });
+  assert.equal(upsert.response.status, 200, JSON.stringify(upsert.body));
+
   const refresh = await requestJson('/api/provider-models/fastino/refresh', {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}'
   });
@@ -115,6 +124,16 @@ test('case/alias twins survive a refresh with their own identity', async () => {
   const models = (section.body.data || section.body.models || []).map((m) => m.model);
   for (const id of upstreamIds) {
     assert.ok(models.includes(id), `live id "${id}" survives refresh (got: ${JSON.stringify(models)})`);
+  }
+  assert.ok(models.includes('operator-added-model'), 'the override row still wins its own key');
+
+  // The management view ("every known model") agrees with the catalog feed —
+  // a persisted override store must not shadow cache-only discoveries.
+  const curation = await requestJson('/api/model-curation');
+  const group = (curation.body.data || []).find((g) => g.provider === 'fastino');
+  const feedModels = ((group && group.models) || []).map((m) => m.model);
+  for (const id of upstreamIds) {
+    assert.ok(feedModels.includes(id), `live id "${id}" present in the catalog feed`);
   }
 });
 

@@ -1223,14 +1223,25 @@ function providerModelSource(providerName: string) {
  */
 function knownProviderModels(rawProviderName: string): ProviderModel[] {
   const providerName = canonicalProviderSlug(rawProviderName);
-  if (modelStore[providerName]) return modelStore[providerName];
-  const cached = endpointModelsCache.filter((model) => model.provider === providerName);
-  if (cached.length > 0) return cached;
+  // "Every known model" is a UNION (2026-11-12): the override store wins per
+  // `provider::model` key but must not EXCLUDE cache-only discoveries —
+  // shadowing hid freshly refreshed ids behind a persisted override block
+  // (the wafer DeepSeek-V4-Pro / DeepSeek-V4.1-Flash-1017 gap).
+  const byKey = new Map<string, ProviderModel>();
+  for (const model of endpointModelsCache.filter((m) => m.provider === providerName)) {
+    byKey.set(endpointModelCurationKey(model), model);
+  }
   const registryEntries = PROVIDER_MODEL_REGISTRY[providerName] || [];
   if (registryEntries.length > 0) {
-    return mapLiveRawModelsToCatalog(providerName, registryEntries.map((e) => ({ ...e })));
+    for (const model of mapLiveRawModelsToCatalog(providerName, registryEntries.map((e) => ({ ...e })))) {
+      const key = endpointModelCurationKey(model);
+      if (!byKey.has(key)) byKey.set(key, model);
+    }
   }
-  return [];
+  for (const model of modelStore[providerName] || []) {
+    byKey.set(endpointModelCurationKey(model), model);
+  }
+  return Array.from(byKey.values());
 }
 
 function providerConfigs() {

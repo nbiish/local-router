@@ -405,7 +405,15 @@ test('provider key save/reset lifecycle exposes configured source', async (t) =>
   const afterModelSave = await requestJson('/api/provider-configs');
   const modelConfiguredProvider = afterModelSave.body?.data?.find((item) => item.name === provider.name);
   assert.equal(modelConfiguredProvider?.modelSource, 'memory');
-  assert.equal(modelConfiguredProvider?.modelCount, 3);
+  // Model count is "every known model" (2026-11-12): operator overrides win
+  // their own keys but no longer shadow refresh discoveries away — the card
+  // count must agree with the management view and include the operator rows.
+  const knownView = await requestJson(`/api/provider-models/${encodeURIComponent(provider.name)}`);
+  const knownModels = knownView.body?.models || [];
+  assert.equal(modelConfiguredProvider?.modelCount, knownModels.length, 'card count agrees with the management view');
+  for (const operatorModel of ['deepseek-v4-pro', 'upstream/provider-required-2', 'prefixed/provider-required-3']) {
+    assert.ok(knownModels.some((m) => m.model === operatorModel), `operator row "${operatorModel}" present in the union view`);
+  }
 
   const singleModelSave = await requestJson(`/api/provider-models/${encodeURIComponent(provider.name)}/models`, {
     method: 'POST',
