@@ -8,12 +8,15 @@ Overview
   Bearer $FASTINO_API_KEY), verified live 2026-11-12 with the operator's
   request example. Model list: https://api.fastino.ai/v1/models (public, 14).
 
-Caching status (2026-11-12)
-  UNVERIFIED on the new host. The cache_control markers (4, 1h TTL,
-  content-block arrays) and prompt_cache_retention below were measured against
-  the retired api.pioneer.ai wire and are NOT re-measured on api.fastino.ai.
-  Until they are, the policy row injects no client cache markers and only a
-  sticky prompt_cache_key [INFERENCE] — see the note in src/provider-policy.ts.
+Caching status (2026-11-12, max posture)
+  MAXIMUM enabled per operator directive ("max possible caching across all
+  providers and models"): the policy row injects the predecessor wire's measured
+  cache_control shape — 4 breakpoints, 1h TTL, content-block arrays, tool
+  breakpoint, sticky prompt_cache_key (src/provider-policy.ts, anthropicCache).
+  Live re-measurement on api.fastino.ai is BLOCKED: the configured pio_sk_ key
+  is retired upstream ("API keys starting with 'pio_sk_' were retired on the
+  move to Fastino", 401 measured 2026-11-12). Once a valid fastino key lands,
+  re-run the marker/retention probes and replace this note with measurements.
 
 --- Historical: api.pioneer.ai measurements (wire retired 2026-11-12) ---
 

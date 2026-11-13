@@ -87,7 +87,6 @@ export interface CachingPolicy {
   /** OpenAI-style retention hint, only where the upstream documents one. */
   retention?: '24h';
   stickyKey: StickyKey;
-  minCacheableTokens?: number;
   /** True when the upstream rejects unknown `cache_control` markers. */
   stripsCacheControl: boolean;
   /** Ask for the trailing usage chunk so `cached_tokens` is observable. */
@@ -250,8 +249,8 @@ export const PROVIDER_POLICIES: Record<string, ProviderPolicy> = {
     // [INFERENCE: Wafer publishes no thinking doc; matches the ZenMux-measured
     // behaviour of the same model family].
     reasoning: effortPolicy(EFFORT_FIVE, 'llms.txt §Thinking (family mapping); measured 2026-11-07 on ZenMux for deepseek-v4.1-flash'),
-    caching: implicitCache('docs/caching/wafer-serverless.txt — automatic radix prefix cache, no request knobs; cache_read price exposed in /v1/models', {
-      stickyKey: 'none'
+    caching: implicitCache('docs/caching/wafer-serverless.txt — automatic radix prefix cache; cache_read price exposed in /v1/models; sticky prompt_cache_key anchors the cache where honoured and is ignored where not [INFERENCE: acceptance unstated]', {
+      stickyKey: 'prompt_cache_key'
     })
   },
 
@@ -260,8 +259,7 @@ export const PROVIDER_POLICIES: Record<string, ProviderPolicy> = {
     // Qwen, Moonshot and GLM, and translates `reasoning_effort` per upstream.
     reasoning: effortPolicy(EFFORT_FIVE, 'docs/caching/zenmux.txt; measured 2026-11-07: reasoning_effort moves billed reasoning_tokens, thinking:{type:disabled} -> 0'),
     caching: anthropicCache('docs/caching/zenmux.txt — 4 breakpoints, 1h extended TTL, implicit caching for OpenAI/DeepSeek/Kimi/GLM routes', {
-      stickyKey: 'prompt_cache_key',
-      minCacheableTokens: 1024
+      stickyKey: 'prompt_cache_key'
     })
   },
 
@@ -275,14 +273,13 @@ export const PROVIDER_POLICIES: Record<string, ProviderPolicy> = {
   moonshot: {
     reasoning: booleanThinking('llms.txt line 722 — DeepSeek/Qwen/GLM/Kimi/Step/MiniMax use enable_thinking'),
     caching: implicitCache('docs/caching/moonshot.txt — automatic context cache, 256-token floor, prompt_cache_key steers hits', {
-      stickyKey: 'prompt_cache_key',
-      minCacheableTokens: 256
+      stickyKey: 'prompt_cache_key'
     })
   },
 
   'nvidia-nim': {
     reasoning: booleanThinking('llms.txt §Thinking (Nemotron/Qwen/DeepSeek family); NIM serves via TRT-LLM [INFERENCE]'),
-    caching: noCache('docs/caching/nvidia-nim.txt — hosted API documents no prompt caching; reuse is a self-hosted container flag')
+    caching: implicitCache('docs/caching/nvidia-nim.txt — hosted NIM is a vLLM-backed OpenAI API (API reference 2026-11): automatic prefix cache runs server-side, nothing client-side to mark [INFERENCE: hosted docs never state APC explicitly]')
   },
 
   modal: {
@@ -302,8 +299,7 @@ export const PROVIDER_POLICIES: Record<string, ProviderPolicy> = {
   openrouter: {
     reasoning: effortPolicy(EFFORT_FIVE, 'docs/caching/openrouter.txt; OpenRouter normalises reasoning_effort per upstream'),
     caching: anthropicCache('docs/caching/openrouter.txt — cache_control passed to Anthropic/Qwen/Gemini, implicit elsewhere; sticky routing keyed by session_id', {
-      stickyKey: 'session_id',
-      minCacheableTokens: 1024
+      stickyKey: 'session_id'
     })
   },
 
@@ -315,20 +311,22 @@ export const PROVIDER_POLICIES: Record<string, ProviderPolicy> = {
 
   'xiaomi-mimo': {
     reasoning: effortPolicy(EFFORT_FOUR, 'docs/caching/xiaomi-mimo.txt; MiMo publishes cache hit/miss split but no thinking doc [INFERENCE]'),
-    caching: implicitCache('docs/caching/xiaomi-mimo.txt — automatic prefix cache with ~1-2% cache-hit input price')
+    caching: implicitCache('docs/caching/xiaomi-mimo.txt — automatic prefix cache with ~1-2% cache-hit input price; sticky prompt_cache_key anchors the cache where honoured and is ignored where not [INFERENCE: acceptance unstated]', {
+      stickyKey: 'prompt_cache_key'
+    })
   },
 
   'opencode-go': {
-    reasoning: effortPolicy(EFFORT_FIVE, 'docs/caching/opencode-go.txt — routes MiniMax/Qwen (messages), GLM/Kimi/DeepSeek (chat), Grok/GPT (responses)'),
-    caching: anthropicCache('docs/caching/opencode-go.txt — explicit markers on /messages models, automatic elsewhere', {
-      minCacheableTokens: 1024
+    reasoning: effortPolicy(EFFORT_FIVE, 'docs/caching/opencode-go.txt — Console chat family: GLM/Kimi/DeepSeek/MiniMax (automatic prefix caching)'),
+    caching: implicitCache('docs/caching/opencode-go.txt — Console chat wire: automatic upstream prefix caching, cached reads billed via usage.opencode.tokens.cache_read; keep the prefix byte-identical. The old /messages-family markers do not apply to the chat surface we serve [INFERENCE: prompt_cache_key acceptance unstated]', {
+      stickyKey: 'prompt_cache_key'
     })
   },
 
   'opencode-zen': {
-    reasoning: effortPolicy(EFFORT_FIVE, 'docs/caching/opencode-zen.txt — same gateway families as Go'),
-    caching: anthropicCache('docs/caching/opencode-zen.txt — cache_control on /messages models, automatic elsewhere', {
-      minCacheableTokens: 1024
+    reasoning: effortPolicy(EFFORT_FIVE, 'docs/caching/opencode-zen.txt — same Console chat family as Go'),
+    caching: implicitCache('docs/caching/opencode-zen.txt — Console chat wire: automatic upstream prefix caching, cached reads billed via usage.opencode.tokens.cache_read; keep the prefix byte-identical. The old /messages-family markers do not apply to the chat surface we serve [INFERENCE: prompt_cache_key acceptance unstated]', {
+      stickyKey: 'prompt_cache_key'
     })
   },
 
@@ -370,35 +368,31 @@ export const PROVIDER_POLICIES: Record<string, ProviderPolicy> = {
 
   cline: {
     reasoning: effortPolicy(EFFORT_FIVE, 'docs/caching/cline.txt — OpenAI-compatible gateway over anthropic/*, openai/* and open models'),
-    caching: anthropicCache('docs/caching/cline.txt — pass-through of upstream Anthropic cache_control, cached_tokens in usage', {
-      minCacheableTokens: 1024
-    })
+    caching: anthropicCache('docs/caching/cline.txt — pass-through of upstream Anthropic cache_control, cached_tokens in usage')
   },
 
   kilo: {
     reasoning: effortPolicy(EFFORT_FIVE, 'docs/caching/kilo.txt — gateway over 500+ models'),
-    caching: anthropicCache('docs/caching/kilo.txt — Anthropic markers reach the upstream Claude route; other families auto-cache', {
-      minCacheableTokens: 1024
-    })
+    caching: anthropicCache('docs/caching/kilo.txt — Anthropic markers reach the upstream Claude route; other families auto-cache')
   },
 
   commandcode: {
     reasoning: effortPolicy(EFFORT_FIVE, 'docs/caching/commandcode.txt — passthrough gateway, OpenAI schema on /chat/completions'),
-    caching: anthropicCache('docs/caching/commandcode.txt — Claude routes accept Anthropic markers [INFERENCE: not documented as a caching feature]', {
-      minCacheableTokens: 1024
-    })
+    caching: anthropicCache('docs/caching/commandcode.txt — Claude routes accept Anthropic markers [INFERENCE: not documented as a caching feature]')
   },
 
   antigravity: {
     reasoning: effortPolicy(EFFORT_FOUR, 'docs/caching/antigravity.txt — Gemini via the AI Studio OpenAI-compat surface; thinking_config is not reachable here [INFERENCE]'),
-    caching: implicitCache('docs/caching/antigravity.txt — Gemini implicit caching, nothing client-configurable', {
+    caching: implicitCache('docs/caching/antigravity.txt — Gemini implicit caching, nothing client-configurable; sticky prompt_cache_key anchors the cache where honoured and is ignored where not [INFERENCE: acceptance unstated]', {
+      stickyKey: 'prompt_cache_key',
       includeStreamUsage: false
     })
   },
 
   'github-copilot': {
     reasoning: effortPolicy(EFFORT_FIVE, 'docs/caching/github-copilot.txt — Copilot serves GPT-5.x, Claude and Gemini behind one OpenAI-compatible endpoint'),
-    caching: implicitCache('docs/caching/github-copilot.txt — GitHub caches Claude/Gemini prefixes server-side; no client knobs', {
+    caching: implicitCache('docs/caching/github-copilot.txt — GitHub caches Claude/Gemini prefixes server-side; sticky prompt_cache_key anchors the cache where honoured and is ignored where not [INFERENCE: acceptance unstated]', {
+      stickyKey: 'prompt_cache_key',
       includeStreamUsage: false
     })
   },
@@ -413,23 +407,20 @@ export const PROVIDER_POLICIES: Record<string, ProviderPolicy> = {
       acceptsXhigh: false,
       note: 'docs/caching/cursor.txt — effort is baked into the model id, so no request dial exists'
     },
-    caching: implicitCache('docs/caching/cursor.txt — server-side prefix reuse, nothing client-configurable; markers not documented as accepted', {
+    caching: implicitCache('docs/caching/cursor.txt — server-side prefix reuse; markers not documented as accepted; sticky prompt_cache_key anchors the cache where honoured and is ignored where not [INFERENCE: acceptance unstated]', {
+      stickyKey: 'prompt_cache_key',
       includeStreamUsage: false
     })
   },
 
   fastino: {
     reasoning: effortPolicy(EFFORT_FIVE, 'docs/caching/fastino.txt — Nemotron family on api.fastino.ai; reasoning dial unverified on the new host 2026-11-12'),
-    caching: implicitCache('docs/caching/fastino.txt — api.fastino.ai OpenAI-compatible chat verified 2026-11-12; the retired pioneer wire cache_control/retention markers are NOT re-verified on the new host — inject nothing client-side, sticky key only [INFERENCE]', {
-      stickyKey: 'prompt_cache_key'
-    })
+    caching: anthropicCache('docs/caching/fastino.txt — 4 markers, 1h TTL, content-block arrays; measured on the predecessor wire (api.pioneer.ai, 2026-08-23) and enabled at maximum per operator directive 2026-11-12 — live re-measurement on api.fastino.ai blocked on a valid key (pio_sk_ keys retired)')
   },
 
   'nous-portal': {
     reasoning: effortPolicy(EFFORT_FIVE, 'docs/caching/nous-portal.txt — passthrough aggregator over Anthropic/OpenAI/DeepSeek/Kimi'),
-    caching: anthropicCache('docs/caching/nous-portal.txt — passthrough; markers honoured only where the route accepts content-block arrays [INFERENCE]', {
-      minCacheableTokens: 1024
-    })
+    caching: anthropicCache('docs/caching/nous-portal.txt — passthrough; markers honoured only where the route accepts content-block arrays [INFERENCE]')
   },
 
   // ── Loopback custom providers (no registry entry, no auth) ──────────────

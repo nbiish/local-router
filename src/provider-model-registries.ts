@@ -1234,10 +1234,10 @@ export const PROVIDER_MODEL_REGISTRY: Record<string, RegistryModelEntry[]> = {
     { id: '@preset/chain-of-draft', contextLength: 1000000, outputTokens: 128000, supportsTools: true, supportsImages: true, supportsCache: true, tier: 'free', note: 'User-curated OR preset (account-scoped); legacy orps:chain-of-draft' },
   ],
   'fastino': [
-    { id: 'nvidia/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-NVFP4', contextLength: 262144, outputTokens: 4096, tier: 'paid', note: 'live specs 2026-11-12 from api.fastino.ai/v1/models' },
-    { id: 'nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-BF16', contextLength: 65536, outputTokens: 4096, tier: 'paid', note: 'live specs 2026-11-12' },
-    { id: 'fastino/Fastino-Nemotron-3.5-Lightning-Finance', contextLength: 8192, outputTokens: 4096, tier: 'paid', note: '$0.5/$0.5 per 1M' },
-    { id: 'fastino/Fastino-Nemotron-3.5-Lightning-Healthcare', contextLength: 8192, outputTokens: 4096, tier: 'paid', note: '$0.5/$0.5 per 1M' },
+    { id: 'nvidia/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-NVFP4', contextLength: 262144, outputTokens: 4096, supportsCache: true, tier: 'paid', note: 'live specs 2026-11-12 from api.fastino.ai/v1/models' },
+    { id: 'nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-BF16', contextLength: 65536, outputTokens: 4096, supportsCache: true, tier: 'paid', note: 'live specs 2026-11-12' },
+    { id: 'fastino/Fastino-Nemotron-3.5-Lightning-Finance', contextLength: 8192, outputTokens: 4096, supportsCache: true, tier: 'paid', note: '$0.5/$0.5 per 1M' },
+    { id: 'fastino/Fastino-Nemotron-3.5-Lightning-Healthcare', contextLength: 8192, outputTokens: 4096, supportsCache: true, tier: 'paid', note: '$0.5/$0.5 per 1M' },
   ],
   'wafer-serverless': [
     { id: 'DeepSeek-V4.1-Flash', contextLength: 1048576, outputTokens: 384000, supportsTools: true, supportsImages: true, supportsReasoning: true, tier: 'paid', note: 'Wafer fleet self-hosted MoE (552B); ZDR supported' },

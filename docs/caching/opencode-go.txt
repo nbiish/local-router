@@ -1,3 +1,17 @@
+OpenCode Go (Console: opencode.ai/inference/openai/v1) — Prompt Caching
+Last verified: 2026-11-12 (wire move; caching shape from Console docs)
+
+Status (2026-11-12)
+  The router serves the Console CHAT family only (operator scope §4.1). Console
+  docs: chat-completions models get AUTOMATIC upstream prefix caching, billed as
+  cached reads in usage.opencode.tokens.cache_read — "keep the prefix
+  byte-identical", no markers needed. The policy row is therefore automatic +
+  sticky prompt_cache_key; the /messages-family marker guidance below does not
+  apply to the chat surface we send. Live re-measurement BLOCKED: the configured
+  OPENCODE_ZEN_API_KEY is expired upstream (401 measured 2026-11-12).
+
+--- Historical: /zen/go/v1 wire (retired 2026-11-12) ---
+
 OpenCode Go (opencode.ai/zen/go/v1) — Prompt Caching
 Last verified: 2026-08-23
 
