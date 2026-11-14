@@ -3136,6 +3136,17 @@ export function renderLayout(
         function trajectoryDetailHtml(record) {
           const chain = record.chain;
           let html = '';
+          // An explicit shed marker (v2). Shown first because it is the fact an
+          // agent most easily misreads: the alias did not fail, it chose a
+          // concrete member.
+          if (record.shedding) {
+            html += '<div style="margin-bottom:8px; padding:6px 8px; border-left:3px solid var(--primary); background:var(--surface); font-size:12px;">'
+              + '<strong>Chain alias shed</strong> — requested <code>' + escapeHtml(record.shedding.from) + '</code>'
+              + ' → answered by <code>' + escapeHtml(record.shedding.to) + '</code>'
+              + ' <span class="muted">· ' + escapeHtml(String(record.shedding.attemptsBeforeAnswer)) + ' failed attempt(s) before the winner'
+              + (record.shedding.excludedCount ? ' · ' + escapeHtml(String(record.shedding.excludedCount)) + ' member(s) excluded before planning' : '')
+              + '</span></div>';
+          }
           if (chain) {
             html += '<div style="margin-bottom:8px; font-size:12px;">'
               + '<strong>Chain ' + escapeHtml(chain.routeId) + '</strong> — configured: ' + escapeHtml((chain.configuredTargets || []).join(', '))
@@ -3310,16 +3321,26 @@ export function renderLayout(
               const winner = t.answeredBy
                 ? escapeHtml(t.answeredBy.provider + '/' + t.answeredBy.model)
                 : '<span style="color:var(--danger-text);">none (' + escapeHtml(t.errorType || 'error') + ')</span>';
+              // Show the shed as alias → concrete so the alias answer is never
+              // read as the alias having served the request itself.
+              const presented = t.shedTo
+                ? escapeHtml(t.presentedModel) + ' <span class="muted">→ shed</span>'
+                : escapeHtml(t.presentedModel);
               const stages = t.stageCount + ' stage' + (t.stageCount === 1 ? '' : 's')
                 + (t.skippedStages ? ', ' + t.skippedStages + ' skipped' : '')
                 + (t.failedStages ? ', ' + t.failedStages + ' failed' : '');
+              // 'unknown' from the unknown source is unattributed, not an error;
+              // say so instead of implying the caller was named "unknown".
+              const clientLabel = t.clientSource === 'unknown' || (!t.clientSource && t.client === 'unknown')
+                ? 'client unattributed'
+                : escapeHtml(t.client) + (t.clientSource === 'user-agent' ? ' <span class="muted">(ua)</span>' : '');
               return '<div style="border-bottom:1px solid var(--border); padding:8px 0;">'
                 + '<div style="display:flex; justify-content:space-between; gap:10px; cursor:pointer; align-items:center;" data-traj-id="' + escapeHtml(t.id) + '">'
                 + '<div style="flex:1; min-width:0;">'
                 + '<code style="font-size:11px;">' + escapeHtml(t.timestamp) + '</code> '
-                + '<strong>' + escapeHtml(t.presentedModel) + '</strong> '
+                + '<strong>' + presented + '</strong> '
                 + '<span class="pill catalog" style="font-size:11px;">' + escapeHtml(t.routeKind) + (t.routeId ? ' · ' + escapeHtml(t.routeId) : '') + '</span> '
-                + '<span class="muted" style="font-size:12px;">→ ' + winner + ' · ' + escapeHtml(stages) + ' · ' + escapeHtml(String(t.durationMs)) + 'ms · $' + escapeHtml(Number(t.costTotal || 0).toFixed(4)) + ' · ' + escapeHtml(t.client) + '</span>'
+                + '<span class="muted" style="font-size:12px;">→ ' + winner + ' · ' + escapeHtml(stages) + ' · ' + escapeHtml(String(t.durationMs)) + 'ms · $' + escapeHtml(Number(t.costTotal || 0).toFixed(4)) + ' · ' + clientLabel + '</span>'
                 + '</div>'
                 + (ok ? '<span class="pill status-pill configured">' + t.status + '</span>' : '<span class="pill status-pill" style="color:var(--danger-text);">' + t.status + '</span>')
                 + '</div>'

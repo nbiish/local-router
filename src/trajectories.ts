@@ -22,7 +22,39 @@ import path from 'path';
 import os from 'os';
 import crypto from 'crypto';
 
-export const TRAJECTORY_SCHEMA_VERSION = 1;
+export const TRAJECTORY_SCHEMA_VERSION = 2;
+
+/**
+ * Schema history:
+ *   v1 — stage timeline, chain snapshot, winner, usage, cost, receipts.
+ *   v2 — additive: `shedding` (explicit chain-alias shed marker) and a resolved
+ *        `client` attribution. v1 records stay readable — every v2 field is
+ *        optional, so a reader written for v1 keeps working unchanged.
+ */
+
+/**
+ * Chain-alias shedding, made explicit.
+ *
+ * `local-router/fallback-models` is an alias that sheds to one concrete chain
+ * member per request. Before v2 that was only inferable by comparing
+ * `presentedModel` against `result.answeredBy` — an agent reading a record where
+ * the alias answered as `xiaomi-mimo/mimo-v2.6-pro` had to know the alias
+ * convention to avoid reading a shed as an outage or a misconfiguration. This
+ * records the shed as its own fact.
+ */
+export interface TrajectoryShedding {
+  /** The alias the client requested, e.g. `local-router/fallback-models`. */
+  from: string;
+  /** The concrete `provider/model` that actually served the request. */
+  to: string;
+  /** How many stage attempts were spent before the winner answered (0 = first). */
+  attemptsBeforeAnswer: number;
+  /** Configured members that were not even planned, keyed by count. */
+  excludedCount: number;
+}
+
+/** Client attribution, with the provenance of how the name was derived. */
+export type TrajectoryClientSource = 'header' | 'user-agent' | 'unknown';
 
 export type TrajectoryStageOutcome = 'answered' | 'failed' | 'skipped';
 
@@ -79,6 +111,10 @@ export interface TrajectoryRecord {
   timestamp: string;
   durationMs: number;
   client: string;
+  /** v2: how `client` was derived — never silently 'unknown' without saying so. */
+  clientSource?: TrajectoryClientSource;
+  /** Raw User-Agent, kept so a future resolver can improve attribution retroactively. */
+  userAgent?: string;
   presentedModel: string;
   routeKind: 'direct' | 'fallback' | 'direct+cascade';
   routeId: string | null;
@@ -91,6 +127,11 @@ export interface TrajectoryRecord {
   };
   chain: TrajectoryChain | null;
   stages: TrajectoryStage[];
+  /**
+   * v2: present exactly when a chain alias shed to a concrete member. Absent
+   * for a direct model call and for a chain that failed outright.
+   */
+  shedding?: TrajectoryShedding;
   result: {
     status: number;
     answeredBy: { provider: string; model: string } | null;
@@ -338,7 +379,11 @@ export interface TrajectorySummary {
   timestamp: string;
   durationMs: number;
   client: string;
+  /** v2: how the client name was derived; absent on v1 records. */
+  clientSource?: TrajectoryClientSource;
   presentedModel: string;
+  /** v2: the concrete `provider/model` a chain alias shed to, if it shed. */
+  shedTo?: string;
   routeKind: TrajectoryRecord['routeKind'];
   routeId: string | null;
   status: number;
@@ -365,7 +410,9 @@ export function summarizeTrajectory(record: TrajectoryRecord): TrajectorySummary
     timestamp: record.timestamp,
     durationMs: record.durationMs,
     client: record.client,
+    ...(record.clientSource ? { clientSource: record.clientSource } : {}),
     presentedModel: record.presentedModel,
+    ...(record.shedding ? { shedTo: record.shedding.to } : {}),
     routeKind: record.routeKind,
     routeId: record.routeId,
     status: record.result?.status ?? 0,
@@ -789,6 +836,74 @@ export interface TrajectoryFinishInput {
   toolCalls?: { name: string; arguments: string }[];
 }
 
+/**
+ * Resolve who made this request.
+ *
+ * Observed 2026-11-14: every live record said `client: "unknown"` because the
+ * router read only `x-local-router-client`, and pi — the harness that now
+ * powers ainish-rag's review drivers — sends no such header. It does send a
+ * real User-Agent: `pi/1.5.2 (darwin; node/v22.22.3; arm64)`.
+ *
+ * Order matters. An explicit header wins because a client that bothered to set
+ * it knows itself better than its UA does. The UA is a fallback, and the
+ * `clientSource` field records which path produced the name so an 'unknown' is
+ * never mistaken for "attribution worked and the answer was unknown".
+ */
+export function resolveTrajectoryClient(
+  headerValue: string | string[] | undefined,
+  userAgent: string | undefined
+): { client: string; clientSource: TrajectoryClientSource; userAgent?: string } {
+  const header = Array.isArray(headerValue) ? headerValue[0] : headerValue;
+  const trimmedHeader = typeof header === 'string' ? header.trim() : '';
+  if (trimmedHeader) {
+    return { client: trimmedHeader, clientSource: 'header', ...(userAgent ? { userAgent } : {}) };
+  }
+  const ua = typeof userAgent === 'string' ? userAgent.trim() : '';
+  if (ua) {
+    // Take the product token before the first '/', ' ' or '(' — `pi/1.5.2 (...)`
+    // becomes `pi`, `ainish-rag/0.9 (…)` becomes `ainish-rag`, and a bare
+    // `curl/8.4.0` becomes `curl`. Empty product tokens fall through to unknown.
+    const product = (/^([^\s/()]+)/.exec(ua) || [])[1];
+    if (product) {
+      return { client: product.toLowerCase(), clientSource: 'user-agent', userAgent: ua };
+    }
+  }
+  return { client: 'unknown', clientSource: 'unknown', ...(ua ? { userAgent: ua } : {}) };
+}
+
+/**
+ * Derive the explicit shed marker for a finished record.
+ *
+ * Returns undefined — not a zeroed object — when no shed happened, because a
+ * present-but-empty marker reads as "the chain answered without shedding" while
+ * an absent one reads as "this was not a chain call". Readers that ignore the
+ * field keep working; readers that use it never have to infer.
+ */
+export function deriveShedding(
+  presentedModel: string,
+  answeredBy: { provider: string; model: string } | null,
+  stages: TrajectoryStage[],
+  chain: TrajectoryChain | null
+): TrajectoryShedding | undefined {
+  if (!answeredBy || !chain) return undefined;
+  const winners = stages.filter((stage) => stage.outcome === 'answered');
+  if (winners.length === 0) return undefined;
+  const concrete = `${answeredBy.provider}/${answeredBy.model}`;
+  // A direct call answered by the very model asked for is not a shed. An alias
+  // answer is always a shed, because the alias is never itself a model.
+  const isAliasAnswer = presentedModel !== concrete
+    && concrete !== `${answeredBy.provider}/${presentedModel}`;
+  if (!isAliasAnswer) return undefined;
+  return {
+    from: presentedModel,
+    to: concrete,
+    attemptsBeforeAnswer: stages.filter(
+      (stage) => stage.outcome !== 'answered' && stage.outcome !== 'skipped'
+    ).length,
+    excludedCount: chain.excludedTargets?.length ?? 0
+  };
+}
+
 export class TrajectoryTracker {
   private stages: TrajectoryStage[] = [];
   private chain: TrajectoryChain | null = null;
@@ -798,6 +913,10 @@ export class TrajectoryTracker {
   constructor(
     private meta: {
       client: string;
+      /** v2: where `client` came from. Defaults to 'header' for existing callers. */
+      clientSource?: TrajectoryClientSource;
+      /** v2: raw User-Agent for retroactive attribution. */
+      userAgent?: string;
       presentedModel: string;
       routeKind: TrajectoryRecord['routeKind'];
       routeId?: string | null;
@@ -839,23 +958,27 @@ export class TrajectoryTracker {
     this.finished = true;
 
     const answered = this.stages.find((s) => s.outcome === 'answered');
+    const answeredBy = answered
+      ? { provider: answered.provider || 'unknown', model: answered.actualModel || answered.targetModel }
+      : null;
     const record: TrajectoryRecord = {
       schema_version: TRAJECTORY_SCHEMA_VERSION,
       id: `traj-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
       timestamp: log.timestamp || new Date().toISOString(),
       durationMs: log.durationMs || 0,
       client: this.meta.client,
+      clientSource: this.meta.clientSource ?? 'header',
+      ...(this.meta.userAgent ? { userAgent: this.meta.userAgent } : {}),
       presentedModel: this.meta.presentedModel,
       routeKind: this.meta.routeKind,
       routeId: this.meta.routeId ?? this.chain?.routeId ?? null,
       request: this.requestMeta,
       chain: this.chain,
       stages: this.stages,
+      shedding: deriveShedding(this.meta.presentedModel, answeredBy, this.stages, this.chain),
       result: {
         status: log.status || 0,
-        answeredBy: answered
-          ? { provider: answered.provider || 'unknown', model: answered.actualModel || answered.targetModel }
-          : null,
+        answeredBy,
         errorType: log.errorType || null,
         errorMessage: log.errorMessage ? previewOf(log.errorMessage) : null,
         usage: {

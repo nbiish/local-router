@@ -17,7 +17,10 @@ const {
   analyzeTrajectories,
   listTrajectorySummaries,
   summarizeRequestBody,
-  clearTrajectories
+  clearTrajectories,
+  resolveTrajectoryClient,
+  deriveShedding,
+  TRAJECTORY_SCHEMA_VERSION
 } = await import('../build/trajectories.js');
 
 function makeLog(overrides = {}) {
@@ -303,4 +306,167 @@ test('request summarization redacts binary payloads but keeps tool names', () =>
   assert.ok(summary.requestJson.includes('read_file'));
   assert.ok(!summary.requestJson.includes('base64'), 'binary payloads must not be spilled');
   assert.ok(summary.requestJson.includes('"omitted":true'));
+});
+
+// ---------------------------------------------------------------------------
+// v2: explicit chain-alias shedding (C1) and client attribution (C3)
+// ---------------------------------------------------------------------------
+
+test('a chain alias answering as a concrete member records an explicit shed', () => {
+  clearTrajectories();
+  const tracker = new TrajectoryTracker(
+    { client: 'pi', presentedModel: 'local-router/fallback-models', routeKind: 'fallback', routeId: 'fallback-models' },
+    { model: 'local-router/fallback-models', messages: [{ role: 'user', content: 'hi' }] }
+  );
+  tracker.setChain({
+    routeId: 'fallback-models',
+    configuredTargets: ['dead-a', 'winner-b'],
+    excludedTargets: [{ model: 'ghost', reason: 'no_configured_key' }],
+    eligibleTargets: ['dead-a', 'winner-b'],
+    requiredContext: 1,
+    requiresMultimodal: false,
+    planStageCount: 2
+  });
+  tracker.addStage({
+    stage: 'pass-1-step-1', targetModel: 'dead-a', provider: 'prov-a', actualModel: 'dead-a',
+    attempt: 1, stageAttempts: 1, outcome: 'failed', errorType: 'upstream_http_auth', status: 401
+  });
+  tracker.addStage({
+    stage: 'pass-1-step-2', targetModel: 'winner-b', provider: 'prov-b', actualModel: 'winner-b',
+    attempt: 1, stageAttempts: 1, outcome: 'answered', status: 200
+  });
+  const record = tracker.finish(makeLog());
+
+  assert.equal(record.schema_version, TRAJECTORY_SCHEMA_VERSION);
+  assert.equal(record.schema_version, 2, 'schema bumped for the additive v2 fields');
+  assert.ok(record.shedding, 'a shed must be recorded explicitly, not left to be inferred');
+  assert.equal(record.shedding.from, 'local-router/fallback-models');
+  assert.equal(record.shedding.to, 'prov-b/winner-b');
+  assert.equal(record.shedding.attemptsBeforeAnswer, 1, 'counts the failed attempt, not the skips');
+  assert.equal(record.shedding.excludedCount, 1);
+
+  // The marker survives the round-trip through the JSONL log.
+  const persisted = getTrajectory(record.id);
+  assert.equal(persisted.shedding.to, 'prov-b/winner-b');
+});
+
+test('a direct call answered by the requested model records no shed', () => {
+  clearTrajectories();
+  const tracker = new TrajectoryTracker(
+    { client: 'curl', presentedModel: 'prov-a/direct-model', routeKind: 'direct', routeId: null },
+    {}
+  );
+  tracker.addStage({
+    stage: 'direct', targetModel: 'direct-model', provider: 'prov-a', actualModel: 'direct-model',
+    attempt: 1, stageAttempts: 1, outcome: 'answered', status: 200
+  });
+  const record = tracker.finish(makeLog());
+
+  assert.equal(record.shedding, undefined, 'a non-shed must be absent, not a zeroed marker');
+});
+
+test('a chain that answers nothing records no shed', () => {
+  const shed = deriveShedding('local-router/fallback-models', null, [], {
+    routeId: 'r', configuredTargets: ['a'], excludedTargets: [], eligibleTargets: ['a'],
+    requiredContext: 1, requiresMultimodal: false, planStageCount: 1
+  });
+  assert.equal(shed, undefined);
+});
+
+test('client attribution prefers the explicit header and reports its source', () => {
+  const explicit = resolveTrajectoryClient('codex', 'pi/1.5.2 (darwin; node/v22.22.3; arm64)');
+  assert.equal(explicit.client, 'codex');
+  assert.equal(explicit.clientSource, 'header');
+});
+
+test('client attribution falls back to the User-Agent pi actually sends', () => {
+  // Captured 2026-11-14 from a real pi turn against a probe server.
+  const pi = resolveTrajectoryClient(undefined, 'pi/1.5.2 (darwin; node/v22.22.3; arm64)');
+  assert.equal(pi.client, 'pi');
+  assert.equal(pi.clientSource, 'user-agent');
+  assert.equal(pi.userAgent, 'pi/1.5.2 (darwin; node/v22.22.3; arm64)');
+
+  const rag = resolveTrajectoryClient(undefined, 'ainish-rag/0.9.2');
+  assert.equal(rag.client, 'ainish-rag');
+
+  const curl = resolveTrajectoryClient(undefined, 'curl/8.4.0');
+  assert.equal(curl.client, 'curl');
+});
+
+test('client attribution says unknown and admits it when nothing identifies the caller', () => {
+  const nobody = resolveTrajectoryClient(undefined, undefined);
+  assert.equal(nobody.client, 'unknown');
+  assert.equal(nobody.clientSource, 'unknown');
+
+  const blankHeader = resolveTrajectoryClient('   ', undefined);
+  assert.equal(blankHeader.client, 'unknown');
+  assert.equal(blankHeader.clientSource, 'unknown');
+
+  const arrayHeader = resolveTrajectoryClient(['pi', 'other'], undefined);
+  assert.equal(arrayHeader.client, 'pi', 'the first array value wins, as before');
+});
+
+test('the tracker stamps clientSource and userAgent onto the record', () => {
+  clearTrajectories();
+  const tracker = new TrajectoryTracker(
+    {
+      client: 'pi',
+      clientSource: 'user-agent',
+      userAgent: 'pi/1.5.2 (darwin; node/v22.22.3; arm64)',
+      presentedModel: 'local-router/fallback-models',
+      routeKind: 'fallback',
+      routeId: 'fallback-models'
+    },
+    {}
+  );
+  tracker.setChain({
+    routeId: 'fallback-models', configuredTargets: ['m'], excludedTargets: [],
+    eligibleTargets: ['m'], requiredContext: 1, requiresMultimodal: false, planStageCount: 1
+  });
+  tracker.addStage({
+    stage: 'pass-1-step-1', targetModel: 'm', provider: 'p', actualModel: 'm',
+    attempt: 1, stageAttempts: 1, outcome: 'answered', status: 200
+  });
+  const record = tracker.finish(makeLog());
+
+  assert.equal(record.client, 'pi');
+  assert.equal(record.clientSource, 'user-agent');
+  assert.equal(record.userAgent, 'pi/1.5.2 (darwin; node/v22.22.3; arm64)');
+});
+
+test('v1 records written before the schema bump still load', () => {
+  clearTrajectories();
+  const v1Record = {
+    schema_version: 1,
+    id: 'traj-legacy-v1',
+    timestamp: new Date().toISOString(),
+    durationMs: 12,
+    client: 'unknown',
+    presentedModel: 'local-router/fallback-models',
+    routeKind: 'fallback',
+    routeId: 'fallback-models',
+    request: { stream: false, modalities: [], toolCallsRequested: 0, messageCount: 1, promptHash: 'abc' },
+    chain: null,
+    stages: [],
+    result: {
+      status: 200,
+      answeredBy: { provider: 'p', model: 'm' },
+      errorType: null,
+      errorMessage: null,
+      usage: { promptTokens: 1, completionTokens: 1, cachedTokens: 0, cacheWriteTokens: 0 },
+      cost: { total: 0, prompt: 0, completion: 0, cached: 0 }
+    },
+    receipts: {}
+  };
+  appendTrajectory(v1Record);
+
+  const loaded = getTrajectory('traj-legacy-v1');
+  assert.ok(loaded, 'a v1 record must remain readable after the v2 bump');
+  assert.equal(loaded.schema_version, 1);
+  assert.equal(loaded.shedding, undefined);
+  assert.equal(loaded.clientSource, undefined);
+
+  // And it must still summarize without the new fields.
+  const summary = listTrajectorySummaries({ route: 'fallback-models' });
+  assert.equal(summary.some((row) => row.id === 'traj-legacy-v1'), true);
 });
