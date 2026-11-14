@@ -116,6 +116,24 @@ def sanitize_user_input(text: str, max_length: int = 10_000) -> str:
 nothing else; attackers encode, translate, or restructure. The defence is that
 nothing downstream treats model output as authority.
 
+### What the evidence actually supports (2026)
+
+The research position has hardened: **no model-side defence is sufficient, and the ones with
+published guarantees are architectural.**
+
+| Approach | Guarantee | Reality |
+|---|---|---|
+| Filtering, canaries, "be careful" prompting | None | Raises cost, never closes the class |
+| Instruction hierarchy | Raises success cost measurably | Loses to authority impersonation ("the operator approved this") |
+| **CaMeL** (dual-LLM + capability taint) — arXiv 2503.18813 | Untrusted data cannot influence control flow | The reference design; adoption lags badly |
+| **FIDES / information-flow control** — arXiv 2505.23643, NeurIPS 2026 | Confidentiality + integrity labels enforced deterministically at the planner | Strongest published formulation for tool-using agents |
+| **Egress control + action gating** | Blocks the *exfiltration* and the *side effect* | The only layer that holds when the model is fully fooled |
+
+Design consequence: gate the consequential **action**, not the text that proposes it, and assume the
+model will eventually be convinced. If an injected instruction can reach a tool call that moves data
+out, the injection already won; if the only reachable tools are read-only and egress is allowlisted,
+the injection is a bad afternoon rather than a breach.
+
 ### Output monitoring
 
 ```python
@@ -134,7 +152,7 @@ def validate_output(output: str) -> tuple[bool, str]:
 
 ---
 
-## 3. RAG and context security (OWASP LLM08)
+## 3. RAG and context security (OWASP LLM09 in the 2026 edition; was LLM08 in 2025)
 
 ### Provenance on every retrieved chunk
 
@@ -199,7 +217,7 @@ attacker-reachable state.
 
 ---
 
-## 4. Tool use and agency (OWASP LLM06, ASI02)
+## 4. Tool use and agency (OWASP LLM03 Excessive Agency in the 2026 edition, ASI02)
 
 ```
 Untrusted (AI) → Validation layer (deterministic) → Execution
@@ -301,20 +319,47 @@ def verify_manifest(server: str, manifest: dict) -> bool:
 - **Config-file integrity.** Hash MCP configs and monitor; bind trust to content
   hash, not path — CVE-2026-30615 is prompt injection → config modification → RCE.
 - **Never let model output modify system configuration.**
+- **Spec reality, checked 2026-11-10 — MCP `2026-07-28`.** The core is now **stateless**: the
+  `initialize` handshake and `Mcp-Session-Id` are gone, `server/discover` is new, MRTR replaces
+  server-initiated sampling/elicitation, and **dynamic client registration (RFC 7591) is deprecated
+  in favour of Client ID Metadata Documents (CIMD)**. OAuth hardening is the same shape but sharper:
+  clients MUST send the RFC 8707 `resource` parameter, servers MUST validate audience (RFC 9068) and
+  `iss` (RFC 9207), PKCE S256, and **token passthrough is explicitly forbidden**.
+- **SSRF rules live in Security Best Practices, not the auth section.** Block `10/8`, `172.16/12`,
+  `192.168/16`, `127/8`, `169.254/16`, `fc00::/7`, `fe80::/10` per RFC 9728 §7.7; re-validate every
+  redirect hop; pin DNS against TOCTOU; use an egress proxy rather than hand-rolled IP checks. The
+  same rule binds an authorization server fetching a CIMD URL.
+- **Enterprise-managed authorization is an extension, not core: `EMA`.** The IdP issues an **ID-JAG**
+  that the client exchanges at the server's AS — the shipping enterprise pattern (Okta Cross App
+  Access), and also `draft-ietf-oauth-identity-assertion-authz-grant`.
+- **The registry is not a trust anchor.** The official MCP Registry is preview, and its trust is
+  reverse-DNS / GitHub namespace verification only — no package signing, no attestation, and its own
+  docs warn of breaking changes and data resets. Signing and SBOM come from catalogs layered on top.
+- **`ETDI` is not a standard.** It was cited in earlier revisions of this document and in several
+  vendor posts as an MCP/OAuth mechanism; it is an academic proposal (arXiv 2506.01333) for
+  tool-squatting and rug-pull defence, with no spec standing. Reference it as research, or not at all.
 
 ### CVE map
 
-| CVE | Root cause | Defence |
-|---|---|---|
-| 2025-32711 (EchoLeak) | External content rendered as trusted markdown | Output sanitisation; strip markdown image refs |
-| 2025-53773 (Copilot worm) | Self-propagating injection via repo content | Instruction hierarchy; repo text is data |
-| 2025-54135 (CurXecute) | MCP auto-start without consent | No auto-approve; explicit opt-in |
-| 2025-6514 (MCP RCE) | Unsanitised input to shell | Arg arrays, allowlisting, sandbox |
-| 2025-64660 | `AGENTS.md` overriding agent goals | Instruction files are untrusted input |
-| 2026-0755 (gemini-mcp) | Command injection in handler | Validate and sanitise tool input |
-| 2026-30615 (Windsurf) | Injection → config change → RCE | Model output never writes config |
-| 2026-30623 (LiteLLM) | Unauthenticated MCP creation | Auth on creation; allowlisted definitions |
-| 2026-33032 (nginx-ui) | Exposed MCP endpoint | Auth on every endpoint; segmentation |
+| CVE | CVSS (NVD) | Root cause | Defence |
+|---|---|---|---|
+| 2025-32711 (EchoLeak) | 9.3 | External content rendered as trusted markdown | Output sanitisation; strip markdown image refs |
+| 2025-53773 (Copilot worm) | **7.8** — widely misquoted as 9.8 | Self-propagating injection via repo content | Instruction hierarchy; repo text is data |
+| 2025-54135 (CurXecute) | 8.5 CNA / 9.8 secondary | MCP auto-start without consent | No auto-approve; explicit opt-in |
+| 2025-6514 (MCP RCE) | 9.6 | Unsanitised input to shell | Arg arrays, allowlisting, sandbox |
+| 2025-64660 | — | `AGENTS.md` overriding agent goals | Instruction files are untrusted input |
+| 2026-0755 (gemini-mcp) | 9.8 | Command injection in handler | Validate and sanitise tool input |
+| 2026-30615 (Windsurf) | **8.0** | Injection → config change → RCE | Model output never writes config |
+| 2026-30623 (LiteLLM) | 9.8 | Unauthenticated MCP creation | Auth on creation; allowlisted definitions |
+| 2026-33032 (nginx-ui) | 9.8 | Exposed MCP endpoint, missing auth middleware | Auth on every endpoint; segmentation |
+| 2026-77244 (MCP Atlassian) | **10.0** | HTTP transport accepts requests with no verified identity | Authenticate the transport, not just the tool |
+| 2026-59971 (MySQL MCP) | **10.0** | SSE transport RCE | No shell in handlers; sandbox; auth on SSE |
+| 2026-77366 (obsidian-tc) | 9.9 | — | Pin, sandbox, egress allowlist |
+
+**The volume is the argument.** NVD keyword search for "Model Context Protocol" over
+**2026-08-01 → 2026-11-10 returns 95 CVEs** — 12 at ≥9.0, 59 at ≥7.0, and 56 of them published in
+September alone. Two root causes recur: **unauthenticated SSE/HTTP transports**, and **SSRF through
+OAuth discovery**. A vulnerable MCP server is not an edge case; it is the modal case.
 
 **Common pattern: a missing trust boundary between external content and system
 instructions.**
@@ -335,6 +380,15 @@ instructions.**
 | ASI08 | Cascading failures | Circuit breakers; budgets; graceful degradation |
 | ASI09 | Human-agent trust exploit | Approval gates; confidence scores; citations |
 | ASI10 | Rogue agents | Alignment monitoring; kill switch; immutable ledger |
+
+The ASI01–ASI10 set has not been revised since 2025-12-09. What is new is a **control plane**:
+**OWASP Agent Control Standard (ACS) v0.1.0 (2026-09-01)** defines a JSON-RPC 2.0 contract between
+an *Observed Agent* and a *Guardian Agent* for runtime hooks and policy — early preview, not a
+finished control, but it is the first wire-level shape for ASI08/ASI10 enforcement outside your own
+code. Parallel federal framing: CAISSI/SISC/CISA's 2026-10-16 guidance names "**SI control
+incidents**" — an agent taking significant uninstructed action that defeats operator controls —
+as a reportable class, and expects weights, checkpoints, reasoning traces and rejected tool calls
+preserved as evidence.
 
 ### Circuit breaker (ASI08)
 

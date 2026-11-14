@@ -16,10 +16,12 @@ defect in the documentation.
 | FIPS 203 | ML-KEM | **Final** (Aug 2024) | RSA/ECDH key exchange | ~1.2 KB pk, ~1 KB ct |
 | FIPS 204 | ML-DSA | **Final** (Aug 2024) | RSA-PSS/ECDSA | ~1.3 KB pk, ~3.3 KB sig |
 | FIPS 205 | SLH-DSA | **Final**; **not CNSA 2.0** | — hash-based hedge | ~8 KB sig |
-| FIPS 206 | FN-DSA (FALCON) | **DRAFT** — final expected late 2026–2027; **not CNSA 2.0** | Compact ML-DSA | ~666 B sig; tracking only |
-| — (IR 8545) | HQC | **Selected** Mar 2025; standard ~2027; **not CNSA 2.0** | — code-based KEM hedge | Crypto-agility reserve |
+| FIPS 206 | FN-DSA (FALCON) | **No public draft** (checked 2026-11-10) — NIST lists it as "under development"; **not CNSA 2.0** | Compact ML-DSA | ~666 B sig; tracking only. "Draft" was the 2026-08 state and was already optimistic |
+| — (IR 8545) | HQC | **Selected** 2025-03-11; **no draft yet**; final planned 2027, slipping; **not CNSA 2.0** | — code-based KEM hedge | Crypto-agility reserve, unusable until a FIPS exists |
 | SP 800-208 | LMS / XMSS | **Final**; CNSA 2.0-approved | — stateful hash | Firmware / sw signing |
-| SP 800-227 | — | Final (Sep 18, 2025) | — key combiner guidance | Concatenate-then-KDF; never bespoke XOR |
+| SP 800-227 | — | Final (2025-09-18) | — key combiner guidance | Concatenate-then-KDF; never bespoke XOR |
+| IR 8547 | — | **Final (2026-10-27)** | — transition schedule | Names **ML-KEM-768** the recommended default |
+| RFC 10024 | X25519MLKEM768, SecP256r1MLKEM768, SecP384r1MLKEM1024 | **Proposed Standard (2026-08)** | — PQ/T hybrid for TLS 1.3 | Supersedes the "hybrid is coming" framing; RFC 9954 is the framework, RFC 9846 obsoletes RFC 8446 |
 
 ### Selection guide
 
@@ -72,7 +74,9 @@ from cryptography.hazmat.primitives.asymmetric import mlkem, mldsa
 ```
 
 ```bash
-# OpenSSL 3.5+ (March 2026) ships native PQC. The oqs-provider fork is legacy.
+# OpenSSL 3.5.0 (2025-04-08) added native ML-KEM/ML-DSA/SLH-DSA; 4.1.0 (2026-10-23) added
+# ML-DSA-MU and AVX-512 optimisations. The oqs-provider fork is legacy. NOTE: the OpenSSL FIPS
+# provider has NO validated PQC module — 3.5.8 is still in CMVP review, so native != validated.
 openssl genpkey -algorithm mlkem768 -out mlkem768.pem
 openssl pkeyutl -encapsulate -inkey mlkem768.pem -out ct.bin -secret ss.bin
 openssl genpkey -algorithm mldsa65 -out mldsa65.pem
@@ -80,7 +84,10 @@ openssl pkeyutl -sign -inkey mldsa65.pem -in msg.bin -out sig.bin -rawin
 openssl s_server -cert cert.pem -key key.pem -groups x25519_mlkem768
 ```
 
-The first CMVP certificate for an ML-DSA module was issued March 2026.
+**Validated-module reality (2026-11-10):** CMVP #5497 (Crypto4A QASM HSM, validated 2026-08) is
+the first certificate listing ML-KEM, ML-DSA and SLH-DSA. The "ML-DSA certificate, March 2026"
+claim that circulated earlier does not check out — do not cite it. ACVP vectors for FIPS 203/204/205
+are published in ACVP-Server, so testing is possible well before validation lands.
 
 ---
 
@@ -88,10 +95,14 @@ The first CMVP certificate for an ML-DSA module was issued March 2026.
 
 | Date | Event |
 |---|---|
-| 2030 | Classical 112-bit public-key crypto becomes risk-acceptance-only (NIST IR 8547) |
-| 2030-12-31 | Federal high-value assets complete PQC key establishment (OMB M-26-15) |
-| 2031-12-31 | CNSA 2.0 exclusive use for NSS |
-| 2035 | Classical public-key crypto disallowed in standards (EO 14412) |
+| 2026-10-22 | M-26-15 migration plans were due (120 days from the 2026-06-24 memo) |
+| 2027-01-01 | New NSS acquisitions must be CNSA 2.0-compliant |
+| 2030 | Classical 112-bit public-key crypto becomes risk-acceptance-only (IR 8547 final) |
+| 2030-01-02 | TLS 1.3 support required everywhere (EO 14306 / M-26-15) |
+| 2030-12-31 | Federal high-value assets complete PQC **key establishment** (EO 14412) |
+| 2030-12-31 | Non-CNSA-2.0-capable NSS equipment and services phased out |
+| 2031-12-31 | Federal HVA **signatures** complete (EO 14412); CNSA 2.0 exclusive use for NSS |
+| 2035 | Classical public-key crypto disallowed in standards (EO 14412 / IR 8547) |
 
 **Practical consequence:** any new dependency that introduces RSA, ECDSA, or EdDSA
 into a secrets or signing path fails review today. It is not a 2030 problem — it is
@@ -133,12 +144,12 @@ a dependency you would have to remove before its first birthday plus interest.
 
 | Framework | Status |
 |---|---|
-| AI RMF 1.0 (AI 100-1) | Final (Jan 2023) |
-| GenAI Profile (AI 600-1) | Final (Jul 2024) |
-| Cyber AI Profile (NISTIR 8596) | Working sessions 2026 |
+| AI RMF 1.0 (AI 100-1) | Final (Jan 2023) — **still the current text**; revision under way per the White House AI Action Plan, no date |
+| GenAI Profile (AI 600-1) | Final (Jul 2024) — no revision found (as of 2026-11-10) |
+| Cyber AI Profile (NISTIR 8596) | **Draft** (IPRD 2025-12-16, comments closed 2026-01-30); no second draft published |
 | AI 100-2e2025 (adversarial ML taxonomy) | Final (Dec 2025) |
 | SP 800-218A (secure SDLC for generative AI) | Published |
-| NIST CAISI | AI Agent Standards Initiative; sessions started |
+| NIST **CAISSI** (ex-CAISI) | Renamed under **EO 14434** (2026-09-29; 91 FR 63129) — "Super Intelligence"; the AI Agent Standards Initiative continues under the new name; NSA's AISC is now **SISC** |
 
 ### EU AI Act (Regulation EU 2024/1689)
 
@@ -146,19 +157,32 @@ a dependency you would have to remove before its first birthday plus interest.
 |---|---|
 | 2025-02-02 | Prohibited practices (Art. 5); AI literacy (Art. 4) |
 | 2025-08-02 | GPAI model obligations (Arts. 51–56) |
-| **2026-08-02** | **Commission enforcement powers** (fines to €15M / 3%); high-risk requirements; Art. 50 transparency |
-| 2026-12-02 | Art. 50(2) synthetic-content disclosure |
+| **2026-08-02** | Art. 50 transparency + Commission and national enforcement over GPAI. **High-risk did NOT start** — see the next row |
+| 2026-12-02 | Grace ends for machine-readable marking of systems already on the market |
 | 2027-08-02 | Legacy GPAI full compliance |
-| 2027-12-02 | Annex III high-risk systems |
+| **2027-12-02** | Annex III stand-alone high-risk (fixed by **Reg (EU) 2026/1744**, OJ 2026-07-24) |
+| **2028-08-02** | Annex I product-embedded high-risk — medical devices, machinery |
 
-Penalties reach €35M or 7% of global turnover. Systemic-risk threshold: ≥10²⁵ FLOPs
-training compute.
+Penalties: €35M / 7% for prohibited practices; **€15M / 3% for other obligations** (Art. 50 and
+high-risk included); €7.5M / 1% for misleading information; GPAI fines up to €15M / 3%,
+enforceable from 2026-08-02. Systemic-risk threshold: ≥10²⁵ FLOPs training compute.
+
+**Standards are the bottleneck, not the text.** **EN 18286:2026** (AI quality management, Art. 17)
+is the *only* harmonised standard carrying presumption of conformity, cited by Implementing
+Decision (EU) 2026/2274 on 2026-10-14. The risk-management standard `prEN 18228` went to *Under
+Approval* after a **negative** enquiry vote, and the M/613 mandate expires 2027-02-28 — so a
+high-risk provider should assume it must evidence Art. 9 itself rather than wait for a standard.
 
 ### ISO/IEC 42001
 
-AI Management System: 10 Annex SL clauses plus 12 Annex A control areas;
-third-party certifiable; covers AI policy, risk assessment, data quality,
-transparency, human oversight, monitoring.
+AI Management System: 10 Annex SL clauses plus 12 Annex A control areas; third-party certifiable;
+covers AI policy, risk assessment, data quality, transparency, human oversight, monitoring.
+
+**ISO/IEC 42001:2023 remains the current edition** (no amendment found as of 2026-11-10).
+Certification bodies are additionally bound by **ISO/IEC 42006:2025** (published 2025-07-07) on
+auditor competence, audit time and impartiality — accreditation is per body, so certificates are
+not equally rigorous. It is **not harmonised** under the AI Act: EN 18286:2026 is the only AI
+management standard with presumption of conformity, and adoption is not harmonisation.
 
 ### Cross-standard mapping
 
@@ -173,13 +197,16 @@ transparency, human oversight, monitoring.
 
 ### OWASP ASVS 5.0
 
-L1 baseline → L2 standard → L3 high assurance (full verification plus formal
-methods where warranted). Map the target's level before claiming compliance.
+**ASVS 5.0.0 (2025-05-30) is current** (checked 2026-11-10); the next release is a patch, 5.0.1,
+not 5.1. L1 baseline → L2 standard → L3 high assurance (full verification plus formal methods
+where warranted). Map the target's level before claiming compliance.
 
 ---
 
 ## 6. AIVSS — AI vulnerability scoring
 
+**v0.8 (2026-03-19) is the current release**; v1.0 is in review with publication "before the end
+of 2026" — treat it as pending until the project site updates. No regulator mandates AIVSS.
 Extends CVSS v4.0 with agentic amplification:
 
 `AIVSS = min(CVSS_base × ARAF, 10.0)`, ARAF capped at 4.0.
@@ -218,18 +245,30 @@ Use alongside CVSS for prioritisation, not instead of it.
 
 Policy as code (OPA/Rego, Kyverno) at every stage. Zero trust is an architecture
 where **authorisation is per request and identity-based**, not a product you
-install.
+install. SP 800-207 and SP 800-207A are unchanged (2020 / 2023-09-13); CISA's ZTMM is still v2.0.
+
+The only 2026 movement is **agent identity, and it is pre-standard**: the NCCoE concept paper
+(2026-02-05) collected 600+ comments and its practice guide is not published. The pattern that
+works today is SPIFFE/SPIRE SVIDs for agent workload identity, RFC 8693 token exchange for
+delegation, and **permission intersection** — an agent may narrow a caller's rights, never widen
+them.
 
 ---
 
 ## 8. SBOM and CBOM
 
-- **SBOM** per CISA/NSA 2026 Minimum Elements (July 2026, supersedes NTIA 2021).
-- **SBOM-for-AI** per the May 2026 minimum elements when the artefact contains
-  models or training data.
-- **CBOM** — cryptographic bill of materials — per the CBOM guidance mandated by
-  the June 2026 PQC executive order. Track every algorithm, key size, protocol, and
-  certificate, with the migration target for each.
-- Generate in CycloneDX or SPDX; sign with ML-DSA-65; store with the release.
+- **SBOM** per **2026 Minimum Elements v2.1 (2026-07-29)** — CISA + NSA + FBI + 15 international
+  partners, superseding NTIA 2021. It replaced *Depth* with *Coverage*, replaced *Known Unknowns*
+  with *Explicitly Identifying Unknown Information*, dropped the Access Controls element, and added
+  SBOM signature, format name/version, generation context, tool name/version, SBOM version, and
+  component hash value/algorithm. **Format-agnostic** — a declared format is a required field, not
+  a mandated schema (CycloneDX 1.7 final, SPDX 3.0.1 final, SPDX 3.1 still RC as of 2026-11-10).
+- **SBOM-for-AI** per the May 2026 minimum elements when the artefact contains models or training
+  data.
+- **CBOM: no federal minimum elements exist yet.** EO 14412 gave CISA/NIST 270 days (~2027-03-19),
+  so in 2026 a CBOM is CycloneDX crypto properties plus your own inventory. Track every algorithm,
+  key size, protocol, certificate and the migration target for each. Say "per EO 14412 directive"
+  rather than citing a baseline that has not been published.
+- Generate in CycloneDX or SPDX; sign with ML-DSA-65 (or a hybrid) and store with the release.
 
 A CBOM is how you answer "what breaks in 2030" without a six-month audit.

@@ -185,9 +185,10 @@ Cookie attributes: `httponly=True, secure=True, samesite="strict"`.
 ```python
 import time
 # pyca/cryptography >= 47 is REQUIRED: `asymmetric.mldsa` / `asymmetric.mlkem` ship from 47.0.
-# Verified 2026-11-07 — 45.0.7 and 46.0.5 raise ImportError on this import while 47.0+ works, so a
+# Verified 2026-11-10 — 45.0.7 and 46.0.5 raise ImportError on this import while 47.0+ works, so a
 # floor of ">=45" resolves to a wheel that fails at module load. The pqc-secrets engine hit exactly
-# this and had to raise its own floor.
+# this and had to raise its own floor. Latest is 50.0.0 (2026-07-31); ML-DSA X.509 verification
+# lands at 50.0, so pin >=47 for raw primitives and >=50 if you verify certificates.
 from cryptography.hazmat.primitives.asymmetric import mldsa
 from pydantic import BaseModel, Field
 

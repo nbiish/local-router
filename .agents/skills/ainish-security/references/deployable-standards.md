@@ -85,14 +85,19 @@ recursion depth, regex complexity, response size, query time, token budget.
 | Firmware signing | LMS / XMSS | SP 800-208 |
 | Symmetric | AES-256-GCM, ChaCha20-Poly1305 | SP 800-38D |
 | Passwords | Argon2id (t=3, m=65536, p=4, len=32) | OWASP 2025 |
-| TLS hybrid | X25519 + ML-KEM-768, SP 800-227 combiner | RFC 9794-era |
+| TLS hybrid | X25519MLKEM768, SP 800-227 combiner | RFC 10024 (2026-08) |
 
 **Banned for secrets and integrity:** RSA, DSA, ECDSA, ECDH, Ed25519, MD5, SHA-1,
 DES, 3DES, Blowfish, AES-CBC, AES-ECB, RC4.
 
-Classical public-key crypto is risk-acceptance-only after 2030 and disallowed after
-2035 (NIST IR 8547). Any new dependency introducing RSA/ECDSA/EdDSA into a secrets
+Classical public-key crypto is risk-acceptance-only after 2030 and disallowed after 2035
+(NIST IR 8547, final 2026-10-27). Any new dependency introducing RSA/ECDSA/EdDSA into a secrets
 path fails review today.
+
+**Do not claim validation you do not have.** Native library support is not a CMVP certificate. As of
+2026-11-10 the OpenSSL FIPS provider has no validated PQC module (3.5.8 still in review), FIPS 206
+has no public draft, and HQC has no draft at all. `pyca/cryptography >= 47` is the floor for
+ML-KEM/ML-DSA APIs.
 
 **Nonce discipline:** a reused GCM nonce under one key is a total break, not a
 degradation.
@@ -135,6 +140,14 @@ Use:     pqc-secrets bundle (ML-KEM-768 + AES-256-GCM,
 - Circuit breakers, budgets, and a kill switch. Append-only ledger.
 - MCP servers are RCE targets: allowlist, pin by hash, no auto-install, no
   auto-start, sandbox execution, alert on tool-definition drift after approval.
+  95 MCP CVEs were published between 2026-08-01 and 2026-11-10; the modal causes are
+  unauthenticated SSE/HTTP transports and SSRF through OAuth discovery.
+- **Assume the model can be fooled.** Gate the action and control egress; never rely on
+  a filter, a canary, or a "do not follow instructions" sentence as the boundary.
+- **Agent identity is a workload identity**: short-lived, audience-bound, attenuating
+  credentials. No standing service-account rights; an agent may narrow a caller's
+  permissions, never widen them.
+- Agent-written code runs in a microVM or gVisor, not a shared-kernel container.
 - **Design for blast-radius containment, not perfect prevention.** Assume the model
   will be fooled.
 

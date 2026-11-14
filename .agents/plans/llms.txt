@@ -11,15 +11,27 @@ The three artifacts split cleanly:
 
 | Artifact | Holds | Lifetime |
 |---|---|---|
-| `.agents/plans/*.plan.md` | Reasoning: problem, anchor facts, design, clarifications, todos, gates | The task, plus the history of how it was decided |
-| `.agents/tasks/*-task.md` | Coordination: lane, branch, status, scope, verdict, `plan:` pointer | The task, and the fleet's record of who was doing what |
-| `.agents/comms/{date}-team.txt` | Lifecycle lines: checkin, update, checkout | One UTC day |
+| `.agents/plans/*.md` | Reasoning: problem, anchor facts, design, clarifications, todos, gates | The task, plus the history of how it was decided |
+| `.agents/tasks/*.md` | Coordination: lane, branch, status, scope, verdict, `plan:` pointer | The task, and the fleet's record of who was doing what |
+| `.agents/comms/{date}-team.md` | Lifecycle lines: checkin, update, checkout | One UTC day |
 
 ## Naming contract
 
-`.agents/plans/{YYYY-MM-DD}-{kebab-slug}.plan.md` — date of authoring, then a short slug matching
-the branch's topic (`feat/agents-plans-artifact` → `2026-11-08-plans-artifact.plan.md`). The `.plan.md`
-suffix is required: it is what the retrieval orientation globs for.
+`.agents/plans/{YYYY-MM-DD}-{HH}-{kebab-slug}.md` — UTC date, zero-padded UTC hour, then a short slug
+matching the branch's topic (`feat/agents-plans-artifact` → `2026-11-12-09-plans-artifact.md`).
+
+Two schemes are live and both must be accepted by anything that reads this directory:
+
+| Scheme | Shape | Status |
+|---|---|---|
+| current | `{date}-{HH}-{slug}.md` | written from 2026-11-12 onward |
+| grandfathered | `{date}-{slug}.plan.md` | every plan already on disk; never renamed |
+
+The type is carried by frontmatter (`plan_format: ainish/plan/v1`, `status`, `branch`, `task_record`),
+not by a suffix — which is why the current scheme drops `.plan.md`. Readers must therefore **not**
+filter on a filename suffix: `.agents/plans/llms.txt` is the only `.md` here that is not a plan, and
+"newest" means newest by mtime, never by name (under mixed naming `2026-11-12-09-x.md` collates before
+`2026-11-12-old.plan.md`).
 
 Never rename or reuse a plan filename. Task records, COMMS lines, and commits point at these paths,
 and a renamed plan is a dangling reference in every one of them.
@@ -45,9 +57,27 @@ and a renamed plan is a dangling reference in every one of them.
    operator was asked (`asked: operator`) or the codebase settled it (`asked: resolved from code`),
    because the second class is what the operator cannot otherwise audit.
 4. §5 is the only section edited in place, and only by ticking boxes. Reordering or deleting a todo
-   destroys the record of what was planned versus what was actually done.
-5. Plans are committed. Unlike `.agents/comms/*-team.live.txt`, nothing here is a working scratch
+   destroys the record of what was planned versus what was actually done. Box marks are binary plus
+   one half-mark: `[x]` done, `[~]` partially done (the implementing agent appends a one-line
+   `— PARTIAL: <what remains>` after the todo's verify line), `[ ]` open. A plan may close `status:
+   done` with an `[ ]` todo ONLY when that todo is an operator action and its text says so
+   (`(operator action — blocked: …)`) — the 2026-11-12 T7 precedent. Anything else open keeps the
+   plan off `done`.
+5. Sections appear in order §1-§8 as the template lays them out. Implementation notes belong in §8
+   at the END of the file — never inserted between earlier sections (a §8 that lands before §6 is a
+   record that no reader can trust).
+6. Plans are committed. Unlike `.agents/comms/*-team.live.txt`, nothing here is a working scratch
    file — a plan that is not in git is not a plan of record.
+
+## Reference integrity
+
+A plan's value depends on the tooling it cites actually existing. These artifacts are part of the
+contract and MUST exist in every checkout (create them when missing — a reference to nothing is how
+a workflow silently dies):
+
+- `bin/context-packet.sh` — reads `status` + unchecked §5 boxes for the session bootstrap.
+- `.agents/templates/worktree-merge.md` — the merge journal format AGENTS.md mandates.
+- `scripts/commit-identity-guard.sh` — the post-commit identity enforcement AGENTS.md rule 4 cites.
 
 ## Work guidance
 
@@ -62,12 +92,13 @@ and a renamed plan is a dangling reference in every one of them.
 
 ## Verification
 
-- Shape: `diff <(head -20 .agents/plans/<file>.plan.md) <(head -20 .agents/templates/plan.md)` shows
+- Shape: `diff <(head -20 .agents/plans/<file>) <(head -20 .agents/templates/plan.md)` shows
   the frontmatter keys present and in order.
-- Frontmatter parses and `status` is a known value:
-  `grep -E '^status: (designing|ready|implementing|done|abandoned)$' .agents/plans/*.plan.md`
-- Every plan has a matching task record:
-  `for p in .agents/plans/*.plan.md; do t=$(sed -n 's/^task_record: //p' "$p"); test -f "$t" || echo "missing: $p -> $t"; done`
+- Frontmatter parses and `status` is a known value (both naming schemes):
+  `grep -E '^status: (designing|ready|implementing|done|abandoned)$' .agents/plans/*.md`
+- Every plan has a matching task record (both naming schemes; `llms.txt` is skipped):
+  `for p in $(ls .agents/plans/*.md | grep -v /llms.txt$); do t=$(sed -n 's/^task_record: //p' "$p"); test -f "$t" || echo "missing: $p -> $t"; done`
+- Reference integrity: `for f in bin/context-packet.sh .agents/templates/worktree-merge.md scripts/commit-identity-guard.sh; do test -e "$f" || echo "missing: $f"; done`
 - Orientation sees it: `ainish-rag --context --task "plan check"` names the newest plan and its open
   todo count.
 

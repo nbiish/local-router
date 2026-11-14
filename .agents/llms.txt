@@ -10,7 +10,10 @@ This tree contains the durable agent operating system: retrieval context, skills
 ## Ownership
 
 - `canonical/` owns the source contract deployed as root `AGENTS.md`.
-- `skills/` owns on-demand procedures; each skill is self-contained and progressive-loadable.
+- `skills/` holds the small curated set of packs THIS repo's agents read. The packs this tool
+  *distributes* live in [`skills-to-distribute/skills/`](../skills-to-distribute/skills/) — a
+  separate tree on purpose: agent harnesses auto-discover `**/.agents/skills`, so anything kept
+  here is standing prompt surface for every agent working in this repository.
 - `wiki/` owns generated architecture and operator notes; `ledger.md` is append-only.
 - `comms/`, `tasks/`, `suggestions/`, and `memories/` own coordination and durable knowledge. Comms/tasks are system-of-record; memory is context only.
 - `plans/` owns the per-task plan of record: the problem, anchor facts, design, clarification ledger, and derived todos an agent follows while implementing. Distinct from `docs/` (forward-looking proposals) and from `tasks/` (coordination state).
@@ -35,7 +38,10 @@ The packet fields are `request`, `next_action`, `files`, `symbols`, `constraints
 
 ## Child DOX index
 
-- [`skills/llms.txt`](./skills/llms.txt) — on-demand agent workflows.
+- [`skills/`](./skills/) — the packs this repo's agents read directly (curated subset).
+- [`../skills-to-distribute/skills/`](../skills-to-distribute/skills/) — the distributable payload
+  `ainish-coder --rules` / `--skills-sync` / `--scrolls` / `--unlock` ship to consumer repos. Its
+  own index is [`skills-to-distribute/skills/llms.txt`](../skills-to-distribute/skills/llms.txt).
 - [`plans/llms.txt`](./plans/llms.txt) — per-task plans of record (problem, clarifications, todos).
 - [`templates/llms.txt`](./templates/llms.txt) — reviewable design and plan templates.
 - [`memories/llms.txt`](./memories/llms.txt) — dated durable facts.

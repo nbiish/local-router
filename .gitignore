@@ -131,7 +131,10 @@ graphify-out/
 # them (llms.txt "Graph & Memory Tooling Stance")
 .gitnexus/
 .claude/
-.agents/skills/gitnexus-*/
+.agents/skills/gitnexus-*
+# The distributable payload is also discovered by agent tooling when a stale
+# pack is left behind by a retired integration; same accident guard, both trees.
+skills-to-distribute/skills/gitnexus-*/
 
 # PQC secrets — bundle and audit log (the .env patterns above cover
 # most cases, but PQC artifacts are explicit for clarity)
@@ -175,10 +178,14 @@ audit.log.*
 
 # Compiled native binaries (built locally via cargo or distributed wrappers)
 *.exe
-# Installer artifacts (a 175 MB NVPAIR-Setup-*.dmg was committed once by accident;
-# GitHub rejects >100 MB files, so keep them out of the tree entirely)
-*.dmg
-*.pkg
+
+# Locally-built RAG engine (~127 MB). The distributed wrappers (bin/ainish-rag,
+# bin/ainish-rag.cmd) are tracked; the platform binaries are build products and are
+# produced per host with `cargo build --release`. Committing one would bloat history
+# for every clone and still be the wrong architecture on the next machine.
+bin/ainish-rag-darwin
+bin/ainish-rag-linux
+bin/ainish-rag-windows.exe
 
 # Deployment smoke sandbox (created by 'ainish-coder --rules test'); never tracked.
 /test/
@@ -187,15 +194,15 @@ audit.log.*
 # Project-specific patterns (preserved from existing .gitignore)
 # ═══════════════════════════════════════════════════════════════════════════
 
+*.dmg
+*.pkg
 .agents/rag/
+.agents/skills/gitnexus-*/
 .config/
 .opencode/
 .workbuddy-ai/
 example-repos/
 node_modules
-# Live chain config for the checkout it sits in (repo-local config, 2026-11-10).
-# Written by the running router and carried to other machines by a repo sync, so it
-# stays untracked: a chain save must never dirty the worktree or block a git pull.
 router-settings.json
 src-tauri/gen/
 src-tauri/target/
