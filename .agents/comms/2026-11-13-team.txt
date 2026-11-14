@@ -1,0 +1,16 @@
+
+### [2026-11-13T01:20:00Z] DUAL-TOGGLES-IDENTITY | agent:omp(mac) | branch:main | wt:merged+removed
+- objective: dual per-model toggles (serve + archive) with restore section; fix missing wafer/live models
+- output: >
+    Catalog rows now carry serve + show/archive toggles; archived models land in an
+    "Archived models" restore section (serve toggle stays live there). Archive keys
+    federate via router-settings.json catalogSelection. Root cause of missing models:
+    mapLiveRawModelsToCatalog spread the baseline's identity into live rows so
+    case/alias twins collided on the curation key and the dedupe ate them (wafer
+    DeepSeek-V4-Pro / DeepSeek-V4.1-Flash-1017); plus knownProviderModels returned
+    ONLY override-store rows when present, shadowing cache discoveries from the
+    management view and card counts. Both fixed (dcd33b6 + d4e172a, merged). npm test
+    367 pass / 0 fail; UI round-trip verified with screenshots; live: both twins now
+    visible in management view and catalog feed.
+- status: done
+- blockers: none

@@ -1,0 +1,131 @@
+# COMMS — 2026-11-12
+
+### [2026-11-12T19:20:00Z] PI-HERMES-ROUTER-DEFAULT | agent:omp(mac) | branch:main | wt:/Volumes/1tb-sandisk/code-external/local-router
+- start: 2026-11-12T18:45:00Z
+- end: 2026-11-12T19:20:00Z
+- scope: ~/.pi/agent/{models.json,settings.json}, ~/.hermes/config.yaml (backup .bak.pre-ollama-repoint.20261112T185727Z)
+- objective: pi + hermes default to localhost:11434 with local-router/fallback-models at startup
+- input: operator — local-router is an ollama shim/proxy; configure pi to use 'ollama' and the local-router/fallback-models model; hermes defaults to that provider/model
+- output: >
+    pi: provider 'ollama' added to models.json (127.0.0.1:11434/v1, openai-completions,
+    model local-router/fallback-models with shim-mirrored metadata), settings.json
+    defaultProvider/defaultModel repointed + enabledModels scoped — PI-ROUTER-OK (print
+    smoke answered OK; session record provider=ollama modelId=local-router/fallback-models).
+    hermes: model.{provider,base_url,default} -> local-router / http://localhost:11434/v1 /
+    local-router/fallback-models, stale zenmux key_env unset — HERMES-ROUTER-OK
+    (hermes -z smoke answered OK). Matches TASK.2026-09-01b precedent.
+- finding: hermes provider 'ollama' is a NAMED providers.ollama block pointing at the operator's
+  real ollama process on 127.0.0.1:11435 (:cloud models) — named blocks beat the documented
+  ollama->custom alias, model.base_url is ignored, and that Ollama 404'd the chain id twice
+  before the router was ever reached. Wiring must use the existing named providers.local-router
+  block (api: http://localhost:11434/v1). hermes config set model.provider also clears
+  model.base_url/api_mode on provider switch.
+- verification: pi --list-models shows ollama/local-router/fallback-models (1.1M ctx, 943.7K out);
+  both CLIs one-shot smokes return real completion content through the shim; router /v1/models
+  serves the route (16 steps).
+- status: done
+- blockers: none
+- compat: machine config only; no repo code/interface change. Records on main (coordination carve-out).
+
+### [2026-11-12T20:05:00Z] TRAJECTORY-TRACES | agent:omp(mac) | branch:main | wt:../local-router-trajectory-traces (removed)
+- start: 2026-11-12T19:10:00Z
+- end: 2026-11-12T20:05:00Z
+- scope: src/trajectories.ts (new), src/expert-logs.ts, src/index.ts, src/routes/config-api.ts, src/ui/pages/{trajectories.ts (new),layout.ts}, tests/trajectories.test.mjs, llms.txt, package.json
+- objective: analyze DeepSeek-harness trajectory/trace capture; replicate in local-router so users/agents can analyze model calls and detect a fallback-chain provider/model that stopped working or is silently skipped
+- input: operator request; analyzed ~/.deepseek (sessions/<uuid>.json typed message trajectories, TOOL_OUTPUT_RECEIPT sha: detail handles, state.db threads/messages/checkpoints, tasks/runtime event dirs)
+- output: >
+    per-request TrajectoryRecord (chain snapshot incl. pre-plan exclusions with
+    reasons, ordered stage timeline answered/failed/skipped + why, winner, usage,
+    cost, sha: receipts with spill to trajectories/spill/<sha256>.txt) appended to
+    ~/.config/local-router/trajectories/trajectories.jsonl (2000-record bound).
+    /config/trajectories page + /api/trajectories* agent API with flags
+    never_answers / always_skipped / recent_error_spike / missing_from_plan.
+    Merged: commit daf1ad8, merge f9e352c (9 files, +1687/-4).
+- finding: >
+    pre-change attemptLog only surfaced on total chain exhaustion and never
+    survived success; pre-plan drops (activeFallbackModels key filter, disabled
+    toggles) were entirely invisible — exactly the silent-skip bug class. Live
+    smoke immediately found real breakage: upstream_http_auth on cline-deepseek
+    and zenmux-glm free tiers, upstream_http on xiaomi-mimo (7 members flagged
+    never_answers over 2 trajectories). Verification bug caught: missing_from_plan
+    false-flagged healthy members planned after the winner — fixed to flag only
+    members never eligible/excluded/executed.
+- verification: >
+    npm test 361 pass / 1 fail (custom-providers.integration CRUD test —
+    pre-existing, fails identically on main's untouched build); trajectories 7/7,
+    ui-page-scripts-parse 11/11, antigravity-auth 17/17; live smoke on :11436
+    (2x local-router/fallback-models 200 via cursor/auto, 35-stage timelines,
+    ?part=response retrieval, raw JSONL grep); browser screenshot of the page.
+- status: done
+- blockers: none
+- compat: new files + additive API/page; expert-logs gains an onComplete hook; no wire changes.
+
+### [2026-11-12T20:25:00Z] ROUTER-RESTART-F9E352C | agent:omp(mac) | branch:main | wt:/Volumes/1tb-sandisk/code-external/local-router
+- objective: live router runs the merged trajectory-trace build; fallback-logic plan seeded for next chat
+- output: >
+    main rebuilt (tsc clean), com.localrouter.daemon kickstarted — router PID 12527
+    on :11434 serving /api/trajectories{,/health} and /config/trajectories (200)
+    from commit f9e352c. Plan for the follow-up chat written:
+    .agents/plans/2026-11-12-fallback-logic-corrections.plan.md (health-aware chain
+    execution: quarantine dead members, auth fast-path, wraparound revisit gating,
+    custom-provider resolution bug T4, health.json surfacing; 2 operator decisions pending).
+- status: done
+- blockers: none
+
+### [2026-11-12T21:10:00Z] FALLBACK-LOGIC-CORRECTIONS-056E13D | agent:omp(mac) | branch:main | wt:merged+removed
+- objective: work out plan 2026-11-12-fallback-logic-corrections; health-aware chain execution; error classes on trajectories page
+- output: >
+    Operator resolved §4.1 per-class thresholds (key_rejected/out_of_funds 1 strike x 30 min,
+    retryable 3 x 5 min), §4.2 force-try last pass, §4.3 four error classes. Worktree
+    feat/fallback-logic-corrections (90295d6) merged to main as 056e13d, 11 files +769/-51,
+    worktree+branch removed. New src/health-registry.ts; classifyHttpFailure corrected
+    (402->payment_required, 429->rate_limit, body insufficient_quota/billing->payment);
+    wraparound revisit gating + cooldown skips (cooldown:<errorType>); force-try only
+    never-attempted members (forced markers). T4 root cause: localLoopbackRegisteredModels
+    clobbered custom-editor ids -> alias forwarded upstream; fixed via override precedence.
+    npm test 368 pass / 0 fail (custom-providers green, was pre-existing fail); live smoke
+    16/16 on :11436; page screenshot shows key_rejected/out_of_funds/quarantined badges.
+    Live router restarted on 056e13d (PID 50004; launchd kickstart left orphan 12527 holding
+    :11434 — SIGTERMed). Live history flags stale keys: cline x18, zenmux-glm x14,
+    antigravity x10, openrouter-ernie x4 key_rejected.
+- status: done
+- blockers: T7 operator key refresh (pqc-secrets set) pending new provider key material
+
+### [2026-11-12T23:05:00Z] PROVIDER-MIGRATIONS-CD3FE1A | agent:omp(mac) | branch:main | wt:merged+removed
+- objective: pioneer→fastino + opencode Console API migrations; 3h catalog auto-refresh; federated hide-toggles (plan 2026-11-12-provider-migrations-catalog-federation)
+- output: >
+    Operator resolved §4.1 (opencode chat-family only) and §4.2 (discoveries hidden by
+    default, retiring 2026-09-04 auto-curation). Worktree feat/provider-migrations-catalog-federation
+    (7f964c0) merged to main as cd3fe1a, 13 files +559/-242, worktree+branch removed.
+    fastino replaces pioneer: api.fastino.ai/v1 + FASTINO_API_KEY, registry rebuilt from live
+    public /models (14 rows; 166-row reseller block deleted), pioneer-* aliases + slug map +
+    PIONEER_API_KEY migration all green in tests. opencode-go/zen -> opencode.ai/inference/openai/v1
+    (oc_sk keys; free-tier 403 noted). Policy row conservative implicitCache (pioneer marker
+    measurements unverified on new host, docs/caching/fastino.txt keeps provenance).
+    3h auto-refresh for keyed providers; discoveries land unchecked; hide-toggles federate via
+    router-settings.json catalogSelection (read-merge-write beside chain). npm test 366 pass /
+    0 fail; smoke 11/11 on :11436 (legacy id wire-model, hidden discovery, toggle federation
+    with routes preserved); /config/providers screenshot "fastino 5 · 2 served".
+    Live router on cd3fe1a: fastino configured (migrated key), pioneer retired, opencode on
+    Console endpoint.
+- status: done
+- blockers: none (operator follow-ups: oc_sk keys for opencode routes; opencode-go env unset)
+
+### [2026-11-13T00:45:00Z] MAX-CACHING-EVERYWHERE | agent:omp(mac) | branch:main | wt:merged+removed
+- objective: max possible prompt caching across all providers and models (operator directive)
+- output: >
+    Row-by-row audit of PROVIDER_POLICIES against docs evidence. fastino -> anthropicCache
+    maximum (4 markers 1h TTL, tool breakpoint, sticky key; pioneer-wire provenance + directive).
+    opencode-go/zen -> automatic + sticky (markers were for /messages families we no longer
+    serve; Console chat wire caches automatically). nvidia-nim noCache -> implicitCache (vLLM
+    APC). Five rows gained sticky prompt_cache_key (zai precedent). Dead knob minCacheableTokens
+    removed (declared everywhere, consulted nowhere — markers already reach every prompt).
+    e1f9ab6 merged as merge commit; 6 files +88/-49; npm test 367 pass / 0 fail; wire-shape
+    smoke 5/5 (markers + stable sticky key on the wire via mock upstream). Live router on the
+    merge build.
+- status: done
+- blockers: >
+    Live cache probes blocked on dead keys: fastino bundle key is a retired pio_sk_ ("keys
+    starting with 'pio_sk_' were retired on the move to Fastino"); OPENCODE_ZEN_API_KEY expired.
+    Operator: pqc-secrets set LOCALROUTER_FASTINO_API_KEY / LOCALROUTER_OPENCODE_ZEN_API_KEY,
+    then re-measure and replace [INFERENCE] notes.
