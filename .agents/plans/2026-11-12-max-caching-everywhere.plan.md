@@ -99,9 +99,11 @@ the wire accepts — recorded as evidence, not as conservatism.
   (b) `cache_control` content-block markers with `ttl: '1h'` and `'5m'` accepted?,
   (c) `prompt_cache_key` + `prompt_cache_retention` accepted?. Record receipts in
   `docs/caching/fastino.txt`; set the fastino row to the measured maximum.
+  — PARTIAL: measurement blocked — the fastino key is retired, so no wire can be probed. Row stays `[INFERENCE]`.
 - [~] **T2** Same measurement for the opencode Console chat wire via `opencode-zen`
   (auto `cache_read`? markers? sticky key?); update both opencode rows to the chat-wire
   measured maximum and the docs.
+  — PARTIAL: measurement blocked — the opencode key is expired. Rows stay `[INFERENCE]`.
 - [x] **T3** Row-by-row audit of `PROVIDER_POLICIES` against its evidence doc: upgrade every
   sub-maximal knob the evidence supports (TTL, marker tolerance/`stripsCacheControl`, sticky
   key, `includeStreamUsage`, `minCacheableTokens` floors only where the provider requires

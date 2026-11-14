@@ -58,7 +58,7 @@ import {
   type TopologyCandidate
 } from './fallback-topology';
 import { loadExpertLogs, LogEntryTracker, createUsageSpyStream } from './expert-logs';
-import { TrajectoryTracker, TrajectoryChain, TrajectoryExcludedTarget, TrajectoryRecord } from './trajectories';
+import { TrajectoryTracker, TrajectoryChain, TrajectoryExcludedTarget, TrajectoryRecord, resolveTrajectoryClient } from './trajectories';
 import { healthRegistry } from './health-registry';
 import { buildWraparoundExecutionPlan, buildEscalatingWraparoundPlan, buildMultiPassExecutionPlan, DEFAULT_FALLBACK_ROUNDS } from './execution-plan';
 import {
@@ -7986,13 +7986,16 @@ async function handleEmbeddingRequest(req: Request, res: Response) {
   // Trajectory capture (2026-11-12) — same record shape as chat, so an agent
   // reading trajectories.jsonl sees every model call, not only chat calls.
   const embeddingStartedAt = Date.now();
-  const rawEmbeddingClient = req.headers['x-local-router-client'];
-  const embeddingClient = typeof rawEmbeddingClient === 'string'
-    ? rawEmbeddingClient
-    : Array.isArray(rawEmbeddingClient) ? rawEmbeddingClient[0] : 'unknown';
+  const embeddingClientResolution = resolveTrajectoryClient(
+    req.headers['x-local-router-client'],
+    typeof req.headers['user-agent'] === 'string' ? req.headers['user-agent'] : undefined
+  );
+  const embeddingClient = embeddingClientResolution.client;
   const trajectory = new TrajectoryTracker(
     {
       client: embeddingClient,
+      clientSource: embeddingClientResolution.clientSource,
+      ...(embeddingClientResolution.userAgent ? { userAgent: embeddingClientResolution.userAgent } : {}),
       presentedModel,
       routeKind: fallbackRoute ? 'fallback' : 'direct',
       routeId: fallbackRoute ? fallbackRoute.id : null
@@ -8163,8 +8166,15 @@ async function handleChatCompletion(req: Request, res: Response, bodyOverrides?:
     if (systemPromptConfig.enabled && systemPromptConfig.prompt && Array.isArray(body.messages)) {
       body.messages.unshift({ role: 'system', content: systemPromptConfig.prompt });
     }
-    const rawClient = req.headers['x-local-router-client'];
-    const clientName = typeof rawClient === 'string' ? rawClient : Array.isArray(rawClient) ? rawClient[0] : 'unknown';
+    // Client attribution (2026-11-14): an explicit header wins, otherwise fall
+    // back to the User-Agent. Before this, every live record said "unknown"
+    // because pi sends no x-local-router-client header but does send
+    // `pi/1.5.2 (darwin; node/...; arm64)`.
+    const clientResolution = resolveTrajectoryClient(
+      req.headers['x-local-router-client'],
+      typeof req.headers['user-agent'] === 'string' ? req.headers['user-agent'] : undefined
+    );
+    const clientName = clientResolution.client;
     const fallbackRoute = findFallbackModel(model);
     const logTracker = new LogEntryTracker(
       clientName,
@@ -8179,6 +8189,8 @@ async function handleChatCompletion(req: Request, res: Response, bodyOverrides?:
     const trajectory = new TrajectoryTracker(
       {
         client: clientName,
+        clientSource: clientResolution.clientSource,
+        ...(clientResolution.userAgent ? { userAgent: clientResolution.userAgent } : {}),
         presentedModel: String(model),
         routeKind: fallbackRoute ? 'fallback' : 'direct',
         routeId: fallbackRoute ? fallbackRoute.id : null

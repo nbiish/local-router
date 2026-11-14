@@ -2,10 +2,10 @@
 plan_format: ainish/plan/v1
 slug: tooling-hardening
 date: 2026-11-14
-status: ready
+status: implementing
 branch: feat/tooling-hardening
 worktree: /Volumes/1tb-sandisk/code-external/local-router-tooling
-task_record: .agents/tasks/2026-11-14-21-tooling-hardening.md
+task_record: .agents/tasks/TASK.2026-11-14-22-tooling-hardening-execution.md
 operator: direct
 ---
 
@@ -129,28 +129,65 @@ flowchart LR
   updates to the trajectories, tracing, and ensuring our fallback tooling works right; ainish-rag now
   uses `pi` agents that need to be powered by the localhost:11434 local-router fallback-models
   model") — `asked: operator`.
+- **A2/A3/A4 are copies, not authoring** — the three "missing" artifacts already exist in the
+  ainish-coder source repo (`bin/context-packet.sh`, `.agents/templates/worktree-merge.md`,
+  `scripts/commit-identity-guard.sh`); they were never deployed here because they are not in
+  `managed_paths`. Copying them verbatim means the next `--rules` run produces no diff. — `asked: resolved from code`
+- **Execution is a slice, not all 19 todos** — the operator selected the confirmed-defect set
+  (A2/A3/A4 contract artifacts, A5 plans-doctor, C1 shedding marker, C3 client attribution, C4
+  trajectory docs) for this session. Remaining todos stay open and the plan stays off `done`.
+  — `asked: operator`
+- **`main` was dirty with the 2026-11-12 rules deploy** — that roll plus the untracked
+  coordination records were committed to `main` as two separate commits before this branch was
+  cut, so the worktree starts from a clean tree. — `asked: operator`
+- **"Agent fleet content" is NOT being removed** — the operator clarified the phrase referred to the
+  retired wtf-is-going-on-mcp federated tooling, now its own repo. `.agents/` context folders stay.
+  The only residue removed is the dangling `wtf-is-going-on-mcp` skill reference in
+  `.agents/skills/llms.txt` (the directory does not exist). — `asked: operator`
+- **Plan §7/§8 numbering** — the template ships §1-§7 while the contract text says "§1-§8"; §8 is
+  the sanctioned appendix slot. `plans-doctor` reads the template for the real order rather than
+  hardcoding a count. — `asked: resolved from code`
 
 ## 5. Todos
 
 - [ ] **A1** Sync this checkout to the deployed rules contract (`ainish-rules-sync --headless`):
   plans/llms.txt + templates + `-team.md` ledger naming + live-board adoption; grandfather existing
   plans; new plans use `{date}-{HH}-{slug}.md`.
-- [ ] **A2** Create `bin/context-packet.sh` (reads plan `status` + unchecked §5 boxes for bootstrap).
-- [ ] **A3** Create `.agents/templates/worktree-merge.md` (the merge journal format AGENTS.md mandates).
-- [ ] **A4** Create `scripts/commit-identity-guard.sh` (post-commit identity enforcement, rule 4).
-- [ ] **A5** Create `scripts/plans-doctor` running the contract's verification + reference integrity;
+- [x] **A2** Create `bin/context-packet.sh` (reads plan `status` + unchecked §5 boxes for bootstrap).
+  Copied verbatim from ainish-coder b0f5841 so the next `--rules` deploy is a no-op.
+  Verified: `./bin/context-packet.sh --task "test packet"` emits the plan state block.
+- [x] **A3** Create `.agents/templates/worktree-merge.md` (the merge journal format AGENTS.md mandates).
+  Copied verbatim from upstream; `diff` against source is empty.
+- [x] **A4** Create `scripts/commit-identity-guard.sh` (post-commit identity enforcement, rule 4).
+  Copied verbatim from upstream, mode 755. NOT yet installed as a hook in this checkout.
+- [x] **A5** Create `scripts/plans-doctor` running the contract's verification + reference integrity;
   wire as `npm run verify:plans`.
+  Delivered as `scripts/plans-doctor.mjs` (an extensionless file is loaded as CommonJS and cannot use
+  ESM imports). Checks frontmatter, status vocabulary, task_record existence, section order,
+  three-way todo marks, PARTIAL notes, done-with-open-todos, and reference integrity.
 - [ ] **A6** Feed the 2026-11-14 `.agents/plans/llms.txt` enhancements upstream to the rules source so
   the next `--rules` deploy carries them (partial marks, section order, done-with-blocker, reference
   integrity) — `asked: resolved from code` that deploy-managed files are clobbered on sync.
-- [ ] **C1** Trajectory schema v2: explicit chain-alias shedding marker (presented alias → concrete
+- [x] **C1** Trajectory schema v2: explicit chain-alias shedding marker (presented alias → concrete
   winner) in `TrajectoryRecord` + page/API rendering; bump `schema_version`; keep readers compatible.
+  `shedding: { from, to, attemptsBeforeAnswer, excludedCount }` is emitted only on a real shed;
+  `TRAJECTORY_SCHEMA_VERSION` is 2; `TrajectorySummary.shedTo` feeds the list view; the detail view
+  renders a shed banner. Verified: 8 new unit tests green; replaying 60 live records classified 54
+  sheds and 6 non-sheds correctly (2 genuine failures, 4 direct calls answered as requested); a v1
+  record still loads and summarizes.
 - [ ] **C2** Per-stage cache observability: capture cached/usage tokens per stage where the wire
   reports them (stream usage already requested per policy), visible in stage timelines.
-- [ ] **C3** Client attribution: pi/ainish-rag calls carry `x-local-router-client` (or derived UA) and
+- [x] **C3** Client attribution: pi/ainish-rag calls carry `x-local-router-client` (or derived UA) and
   land in `trajectory.client`; fix the capture path where they don't.
-- [ ] **C4** `docs/trajectories.md`: the agent-facing guide to reading the log/API (records, flags,
+  Root cause: the router read only `x-local-router-client`; pi sends no such header but does send
+  `user-agent: pi/1.5.2 (darwin; node/v22.22.3; arm64)` (captured 2026-11-14 against a probe server).
+  `resolveTrajectoryClient` now prefers the header, falls back to the UA product token, and records
+  `clientSource` (`header`/`user-agent`/`unknown`) so an unattributed call is never mistaken for a
+  caller named "unknown". 167 of 169 existing records said `unknown`; new calls attribute correctly.
+- [x] **C4** `docs/trajectories.md`: the agent-facing guide to reading the log/API (records, flags,
   error classes, health, shedding semantics) — the "agents can properly review errors" surface.
+  Written and fact-checked against `src/trajectories.ts` (`errorClassFor` mapping, all four health
+  flags, `cooldown:<errorType>` skip format, API routes).
 - [ ] **D1** Promote the deleted smoke checks into `scripts/smoke/` receipts (quarantine skip +
   cooldown reasons + force-try + error classes; model identity + archive federation; caching wire
   shape) with one runner and a `npm run smoke` alias.
@@ -186,3 +223,20 @@ flowchart LR
 - `verify-pi-pipeline` prints a passing verdict with a trajectory record id that a reviewer can open
   on `/config/trajectories` and see the shedding marker + client + error classes.
 - `deploy-local.sh` round-trip: deploy, fingerprint matches, no stale PID survives.
+
+## 7. Open Decisions
+
+- **A6 upstream feed is unresolved.** `.agents/skills/llms.txt` and `.agents/plans/llms.txt` are
+  both deploy-managed (`managed_paths`), so the local edits made here — the stale
+  `wtf-is-going-on-mcp` skill reference removal and the 2026-11-14 plans-contract enhancements — are
+  clobbered by the next `ainish-coder --rules` run on this checkout. They must be fed upstream to
+  ainish-coder or they will silently revert.
+- **The `--rules` signature gate fails on every run here.** The deploy signer
+  (`69e7233dc7776273af28c3d80d774dad`) does not match this checkout's committed anchor
+  (`.agents/audit/signer.mldsa65.pub` = `1e5593207b268d81bdb957b7fd6bc28f`). The gate is correctly
+  fail-closed. Resolution is an operator decision (set the original seed, rotate the anchor, or
+  rebuild the seed store) — recorded in ainish-coder
+  `.agents/suggestions/2026-11-12-rules-signing-anchor-mismatch.txt`.
+- **`commit-identity-guard.sh` is present but not armed.** Installing it means editing
+  `.git/hooks/post-commit`, which is not tracked, so the repo cannot prove a clone has it. Whether
+  to arm it here, and to teach `plans-doctor` to check hook presence, is undecided.
