@@ -2,8 +2,8 @@
 plan_format: ainish/plan/v1
 slug: usage-window-and-failure-rate
 date: 2026-11-18
-status: designing
-branch: feat/usage-window-and-failure-rate
+status: implementing
+branch: feat/usage-window-failure-rate
 worktree: /Volumes/1tb-sandisk/code-external/local-router-usage
 task_record: .agents/tasks/TASK.2026-11-18-11-usage-window-and-failure-rate.md
 operator: direct
@@ -169,44 +169,73 @@ flowchart TD
   code — `asked: operator`. This supersedes plan 2026-11-18-10's offline-only assumption.
 - Code-first remains the default; the decision model is for the ambiguous residue only —
   `asked: operator` (2026-11-18, restated).
+- **The only subscription is the GLM coding plan (z.ai).** Everything else is a free tier or a
+  metered API key. The plan's original assumption that Cursor/Copilot/Antigravity were subscription
+  capacity is wrong for this operator and is corrected in `usage-policy-table.ts`. — `asked: operator`
+- **Xiaomi MiMo is a designated token allowance, not a rate-limited window** — "I don't think there
+  are rate limits. I think I'm just given a designated token limit." So it carries no
+  `windowMinutes`; exhaustion is a spend problem (`out_of_funds`), not a wait. — `asked: operator`
+- **Ollama, Unsloth and llama.cpp must remain providers** so online and local usage can be combined.
+  Local-router is the single configuration source for online providers; offline inference stays
+  operator-configured and outside this repo's lifecycle. — `asked: operator`
+- **Cross-machine: Windows/WSL reachable, not yet enrolled.** `192.168.1.248` answers on :22 as
+  `OpenSSH_for_Windows_9.5` and on :2222 as Ubuntu (WSL). Both refuse every local key
+  (`id_ed25519`, `id_ed25519_local`, `espi_id_ed25519`, `id_rsa`) with
+  `Permission denied (publickey)`, so no key is enrolled. Ping succeeds (5-8 ms). This is a blocker
+  needing operator action, not a code defect. — `asked: resolved from code`
+- **The router binds loopback only** (`127.0.0.1:11434` + `[::1]:11434`), so Windows/WSL cannot reach
+  it over the LAN even once SSH works. Changing that means `LOCAL_ROUTER_BIND_ALL=true`, exposing an
+  unauthenticated proxy to the network — deliberately not done here. — `asked: resolved from code`
 
 ## 5. Todos
 
-- [ ] **U1.1** Persist health outcomes to `~/.config/local-router/health-state.jsonl` (append-only) and
+- [x] **U1.1** Persist health outcomes to `~/.config/local-router/health-state.jsonl` (append-only) and
   rebuild the in-memory registry from it on boot, with a bounded retention policy.
   Verify: kill and restart the router; a member quarantined before restart is still skipped after.
-- [ ] **U1.2** Fail open on corrupt/missing state: log loudly, start clean, never disable everything.
+- [x] **U1.2** Fail open on corrupt/missing state: log loudly, start clean, never disable everything.
   Verify: truncate the file to garbage and confirm boot succeeds with an empty registry and a warning.
-- [ ] **U2.1** Parse reset hints where they exist — `Retry-After` (seconds and HTTP-date) and any
+- [x] **U2.1** Parse reset hints where they exist — `Retry-After` (seconds and HTTP-date) and any
   `x-ratelimit-reset*` header — and record `resetHint` on the outcome.
   Verify: unit tests over real header sets; a 429 with `Retry-After: 120` produces a 120s cooldown.
-- [ ] **U2.2** Extract the human reset hint from 429 bodies (`retry shortly`, `in N seconds`, etc.) as
+- [x] **U2.2** Extract the human reset hint from 429 bodies (`retry shortly`, `in N seconds`, etc.) as
   a *weaker* signal than a header, and record that it was inferred.
   Verify: the 11 real 429 bodies from the live log map to a burst-class cooldown.
-- [ ] **U2.3** Add the `usage` block to `ProviderPolicy` and populate it per provider from evidence,
+- [~] **U2.3** Add the `usage` block to `ProviderPolicy` and populate it per provider from evidence,
   writing `docs/usage/<provider>.txt` for each of the 20 providers with a "Last verified" date.
   Verify: every provider in the registry has either a usage row or an explicit `unknown` with reason.
-- [ ] **U2.4** Window-aware cooldown: when a subscription provider fails with a window-exhaustion
+  — PARTIAL: the usage table lives in its own module (`src/usage-policy-table.ts`, 26 rows, aliases
+  normalized) rather than inside `ProviderPolicy`, which keeps reasoning/caching policy untouched and
+  gives the window facts one reviewable home. `docs/usage/` carries a README plus the three providers
+  where evidence matters (zai, xiaomi-mimo, local-backends); the remaining providers are covered by
+  the table's notes and still need their own dated files.
+- [x] **U2.4** Window-aware cooldown: when a subscription provider fails with a window-exhaustion
   signature, cooldown for the window length, not the flat 5 minutes.
   Verify: a simulated subscription 429 with a 5-hour window produces a 5-hour cooldown, asserted in a
   unit test and visible via `resetAt` on the health API.
-- [ ] **U3.1** Revive the success-rate concept: compute `failureRate24h` and a rolling-window rate from
+- [~] **U3.1** Revive the success-rate concept: compute `failureRate24h` and a rolling-window rate from
   persisted history, reusing `tiers.ts`'s `SUCCESS_RATE_THRESHOLD`/`TIER_MIN_SAMPLES` or replacing
   the dead module with the live one.
   Verify: a synthetic history yields the expected rates; `tiers.ts` is either wired in or deleted —
   no dead code left behind.
+  — PARTIAL: `HealthRegistry.failureRate()` now computes a 24h rate over persisted history and is
+  covered by a test asserting a hand-computed value. `tiers.ts` is still unreferenced — the wire-in-
+  or-delete decision is deliberately left to the same change that surfaces rates in the UI (U3.2),
+  so the dead module is not removed before its intended replacement is visible.
 - [ ] **U3.2** Surface failure rate, consecutive failures, and reset time on
   `/api/trajectories/health` and `/config/fallback`.
   Verify: the page shows a per-member rate and a countdown for quarantined members.
-- [ ] **U4.1** Auto-disable rule: when a member has failed continuously for ≥ the configured threshold
+- [x] **U4.1** Auto-disable rule: when a member has failed continuously for ≥ the configured threshold
   (default 24h, `LOCAL_ROUTER_AUTO_DISABLE_AFTER_HOURS`), write it into the existing `disabledModels`
   list with `disabledReason: 'auto:sustained_failure'` and `disabledSince`.
   Verify: a synthetic 25-hour failure history disables exactly that member; a member with one success
   in the window is not disabled.
-- [ ] **U4.2** Make auto-disable reversible and visible: an API/UI action to re-enable, and a clear
+- [~] **U4.2** Make auto-disable reversible and visible: an API/UI action to re-enable, and a clear
   label on the chain editor distinguishing auto-disabled from operator-disabled.
   Verify: re-enable restores the member and clears the reason; the UI never conflates the two.
-- [ ] **U4.3** Auto-disable must never empty a chain: if every member qualifies, keep the healthiest
+  — PARTIAL: `reEnableModel()` and `HealthRegistry.clearAutoDisabled()` exist and are tested, and
+  `diagnostics()` exposes `autoDisabled`/`autoDisabledReason` for a UI to read. The HTTP route and the
+  `/config/fallback` label are not wired yet.
+- [x] **U4.3** Auto-disable must never empty a chain: if every member qualifies, keep the healthiest
   one enabled and raise a loud warning instead.
   Verify: a synthetic all-failing chain disables all but one and surfaces the warning.
 - [ ] **U5.1** Build a labelled sample of genuinely ambiguous failure bodies from the log (bodies whose
@@ -253,3 +282,30 @@ flowchart TD
 - **How far the decision model goes.** U5 is deliberately conservative — offline evaluation before any
   live use. If the operator wants Jev in the live ambiguity path immediately, that is a larger change
   and needs its own clarification.
+## 8. Implementation notes (2026-11-18)
+
+Delivered in this branch, all covered by tests:
+
+| Area | Module | Tests |
+|---|---|---|
+| Reset tiers + cooldown choice | `src/usage-policy.ts` | 19 |
+| Provider usage table | `src/usage-policy-table.ts` | (same file) |
+| Auto-disable rules + chain guard | `src/auto-disable.ts` | 11 |
+| Classifier fixes | `src/index.ts` | 12 |
+| Durability + rates + candidates | `src/health-registry.ts` | 12 |
+
+Two real bugs were caught by the tests themselves, both worth recording:
+
+1. **History pruning made a 24h outage unprovable.** `autoDisableCandidates` derived the failing span
+   from `history`, which is pruned to the same 24h window — so a member failing for 25 hours looked
+   like it had failed for 24 and could never cross the threshold. Fixed by tracking `failingSince`
+   explicitly and persisting it.
+2. **A guard test expectation was wrong, not the code.** Disabling one member of a two-member chain
+   where the other was already operator-disabled would empty the chain, so the guard correctly kept
+   it. The test was corrected to assert the guard's real behaviour.
+
+Classifier corrections were folded in from plan `2026-11-18-10` because they share the same evidence
+path: 404 -> `upstream_route_not_found`/`upstream_model_not_found`, empty `choices` and unparseable
+bodies -> `instant_error`, `empty_completion` as its own non-evidence type, and
+`isRetryableAgainstSameMember` so a permanent failure does not burn three attempts.
+
