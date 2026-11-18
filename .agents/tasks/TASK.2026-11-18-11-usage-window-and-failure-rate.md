@@ -81,3 +81,30 @@ If some providers do emit reliable `x-ratelimit-*` headers that the probe simply
 (because the probe failed auth first), then reset-aware backoff is easier than planned — U2.1 becomes
 the primary path rather than one of three evidence tiers. The plan is written to accommodate that
 outcome without change, since headers are already the strongest tier.
+
+## Implementation status (2026-11-18)
+
+Implemented and merged as `455f2c3` (branch `feat/usage-window-failure-rate`, worktree removed).
+
+Delivered: usage-policy reset tiers + cooldown choice, the 26-row provider usage table, auto-disable
+with the never-empty-a-chain guard, health persistence with fail-open loading, 24h failure rate,
+auto-disable candidates, and a `diagnostics()` row that reports whether a cooldown was inferred.
+Classifier corrections from plan 10 were folded in because they share the evidence path.
+
+Verified: 42 new tests across four files; merged tree 441 tests / 428 pass / 1 fail / 12 skipped,
+where the one failure reproduces identically on pre-merge `main` (`detectLocalCursorSession`, a
+pre-existing red). Two real bugs were found by the tests themselves — see plan §8.
+
+Not delivered: rate/disable surfacing in the HTTP API and `/config/fallback` UI (U3.2, U4.2 route),
+and the `tiers.ts` wire-in-or-delete decision, which is held until the UI consumes the rates.
+
+## Cross-machine verification (blocked)
+
+Windows/WSL host `192.168.1.248` is reachable (`OpenSSH_for_Windows_9.5` on :22, Ubuntu on :2222,
+ping 5-8 ms) but refuses all four local keys — no enrollment. Enrolling requires a password or a key
+path not available to this session, so it is recorded as an operator action rather than attempted.
+
+Second, independent blocker: the router listens on loopback only, so even with SSH working, the
+Windows/WSL side could not consume this router over the LAN. `LOCAL_ROUTER_BIND_ALL=true` would make
+an unauthenticated proxy reachable on the network; that is an operator security decision and was
+deliberately not taken.
