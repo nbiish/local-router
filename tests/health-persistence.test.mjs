@@ -196,3 +196,20 @@ test('auto-disable can be cleared for a re-enable', () => {
 test.after(() => {
   fs.rmSync(tmpDir, { recursive: true, force: true });
 });
+
+test('the quarantine snapshot never collides with the operator health.json', async () => {
+  // health.json is an existing snapshot (curated counts, bridges, chainHealth)
+  // written by the router on a probe interval. Sharing that filename would let
+  // quarantine state clobber it and let either reader misparse the other.
+  const { healthStatePath } = await import('../build/health-registry.js');
+  const savedPin = process.env.LOCAL_ROUTER_HEALTH_STATE;
+  delete process.env.LOCAL_ROUTER_HEALTH_STATE;
+  try {
+    const def = healthStatePath();
+    assert.notEqual(path.basename(def), 'health.json',
+      'quarantine state must not share the filename with the operator health snapshot');
+    assert.equal(path.basename(def), 'quarantine-state.json');
+  } finally {
+    if (savedPin != null) process.env.LOCAL_ROUTER_HEALTH_STATE = savedPin;
+  }
+});

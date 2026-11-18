@@ -517,13 +517,19 @@ class FallbackHealthRegistry {
   }
 }
 
-/** Where the health snapshot lives; `LOCAL_ROUTER_HEALTH_STATE` pins it (tests). */
+/** Where the quarantine snapshot lives; `LOCAL_ROUTER_HEALTH_STATE` pins it (tests).
+ *
+ * Deliberately NOT `health.json`: that file is an existing operator-facing
+ * snapshot (curated/cache counts, bridges, chainHealth) written by the router on
+ * a 15-minute probe. Writing quarantine state there would clobber it, and a
+ * later reader of either shape would misparse the other. Two writers, two files.
+ */
 export function healthStatePath(): string {
   const pinned = process.env.LOCAL_ROUTER_HEALTH_STATE;
   if (pinned) return pinned;
   const configDir = process.env.LOCAL_ROUTER_CONFIG_DIR
     || path.join(os.homedir(), '.config', 'local-router');
-  return path.join(configDir, 'health.json');
+  return path.join(configDir, 'quarantine-state.json');
 }
 
 export const healthRegistry = new FallbackHealthRegistry();
