@@ -161,6 +161,15 @@ if the answer is "keep Jev forever", which is the likely outcome.
   *decision-makers*. — `asked: resolved from code`
 - "Proper logging" as the premise is partly false for decisions: chat and embeddings are logged,
   decisions are not. Phase 1 closes that gap rather than assuming it is closed. — `asked: resolved from code`
+- **SUPERSEDED IN PART (2026-11-18, later the same day).** The operator settled the question this plan
+  was framed to answer: local-router will **not** be offline-only, it **will** carry decision-model
+  tooling for hard-to-code provider failure states, and the immediate work is failure routing plus
+  usage/failure-rate handling rather than a Cactus comparison. The live work is now
+  `2026-11-18-10-failure-classification-routing` (code-first classification) and
+  `2026-11-18-11-usage-window-and-failure-rate` (windows, persistence, auto-disable, decision-model
+  assist). This plan stays open only as the record of the Cactus evaluation; its Phase 1-2
+  (decision records + label corpus) are still prerequisites for judging ANY decision model, including
+  Jev, so they are not wasted. — `asked: operator`
 
 ## 5. Todos
 

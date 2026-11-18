@@ -159,9 +159,13 @@ flowchart TD
 - Scope is failure routing, not the broader decision-engine question — that is plan
   `2026-11-18-09-decision-engine-choice`, which this plan supersedes for the routing concern. —
   `asked: operator` ("move past that … focus on ensuring our fallback system properly routes").
-- Jev must not sit in the live routing path for this plan: routing is a threshold decision, and
-  non-negotiable 6 keeps thresholds in code. Jev's role here is limited to offline analysis of a
-  provable residue. — `asked: resolved from code`
+- **Local-router is NOT offline-only.** Superseded 2026-11-18 by the operator: "We won't be using
+  local router as an offline only system… Local router should be specifically implemented and updated
+  with decision model tooling to have our best determination on hard to configure logic for various
+  provider failure states." The earlier offline-only framing of Jev in this plan is therefore
+  withdrawn; `2026-11-18-11-usage-window-and-failure-rate` U5 carries the live-assist work. This plan
+  keeps Phase 1-3 as pure code because those four defects are decidable without a model, and defers
+  the Jev residue to that plan rather than duplicating it. — `asked: operator`
 
 ## 5. Todos
 
@@ -194,12 +198,13 @@ flowchart TD
   every failure bucketed, with the residue count.
   Verify: `.agents/audit/failure-classification-replay.json`; `upstream_http` share drops from 202/430
   to the measured residue.
-- [ ] **F4.2** If and only if the residue is material, analyse it and state whether it is separable by
+- **F4.2** If and only if the residue is material, analyse it and state whether it is separable by
   code. Quote the actual bodies. Do not propose Jev unless the residue is genuinely case-by-case.
   Verify: a written verdict in §8 naming the residue size and the decision.
-- [ ] **F4.3** If Jev is justified: an OFFLINE classifier over the residue only — a script that labels
-  ambiguous bodies for human review, never in the live routing path.
-  Verify: labelled output reviewed; no router code path calls Jev for routing.
+- [ ] **F4.3** Hand the residue to plan `2026-11-18-11` U5 (live decision-model assist for ambiguous
+  failure states), quoting the bodies and the evidence that code cannot separate them. This plan does
+  not build that path itself — see §4.
+  Verify: the residue sample is attached to that plan's U5.1 input.
 - [ ] **F5.1** Live verification on the running router: force a 404 (bad model id), a 200-empty
   (thinking-only prompt), and a mid-stream abort; read the trajectory and confirm each lands in its
   new bucket and routes to the next stage.
@@ -226,5 +231,7 @@ flowchart TD
 - **Mid-stream failover semantics.** Advancing after partial content has reached the client can
   produce a spliced answer. Proposed: only fail over when nothing has been forwarded yet; otherwise
   end the stream with an error. This is a client-visible contract choice.
-- **Jev's acceptable role.** This plan assumes offline labelling only. If the operator wants Jev in
-  the live path for ambiguity, §4 needs a new clarification and non-negotiable 6 needs reconciling.
+- **Jev's acceptable role.** Superseded 2026-11-18: the operator confirmed local-router is not
+  offline-only and should carry decision-model tooling for hard-to-code failure states. The live-assist
+  work is scoped in `2026-11-18-11` U5; non-negotiable 6 still applies, so any model output must land
+  inside a code-owned threshold and a deterministic default when the model is unavailable.
