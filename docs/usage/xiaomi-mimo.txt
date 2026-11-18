@@ -1,0 +1,17 @@
+Xiaomi MiMo — Token Plan
+Last verified: 2026-11-18 (operator statement)
+
+Class: paid (token allowance)
+Window: none
+Reset published: no
+
+Evidence
+  "I don't think there are rate limits. I think I'm just given a designated
+  token limit." — operator, 2026-11-18.
+
+Consequence in code
+  A designated token allowance that runs out is a SPEND problem, not a window to
+  wait out. So no `windowMinutes` is set: exhaustion surfaces as
+  `upstream_http_payment_required` and parks on the auth/funds schedule, which is
+  what a top-up fixes. Setting a window here would wrongly park the member for
+  hours when the real fix is a top-up.

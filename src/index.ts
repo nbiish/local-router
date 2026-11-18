@@ -222,10 +222,12 @@ function isModelTarget(value: unknown): value is ModelTarget {
 }
 
 type AttemptFailure = {
-  errorType: 'unknown_model' | 'provider_not_found' | 'provider_config' | 'upstream_http' | 'upstream_parse_error' | 'upstream_http_quota' | 'upstream_http_payment_required' | 'upstream_http_auth' | 'upstream_http_rate_limit' | 'upstream_http_unavailable' | 'upstream_http_invalid_request' | 'decision_model_requires_decisions_api' | 'embedding_dimension_mismatch' | 'proxy_runtime' | 'health_cooldown';
+  errorType: 'unknown_model' | 'provider_not_found' | 'provider_config' | 'upstream_http' | 'upstream_parse_error' | 'upstream_http_quota' | 'upstream_http_payment_required' | 'upstream_http_auth' | 'upstream_http_rate_limit' | 'upstream_http_unavailable' | 'upstream_http_invalid_request' | 'upstream_route_not_found' | 'upstream_model_not_found' | 'empty_completion' | 'mid_stream_error' | 'decision_model_requires_decisions_api' | 'embedding_dimension_mismatch' | 'proxy_runtime' | 'health_cooldown';
   providerName?: string;
   actualModel?: string;
   status?: number;
+  /** Response headers, kept for reset parsing (`Retry-After`, `x-ratelimit-reset*`). */
+  responseHeaders?: Record<string, string | undefined>;
   message: string;
   responseText?: string;
   /** For health_cooldown skips: `cooldown:<errorType>`, recorded verbatim. */
@@ -6737,6 +6739,16 @@ const AUTH_RE = /invalid[_\s-]?api[_\s-]?key|unauthorized|auth|credentials|acces
 const USAGE_LIMIT_RE = /rate[_\s-]?limit|too many requests|usage[_\s-]?limit|quota|requests per/;
 const USAGE_ERROR_RE = /api[_\s-]?usage[_\s-]?error|unknown model|context[_\s-]?length|invalid[_\s-]?request|bad[_\s-]?request|validation|does not support|maximum.*tokens/;
 const UNAVAILABLE_RE = /unavailable|maintenance|downtime|temporarily[_\s-]?unavailable|service[_\s-]?unavailable/;
+// A route or model that does not exist at the provider. Permanent: retrying it
+// as if it were transient burns stages for as long as the misconfiguration
+// lives. Measured live 2026-11-18: 93 of 202 catch-all failures were 404s whose
+// body was literally "Route POST:/v1/chat/completions not found".
+const ROUTE_NOT_FOUND_RE = /route .*not found|no route|endpoint .*not found|path .*not found|404 page/;
+// Deliberately narrow. "unknown model: foo" in a 200 body is a REQUEST error
+// (the caller asked for something wrong); "model not found" on a 404 is a
+// permanent provider-side absence. Only the latter shape qualifies here, and
+// the 404 branch below is what actually decides permanence.
+const MODEL_NOT_FOUND_RE = /model [^:]*not found|model .*does not exist|no such model|model_not_found/;
 
 export function classifyHttpFailure(status: number, bodyText: string): AttemptFailure['errorType'] {
   const lower = String(bodyText || '').toLowerCase();
@@ -6749,6 +6761,12 @@ export function classifyHttpFailure(status: number, bodyText: string): AttemptFa
   if (status === 429) return 'upstream_http_rate_limit';
   if (status >= 500 && status < 600) return 'upstream_http_unavailable';
   if (UNAVAILABLE_RE.test(lower)) return 'upstream_http_unavailable';
+  // 404 is permanent and must be named. Body evidence decides which kind; an
+  // ambiguous 404 defaults to route-not-found (still permanent, still parked).
+  if (status === 404) {
+    if (MODEL_NOT_FOUND_RE.test(lower) || /unknown model/.test(lower)) return 'upstream_model_not_found';
+    return 'upstream_route_not_found';
+  }
   // 413 is payload-too-large: a request shape problem, not a rate limit.
   if (status === 400 || status === 413 || status === 422) return 'upstream_http_invalid_request';
   if (USAGE_LIMIT_RE.test(lower)) return 'upstream_http_quota';
@@ -6768,7 +6786,33 @@ export function normalizeHttpFailure(error: AttemptFailure): AttemptFailure {
 }
 
 export function isClassifiedFailoverError(errorType: string): boolean {
-  return errorType === 'upstream_http_quota' || errorType === 'upstream_http_payment_required' || errorType === 'upstream_http_rate_limit' || errorType === 'upstream_http_unavailable' || errorType === 'upstream_http_invalid_request';
+  return errorType === 'upstream_http_quota'
+    || errorType === 'upstream_http_payment_required'
+    || errorType === 'upstream_http_rate_limit'
+    || errorType === 'upstream_http_unavailable'
+    || errorType === 'upstream_http_invalid_request'
+    // Permanent classes still fail over — they just do not retry the same stage.
+    || errorType === 'upstream_route_not_found'
+    || errorType === 'upstream_model_not_found'
+    || errorType === 'empty_completion'
+    || errorType === 'mid_stream_error';
+}
+
+/**
+ * Does this failure deserve another attempt against the SAME member?
+ *
+ * A 404 route/model and an empty completion will not change on retry, so
+ * retrying them three times per stage is pure waste — measured 2026-11-18,
+ * 93 stage attempts were spent on 404s that could never answer.
+ */
+export function isRetryableAgainstSameMember(errorType: string): boolean {
+  if (errorType === 'upstream_route_not_found') return false;
+  if (errorType === 'upstream_model_not_found') return false;
+  if (errorType === 'unknown_model') return false;
+  if (errorType === 'provider_not_found') return false;
+  if (errorType === 'provider_config') return false;
+  if (errorType === 'upstream_http_invalid_request') return false;
+  return true;
 }
 
 export type ContentClassification = 'generated' | 'streaming' | 'instant_error';
@@ -6806,7 +6850,10 @@ export function classifyResponseContent(
   try {
     const parsed = JSON.parse(responseBody);
     if (parsed?.error) return 'instant_error';
-    if (!Array.isArray(parsed?.choices) || parsed.choices.length === 0) return 'generated';
+    // A body with no choices array is NOT an answer. This used to return
+    // 'generated', which accepted `{"id":"x"}`, `{"choices":[]}`, and any
+    // provider status page served with 200 as a successful completion.
+    if (!Array.isArray(parsed?.choices) || parsed.choices.length === 0) return 'instant_error';
 
     // A 200 whose only choice carries no answer is a failed turn, not a success.
     // `reasoning` text alone does not count: every thinking harness renders it
@@ -6829,7 +6876,10 @@ export function classifyResponseContent(
 
     return 'generated';
   } catch {
-    // not valid JSON — likely streaming SSE fragments
+    // Not valid JSON. For a non-streaming JSON response this is a provider error
+    // page or truncated body — a failed turn, not an answer. Treating it as
+    // 'generated' let an HTML 502 page through as a valid completion.
+    return 'instant_error';
   }
 
   return 'generated';
@@ -6839,17 +6889,65 @@ export function isContentFailoverTrigger(classification: ContentClassification):
   return classification === 'instant_error';
 }
 
-function classifyStreamChunkAsError(chunk: string): boolean {
+/**
+ * True when a 200 body parsed as a completion but carried nothing usable.
+ *
+ * This is the `empty_completion` distinction: the provider worked (it answered,
+ * parsed, and was authenticated), the model just produced no content and no
+ * tool calls. Booking that as provider ill-health would quarantine a healthy
+ * provider because of a prompt/model-budget mismatch.
+ */
+export function isNoUsableContent(responseBody: string, httpStatus: number): boolean {
+  if (httpStatus >= 400) return false;
+  let parsed: any;
+  try {
+    parsed = JSON.parse(responseBody);
+  } catch {
+    // Unparseable body: that IS a provider fault, not an empty completion.
+    return false;
+  }
+  if (parsed?.error) return false;
+  const choice = parsed?.choices?.[0];
+  if (!choice) return false;
+  const message = choice.message || {};
+  const content = message.content;
+  const hasContent = typeof content === 'string'
+    ? content.trim().length > 0
+    : (Array.isArray(content) && content.some((part: any) => (
+        part && typeof part === 'object' && typeof part.text === 'string' && part.text.trim().length > 0
+      )));
+  const hasToolCalls = Array.isArray(message.tool_calls) && message.tool_calls.length > 0;
+  return !hasContent && !hasToolCalls;
+}
+
+/**
+ * Does an SSE frame report a provider error?
+ *
+ * This existed but was never called (measured 2026-11-18: defined at one site,
+ * referenced at none), so a stream that started fine and then emitted an error
+ * event was forwarded to the client instead of failing over. It is now wired
+ * into the streaming path.
+ */
+export function isStreamErrorFrame(chunk: string): boolean {
   if (!chunk) return false;
   try {
     const data = chunk.replace(/^data:\s*/, '').trim();
     if (data === '[DONE]') return false;
     const parsed = JSON.parse(data);
     if (parsed?.error) return true;
+    // Some upstreams report the failure inside the choice instead of at the root.
+    const choice = parsed?.choices?.[0];
+    if (choice?.error) return true;
+    if (typeof choice?.finish_reason === 'string' && /error/.test(choice.finish_reason)) return true;
   } catch {
-    // not JSON — likely content delta
+    // not JSON — likely a content delta
   }
   return false;
+}
+
+/** Retained name for the previous internal helper. */
+function classifyStreamChunkAsError(chunk: string): boolean {
+  return isStreamErrorFrame(chunk);
 }
 
 export function buildFailoverPreservedBody(body: any, preservedModel: string): any {
@@ -7512,13 +7610,21 @@ async function proxyModelAttempt(
 
     if (!response.ok) {
       const responseText = await response.text();
+      // Capture the reset headers before the body is consumed — they are the
+      // strongest evidence for how long this member should be parked.
+      const responseHeaders: Record<string, string | undefined> = {};
+      for (const name of ['retry-after', 'x-ratelimit-reset', 'x-ratelimit-reset-requests', 'x-ratelimit-reset-tokens']) {
+        const value = response.headers.get(name);
+        if (value) responseHeaders[name] = value;
+      }
       const rawError: AttemptFailure = {
         errorType: 'upstream_http',
         providerName: target.providerName,
         actualModel: target.actualModel,
         status: response.status,
         message: `Provider error (${response.status})`,
-        responseText
+        responseText,
+        ...(Object.keys(responseHeaders).length > 0 ? { responseHeaders } : {})
       };
       return { ok: false, error: normalizeHttpFailure(rawError) };
     }
@@ -7534,12 +7640,19 @@ async function proxyModelAttempt(
         const responseBodyText = await responseClone.text();
         const contentClass = classifyResponseContent(responseBodyText, false, response.status);
         if (isContentFailoverTrigger(contentClass)) {
+          // Distinguish "the provider is broken" from "this model answered
+          // nothing". A 200 carrying an error payload or an empty completion is
+          // the latter: it is a prompt/model outcome, so it must route on but
+          // must NOT quarantine a healthy provider.
+          const emptyCompletion = isNoUsableContent(responseBodyText, response.status);
           const bodyError: AttemptFailure = {
-            errorType: 'upstream_http',
+            errorType: emptyCompletion ? 'empty_completion' : 'upstream_http',
             providerName: target.providerName,
             actualModel: target.actualModel,
             status: response.status,
-            message: `Provider returned error in 200 response body`,
+            message: emptyCompletion
+              ? 'Provider returned 200 with no usable content or tool calls'
+              : 'Provider returned error in 200 response body',
             responseText: responseBodyText
           };
           return { ok: false, error: normalizeHttpFailure(bodyError) };
@@ -7936,8 +8049,25 @@ async function proxyEmbeddingAttempt(
 // in the same request (T3's goal is "not re-entered mid-request"). The
 // trajectory log stays purely observational; quarantine is derived eagerly
 // from the same evidence, one outcome per executed stage.
-function recordStageOutcome(chainId: string | null, model: string, outcome: 'answered' | 'failed', errorType?: string | null): void {
-  healthRegistry.recordOutcome({ chainId, model, outcome, errorType: errorType ?? null });
+function recordStageOutcome(
+  chainId: string | null,
+  model: string,
+  outcome: 'answered' | 'failed',
+  errorType?: string | null,
+  evidence?: { provider?: string | null; headers?: Record<string, string | undefined>; bodyText?: string }
+): void {
+  healthRegistry.recordOutcome({
+    chainId,
+    model,
+    outcome,
+    errorType: errorType ?? null,
+    ...(evidence?.provider ? { provider: evidence.provider } : {}),
+    ...(evidence?.headers ? { headers: evidence.headers } : {}),
+    ...(evidence?.bodyText ? { bodyText: evidence.bodyText } : {})
+  });
+  // Persist after every state change: a restart is the one moment the quarantine
+  // memory would otherwise evaporate, and the write is a small JSON snapshot.
+  healthRegistry.save();
 }
 
 async function handleEmbeddingRequest(req: Request, res: Response) {
@@ -8100,7 +8230,11 @@ async function handleEmbeddingRequest(req: Request, res: Response) {
       });
       return res.send(Buffer.from(await result.value.response.arrayBuffer()));
     }
-    recordStageOutcome(fallbackRoute ? fallbackRoute.id : null, stage.model, 'failed', result.error.errorType);
+    recordStageOutcome(fallbackRoute ? fallbackRoute.id : null, stage.model, 'failed', result.error.errorType, {
+      provider: result.error.providerName,
+      headers: result.error.responseHeaders,
+      bodyText: result.error.responseText
+    });
     attempts.push({
       stage: 'stage' in stage ? stage.stage : 'direct',
       targetModel: stage.model,
@@ -8567,7 +8701,11 @@ async function executeFallbackRoute(
       }
 
       lastFailure = result.error;
-      recordStageOutcome(fallbackRoute.id, stage.model, 'failed', result.error.errorType);
+      recordStageOutcome(fallbackRoute.id, stage.model, 'failed', result.error.errorType, {
+        provider: result.error.providerName,
+        headers: result.error.responseHeaders,
+        bodyText: result.error.responseText
+      });
       const entry: Record<string, unknown> = {
         fallbackRoute: fallbackRoute.id,
         stage: stage.stage,
@@ -8689,7 +8827,11 @@ async function executeFallbackRoute(
     }
 
     lastFailure = result.error;
-    recordStageOutcome(fallbackRoute.id, member.model, 'failed', result.error.errorType);
+    recordStageOutcome(fallbackRoute.id, member.model, 'failed', result.error.errorType, {
+      provider: result.error.providerName,
+      headers: result.error.responseHeaders,
+      bodyText: result.error.responseText
+    });
     attemptLog.push({
       fallbackRoute: fallbackRoute.id,
       stage: forcedStage,
@@ -9818,6 +9960,10 @@ const bindHost = process.env.LOCAL_ROUTER_BIND_ALL === 'true' ? '0.0.0.0' : '127
 const server = shouldServe ? app.listen(PORT, bindHost, () => {
   console.log(`Local Router OpenAI-compatible proxy running on http://localhost:${PORT}`);
   console.log(`[Security] Bound to ${bindHost}${bindHost === '127.0.0.1' ? ' (loopback only — set LOCAL_ROUTER_BIND_ALL=true for all interfaces)' : ' (all interfaces)'}`);
+  // Restore quarantine/health memory before any request is served, so the first
+  // request after a restart does not re-walk members that were known dead.
+  // Fails open: a missing or corrupt file starts clean with a warning.
+  healthRegistry.load();
   console.log(`Point your VS Code extension to: http://localhost:${PORT}/v1`);
   if (isDevMode) {
     console.log(`[DEV] Hot reload enabled — file changes will restart the server automatically.`);

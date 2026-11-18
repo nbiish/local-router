@@ -1,0 +1,18 @@
+Z.AI / Zhipu GLM Coding Plan — Usage Window
+Last verified: 2026-11-18 (operator statement)
+
+Class: subscription (the operator's ONLY subscription)
+Window: ~5 hours rolling ("five-hour cool times" — operator)
+Reset published: no
+
+Evidence
+  The plan meters over a rolling window rather than per-request burst limits.
+  A spent window is not a transient fault: retrying in five minutes wastes every
+  stage that touches this member for the remainder of the window. Measured
+  consequence in code: `decideCooldown` parks a window-exhaustion signature for
+  `windowMinutes`, and only a published header can override that.
+
+Open question
+  The exact reset schedule is operator-visible, not a public contract, and
+  changes between plan tiers. It is recorded as ~5h per the operator; if the plan
+  changes, update this file and `windowMinutes` together.

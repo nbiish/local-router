@@ -1,0 +1,14 @@
+Local backends — Ollama, Unsloth, llama.cpp
+Last verified: 2026-11-18 (operator statement)
+
+Class: local
+Window: none
+Reset published: n/a
+
+Doctrine
+  Local-router is NOT an offline-only system; it is the single configuration
+  source for the operator's online providers. Local backends stay registered so
+  online and local usage can be combined in one chain — a local failure is a
+  process/port problem, not a budget one, so a local member is never parked for
+  a usage reason. Operator-configures these directly; this repo does not manage
+  their lifecycle.
