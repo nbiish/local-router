@@ -172,6 +172,11 @@ audit.log.*
 # measured against (Phase 0 of docs/rag-context-system-plan.md). It holds no secrets or vectors.
 !.agents/rag/bench-baseline.json
 
+# ainish-rag context-harness generation output — written fresh by every `--context` call
+# (prime-profile.json, EXPERIENCE.md, work/<timestamp>/). It is engine state, not a source
+# artifact: tracking it would dirty the worktree on every retrieval and bury real changes.
+.agents/context-harness/
+
 # Rules auto-sync runtime artifacts (manifest and sync script ARE committed)
 .agents/ainish-sync.log
 .agents/.rules-sync.lock/
