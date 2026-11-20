@@ -14,6 +14,7 @@
     "validate:cline-kilo": "node scripts/validate-cline-kilo-catalog.mjs",
     "verify:plans": "node scripts/plans-doctor.mjs",
     "verify:decisions": "node scripts/verify-decisions.mjs",
+    "verify:providers": "node scripts/verify-provider-endpoints.mjs",
     "verify:dials": "sh -c 'test -n \"$LOCAL_ROUTER_TEST_URL\" || { echo \"set LOCAL_ROUTER_TEST_URL to the router you want to verify\"; exit 1; }; node --test tests/reasoning-dial-advertisement.test.mjs tests/reasoning-ollama-wire.test.mjs'",
     "verify:wires": "sh -c 'test -n \"$LOCAL_ROUTER_TEST_URL\" || { echo \"set LOCAL_ROUTER_TEST_URL to the router you want to verify\"; exit 1; }; node --test tests/reasoning-client-wires.test.mjs'",
     "review:build": "node scripts/review-site/generate.mjs",

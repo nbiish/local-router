@@ -351,7 +351,12 @@ const UPSTREAM_MODEL_ID_ALIASES: Record<string, string> = {
   'nebius/zai-org/GLM-5.1': 'zai-code-pass-glm-5.1',
   'modal/zai-org/GLM-5.1-FP8': 'modal-glm-5.1-fp8',
   'nvidia-nim/stepfun-ai/step-3.7-flash': 'nvidia-nim-step-3.7-flash',
-  'nebius/deepseek-ai/DeepSeek-V4-Pro': 'nebius-deepseek-v4-pro',
+  // Nebius retired the bare `DeepSeek-V4-Pro` id (404, measured 2026-11-20) in
+  // favour of the dated `-0813` snapshot. The legacy key stays so a persisted
+  // chain written before the rename still resolves; the new key covers chains
+  // written against the dated id.
+  'nebius/deepseek-ai/DeepSeek-V4-Pro': 'nebius-deepseek-v4-pro-0813',
+  'nebius/deepseek-ai/DeepSeek-V4-Pro-0813': 'nebius-deepseek-v4-pro-0813',
   'opencode/deepseek-v4-pro': 'opencode-go-deepseek-v4-pro',
   'opencode-go/deepseek-v4-pro': 'opencode-go-deepseek-v4-pro',
   'opencode/minimax-m3': 'opencode-go-minimax-m3',

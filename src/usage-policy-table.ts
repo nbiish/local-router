@@ -53,6 +53,7 @@ export const PROVIDER_USAGE_POLICIES: Record<string, UsagePolicy> = {
   'wafer-serverless': { class: 'paid', resetPublished: false, note: 'pay-as-you-go pass.wafer.ai' },
   zenmux: { class: 'paid', resetPublished: false, note: 'metered reseller' },
   nebius: { class: 'paid', resetPublished: false, note: 'metered inference' },
+  'nebius-us-north1': { class: 'paid', resetPublished: false, note: 'metered inference; region-pinned Token Factory gateway sharing the global Nebius credential' },
   moonshot: { class: 'paid', resetPublished: false, note: 'metered inference' },
   fastino: { class: 'paid', resetPublished: false, note: 'metered inference (replaced pioneer)' },
   'nous-portal': { class: 'paid', resetPublished: false, note: 'metered portal' },

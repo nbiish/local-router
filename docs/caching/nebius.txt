@@ -1,13 +1,17 @@
 Nebius Token Factory (api.tokenfactory.nebius.com) — Prompt Caching
-Last verified: 2026-08-23
+Last verified: 2026-11-20
 
 Overview
   Nebius Token Factory serves open models (Llama, DeepSeek, Qwen, gpt-oss,
-  GLM, etc.) behind an OpenAI-compatible API at
+  GLM, MiniMax, Kimi, etc.) behind an OpenAI-compatible API at
   https://api.tokenfactory.nebius.com/v1/ (base and "-fast" model flavors).
   Caching is server-side and automatic: the official inference overview lists
   "KV Cache" and "Context Caching" among its always-on inference
   optimizations, and the API exposes OpenAI-style cache reporting.
+
+  The global host and the region-pinned hosts (see
+  docs/caching/nebius-us-north1.txt) are the same engine: the region is a
+  routing boundary, not a different caching implementation.
 
 Mechanism
   Automatic prefix/context caching (no cache_control API, no explicit
@@ -37,6 +41,37 @@ Pricing
   bills input/output tokens per 1M per model flavor. Documented value is
   latency/TTFT improvement from KV/context cache reuse; cached_tokens appear
   in usage for observability but have no published price as of this writing.
+
+Reasoning dialect (measured 2026-11-20)
+  Reasoning is controlled by `reasoning_effort`. `enable_thinking` is INERT on
+  this wire — not "unsupported with an error", silently ignored:
+
+  - On zai-org/GLM-5.3-Flash, `enable_thinking:false` returned a completion
+    byte-identical to the no-parameter baseline: 1225 reasoning tokens, 1547
+    completion tokens, 3299-char reasoning_content, 764-char content. The
+    field changed nothing.
+  - On the same model, `reasoning_effort` demonstrably moves thinking:
+    low -> 168 reasoning tokens, medium -> 1653, high -> 296 (non-monotonic,
+    but every level diverges from baseline and from each other).
+  - moonshotai/Kimi-K3.1-Pro and MiniMaxAI/MiniMax-M3.1-Flash both billed
+    exactly 0 reasoning tokens at `reasoning_effort:none` (3/3 runs each),
+    against 55-64 and 47-51 at baseline.
+  - The accepted enum is the full six-value set
+    'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh'; any other value
+    returns HTTP 422 naming that enum, and `xhigh` itself returns 200.
+
+  This is a PROVIDER-level fact, so it applies to every family Nebius hosts
+  (GLM, Kimi, MiniMax, DeepSeek alike), which is why src/provider-policy.ts
+  sets `providerDeclaresDialect: true` on both Nebius rows: the generic
+  glm/kimi/minimax family overrides would otherwise translate those families
+  onto `enable_thinking` and silently drop the caller's requested level.
+
+Catalog (measured 2026-11-20)
+  GET /v1/models returns 24 ids on this host. The listing alone is not proof
+  of serviceability: `deepseek-ai/DeepSeek-V4-Pro` is absent and answers 404,
+  while the dated `deepseek-ai/DeepSeek-V4-Pro-0813` is the live id. Model id
+  casing is load-bearing — `nvidia/Nemotron-3-Ultra-550b-a55b` (lowercase b)
+  answers 200 and `...-550B-A55B` answers 404.
 
 Maxing recipe
   1. Keep prompt prefixes byte-stable; group traffic by task so long shared

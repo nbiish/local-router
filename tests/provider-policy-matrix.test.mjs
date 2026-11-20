@@ -606,3 +606,61 @@ test('a provider with no dial never claims a reasoning family', () => {
       `${provider}/${model} has no request dial and must not match a family`);
   }
 });
+
+test('a provider that declares its own dialect is not overridden by a family', () => {
+  // Measured on Nebius 2026-11-20: `enable_thinking` is inert on that wire — on
+  // GLM-5.3-Flash it returned a completion byte-identical to the no-parameter
+  // baseline (1225 reasoning tokens both times) — while `reasoning_effort` moved
+  // 168 / 1653 / 296 reasoning tokens for low / medium / high. Kimi-K3.1-Pro and
+  // MiniMax-M3.1-Flash billed 0 reasoning tokens at `none` (3/3 runs).
+  //
+  // The glm/kimi/minimax family overrides exist because those families take
+  // enable_thinking on OTHER gateways. On Nebius they put the request back on a
+  // field the provider does not read, so the level silently stopped working
+  // while every other test in this repository still passed. The provider row is
+  // the authority for the request field; this pins that precedence.
+  const nebiusHosts = ['nebius', 'nebius-us-north1'];
+  const hostedFamilies = [
+    'zai-org/GLM-5.3',
+    'zai-org/GLM-5.3-Flash',
+    'moonshotai/Kimi-K3.1-Pro',
+    'MiniMaxAI/MiniMax-M3.1-Flash',
+    'deepseek-ai/DeepSeek-V4.1-Flash-1017'
+  ];
+  const failures = [];
+  for (const provider of nebiusHosts) {
+    for (const model of hostedFamilies) {
+      const policy = resolveReasoningPolicy(provider, model);
+      if (policy.dialect !== 'openai-effort') {
+        failures.push(`${provider}/${model}: dialect ${policy.dialect}, expected openai-effort`);
+      }
+      for (const level of ['none', 'minimal', 'low', 'medium', 'high', 'xhigh']) {
+        if (!policy.levels.includes(level)) {
+          failures.push(`${provider}/${model}: level ${level} not advertised`);
+        }
+      }
+    }
+  }
+  assert.deepEqual(failures, []);
+
+  // The same families on a gateway that genuinely reads enable_thinking must be
+  // untouched by this precedence rule — it is a provider fact, not a global one.
+  for (const provider of ['zenmux', 'openrouter', 'zai']) {
+    const policy = resolveReasoningPolicy(provider, 'zai-org/GLM-5.3');
+    assert.notEqual(policy.dialect, 'openai-effort',
+      `${provider} must keep its own dialect; Nebius precedence must not leak`);
+  }
+});
+
+test('the Nebius rows advertise exactly the levels the wire accepts', () => {
+  // The upstream enumerates 'none' | 'minimal' | 'low' | 'medium' | 'high' |
+  // 'xhigh' in its own 422 message and returns 200 for `xhigh`. Advertising a
+  // narrower set would clamp a level the provider can honour; advertising a
+  // wider one would 422.
+  for (const provider of ['nebius', 'nebius-us-north1']) {
+    const policy = resolveReasoningPolicy(provider);
+    assert.deepEqual(policy.levels, ['none', 'minimal', 'low', 'medium', 'high', 'xhigh'],
+      `${provider}: level ladder must match the measured enum`);
+    assert.equal(policy.acceptsXhigh, true, `${provider}: xhigh was measured to return 200`);
+  }
+});

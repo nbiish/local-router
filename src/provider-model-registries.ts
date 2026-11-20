@@ -572,15 +572,22 @@ export const PROVIDER_MODEL_REGISTRY: Record<string, RegistryModelEntry[]> = {
     { id: 'poolside/laguna-xs.2:free', tier: 'paid', note: 'Chat-proven; id may have been renamed upstream' },
   ],
   'modal': [
-    { id: 'moonshotai/Kimi-K3', contextLength: 1048576, outputTokens: 131072, supportsTools: true, tier: 'paid', note: 'Shared endpoint' },
-    { id: 'thinkingmachines/Inkling-NVFP4', contextLength: 1048576, outputTokens: 262144, tier: 'paid', note: 'Shared endpoint' },
-    { id: 'zai-org/GLM-5.1-FP8', contextLength: 200000, outputTokens: 128000, supportsTools: true, tier: 'paid', note: 'Chat-proven; ~$0.5/$1 per 1M' },
+    // Shared-endpoint rows. The host moved to the inference gateway
+    // (api.us-west-2.modal.direct answers 404 route not found, measured
+    // 2026-11-20). These rows are NOT re-verified against the new host: a
+    // `wk-` proxy token is rejected there (401 invalid proxy auth
+    // credentials) and the `ak-`/`as-` API token that this provider expects
+    // is not in the vault, so the served set is unconfirmed.
+    { id: 'moonshotai/Kimi-K3', contextLength: 262144, outputTokens: 262144, supportsTools: true, tier: 'paid', note: 'Shared endpoint; unverified 2026-11-20 (host moved to inference gateway, no valid token to list)' },
+    { id: 'thinkingmachines/Inkling-NVFP4', contextLength: 1048576, outputTokens: 262144, tier: 'paid', note: 'Shared endpoint; unverified 2026-11-20 (host moved to inference gateway, no valid token to list)' },
+    { id: 'zai-org/GLM-5.1-FP8', contextLength: 200000, outputTokens: 128000, supportsTools: true, tier: 'paid', note: 'Chat-proven; ~$0.5/$1 per 1M; unverified 2026-11-20 (host moved to inference gateway)' },
   ],
   'modal-proxy': [
-    { id: 'zai-org/GLM-5.3-Flash', contextLength: 1048576, outputTokens: 131072, supportsTools: true, tier: 'paid', note: 'Nbiish GLM-5.3-Flash own deployment' },
-    { id: 'GLM-5.3-Flash', contextLength: 1048576, outputTokens: 131072, supportsTools: true, tier: 'paid', note: 'Nbiish GLM-5.3-Flash own deployment' },
-    { id: 'glm-5.3-flash', contextLength: 1048576, outputTokens: 131072, supportsTools: true, tier: 'paid', note: 'Nbiish GLM-5.3-Flash own deployment' },
-    { id: 'moonshotai/Kimi-K3', contextLength: 1048576, outputTokens: 131072, supportsTools: true, tier: 'paid', note: 'Nbiish Kimi-K3 own deployment' },
+    // One own deployment, one model. The Modal docs' endpoint-integration
+    // pattern also accepts the Endpoint hostname as the `model` value, so both
+    // spellings are registered; the proxy token pair is the only credential.
+    { id: 'deepseek-ai/DeepSeek-V4.1-Flash-1017', contextLength: 1048576, outputTokens: 384000, supportsTools: true, supportsImages: true, supportsReasoning: true, tier: 'paid', note: 'Nbiish DeepSeek-V4.1-Flash-1017 own deployment (compute-billed) — id taken from the operator-verified request body 2026-11-20' },
+    { id: 'nbiish--ep-deepseek-v4-1-flash-1017-server.us-west.modal.direct', contextLength: 1048576, outputTokens: 384000, supportsTools: true, supportsImages: true, supportsReasoning: true, tier: 'paid', note: 'Same deployment addressed by Endpoint hostname (modal.com/docs/guide/endpoint-integrations)' },
   ],
   'moonshot': [
     { id: 'kimi-k3', contextLength: 1048576, outputTokens: 131072, supportsTools: true, supportsImages: true, tier: 'paid', note: '$0.30 cache-hit / $3 cache-miss / $15 out per 1M' },
@@ -596,35 +603,50 @@ export const PROVIDER_MODEL_REGISTRY: Record<string, RegistryModelEntry[]> = {
     { id: 'moonshot-v1-128k-vision-preview', contextLength: 131072, supportsImages: true, tier: 'paid', note: 'Sunset 2026-08-31' },
   ],
   'nebius': [
-    { id: 'deepseek-ai/DeepSeek-V4-Pro', contextLength: 1000000, outputTokens: 384000, supportsTools: true, tier: 'paid' },
-    { id: 'deepseek-ai/DeepSeek-V4-Flash-0731', contextLength: 1048576, outputTokens: 384000, supportsTools: true, tier: 'paid', note: 'Replaces DeepSeek-V4-Flash (2026-08-31)' },
-    { id: 'deepseek-ai/DeepSeek-V4.1-Flash', contextLength: 1048576, outputTokens: 384000, supportsTools: true, tier: 'paid', note: 'Same limits as DeepSeek-V4.1-Flash elsewhere (2026-10-29)' },
+    // Reconciled 2026-11-20 against the live GET /v1/models on
+    // api.tokenfactory.nebius.com (24 rows). Every id below was confirmed by a
+    // chat completion, not merely by appearing in the listing: the listing has
+    // advertised ids that answer 404 before (bare `DeepSeek-V4-Pro`).
+    { id: 'deepseek-ai/DeepSeek-V4-Pro-0813', contextLength: 1000000, outputTokens: 384000, supportsTools: true, tier: 'paid', note: 'Live id 2026-11-20; the bare `DeepSeek-V4-Pro` alias is retired (404)' },
+    { id: 'deepseek-ai/DeepSeek-V4.1-Flash-1017', contextLength: 1048576, outputTokens: 384000, supportsTools: true, supportsImages: true, supportsReasoning: true, tier: 'paid', note: 'Live id 2026-11-20 (October 17 2026 snapshot of V4.1-Flash); reasoning_effort honoured' },
     { id: 'zai-org/GLM-5.3', contextLength: 1048576, outputTokens: 131072, supportsTools: true, tier: 'paid' },
     { id: 'zai-org/GLM-5.3-Flash', contextLength: 1048576, outputTokens: 131072, supportsTools: true, supportsImages: true, tier: 'paid' },
-    { id: 'moonshotai/Kimi-K3', contextLength: 1048576, outputTokens: 8000, supportsTools: true, tier: 'paid' },
-    { id: 'moonshotai/Kimi-K2.7-Code', contextLength: 262144, outputTokens: 8000, supportsTools: true, tier: 'paid' },
-    { id: 'MiniMaxAI/MiniMax-M3', contextLength: 1048576, outputTokens: 1048576, supportsTools: true, tier: 'paid' },
     { id: 'zai-org/GLM-5.2', contextLength: 432000, outputTokens: 432000, supportsTools: true, tier: 'paid' },
-    { id: 'Qwen/Qwen3.5-397B-A17B', contextLength: 262144, outputTokens: 8000, supportsTools: true, tier: 'paid' },
+    { id: 'moonshotai/Kimi-K3.1-Pro', contextLength: 1048576, supportsTools: true, supportsImages: true, supportsReasoning: true, tier: 'paid', note: 'Live 2026-11-20; multimodal successor to Kimi-K3' },
+    { id: 'moonshotai/Kimi-K3', contextLength: 262144, outputTokens: 262144, supportsTools: true, tier: 'paid' },
+    { id: 'MiniMaxAI/MiniMax-M3.1-Flash', contextLength: 1048576, supportsTools: true, supportsReasoning: true, tier: 'paid', note: 'Live 2026-11-20' },
+    { id: 'MiniMaxAI/MiniMax-M3', contextLength: 1048576, outputTokens: 512000, supportsTools: true, tier: 'paid' },
+    { id: 'nvidia/Nemotron-3-Ultra-550b-a55b', contextLength: 1048576, outputTokens: 65536, supportsTools: true, tier: 'paid', note: 'Live casing is lowercase `b` in `550b`; the `550B` spelling answers 404' },
+    { id: 'nvidia/Nemotron-3.5-Super-VL', contextLength: 1048576, supportsTools: true, supportsImages: true, supportsReasoning: true, tier: 'paid', note: 'Live 2026-11-20; vision-language' },
+    { id: 'nvidia/Nemotron-3_5-Lightning', contextLength: 262144, supportsTools: true, tier: 'paid', note: 'Live 2026-11-20; NOT served by the us-north1 region' },
+    { id: 'nvidia/nemotron-3-super-120b-a12b', contextLength: 256000, outputTokens: 32768, supportsTools: true, tier: 'paid' },
+    { id: 'nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B', contextLength: 262144, supportsTools: true, tier: 'paid', note: 'Live 2026-11-20' },
+    { id: 'meta-models/muse-spark-open', contextLength: 1048576, supportsTools: true, supportsReasoning: true, tier: 'paid', note: 'Live 2026-11-20' },
+    { id: 'reflection/beam', contextLength: 1048576, supportsTools: true, supportsReasoning: true, tier: 'paid', note: 'Live 2026-11-20 (Beam 1.0)' },
+    { id: 'thinkingmachines/Inkling-2-Small', contextLength: 1048576, supportsTools: true, tier: 'paid', note: 'Live 2026-11-20' },
+    { id: 'Qwen/Qwen3.8-27B', contextLength: 1048576, supportsTools: true, tier: 'paid', note: 'Live 2026-11-20' },
     { id: 'Qwen/Qwen3-235B-A22B-Instruct-2507', contextLength: 262144, outputTokens: 8192, supportsTools: true, tier: 'paid' },
     { id: 'Qwen/Qwen3-30B-A3B-Instruct-2507', contextLength: 128000, outputTokens: 8192, supportsTools: true, tier: 'paid' },
     { id: 'Qwen/Qwen3-Embedding-8B', contextLength: 32768, tier: 'paid', note: 'embedding' },
-    { id: 'nvidia/nemotron-3-super-120b-a12b', contextLength: 256000, outputTokens: 32768, supportsTools: true, tier: 'paid' },
-    { id: 'nvidia/Nemotron-3-Ultra-550B-A55B', contextLength: 256000, outputTokens: 65536, supportsTools: true, tier: 'paid' },
-    { id: 'nvidia/Nemotron-3_5-Lightning', tier: 'paid', note: 'Replacement for several Aug-31 removals' },
-    { id: 'openai/gpt-oss-120b', contextLength: 128000, outputTokens: 8192, supportsTools: true, tier: 'paid' },
     { id: 'NousResearch/Hermes-4-405B', contextLength: 128000, outputTokens: 8192, supportsTools: true, tier: 'paid' },
+    { id: 'openai/gpt-oss-120b', contextLength: 128000, outputTokens: 8192, supportsTools: true, tier: 'paid' },
     { id: 'google/gemma-3-27b-it', contextLength: 110000, outputTokens: 8192, supportsTools: true, tier: 'paid' },
-    { id: 'deepseek-ai/DeepSeek-V4-Flash', contextLength: 1000000, outputTokens: 384000, supportsTools: true, tier: 'paid', note: 'Deprecating 2026-08-31' },
-    { id: 'meta-llama/Llama-3.3-70B-Instruct', contextLength: 128000, outputTokens: 4096, supportsTools: true, tier: 'paid', note: 'Deprecating 2026-08-31' },
-    { id: 'MiniMaxAI/MiniMax-M2.5', contextLength: 204800, supportsTools: true, tier: 'paid', note: 'Deprecating 2026-08-31' },
-    { id: 'NousResearch/Hermes-4-70B', contextLength: 128000, supportsTools: true, tier: 'paid', note: 'Deprecating 2026-08-31' },
-    { id: 'nvidia/Llama-3_1-Nemotron-Ultra-253B-v1', contextLength: 128000, outputTokens: 16384, supportsTools: true, tier: 'paid', note: 'Deprecating 2026-08-31' },
-    { id: 'nvidia/Nemotron-3-Nano-Omni', contextLength: 262144, supportsTools: true, supportsImages: true, tier: 'paid', note: 'Omni-modal; deprecating 2026-08-31' },
-    { id: 'Qwen/Qwen2.5-VL-72B-Instruct', supportsImages: true, tier: 'paid', note: 'Deprecating 2026-08-31' },
-    { id: 'Qwen/Qwen3-32B', tier: 'paid', note: 'Deprecating 2026-08-31' },
-    { id: 'Qwen/Qwen3-Next-80B-A3B-Thinking', tier: 'paid', note: 'Deprecating 2026-08-31' },
-    { id: 'nvidia/Cosmos3-Super-Reasoner', contextLength: 262144, outputTokens: 65536, supportsTools: true, tier: 'paid', note: 'Chat-proven' },
+  ],
+  'nebius-us-north1': [
+    // The region-pinned gateway serves a SUBSET of the global catalog: 8 of 24
+    // (measured 2026-11-20 by diffing both live /v1/models listings), and every
+    // one of the 8 is also on the global host. Each id here was confirmed by a
+    // chat completion on THIS host. Notably absent: the whole Qwen family,
+    // Nemotron-3_5-Lightning, gpt-oss, Gemma, Hermes, MiniMax-M3 and Kimi-K3
+    // (only the K3.1-Pro successor is served).
+    { id: 'deepseek-ai/DeepSeek-V4.1-Flash-1017', contextLength: 1048576, outputTokens: 384000, supportsTools: true, supportsImages: true, supportsReasoning: true, tier: 'paid', note: 'Verified 200 on us-north1 2026-11-20' },
+    { id: 'zai-org/GLM-5.3', contextLength: 1048576, outputTokens: 131072, supportsTools: true, tier: 'paid', note: 'Verified 200 on us-north1 2026-11-20' },
+    { id: 'zai-org/GLM-5.3-Flash', contextLength: 1048576, outputTokens: 131072, supportsTools: true, supportsImages: true, tier: 'paid', note: 'Verified 200 on us-north1 2026-11-20' },
+    { id: 'moonshotai/Kimi-K3.1-Pro', contextLength: 1048576, supportsTools: true, supportsImages: true, supportsReasoning: true, tier: 'paid', note: 'Verified 200 on us-north1 2026-11-20' },
+    { id: 'MiniMaxAI/MiniMax-M3.1-Flash', contextLength: 1048576, supportsTools: true, supportsReasoning: true, tier: 'paid', note: 'Verified 200 on us-north1 2026-11-20' },
+    { id: 'nvidia/Nemotron-3.5-Super-VL', contextLength: 1048576, supportsTools: true, supportsImages: true, supportsReasoning: true, tier: 'paid', note: 'Verified 200 on us-north1 2026-11-20' },
+    { id: 'meta-models/muse-spark-open', contextLength: 1048576, supportsTools: true, supportsReasoning: true, tier: 'paid', note: 'Verified 200 on us-north1 2026-11-20' },
+    { id: 'reflection/beam', contextLength: 1048576, supportsTools: true, supportsReasoning: true, tier: 'paid', note: 'Verified 200 on us-north1 2026-11-20' },
   ],
   'nous-portal': [
     { id: 'meta/muse-spark-1.2-contributor', contextLength: 1048576, supportsTools: true, supportsImages: true, tier: 'paid' },

@@ -1,0 +1,73 @@
+nebius-us-north1 (Nebius Token Factory, us-north1 region) — Prompt Caching
+Last verified: 2026-11-20
+
+Overview
+  Nebius Token Factory exposes region-pinned gateways on the same service as
+  the global host:
+  https://api.tokenfactory.us-north1.nebius.com/v1
+
+  The region is a routing/residency boundary — same engine, same
+  OpenAI-compatible surface, same credential. It exists so a workload that
+  must be processed in a specific geography can name that geography in the
+  route instead of hoping capacity lands there. Nebius documents that public
+  serverless endpoints may run wherever capacity exists; only a pinned
+  endpoint guarantees location. This provider row is that pin for the
+  `us-north1` gateway.
+
+Why this is a separate provider row and not a query parameter
+  local-router's unit of key resolution, curation, policy, and fallback
+  identity is the provider row. Two rows over one credential
+  (NEBIUS_API_KEY, shared with the global `nebius` row) give region pinning
+  for free: a route referencing `nebius-us-north1/...` cannot silently fail
+  over to another region under the same name.
+
+Catalog split (measured 2026-11-20)
+  This host serves a strict SUBSET of the global catalog: 8 of 24 ids, and
+  every one of the 8 is also on the global host.
+    deepseek-ai/DeepSeek-V4.1-Flash-1017
+    zai-org/GLM-5.3
+    zai-org/GLM-5.3-Flash
+    moonshotai/Kimi-K3.1-Pro
+    MiniMaxAI/MiniMax-M3.1-Flash
+    nvidia/Nemotron-3.5-Super-VL
+    meta-models/muse-spark-open
+    reflection/beam
+  Each was confirmed with a chat completion on this host, not merely by
+  appearing in the listing.
+
+  Absent here but present globally, and therefore NOT reachable through this
+  row: the whole Qwen family (Qwen3.8-27B, Qwen3-235B, Qwen3-30B,
+  Qwen3-Embedding-8B), nvidia/Nemotron-3_5-Lightning,
+  nvidia/Nemotron-3-Ultra-550b-a55b, nvidia/nemotron-3-super-120b-a12b,
+  nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B, openai/gpt-oss-120b,
+  google/gemma-3-27b-it, NousResearch/Hermes-4-405B,
+  MiniMaxAI/MiniMax-M3, moonshotai/Kimi-K3, thinkingmachines/Inkling-2-Small,
+  meta-models/muse-spark-open's siblings, and zai-org/GLM-5.2.
+
+Mechanism
+  Identical to the global host: automatic prefix/context caching with
+  OpenAI-style reporting (prompt_tokens_details.cached_tokens), no
+  cache_control API, no explicit breakpoints. See docs/caching/nebius.txt
+  for the full mechanism, limits, and pricing, which this region inherits
+  unchanged.
+
+Reasoning dialect
+  Measured on this host, matching the global host: `enable_thinking` is inert
+  (on GLM-5.3-Flash it produced a byte-identical completion to the baseline),
+  `reasoning_effort` moves billed reasoning_tokens, and the full six-value enum
+  including `xhigh` is accepted. Advertised as EFFORT_SIX with
+  acceptsXhigh: true and providerDeclaresDialect: true in
+  src/provider-policy.ts — see docs/caching/nebius.txt for the per-family
+  numbers.
+
+Local-router integration
+  Same injection as every Nebius row: a stable prompt_cache_key (sticky) and
+  OpenAI 24h retention fields, which the chat surface ignores harmlessly and
+  the Responses surface honours. Because the policy row is separate, a future
+  divergence (a region gaining a knob the global host lacks) can be recorded
+  without mis-describing the other gateway.
+
+Sources
+  https://api.tokenfactory.us-north1.nebius.com/v1/models (live, 8 ids, 2026-11-20)
+  https://docs.tokenfactory.nebius.com/ai-models-inference/overview.md
+  https://docs.nebius.com/legal/sub-processors_tofa (region / processing-location statements)

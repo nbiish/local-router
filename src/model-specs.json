@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated": "2026-10-29",
+  "updated": "2026-11-20",
   "description": "Authoritative model specifications for CI/CD validation. Sources: provider API docs, OpenRouter metadata, model cards. Used by scripts/validate-model-specs.mts to detect metadata drift against the toggle-store catalog.",
   "models": {
     "deepseek-v4-pro": {
@@ -43,7 +43,6 @@
       "reasoning": true,
       "source": "minimax.io, OpenRouter (May 2026)"
     },
-
     "kimi-k2.6": {
       "context": 262144,
       "output": 262144,
@@ -67,6 +66,14 @@
       "vision": false,
       "reasoning": true,
       "source": "Moonshot Kimi K3 via Nbiish Modal deployment (August 2026)"
+    },
+    "kimi-k3.1-pro": {
+      "context": 1048576,
+      "output": 262144,
+      "tools": true,
+      "vision": true,
+      "reasoning": true,
+      "source": "Moonshot Kimi K3.1 Pro model listing + OpenRouter provider metadata (1M-token context, native image/video understanding), November 2026"
     },
     "glm-5.1": {
       "context": 200000,
@@ -100,7 +107,6 @@
       "reasoning": true,
       "source": "z.ai coding plan endpoint (June 2026); vision variant of GLM-4.6 with preserved thinking"
     },
-
     "qwen3.7-max": {
       "context": 1048576,
       "output": 65536,
@@ -247,4 +253,3 @@
     }
   }
 }
-

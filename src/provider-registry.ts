@@ -26,14 +26,25 @@ export const PROVIDER_REGISTRY: readonly ProviderRegistryEntry[] = [
   },
   { name: 'zenmux', endpoint: 'https://zenmux.ai/api/v1', keyEnvVar: 'ZENMUX_API_KEY' },
   { name: 'nebius', endpoint: 'https://api.tokenfactory.nebius.com/v1', keyEnvVar: 'NEBIUS_API_KEY' },
+  {
+    name: 'nebius-us-north1',
+    endpoint: 'https://api.tokenfactory.us-north1.nebius.com/v1',
+    keyEnvVar: 'NEBIUS_API_KEY',
+    note: 'Token Factory region-pinned gateway (us-north1). Same credential as `nebius`; serves a subset of the global catalog (8 of 24, measured 2026-11-20)'
+  },
   { name: 'moonshot', endpoint: 'https://api.moonshot.ai/v1', keyEnvVar: 'MOONSHOT_API_KEY' },
   { name: 'nvidia-nim', endpoint: 'https://integrate.api.nvidia.com/v1', keyEnvVar: 'NVIDIA_NIM_API_KEY' },
-  { name: 'modal', endpoint: 'https://api.us-west-2.modal.direct/v1', keyEnvVar: 'MODAL_API_KEY' },
+  {
+    name: 'modal',
+    endpoint: 'https://inference.us-west.modal.direct/v1',
+    keyEnvVar: 'MODAL_API_KEY',
+    note: 'Modal inference gateway (shared endpoints; models are routed on the `model` field). The former api.us-west-2.modal.direct host answers 404 route not found (measured 2026-11-20)'
+  },
   {
     name: 'modal-proxy',
-    endpoint: 'https://nbiish--ep-glm-5-3-flash-server.us-west.modal.direct/v1',
+    endpoint: 'https://nbiish--ep-deepseek-v4-1-flash-1017-server.us-west.modal.direct/v1',
     keyEnvVar: 'MODAL_PROXY_API_KEY',
-    note: 'Nbiish GLM-5.3-Flash / Kimi-K3 own deployment'
+    note: 'Nbiish DeepSeek-V4.1-Flash-1017 own deployment; `wk-` proxy-token authorisation (MODAL_PROXY_TOKEN_ID.MODAL_PROXY_TOKEN_SECRET)'
   },
   { name: 'openrouter', endpoint: 'https://openrouter.ai/api/v1', keyEnvVar: 'OPENROUTER_API_KEY' },
   {
