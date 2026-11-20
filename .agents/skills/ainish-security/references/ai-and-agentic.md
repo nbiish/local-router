@@ -207,7 +207,7 @@ def detect_embedding_anomalies(new_embedding: np.ndarray,
 
 Retrieved text is **evidence**, never instruction. It cannot authorise code
 execution, secret access, deployment, deletion, or a policy change — no matter how
-authoritative it reads. In `ainish-rag`, this is why an injection is labelled
+authoritative it reads. In `ainish-context`, this is why an injection is labelled
 advisory in `<CONTEXT_INJECTION>` and why the `goldfish` section is model output
 rather than fact.
 

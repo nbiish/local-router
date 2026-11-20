@@ -14,7 +14,7 @@ from `tests/pqc-key-resolver.test.mjs`, yet it won resolution. So:
     reads as "keys are not persisting";
   * `printf 'KEY=val' | pqc-secrets pack --merge`, the documented way to add a
     key, wrote into that test-artefact store;
-  * every tool resolving credentials through `export` (ainish-rag does) saw it.
+  * every tool resolving credentials through `export` (ainish-context does) saw it.
 
 Precedence now requires keys, not mere existence, and between two populated
 stores the fuller one wins. Host interop still works when local is empty.

@@ -7,10 +7,10 @@ while code keeps the decisions identical across agents and sessions.
 
 ## Context triage before retrieval
 
-1. Run `ainish-rag orient --inject` for the wiki primer, recent memories, and unresolved ledger
+1. Run `ainish-context orient --inject` for the wiki primer, recent memories, and unresolved ledger
    notes. This is the cheap, bounded context every agent should share, and it now carries the
    decision-model routing hint (domain, freshness, specificity, modality, strategy).
-2. Run `ainish-rag route "<request>" --json` and read five signals:
+2. Run `ainish-context route "<request>" --json` and read five signals:
    - `needs_retrieval`: if false, do not burn context on retrieval.
    - `target_domain`: pick the first source deliberately. `codebase_symbols` → `query --code`;
      `architectural_wiki` → wiki pages and `query` without `--code`; `security_governance` →
@@ -31,7 +31,7 @@ while code keeps the decisions identical across agents and sessions.
 - `partial_unsettled`: the engine already ran one symbol-anchored corrective expansion pass. If the
   result is still partial, ask a narrower question or retrieve a different domain — do not declare
   success on an unsettled band.
-- `insufficient`: the index does not cover the question; run `ainish-rag index` / `ainish-rag wiki`
+- `insufficient`: the index does not cover the question; run `ainish-context index` / `ainish-context wiki`
   before answering, or say the evidence is missing.
 - A `Test Delta`/`verdict_band` of `unsettled_grounding` or `unsupported` is a retrieve-more signal,
   not a pass.
@@ -55,7 +55,7 @@ response is more evidence or a narrower question, not a coin flip.
 
 - **One retrieval owner per boundary.** An orchestrator runs route + retrieval once and injects the
   primer and results into subagents; subagents do not re-retrieve the same surface. This is the
-  `ainish-rag orient --inject` contract.
+  `ainish-context orient --inject` contract.
 - **Share probabilities, not adjectives.** Report `decision_score`, `decision_probability`,
   `decision_role`, and `source` so a peer can re-evaluate the same evidence.
 - **Record durable judgments.** When a judgment changes future work (for example "the wiki page is

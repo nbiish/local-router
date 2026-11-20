@@ -52,7 +52,7 @@ insufficient.
 ## Triggered surfaces (not masters)
 
 When the diff touches one of these, the corresponding master must speak — silence is a defect, not a
-choice. These are the mechanically checkable subset and are enforced by `ainish-rag gate`:
+choice. These are the mechanically checkable subset and are enforced by `ainish-context gate`:
 
 | Surface touched | Required declaration | Enforcing master |
 |---|---|---|

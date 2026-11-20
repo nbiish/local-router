@@ -218,7 +218,7 @@ binary confirmation.
 1. The real production surface works — not a mock.
 2. Focused tests cover the change, including the failure path.
 3. Scanners pass on the artefact you will ship.
-4. `ainish-rag audit verify` and the repository gate, where available.
+4. `ainish-context audit verify` and the repository gate, where available.
 
 Then confirm: inputs and side effects bounded; failures visible and not
 success-shaped; no secret in the diff or artefact; paths work on native Windows,

@@ -2,15 +2,15 @@
 name: typesafe-jev
 description: >
   TypeSafe Jev (System One) decision models over OpenRouter's Decisions API, integrated into
-  ainish-rag for calibrated retrieval routing, two-stage reranking, context freshness, and
+  ainish-context for calibrated retrieval routing, two-stage reranking, context freshness, and
   faithfulness evaluation, plus opt-in TypeSafe image and Box prototypes. Use when a judgment about code, documentation, or task state needs a
   calibrated probability instead of a keyword heuristic, when tuning or debugging the route,
-  rerank, orient, gate, decide, or eval behaviour of ainish-rag, or when authoring typed noul,
+  rerank, orient, gate, decide, or eval behaviour of ainish-context, or when authoring typed noul,
   choice, and score questions with explicit criteria for any repository that ran
   ainish-coder --rules.
 ---
 
-# TypeSafe Jev decision craft for ainish-rag
+# TypeSafe Jev decision craft for ainish-context
 
 This pack is the operating manual for the decision layer that every `ainish-coder --rules`
 target inherits: **Jev supplies calibrated judgments about state; code owns the decision.**
@@ -23,11 +23,11 @@ four competing ones.
 
 | Need | Command |
 | :--- | :--- |
-| Route a request (retrieval? domain? freshness? specificity? strategy?) | `ainish-rag route "<request>" --json` |
-| Ask one calibrated yes/no | `ainish-rag decide "<state>" --question "<question>" --json` |
-| Ask a typed batch (noul + choice + score) | `ainish-rag decide "<state>" --questions '<json>' --json` |
-| Rerank retrieved chunks with judgments | `ainish-rag query "<request>"` (rerank is on by default) or `ainish-rag rerank "<request>"` |
-| Check an answer against evidence | `ainish-rag eval --context "<evidence>" --output "<answer>" --json` |
+| Route a request (retrieval? domain? freshness? specificity? strategy?) | `ainish-context route "<request>" --json` |
+| Ask one calibrated yes/no | `ainish-context decide "<state>" --question "<question>" --json` |
+| Ask a typed batch (noul + choice + score) | `ainish-context decide "<state>" --questions '<json>' --json` |
+| Rerank retrieved chunks with judgments | `ainish-context query "<request>"` (rerank is on by default) or `ainish-context rerank "<request>"` |
+| Check an answer against evidence | `ainish-context eval --context "<evidence>" --output "<answer>" --json` |
 | Probe the live model | `python .agents/skills/typesafe-jev/scripts/jev_probe.py --questions '<json>' --state "<state>"` |
 | Probe TypeSafe image/Box support | `python .agents/skills/typesafe-jev/scripts/jev_probe.py --api-url https://api.typesafe.ai/v1/systemone --typesafe-key-name TYPESAFE_API_KEY --images --questions '@questions.json' --state-file state.json` |
 
@@ -69,7 +69,7 @@ Do not ask Jev to decide. Ask it for the inputs a decision needs, then write the
 - Bad: "Is this codebase secure?"
 - Good: "Is a SQL query built here by string concatenation?" (one judgment per question).
 
-This split is why `ainish-rag` keeps questions, weights, and thresholds in the engine rather
+This split is why `ainish-context` keeps questions, weights, and thresholds in the engine rather
 than in a model prompt: they are auditable, testable, and stable across model upgrades.
 
 ## Contract essentials
@@ -81,7 +81,7 @@ response schema, including the failure modes that silently produce defaults, is 
 
 - **Model** — always the latest decision model, `typesafe/jev-1.14` (responses report the dated
   build, e.g. `typesafe/jev-1.14-20261014`). There is **no automatic downgrade** to older Jev ids:
-  `JEV_DECISION_MODEL` is a diagnostic pin that `ainish-rag secrets` reports, and a retired id
+  `JEV_DECISION_MODEL` is a diagnostic pin that `ainish-context secrets` reports, and a retired id
   fails the call with its reason instead of silently using an older model.
 - **Transports** — Local Router is primary, followed by OpenRouter, direct Jev/TypeSafe when
   `JEV_API_URL` or `TYPESAFE_API_URL` and a `TYPESAFE_API_KEY`-family secret are configured, then
@@ -92,7 +92,7 @@ response schema, including the failure modes that silently produce defaults, is 
   advertise pinned `openrouter/jev-1.14` (and `zenmux/jev-1.14` when that key is configured) on
   `/v1/models`, and fail over between keyed providers while reporting `provider`/`dialect`/
   `attempts`. A chat-only alias (`openrouter-jev-router`) is general chat — it can be served by any
-  model — and is never substituted for typed, calibrated decisions. `ainish-rag secrets` names the
+  model — and is never substituted for typed, calibrated decisions. `ainish-context secrets` names the
   usable route. Direct Jev and local-model stages are opt-in and skipped when their endpoint is not
   configured.
 - **Questions** — a JSON object keyed by question id. Every `noul`, `choice`, and `score`
@@ -107,7 +107,7 @@ response schema, including the failure modes that silently produce defaults, is 
 - **State** is shared by every question in the batch. Context that only one question needs
   belongs in that question's `instructions`, not in the state.
 
-## How ainish-rag uses Jev
+## How ainish-context uses Jev
 
 The exact question text, criteria, weights, and fallbacks are catalogued in
 [references/rag-decision-catalog.md](references/rag-decision-catalog.md). Summary:
@@ -142,13 +142,13 @@ narrower question). `confidence` describes how concentrated an answer's distribu
 
 Use the decision layer to sequence work, not to replace reading:
 
-1. **Orient** — `ainish-rag orient --inject` for the wiki primer, recent memories, and open
+1. **Orient** — `ainish-context orient --inject` for the wiki primer, recent memories, and open
    ledger notes.
-2. **Route** — `ainish-rag route "<request>" --json`. If `needs_retrieval` is false, answer from
+2. **Route** — `ainish-context route "<request>" --json`. If `needs_retrieval` is false, answer from
    general knowledge. Otherwise use `target_domain` to choose the first source (code symbols vs
    architecture wiki vs security policy vs technical debt) and `context_freshness` to choose
    between the wiki (stable) and a fresh orient/index pass (recent changes).
-3. **Retrieve** — `ainish-rag query "<request>" --code` or without `--code`; reranking is on by
+3. **Retrieve** — `ainish-context query "<request>" --code` or without `--code`; reranking is on by
    default. Read `decision_score`, `decision_probability`, `decision_role`, `noul_band`,
    `context_sufficiency`, and `rationale`. Prefer `implementation` over `documentation` for
    how-it-works answers, and distrust `generated` chunks even when their vector score is high. When
@@ -160,7 +160,7 @@ Use the decision layer to sequence work, not to replace reading:
 5. **Verify** — before claiming completion, run `eval --context "<retrieved evidence>" --output
    "<your summary>"`. A `grounded` verdict is evidence-bound; a `contradiction_detected` verdict
    means rewrite, not cite; `unsettled_grounding`/`unsupported` means retrieve more.
-6. **Record** — write durable facts to `.agents/memories/{date}-memory.txt` and coordination
+6. **Record** — write durable facts to `.agents/memories/{date}-{HH}-memory.md` and coordination
    events to the COMMS ledger, so the next session's orient primer inherits them.
 
 For a deeper treatment of multi-agent coherence, question design, and when to escalate to a
@@ -181,7 +181,7 @@ reasoning model, see [references/agent-coherence.md](references/agent-coherence.
 | :--- | :--- | :--- |
 | `Jev API 400 ... expected record ... criteria` | question sent without `criteria` | use the builders in `src/rag/src/decision.rs` / `DecisionEngine.*_question` |
 | `Model ... does not exist` | pinned model retired | unset `JEV_DECISION_MODEL` (the latest is `typesafe/jev-1.14`); the engine never downgrades on its own |
-| `source: local-calibrated` when a key exists | key name mismatch | store `LOCALROUTER_OPENROUTER_API_KEY` (consumer prefix), `PSIONICS_OPENROUTER_API_KEY`, or `OPENROUTER_API_KEY`; any `<CONSUMER>_OPENROUTER_[EMBED_]API_KEY` suffix now resolves; check `ainish-rag secrets` |
+| `source: local-calibrated` when a key exists | key name mismatch | store `LOCALROUTER_OPENROUTER_API_KEY` (consumer prefix), `PSIONICS_OPENROUTER_API_KEY`, or `OPENROUTER_API_KEY`; any `<CONSUMER>_OPENROUTER_[EMBED_]API_KEY` suffix now resolves; check `ainish-context secrets` |
 | `source: openrouter` but the local router should be used | transport order is OpenRouter-first by default | set `JEV_TRANSPORT_PRIORITY=local-router,openrouter` |
 | `secrets` shows a local-router with `Decisions Route: none` | the router advertises Jev but exposes no decisions route | check `GET /api/decisions/status` (routes, providers, `?probe=true`); the engine prefers that zero-token fast path before `/v1/models`; a chat-only `openrouter-jev-router` entry is general chat and stays unusable for typed decisions |
 | answers all defaults | response parsed from the wrong shape | read `answers`, then `noul`/`choice`/`score` |

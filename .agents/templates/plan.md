@@ -5,16 +5,16 @@ date: {YYYY-MM-DD}
 status: designing
 branch: {type}/{scope}-{slug}
 worktree: {absolute path}
-task_record: .agents/tasks/{YYYY-MM-DD}-{slug}-task.md
+task_record: .agents/tasks/{YYYY-MM-DD}-{HH}-{slug}.md
 operator: question-me
 ---
 
 # Plan: {short, specific title}
 
 <!--
-Copy to `.agents/plans/{YYYY-MM-DD}-{slug}.plan.md`. Replace every `{placeholder}`.
+Copy to `.agents/plans/{YYYY-MM-DD}-{HH}-{slug}.md` (zero-padded UTC hour). Replace every `{placeholder}`.
 Frontmatter keys are a contract: `.agents/plans/llms.txt` defines who may change which
-field, and `ainish-rag` orientation reads `status` and counts the unchecked boxes below.
+field, and `ainish-context` orientation reads `status` and counts the unchecked boxes below.
 Sections 1-4 and 7 are history once written. Section 5 is the only part that is edited in
 place, by ticking its boxes. Delete these comments when the plan is created.
 

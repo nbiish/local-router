@@ -1,0 +1,40 @@
+# Harness attribution table — the ONE place that knows how a tool signs its own work.
+#
+# Format, one entry per line, `|`-separated, blank lines and `#` comments ignored:
+#
+#   label | match | name shown
+#
+# `match` is an extended-regex fragment tested against the WHOLE attribution line, lowercased, so it
+# can key on the product name, the email domain, or both. Keep it anchored on something only that
+# harness emits: a shared word like "agent" would also match a human with that word in their name.
+#
+# `name shown` is what appears in the live ledger when a line is stripped, so it should be the
+# product as a person writes it.
+#
+# ADDING A HARNESS is one line here — the commit-msg hook, the post-commit guard, and the history
+# rewrite all read this file. Do not add harness names to the scripts themselves; a second list is how
+# `ainish-coder` managed to author six commits (2026-11-18) while the guard walked past every one.
+#
+# Two attributions are deliberately NOT here:
+#   - `Signed-off-by:` is a DCO assertion by the OPERATOR, not a tool claiming authorship. Stripping
+#     it would remove a legal statement rather than a false one.
+#   - `Co-authored-by:` naming a human collaborator is a real co-author. Only lines matching an entry
+#     below are treated as harness self-attribution.
+
+cursor      | cursoragent@cursor\.com|cursor\.com|co-authored-by:\s*cursor\b | Cursor
+claude-code | @anthropic\.com|co-authored-by:\s*claude\b                          | Claude
+copilot     | \d+\+copilot@users\.noreply\.github\.com|copilot@github|co-authored-by:\s*copilot\b | Copilot
+warp        | @warp\.dev|co-authored-by:\s*warp\b                               | Warp
+oz          | oz-agent@warp\.dev|co-authored-by:\s*oz\b                          | Oz
+codex       | co-authored-by:\s*codex\b|@openai\.com                             | Codex
+aider       | co-authored-by:\s*aider\b                                          | Aider
+opencode    | co-authored-by:\s*opencode\b                                       | OpenCode
+windsurf    | co-authored-by:\s*windsurf\b|@codeium\.com                         | Windsurf
+cline       | co-authored-by:\s*cline\b                                          | Cline
+devin       | co-authored-by:\s*devin\b|@cognition\.ai                           | Devin
+gemini      | co-authored-by:\s*gemini\b|@google\.com                             | Gemini
+antigravity | co-authored-by:\s*antigravity\b                                    | Antigravity
+jules       | co-authored-by:\s*jules\b                                          | Jules
+qodo        | co-authored-by:\s*qodo\b                                           | Qodo
+tabnine     | co-authored-by:\s*tabnine\b                                        | Tabnine
+ainish      | co-authored-by:\s*ainish-coder\b|bot@local                        | ainish-coder

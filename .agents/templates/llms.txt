@@ -8,7 +8,7 @@ Templates for durable, reviewable planning artifacts. Templates are not always-o
 
 - `plan.md` is the per-task plan of record — frontmatter contract plus the seven sections (problem,
   anchor facts, plan, clarifications, todos, verification, open decisions) an agent copies to
-  `.agents/plans/{date}-{slug}.plan.md`. Shape changes here propagate to every future plan.
+  `.agents/plans/{date}-{HH}-{slug}.md`. Shape changes here propagate to every future plan.
 - `egm-design.md` is the Elephant design artifact consumed by Goldfish review and implementation readiness checks.
 - `masters.md` is the canonical definition of the nine advisory reasoning lenses.
 

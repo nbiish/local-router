@@ -57,27 +57,9 @@ and a renamed plan is a dangling reference in every one of them.
    operator was asked (`asked: operator`) or the codebase settled it (`asked: resolved from code`),
    because the second class is what the operator cannot otherwise audit.
 4. §5 is the only section edited in place, and only by ticking boxes. Reordering or deleting a todo
-   destroys the record of what was planned versus what was actually done. Box marks are binary plus
-   one half-mark: `[x]` done, `[~]` partially done (the implementing agent appends a one-line
-   `— PARTIAL: <what remains>` after the todo's verify line), `[ ]` open. A plan may close `status:
-   done` with an `[ ]` todo ONLY when that todo is an operator action and its text says so
-   (`(operator action — blocked: …)`) — the 2026-11-12 T7 precedent. Anything else open keeps the
-   plan off `done`.
-5. Sections appear in order §1-§8 as the template lays them out. Implementation notes belong in §8
-   at the END of the file — never inserted between earlier sections (a §8 that lands before §6 is a
-   record that no reader can trust).
-6. Plans are committed. Unlike `.agents/comms/*-team.live.txt`, nothing here is a working scratch
+   destroys the record of what was planned versus what was actually done.
+5. Plans are committed. Unlike `.agents/comms/*-team.live.txt`, nothing here is a working scratch
    file — a plan that is not in git is not a plan of record.
-
-## Reference integrity
-
-A plan's value depends on the tooling it cites actually existing. These artifacts are part of the
-contract and MUST exist in every checkout (create them when missing — a reference to nothing is how
-a workflow silently dies):
-
-- `bin/context-packet.sh` — reads `status` + unchecked §5 boxes for the session bootstrap.
-- `.agents/templates/worktree-merge.md` — the merge journal format AGENTS.md mandates.
-- `scripts/commit-identity-guard.sh` — the post-commit identity enforcement AGENTS.md rule 4 cites.
 
 ## Work guidance
 
@@ -98,7 +80,6 @@ a workflow silently dies):
   `grep -E '^status: (designing|ready|implementing|done|abandoned)$' .agents/plans/*.md`
 - Every plan has a matching task record (both naming schemes; `llms.txt` is skipped):
   `for p in $(ls .agents/plans/*.md | grep -v /llms.txt$); do t=$(sed -n 's/^task_record: //p' "$p"); test -f "$t" || echo "missing: $p -> $t"; done`
-- Reference integrity: `for f in bin/context-packet.sh .agents/templates/worktree-merge.md scripts/commit-identity-guard.sh; do test -e "$f" || echo "missing: $f"; done`
 - Orientation sees it: `ainish-rag --context --task "plan check"` names the newest plan and its open
   todo count.
 

@@ -162,7 +162,7 @@ def main() -> int:
             "Authorization": "Bearer " + key,
             "Content-Type": "application/json",
             "HTTP-Referer": "https://github.com/nbiish/ainish-coder",
-            "X-Title": "ainish-rag-jev-probe",
+            "X-Title": "ainish-context-jev-probe",
         },
         method="POST",
     )

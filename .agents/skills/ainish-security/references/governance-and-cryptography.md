@@ -117,7 +117,7 @@ a dependency you would have to remove before its first birthday plus interest.
 - **Attributable.** Who acted, what they did, when, against what, and the
   cryptographic proof. "The agent did it" is not attribution — the agent has an
   identity and a human accountable for it.
-- **Signed.** ML-DSA-65 over the record; verify with `ainish-rag audit verify`.
+- **Signed.** ML-DSA-65 over the record; verify with `ainish-context audit verify`.
 - **Retained per regime**, and erasable where a regime requires it. Data you cannot
   defend retaining is a liability; data you cannot erase is a violation.
 - **Redacted before write**, not after.

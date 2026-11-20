@@ -6,7 +6,7 @@ description: >
   design decision tree, interviews the operator one question at a time with
   recommended answers, resolves architectural dependencies, and compiles
   everything into a committed plan document at
-  `.agents/plans/{date}-{name}.plan.md` holding the agent's plan, the
+  `.agents/plans/{date}-{HH}-{name}.md` holding the agent's plan, the
   clarification ledger, and a derived todo list. Delivers its interview through
   whatever interaction surface the environment provides: native structured
   question tools, interactive terminal loops, or subagent master handoffs.
@@ -16,7 +16,7 @@ description: >
 
 > **Protocol Stance:** Interview the operator about every aspect of the task until a shared understanding is reached — walk down each branch of the design tree, resolving dependencies one-by-one; provide recommended answers; ask one question at a time; explore the codebase first.
 >
-> **Deliverable:** One committed plan document at `.agents/plans/{YYYY-MM-DD}-{slug}.plan.md` — the agent's plan, the clarification ledger, and the todo list it derives, in the shape defined by [`.agents/templates/plan.md`](../../templates/plan.md).
+> **Deliverable:** One committed plan document at `.agents/plans/{YYYY-MM-DD}-{HH}-{slug}.md` — the agent's plan, the clarification ledger, and the todo list it derives, in the shape defined by [`.agents/templates/plan.md`](../../templates/plan.md).
 >
 > **Environment-Agnostic Delivery:** Conducts the interview through whatever interaction surface the running environment offers — native structured question tools, interactive terminal prompts, or autonomous subagent orchestration — without depending on any specific model, platform, or tooling vendor.
 
@@ -37,7 +37,7 @@ description: >
    - **Interactive Terminal Prompts:** When no native question tooling exists, output a structured, high-visibility interactive prompt with numbered choices, highlighted recommendations, and write-in support.
    - **Subagent Delegation:** Orchestrator locks design via `question-me` before dispatching implementation or test subagents.
 6. **Living Plan Artifact:**
-   The plan is the working surface, not a summary written at the end. Open `.agents/plans/{YYYY-MM-DD}-{slug}.plan.md` before the first question, fill §2 Anchor Facts during reconnaissance, append to §4 Clarifications after every answer, and derive §5 Todos only once the walk terminates. A plan whose clarifications were reconstructed from memory at close time is fiction with headings.
+   The plan is the working surface, not a summary written at the end. Open `.agents/plans/{YYYY-MM-DD}-{HH}-{slug}.md` before the first question, fill §2 Anchor Facts during reconnaissance, append to §4 Clarifications after every answer, and derive §5 Todos only once the walk terminates. A plan whose clarifications were reconstructed from memory at close time is fiction with headings.
 
 ---
 
@@ -68,7 +68,7 @@ Invoke or recommend `question-me` when:
 └───────────┬─────────────┘
             ▼
 ┌─────────────────────────┐
-│ Phase 3: Plan Compilation│ ➔ .plan.md written, todos derived, worktree dispatch
+│ Phase 3: Plan Compilation│ ➔ plan written, todos derived, worktree dispatch
 └─────────────────────────┘
 ```
 
@@ -82,9 +82,11 @@ produced in Phase 3. Phase 3 only completes it: derive the todos, lock `status`,
 Before drafting the first question, open the plan file and execute passive observation:
 
 0. **Open the plan.** Copy [`.agents/templates/plan.md`](../../templates/plan.md) to
-   `.agents/plans/{YYYY-MM-DD}-{slug}.plan.md`, fill the frontmatter (`slug`, `date`, `branch`,
-   `worktree`, `task_record`), and set `status: designing`. Write §1 Problem in the operator's own
-   terms before anything else — if you cannot, you are not ready to ask questions.
+   `.agents/plans/{YYYY-MM-DD}-{HH}-{slug}.md`, fill the frontmatter (`slug`, `date`, `branch`,
+   `worktree`, `task_record`), and set `status: designing`. Plans written before 2026-11-12 keep
+   their grandfathered `{YYYY-MM-DD}-{slug}.plan.md` name and stay valid; never rename one. Write §1
+   Problem in the operator's own terms before anything else — if you cannot, you are not ready to ask
+   questions.
 1. **Tree & Branch Check:** Inspect `git status`, `git branch --show-current`, and `git worktree list`. Create the worktree now if the plan is already known to be non-trivial; record its path in the frontmatter.
 2. **DOX Chain Walk:** Read repo `llms.txt` and nearest child contracts to absorb conventions and constraints.
 3. **Codebase Exploration:** Use `grep_search`, `find_by_name`, or `view_file` to inspect existing patterns:
@@ -190,7 +192,7 @@ How should the operator trigger the Question-Me interview workflow?
 ##### Modality C: Subagent Master Handoff
 When an orchestrator dispatches a task to a subagent (e.g. a headless subagent run carrying an implementation master prompt):
 - The orchestrator runs `question-me` with the operator *first*, producing the plan document.
-- The subagent receives the **plan path** (`.agents/plans/{date}-{slug}.plan.md`), not a paraphrased brief: the plan already carries the anchor facts, resolved clarifications, and todos, so re-summarizing it into a prompt only introduces drift.
+- The subagent receives the **plan path** (`.agents/plans/{date}-{HH}-{slug}.md`), not a paraphrased brief: the plan already carries the anchor facts, resolved clarifications, and todos, so re-summarizing it into a prompt only introduces drift.
 - The subagent receives zero ambiguity, zero open architectural forks, and a locked specification; it owns §5 checkboxes and `status`, and reports back against them.
 
 ---
@@ -223,7 +225,7 @@ creates a second copy that drifts the moment either is edited.
 - lane: now
 - branch: {type}/{scope}-{slug}
 - status: in-progress
-- plan: .agents/plans/{YYYY-MM-DD}-{slug}.plan.md
+- plan: .agents/plans/{YYYY-MM-DD}-{HH}-{slug}.md
 - scope: {paths}
 - objective: {one line}
 
@@ -266,7 +268,7 @@ Every question produced by `question-me` must satisfy five tests:
 
 ## 6. The Plan Artifact
 
-The session's durable output is one file: `.agents/plans/{YYYY-MM-DD}-{slug}.plan.md`, copied from
+The session's durable output is one file: `.agents/plans/{YYYY-MM-DD}-{HH}-{slug}.md`, copied from
 [`.agents/templates/plan.md`](../../templates/plan.md). Do not restate its full shape here — a second
 copy of a template is a copy that drifts. What matters at this level is the frontmatter contract and
 the section ownership.
@@ -286,7 +288,7 @@ operator: question-me
 ---
 ```
 
-`status` is the one field every reader depends on: `ainish-rag` orientation reports it, and the
+`status` is the one field every reader depends on: `ainish-context` orientation reports it, and the
 implementing agent sets it. Treat an unknown value as `designing`.
 
 ### Section ownership

@@ -77,5 +77,5 @@ tweaks.
   criteria on all three question kinds, calibrated bands, UTF-8-safe truncation.
 - `src/rag/tests/test_jev_decisions.py`: builder criteria, parsing, bands, route mapping, rerank
   weighting/role penalty, faithfulness mix, consumer-prefixed key resolution.
-- Live smoke: `ainish-rag route`, `ainish-rag decide --questions`, `ainish-rag eval` must report
+- Live smoke: `ainish-context route`, `ainish-context decide --questions`, `ainish-context eval` must report
   `source: openrouter:typesafe/jev-1.14-…` when a key is resolvable.

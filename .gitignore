@@ -160,8 +160,13 @@ audit.log.*
 .omp/
 
 # Agent COMMS live board — in-flight coordination, never committed.
-# The daily team ledger .agents/comms/{date}-team.txt IS committed; this sidecar is not.
-.agents/comms/*-team.live.txt
+# The daily team ledger .agents/comms/{date}-team.md IS committed; this sidecar is not.
+# Both suffixes are ignored: `.live.txt` predates the 2026-11-12 cutover, `.live.md` is current.
+# The pattern is `*.live.*`, not `*-team.live.*`: other boards use the same convention with a
+# different prefix (`{date}-identity-guard.live.txt`), and the narrow form let one of those be
+# committed by accident.
+.agents/comms/*.live.txt
+.agents/comms/*.live.md
 
 # Multimodal RAG local vector store and runtime process PID.
 # Ignored as directory *contents* rather than as a directory, so the benchmark baseline below can
@@ -172,10 +177,25 @@ audit.log.*
 # measured against (Phase 0 of docs/rag-context-system-plan.md). It holds no secrets or vectors.
 !.agents/rag/bench-baseline.json
 
-# ainish-rag context-harness generation output — written fresh by every `--context` call
-# (prime-profile.json, EXPERIENCE.md, work/<timestamp>/). It is engine state, not a source
-# artifact: tracking it would dirty the worktree on every retrieval and bury real changes.
-.agents/context-harness/
+# A nested `.agents/` created by running `ainish-context wiki --path <subdir>` from a subdirectory.
+# The rules above are root-anchored, so these are NOT covered: one showed up under the context
+# engine's former `src/rag/.agents/`
+# carrying `audit/signer.mldsa65.priv` (a private ML-DSA-65 key) and a session PSK. Nested state is
+# never a source artifact — it is engine output written to the wrong tree — so it is ignored
+# wholesale, and running the engine from a subdirectory stays safe. The root `.agents/` stays tracked.
+/src/context/.agents/
+/skills-to-distribute/**/.agents/
+/**/.agents/rag/
+/**/.agents/audit/
+/**/.agents/wiki/
+# ...EXCEPT the root repository's own wiki vault. The rule above exists to keep a nested
+# `src/context/.agents/` (which once carried a private ML-DSA-65 key) out of git. The root wiki is
+# different: it is this repository's curated corpus, and from 2026-11-18 it is also where the context
+# harness writes learned skills. Without this negation every such page is silently untracked and
+# dies on clone — learned behaviour that does not survive a checkout is worse than none. Negating the
+# root DIRECTORY (not a file pattern under it) is what makes git descend at all; the nested paths above
+# stay ignored because this exception names the root exactly.
+!/.agents/wiki/
 
 # Rules auto-sync runtime artifacts (manifest and sync script ARE committed)
 .agents/ainish-sync.log
@@ -184,13 +204,14 @@ audit.log.*
 # Compiled native binaries (built locally via cargo or distributed wrappers)
 *.exe
 
-# Locally-built RAG engine (~127 MB). The distributed wrappers (bin/ainish-rag,
-# bin/ainish-rag.cmd) are tracked; the platform binaries are build products and are
-# produced per host with `cargo build --release`. Committing one would bloat history
-# for every clone and still be the wrong architecture on the next machine.
+# Platform binaries for the retired compiled context engine. The engine is Python-only now
+# (src/context/engine.py), so these are never produced — kept ignored so a stale build left on an
+# older host cannot be committed into a tree that has no use for it.
 bin/ainish-rag-darwin
 bin/ainish-rag-linux
 bin/ainish-rag-windows.exe
+bin/ainish-rag.exe
+bin/ainish-rag.native.exe
 
 # Deployment smoke sandbox (created by 'ainish-coder --rules test'); never tracked.
 /test/
@@ -201,6 +222,8 @@ bin/ainish-rag-windows.exe
 
 *.dmg
 *.pkg
+.agents/comms/*-team.live.txt
+.agents/context-harness/
 .agents/rag/
 .agents/skills/gitnexus-*/
 .config/

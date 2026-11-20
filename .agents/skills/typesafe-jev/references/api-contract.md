@@ -10,7 +10,7 @@ POST https://openrouter.ai/api/alpha/decisions
 Authorization: Bearer <OPENROUTER KEY>
 Content-Type: application/json
 HTTP-Referer: https://github.com/nbiish/ainish-coder
-X-Title: ainish-rag-decisions
+X-Title: ainish-context-decisions
 ```
 
 The key is resolved in memory only, in this order:
@@ -24,7 +24,7 @@ The key is resolved in memory only, in this order:
    explicitly configured;
 4. otherwise the calibrated local fallback is used after the transport chain is exhausted.
 
-Never write the key to disk, argv, logs, or a task record. `ainish-rag secrets` reports resolution
+Never write the key to disk, argv, logs, or a task record. `ainish-context secrets` reports resolution
 status without the value.
 
 ## Models
@@ -36,7 +36,7 @@ status without the value.
 | `typesafe/jev-router` | chat router model, **not** accepted by the Decisions API |
 
 The engine always targets the latest decision model. It does **not** downgrade to an older Jev id:
-`JEV_DECISION_MODEL` is a diagnostic pin that `ainish-rag secrets` surfaces (`model_pinned`), and
+`JEV_DECISION_MODEL` is a diagnostic pin that `ainish-context secrets` surfaces (`model_pinned`), and
 when OpenRouter answers `Model ... does not exist` the call fails with that reason, after which the
 command falls back to the calibrated local router rather than silently using older judgments.
 
@@ -57,7 +57,7 @@ The loopback Local Router (`http://127.0.0.1:11434`, or `JEV_LOCAL_ROUTER_URL`) 
 The default order is Local Router, OpenRouter, configured direct Jev/TypeSafe, then a configured
 local-model decisions endpoint. `JEV_TRANSPORT_PRIORITY` can reorder these stages. The probe **never** sends the OpenRouter
 key to loopback. A router that only exposes Jev over chat completions is reported by
-`ainish-rag secrets` as `Decisions Route: none (chat-only entry)` and is never substituted for
+`ainish-context secrets` as `Decisions Route: none (chat-only entry)` and is never substituted for
 typed, calibrated decisions — chat Jev routes can resolve to general models and carry no
 calibrated semantics.
 
@@ -78,7 +78,7 @@ Verified 2026-10-31 against Local Router 1.1.0 (`main` @ `471d3f6`, production `
   its route still answered `404 model_not_supported` for `typesafe/jev-1.14`, so a
   `zenmux/jev-1.14` request was served by OpenRouter with both attempts in provenance.
 - Forcing the fallback transport is reproducible: export a deliberately invalid
-  `OPENROUTER_API_KEY`, then `ainish-rag decide` reports
+  `OPENROUTER_API_KEY`, then `ainish-context decide` reports
   `source: local-router:http://127.0.0.1:11434/api/alpha/decisions:typesafe/jev-1.14-20261014`.
 
 Direct Jev uses `JEV_API_URL` or `TYPESAFE_API_URL` with a `TYPESAFE_API_KEY`,

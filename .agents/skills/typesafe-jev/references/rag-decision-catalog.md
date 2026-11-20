@@ -1,4 +1,4 @@
-# ainish-rag decision catalog
+# ainish-context decision catalog
 
 Every judgment the engine asks Jev, with the code decision that consumes it. Anchors are to the
 current tree; when you change a question, change this file in the same commit and re-probe live.
@@ -32,7 +32,7 @@ The configured transport chain is attempted before any local heuristic:
 loopback). `source` always names the transport that answered: `local-router:<url>:<model>`,
 `openrouter:<dated-model>`, `jev:<model>`, `local-model:<url>`, or `local-calibrated`.
 
-## route — `ainish-rag route "<request>"`
+## route — `ainish-context route "<request>"`
 
 Five judgments in one request; state is the request text.
 
@@ -56,7 +56,7 @@ Code decision (`derive_retrieval_strategy`):
 | otherwise | `hybrid_rerank` | 12 | 2000 |
 
 - `target_domain` and `route_confidence` are reported, not acted on blindly.
-- `context_freshness` drives source choice: high → `ainish-rag orient --inject` + index; low → wiki
+- `context_freshness` drives source choice: high → `ainish-context orient --inject` + index; low → wiki
   and stable docs first.
 - `context_budget_tokens` is the context-engineering ceiling for the turn: `orient --inject` sizes
   its sections to it (`default_lines.min(budget / 12 / sections)`, floor 3), and `next_action` is the
@@ -68,7 +68,7 @@ Output (JSON): `needs_retrieval`, `retrieval_probability`, `target_domain`, `rou
 `context_freshness`, `query_specificity`, `modality_preference`, `retrieval_strategy`,
 `candidate_pool_size`, `context_budget_tokens`, `next_action`, `source`.
 
-## rerank — `ainish-rag query` / `rerank`
+## rerank — `ainish-context query` / `rerank`
 
 One request, up to 12 candidates (or the route's pool size). State carries the query and the task;
 each question carries that candidate's own excerpt (questions cannot see each other).
@@ -110,7 +110,7 @@ keep     = combined >= --min-relevance
 Output fields added per hit: `decision_score`, `decision_relevance`, `decision_probability`,
 `decision_utility`, `decision_role`, `symbol_support`, `noul_band`, `rerank_source`, `rationale`.
 
-## eval — `ainish-rag eval --context … --output …`
+## eval — `ainish-context eval --context … --output …`
 
 | id | type | question | criteria |
 | :--- | :--- | :--- | :--- |
@@ -137,7 +137,7 @@ verdict_band = contradiction_detected  when contradicts >= 0.70
 
 ## decide — arbitrary typed batches
 
-`ainish-rag decide "<state>" --questions '<json>'` sends any noul/choice/score batch using the same
+`ainish-context decide "<state>" --questions '<json>'` sends any noul/choice/score batch using the same
 builders and returns:
 
 ```json
@@ -181,6 +181,6 @@ catalog, and keep the fallback intact.
 - No key or unreachable APIs → `source` names the local fallback; the command still answers.
 - API error (400/401/5xx) during rerank → that rerank falls back locally; the command continues.
 - API error during `decide --questions` → the command exits with an error (no invented answer).
-- A local-router that only serves Jev over chat completions is reported by `ainish-rag secrets`
+- A local-router that only serves Jev over chat completions is reported by `ainish-context secrets`
   and is never used for typed decisions.
 - Never treat a transport failure as a negative judgment.

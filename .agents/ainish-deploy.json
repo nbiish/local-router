@@ -1,10 +1,10 @@
 {
   "format": "ainish-coder/rules-deploy/v1",
   "source_repo": "/Users/nbiish/code/ainish-coder",
-  "source_commit": "b0f5841336c8848933bfb47028bfb493884ffb89",
-  "source_agents_sha256": "011c38c7368fdb9129d352e8e0c0839ec58abd0ec0a3074b36f9435453fc757c",
-  "source_pack_sha256": "13f51ed70aa0fb68a2fd14e3d6d0fe830ae142f3e9a54052ae3e689510a5a805",
-  "deployed_at": "2026-11-12T23:05:17Z",
+  "source_commit": "c105a3579dda818f52e89f8b1eced9a47a47031e",
+  "source_agents_sha256": "c5a42e04613b5a8f557a2b3d2f0c96b22392c7b4dc11f6b2926d64a9f1bc8596",
+  "source_pack_sha256": "1ead6f19f935e5480d9f3daf307f06bece32e0032ebdc9cbff2c60dc14440787",
+  "deployed_at": "2026-11-20T21:46:04Z",
   "auto_sync": true,
   "managed_paths": [
     "AGENTS.md",
