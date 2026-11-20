@@ -1,0 +1,52 @@
+2026-11-20 — provider endpoint refresh (Nebius region, Modal re-point)
+
+Facts established by live measurement this session (2026-11-20):
+
+- Nebius Token Factory exposes region-pinned gateways on the same service and
+  the same credential. `api.tokenfactory.us-north1.nebius.com/v1` serves a
+  strict SUBSET of the global host: 8 of 24 ids, and every one of the 8 is also
+  global. It cannot serve `nvidia/Nemotron-3_5-Lightning`.
+- Nebius model-id casing is load-bearing:
+  `nvidia/Nemotron-3-Ultra-550b-a55b` answers 200, `...-550B-A55B` answers 404.
+  The bare `deepseek-ai/DeepSeek-V4-Pro` id is retired; the live id is
+  `deepseek-ai/DeepSeek-V4-Pro-0813`.
+- Nebius reasoning is `reasoning_effort` ONLY. `enable_thinking` is inert, not
+  rejected: on GLM-5.3-Flash `enable_thinking:false` returned a completion
+  byte-identical to the no-parameter baseline (1225 reasoning tokens, 1547
+  completion, 3299-char reasoning_content). `reasoning_effort` moved the same
+  model 168 / 1653 / 296 reasoning tokens at low / medium / high, and the full
+  six-value enum including `xhigh` is accepted (200).
+- Modal retired both hosts this repo pointed at:
+  `nbiish--ep-glm-5-3-flash-server…` and `nbiish--ep-kimi-k3-nbiish-server…`
+  answer `404 domain association not found`; `api.us-west-2.modal.direct`
+  answers `404 route not found`. The real shared-endpoint gateway is
+  `inference.us-west.modal.direct/v1`.
+- Modal proxy tokens are `wk-` (ID) / `ws-` (secret), sent dot-joined as a
+  Bearer or as `Modal-Key`+`Modal-Secret`. They are NOT interchangeable with
+  `ak-`/`as-` API tokens. A rejection reads
+  `401 {"error":"Webhook token not found: wk-…"}` — and it echoes the token ID,
+  so any diagnostic that forwards upstream bodies must redact it.
+
+Architectural lesson (the bug this surfaced, fixed in `providerDeclaresDialect`):
+
+  A provider row that says `booleanThinking` cannot express "my wire normalises
+  every hosted family onto `reasoning_effort`". `resolveReasoningPolicy` applied
+  `FAMILY_OVERRIDES` unconditionally, so the glm/kimi/minimax overrides put
+  Nebius requests back on `enable_thinking` — the field that gateway ignores —
+  and the caller's requested level silently vanished while every test passed.
+  The provider is the authority for the request FIELD; the family describes the
+  model. Precedence now runs provider-declared > family > provider default.
+
+Process notes:
+
+- Boot the router against `LOCAL_ROUTER_CONFIG_DIR=<tmp>` for end-to-end checks.
+  A first attempt on the default config dir pulled Ollama cloud models and wrote
+  the operator's live curation before it crashed; nothing tracked was mutated,
+  but it was avoidable.
+- A `modal-proxy` request that fails 401 does NOT surface as an error to the
+  client: the router cascades to the system fallback and answers with a
+  different model (log line: `Direct model … failed on provider "modal-proxy" —
+  upstream_http_auth (status 401) — cascading`). A green reply is not proof the
+  requested provider answered.
+- `npm run validate:model-specs` has a pre-existing 95-error baseline; after
+  removing dead Nebius rows it is 90. Compare counts, never assert green.
