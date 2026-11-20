@@ -64,6 +64,20 @@ export interface ReasoningPolicy {
   budgetPerLevel?: Partial<Record<ThinkingLevel, number>>;
   /** Extra fields that must accompany "thinking on" on this provider. */
   onFields?: Record<string, unknown>;
+  /**
+   * Set when the provider's wire normalises EVERY hosted model family onto one
+   * request field, so a family override must not swap the dialect back.
+   *
+   * Measured on Nebius 2026-11-20: `enable_thinking:false` returned a
+   * byte-identical completion to the baseline on GLM-5.3-Flash (1225 reasoning
+   * tokens both times), i.e. the field is inert on that wire, while
+   * `reasoning_effort` moved the same model from 168 to 1653 reasoning tokens
+   * between `low` and `medium`. Kimi-K3.1-Pro and MiniMax-M3.1-Flash behave the
+   * same way (`reasoning_effort:none` -> 0 reasoning tokens, 3/3 runs). The
+   * provider is the fact here, not the model family: it terminates family
+   * overrides for the request field while leaving the provider's own `levels`.
+   */
+  providerDeclaresDialect?: boolean;
   note: string;
 }
 
@@ -117,6 +131,12 @@ interface FamilyOverride {
  * rows from drifting against each other.
  */
 const EFFORT_FIVE: ThinkingLevel[] = ['none', 'minimal', 'low', 'medium', 'high'];
+/**
+ * The full ladder including `xhigh`. Only providers that were MEASURED to
+ * accept the six-value enum get this: advertising a level the upstream 422s on
+ * is the "control that cannot move" bug this table exists to prevent.
+ */
+const EFFORT_SIX: ThinkingLevel[] = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh'];
 const EFFORT_FOUR: ThinkingLevel[] = ['none', 'low', 'medium', 'high'];
 /** Boolean upstream: the two states it can actually express. */
 const BOOLEAN_TWO: ThinkingLevel[] = ['none', 'medium'];
@@ -264,8 +284,39 @@ export const PROVIDER_POLICIES: Record<string, ProviderPolicy> = {
   },
 
   nebius: {
-    reasoning: booleanThinking('llms.txt §Thinking (DeepSeek/Qwen/GLM family mapping); Nebius serves vLLM [INFERENCE]'),
+    // Measured 2026-11-20 on api.tokenfactory.nebius.com and the us-north1
+    // region alike: `enable_thinking` is IGNORED and `reasoning_effort` is the
+    // only field that moves thinking. On GLM-5.3-Flash, `enable_thinking:false`
+    // returned a completion byte-identical to the no-parameter baseline
+    // (1225 reasoning tokens, 3299-char reasoning_content both times); on the
+    // same model `reasoning_effort` moved 168 / 1653 / 296 reasoning tokens for
+    // low / medium / high. Kimi-K3.1-Pro and MiniMax-M3.1-Flash both billed 0
+    // reasoning tokens at `none` (3/3 runs). The full six-value enum including
+    // `xhigh` is accepted (200, not 422).
+    //
+    // This is a provider-level fact, not a per-family one, which is why the row
+    // sets providerDeclaresDialect: the `glm`/`kimi`/`minimax` family overrides
+    // would otherwise put GLM and Kimi back on `enable_thinking`, the field this
+    // wire does not read.
+    reasoning: effortPolicy(EFFORT_SIX, 'measured 2026-11-20 on Token Factory: enable_thinking inert (byte-identical output with false), reasoning_effort moves billed reasoning_tokens across none/minimal/low/medium/high/xhigh', {
+      acceptsXhigh: true,
+      providerDeclaresDialect: true
+    }),
     caching: implicitCache('docs/caching/nebius.txt — automatic context cache; Responses API takes prompt_cache_key, chat completions takes nothing', {
+      stickyKey: 'prompt_cache_key'
+    })
+  },
+
+  'nebius-us-north1': {
+    // Same wire, same credential, different gateway: the region-pinned host
+    // serves a subset of the global catalog (8 of 24, measured 2026-11-20).
+    // Reasoning and caching therefore match `nebius` exactly, including the
+    // provider-level dialect finding.
+    reasoning: effortPolicy(EFFORT_SIX, 'measured 2026-11-20 on api.tokenfactory.us-north1.nebius.com: enable_thinking inert, reasoning_effort moves billed reasoning_tokens across none/minimal/low/medium/high/xhigh', {
+      acceptsXhigh: true,
+      providerDeclaresDialect: true
+    }),
+    caching: implicitCache('docs/caching/nebius-us-north1.txt — same Token Factory engine as the global host; automatic context cache, nothing to mark client-side', {
       stickyKey: 'prompt_cache_key'
     })
   },
@@ -283,14 +334,19 @@ export const PROVIDER_POLICIES: Record<string, ProviderPolicy> = {
   },
 
   modal: {
-    reasoning: booleanThinking('llms.txt §Thinking (Kimi/GLM family); Modal serves vLLM [INFERENCE]'),
+    reasoning: booleanThinking('llms.txt §Thinking; Modal inference gateway serves vLLM-backed shared endpoints [INFERENCE: host corrected 2026-11-20 — api.us-west-2.modal.direct answers 404 route not found]'),
     caching: implicitCache('docs/caching/modal.txt — vLLM automatic prefix cache, capacity-bound, no client knobs', {
       stickyKey: 'prompt_cache_key'
     })
   },
 
   'modal-proxy': {
-    reasoning: booleanThinking('llms.txt §Thinking (Kimi family); own GLM-5.3-Flash / Kimi-K3 vLLM deployment [INFERENCE]'),
+    // The deployment now serves deepseek-ai/DeepSeek-V4.1-Flash-1017, which the
+    // `deepseek` family override below already maps to reasoning_effort. The
+    // provider row keeps the conservative boolean row as the fallback for any
+    // other family the operator deploys here later; the family override wins for
+    // DeepSeek, which is the only model this endpoint serves today.
+    reasoning: booleanThinking('llms.txt §Thinking; own DeepSeek-V4.1-Flash-1017 vLLM deployment — the deepseek family override supplies reasoning_effort for the served model [INFERENCE]'),
     caching: implicitCache('docs/caching/modal-proxy.txt — vLLM APC on a private deployment; Modal-Session-ID keeps requests on one replica', {
       stickyKey: 'prompt_cache_key'
     })
@@ -586,11 +642,18 @@ export function resolveReasoningPolicy(providerName: string, modelName?: string)
   if (base.dialect === 'none' || base.dialect === 'model-id') return base;
 
   let policy = base;
-  for (const override of FAMILY_OVERRIDES) {
-    if (!override.reasoning) continue;
-    if (!modelMatches(override.match, model)) continue;
-    policy = { ...policy, ...override.reasoning, note: `${base.note}; family override: ${override.note}` };
-    break;
+  // A provider that declares its own wire dialect is the authority for the
+  // REQUEST FIELD. Family overrides still describe the model, but they must not
+  // put the request back on a field this provider measurably ignores — that is
+  // exactly how `enable_thinking` kept being sent to a wire that needs
+  // `reasoning_effort`.
+  if (!base.providerDeclaresDialect) {
+    for (const override of FAMILY_OVERRIDES) {
+      if (!override.reasoning) continue;
+      if (!modelMatches(override.match, model)) continue;
+      policy = { ...policy, ...override.reasoning, note: `${base.note}; family override: ${override.note}` };
+      break;
+    }
   }
 
   // A provider- or family-declared default that the dialect cannot express is

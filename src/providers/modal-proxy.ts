@@ -3,9 +3,9 @@ import { ProxyProvider } from "../types";
 export function getModalProxyBaseUrl(): string {
   const customUrl = process.env.MODAL_PROXY_ENDPOINT || process.env.MODAL_PROXY_URL;
   if (customUrl) {
-    return customUrl.replace(/\/+$/, "");
+    return customUrl.replace(/\/+$/, "").replace(/\/chat\/completions$/, "");
   }
-  return "https://nbiish--ep-glm-5-3-flash-server.us-west.modal.direct/v1";
+  return "https://nbiish--ep-deepseek-v4-1-flash-1017-server.us-west.modal.direct/v1";
 }
 
 export function getModalProxyApiKey(): string {
@@ -74,11 +74,12 @@ const provider: ProxyProvider = {
     }
 
     return [
-      { id: "zai-org/GLM-5.3-Flash", object: "model", owned_by: "modal-proxy" },
-      { id: "GLM-5.3-Flash", object: "model", owned_by: "modal-proxy" },
-      { id: "glm-5.3-flash", object: "model", owned_by: "modal-proxy" },
-      { id: "moonshotai/Kimi-K3", object: "model", owned_by: "modal-proxy" },
-      { id: "kimi-k3", object: "model", owned_by: "modal-proxy" }
+      { id: "deepseek-ai/DeepSeek-V4.1-Flash-1017", object: "model", owned_by: "modal-proxy" },
+      { id: "DeepSeek-V4.1-Flash-1017", object: "model", owned_by: "modal-proxy" },
+      { id: "deepseek-v4.1-flash-1017", object: "model", owned_by: "modal-proxy" },
+      // Modal's endpoint-integration contract also accepts the Endpoint
+      // hostname as the `model` value, so it is discoverable here too.
+      { id: "nbiish--ep-deepseek-v4-1-flash-1017-server.us-west.modal.direct", object: "model", owned_by: "modal-proxy" }
     ];
   }
 };
