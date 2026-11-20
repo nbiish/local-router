@@ -47,6 +47,16 @@ export function renderTrajectoriesPage(params: {
 
       <div class="card">
         <div class="catalog-meta">
+          <h3 style="margin:0;">Chain recommendations</h3>
+          <div class="button-row" style="margin:0;">
+            <button type="button" class="button-secondary" onclick="loadChainRecommendations()">Refresh</button>
+          </div>
+        </div>
+        <div id="chainRecommendations" style="margin-top:10px;">Loading&hellip;</div>
+      </div>
+
+      <div class="card">
+        <div class="catalog-meta">
           <h3 style="margin:0;">Recent trajectories</h3>
           <div class="button-row" style="margin:0; gap:6px; align-items:center;">
             <select id="trajectoryRouteFilter" onchange="loadTrajectoryList()" style="font-size:12px;">

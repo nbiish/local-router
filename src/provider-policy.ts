@@ -107,6 +107,26 @@ export interface CachingPolicy {
   includeStreamUsage: boolean;
   /** Fields this provider treats as a cache-warmth lever, not a reasoning one. */
   extraBodyFields?: Record<string, unknown>;
+  /**
+   * The optional request fields this surface accepts at all.
+   *
+   * `strict` means the upstream validates its JSON schema and rejects unknown
+   * names outright — Google's OpenAI-compat wire does exactly that, answering
+   * `Invalid JSON payload received. Unknown name "prompt_cache_key"` /
+   * `Unknown name "store"`. On such a surface the router may only send fields
+   * named here plus the standard chat-completions core; everything else is
+   * dropped rather than forwarded and hoped for. Measured live 2026-11-20:
+   * ~40 Antigravity failures were router-injected or client-passthrough fields
+   * the surface never accepted.
+   *
+   * `lenient` (the default) forwards the caller's body as-is.
+   */
+  requestFields?: {
+    /** `strict` = reject unknown fields; `lenient` = ignore them. */
+    validation: 'strict' | 'lenient';
+    /** Optional fields known to be accepted. Ignored when lenient. */
+    accepted?: readonly string[];
+  };
   note: string;
 }
 
@@ -439,8 +459,12 @@ export const PROVIDER_POLICIES: Record<string, ProviderPolicy> = {
 
   antigravity: {
     reasoning: effortPolicy(EFFORT_FOUR, 'docs/caching/antigravity.txt — Gemini via the AI Studio OpenAI-compat surface; thinking_config is not reachable here [INFERENCE]'),
-    caching: implicitCache('docs/caching/antigravity.txt — Gemini implicit caching, nothing client-configurable; sticky prompt_cache_key anchors the cache where honoured and is ignored where not [INFERENCE: acceptance unstated]', {
-      stickyKey: 'prompt_cache_key',
+    caching: implicitCache('docs/caching/antigravity.txt — Gemini implicit caching, nothing client-configurable; the surface validates its JSON schema and rejects unknown names, so no sticky key is sent [MEASURED 2026-11-20: Unknown name "prompt_cache_key" / "store" are 400s]', {
+      // strict: the AI Studio OpenAI-compat wire answers 400 for any field its
+      // schema does not declare. Sending a "harmless" sticky key there is the
+      // opposite of harmless — it fails the whole request.
+      requestFields: { validation: 'strict' },
+      stickyKey: 'none',
       includeStreamUsage: false
     })
   },
@@ -678,6 +702,56 @@ export function resolveCachingPolicy(providerName: string, modelName?: string): 
   return base;
 }
 
+/**
+ * The chat-completions fields every OpenAI-compatible surface accepts.
+ *
+ * A strict surface validates its schema and 400s on anything else, so this is
+ * the floor: it is the wire contract itself, not a per-provider opinion, and it
+ * must not grow a field merely because one provider tolerates it.
+ */
+const CHAT_CORE_FIELDS: readonly string[] = [
+  'model', 'messages', 'stream', 'stream_options',
+  'max_tokens', 'max_completion_tokens', 'temperature', 'top_p', 'top_k',
+  'stop', 'n', 'seed', 'presence_penalty', 'frequency_penalty', 'logprobs',
+  'top_logprobs', 'logit_bias', 'user', 'response_format', 'tools',
+  'tool_choice', 'parallel_tool_calls', 'reasoning_effort', 'modalities',
+  'audio', 'prediction', 'service_tier', 'metadata'
+];
+
+/**
+ * Drop request fields a strict surface would reject.
+ *
+ * The defect this closes (measured live 2026-11-20): the router forwarded the
+ * caller's own body verbatim, and Google's AI Studio OpenAI-compat wire answers
+ * `Invalid JSON payload received. Unknown name "store"` / `Unknown name
+ * "prompt_cache_key"` with HTTP 400. ~40 stage failures were the router sending
+ * a field the target never declared. A lenient surface keeps today's behaviour
+ * exactly; only a provider whose row states `validation: 'strict'` is filtered.
+ *
+ * Returns the dropped names so a caller can record that the request was
+ * reshaped rather than passed through — a silent drop would be the same class of
+ * bug as the one being fixed.
+ */
+export function dropUnsupportedRequestFields<T extends JsonObject>(
+  body: T,
+  providerName: string,
+  modelName?: string
+): { body: T; dropped: string[] } {
+  const policy = resolveCachingPolicy(providerName, modelName);
+  const contract = policy.requestFields;
+  if (!contract || contract.validation !== 'strict') return { body, dropped: [] };
+
+  const accepted = new Set<string>([...CHAT_CORE_FIELDS, ...(contract.accepted || [])]);
+
+  const next: JsonObject = {};
+  const dropped: string[] = [];
+  for (const [key, value] of Object.entries(body)) {
+    if (accepted.has(key)) next[key] = value;
+    else dropped.push(key);
+  }
+  return { body: next as T, dropped };
+}
+
 /** The advertised dial, or an empty list when the pairing has no request dial. */
 export function reasoningLevelsFor(providerName: string, modelName?: string): ThinkingLevel[] {
   const policy = resolveReasoningPolicy(providerName, modelName);
@@ -859,6 +933,21 @@ function readIntent(body: JsonObject): ThinkingIntent {
   if (thinking && thinking.enabled === true) return { kind: 'on' };
 
   return { kind: 'unspecified' };
+}
+
+/**
+ * The thinking level a caller expressed, in canonical form, or undefined when
+ * they said nothing.
+ *
+ * Exported so a trajectory stage can record WHAT was asked for at the moment a
+ * model without a request dial served the turn — a downgrade note that says
+ * "the level was not honoured" without naming the level is only half the fact.
+ */
+export function requestedThinkingLevel(body: JsonObject): ThinkingLevel | undefined {
+  const intent = readIntent(body);
+  if (intent.kind === 'unspecified') return undefined;
+  if (intent.kind === 'off') return 'none';
+  return intent.level ?? DEFAULT_THINKING_LEVEL;
 }
 
 /** Does the body already state this dialect's field itself? */

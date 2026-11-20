@@ -22,7 +22,7 @@ import path from 'path';
 import os from 'os';
 import crypto from 'crypto';
 
-export const TRAJECTORY_SCHEMA_VERSION = 2;
+export const TRAJECTORY_SCHEMA_VERSION = 3;
 
 /**
  * Schema history:
@@ -30,6 +30,17 @@ export const TRAJECTORY_SCHEMA_VERSION = 2;
  *   v2 — additive: `shedding` (explicit chain-alias shed marker) and a resolved
  *        `client` attribution. v1 records stay readable — every v2 field is
  *        optional, so a reader written for v1 keeps working unchanged.
+ *   v3 — additive: `stages[i].outbound` (the EXACT body sent upstream),
+ *        `stages[i].clampedTokens` (a ceiling the router imposed),
+ *        `stages[i].droppedFields` (fields a strict surface would have
+ *        rejected), `stages[i].reasoningDialDowngraded` and `requestedLevel` (a
+ *        tier-2 acceptance that cannot honour the caller's level). Every field
+ *        is optional, so a v1/v2 reader is unaffected.
+ *
+ * v3 exists because every defect found in the 2026-11-20 audit was invisible in
+ * the log: the record held the CLIENT's request summary, never the body the
+ * router actually sent, so a router-authored 400 was indistinguishable from a
+ * provider fault until the raw `providerErrorPreview` was read by hand.
  */
 
 /**
@@ -77,6 +88,29 @@ export interface TrajectoryStage {
   providerErrorPreview?: string;
   waitBeforeRetrySeconds?: number;
   ms?: number;
+  /**
+   * v3: the exact JSON body the router sent upstream for this attempt.
+   *
+   * This is the fact the log was missing. Every one of the 2026-11-20 audit's
+   * defects — an inflated output budget, an injected field a strict schema
+   * rejects, a second system turn — was a property of the OUTBOUND body, and
+   * none of it was recoverable from the client-request summary. Spilled to
+   * `spill/<sha>.txt` whenever it exceeds the inline preview and referenced by a
+   * `sha:` handle, so the exact body is always retrievable.
+   */
+  outbound?: TrajectoryReceipt;
+  /** v3: an output ceiling the router imposed because the ask exceeded the model. */
+  clampedTokens?: { requested: number; clamped: number };
+  /** v3: fields dropped because the target's schema would have rejected them. */
+  droppedFields?: string[];
+  /**
+   * v3: true when this stage answered a thinking request it could not honour,
+   * because the model has no request dial. The caller's level did not reach the
+   * model. Recorded rather than implied so a downgrade is never silent.
+   */
+  reasoningDialDowngraded?: boolean;
+  /** v3: the level the caller asked for, when it could not be expressed here. */
+  requestedLevel?: string;
 }
 
 export interface TrajectoryExcludedTarget {
@@ -92,6 +126,12 @@ export interface TrajectoryChain {
   /** Configured steps that could not even be planned, with the reason. */
   excludedTargets: TrajectoryExcludedTarget[];
   eligibleTargets: string[];
+  /**
+   * v3: members reachable only as the tier-2 tail, because the caller chose a
+   * thinking level they cannot be told. Planned after every `eligibleTargets`
+   * member; any stage from this set that answers is a recorded downgrade.
+   */
+  degradedTargets?: string[];
   requiredContext: number;
   requiresMultimodal: boolean;
   planStageCount: number;
@@ -165,7 +205,6 @@ export interface TrajectoryRecord {
 const MAX_RECORDS = 2000;
 const COMPACT_ABOVE = 2200;
 const PREVIEW_CHARS = 400;
-const SPILL_THRESHOLD_CHARS = 4096;
 
 function trajectoryLogEnabled(): boolean {
   return process.env.LOCAL_ROUTER_TRAJECTORY_LOG !== '0';
@@ -211,7 +250,12 @@ export function storeReceipt(text: string | undefined | null): TrajectoryReceipt
     chars: value.length,
     preview: previewOf(value)
   };
-  if (value.length > SPILL_THRESHOLD_CHARS) {
+  // Spill whenever the preview cannot be the whole payload. A fixed 4 KB
+  // threshold left a hole: an outbound request body of ~420 chars is past the
+  // preview cap yet under it, so `readReceiptPayload` returned null and the
+  // exact body was unrecoverable — measured live 2026-11-20 on the very first
+  // v3 record. The receipt must always be either fully readable or spilled.
+  if (value.length > PREVIEW_CHARS) {
     ensureTrajectoryDir();
     const spillPath = path.join(spillDir(), `${sha}.txt`);
     if (!fs.existsSync(spillPath)) {

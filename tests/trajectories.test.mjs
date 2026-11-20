@@ -140,6 +140,18 @@ test('spill receipts keep large payloads retrievable by sha handle', () => {
   assert.equal(readReceiptPayload(smallReceipt), 'small payload');
 });
 
+test('storeReceipt: a payload past the preview cap is always retrievable', () => {
+  // The gap this closes (measured live 2026-11-20 on the first v3 record): a
+  // ~420-byte outbound body is past the 400-char preview cap but was under the
+  // old 4096-char spill threshold, so it was neither inline nor spilled and
+  // `readReceiptPayload` returned null. Every outbound body must round-trip.
+  for (const size of [1, 399, 400, 401, 422, 1024, 4095, 4096, 8192]) {
+    const text = 'x'.repeat(size);
+    const receipt = storeReceipt(text);
+    assert.equal(readReceiptPayload(receipt), text, `payload of ${size} chars must round-trip`);
+  }
+});
+
 test('analysis flags dead, always-skipped, and invisible chain members', () => {
   clearTrajectories();
   for (let i = 0; i < 4; i += 1) {
@@ -338,7 +350,7 @@ test('a chain alias answering as a concrete member records an explicit shed', ()
   const record = tracker.finish(makeLog());
 
   assert.equal(record.schema_version, TRAJECTORY_SCHEMA_VERSION);
-  assert.equal(record.schema_version, 2, 'schema bumped for the additive v2 fields');
+  assert.equal(record.schema_version, 3, 'schema bumped for the additive v3 fields');
   assert.ok(record.shedding, 'a shed must be recorded explicitly, not left to be inferred');
   assert.equal(record.shedding.from, 'local-router/fallback-models');
   assert.equal(record.shedding.to, 'prov-b/winner-b');
@@ -348,6 +360,53 @@ test('a chain alias answering as a concrete member records an explicit shed', ()
   // The marker survives the round-trip through the JSONL log.
   const persisted = getTrajectory(record.id);
   assert.equal(persisted.shedding.to, 'prov-b/winner-b');
+});
+
+test('v3 stage facts survive the log: outbound receipt, clamp, drops, tier-2 downgrade', () => {
+  // These four fields are what make a router-authored failure diagnosable. None
+  // of them existed in v1/v2, which is why the 2026-11-20 audit had to reconstruct
+  // what was sent from truncated provider error previews.
+  const outbound = JSON.stringify({ model: 'target-b', messages: [], max_tokens: 4096 });
+  const tracker = new TrajectoryTracker(
+    { client: 'probe', presentedModel: 'local-router/fallback-models', routeKind: 'fallback', routeId: 'fallback-models' },
+    { model: 'local-router/fallback-models', messages: [{ role: 'user', content: 'hi' }] }
+  );
+  tracker.setChain({
+    routeId: 'fallback-models',
+    configuredTargets: ['dial-a', 'no-dial-b'],
+    excludedTargets: [],
+    eligibleTargets: ['dial-a'],
+    degradedTargets: ['no-dial-b'],
+    requiredContext: 1,
+    requiresMultimodal: false,
+    planStageCount: 2
+  });
+  tracker.addStage({
+    stage: 'pass-1-step-1', targetModel: 'dial-a', provider: 'prov-a', actualModel: 'dial-a',
+    attempt: 1, stageAttempts: 1, outcome: 'failed', errorType: 'upstream_http_rate_limit', status: 429,
+    outbound: storeReceipt(outbound),
+    clampedTokens: { requested: 943718, clamped: 131072 },
+    droppedFields: ['store', 'prompt_cache_key']
+  });
+  tracker.addStage({
+    stage: 'degraded-pass-1-step-2', targetModel: 'no-dial-b', provider: 'prov-b', actualModel: 'no-dial-b',
+    attempt: 1, stageAttempts: 1, outcome: 'answered', status: 200,
+    reasoningDialDowngraded: true, requestedLevel: 'high'
+  });
+  const record = tracker.finish(makeLog());
+
+  const persisted = getTrajectory(record.id);
+  const failed = persisted.stages[0];
+  assert.deepEqual(failed.clampedTokens, { requested: 943718, clamped: 131072 });
+  assert.deepEqual(failed.droppedFields, ['store', 'prompt_cache_key']);
+  assert.ok(failed.outbound, 'the failed attempt must carry a receipt for what was sent');
+  assert.equal(readReceiptPayload(failed.outbound), outbound,
+    'the outbound receipt must round-trip to the exact body');
+
+  const degraded = persisted.stages[1];
+  assert.equal(degraded.reasoningDialDowngraded, true);
+  assert.equal(degraded.requestedLevel, 'high');
+  assert.deepEqual(persisted.chain.degradedTargets, ['no-dial-b']);
 });
 
 test('a direct call answered by the requested model records no shed', () => {

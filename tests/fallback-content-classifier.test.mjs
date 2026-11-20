@@ -5,6 +5,7 @@ const {
   classifyResponseContent,
   isContentFailoverTrigger,
   classifyHttpFailure,
+  normalizeHttpFailure,
   isClassifiedFailoverError,
   buildFailoverPreservedBody
 } = await import('../build/index.js');
@@ -127,6 +128,56 @@ test('classifyHttpFailure: body text patterns override status', () => {
   assert.equal(classifyHttpFailure(200, 'context_length_exceeded'), 'upstream_http_invalid_request');
 });
 
+test('classifyHttpFailure: completion prose never decides the failure class', () => {
+  // Measured live 2026-11-20: 45 stages were HTTP-200 completions booked as
+  // rejected keys because their reasoning text contained the word "auth" —
+  // and `key_rejected` is a one-strike immediate quarantine, so each one
+  // evicted a healthy provider.
+  const reasoningOnly = JSON.stringify({
+    id: 'x',
+    choices: [{ finish_reason: 'length', index: 0, message: { content: '', role: 'assistant', reasoning_content: 'The author of this request wants me to…' } }]
+  });
+  assert.equal(classifyHttpFailure(200, reasoningOnly), 'upstream_http');
+
+  const answerMentionsAuth = JSON.stringify({
+    id: 'x',
+    choices: [{ finish_reason: 'stop', index: 0, message: { content: 'authorized users only' } }]
+  });
+  assert.equal(classifyHttpFailure(200, answerMentionsAuth), 'upstream_http');
+
+  // The bare word "auth" is no longer auth evidence even off a 2xx.
+  assert.equal(classifyHttpFailure(500, 'the author of the upstream page says hello'), 'upstream_http_unavailable');
+  assert.equal(classifyHttpFailure(400, 'authorship metadata rejected'), 'upstream_http_invalid_request');
+
+  // Specific auth phrasing still classifies, including status 401/403.
+  assert.equal(classifyHttpFailure(401, ''), 'upstream_http_auth');
+  assert.equal(classifyHttpFailure(403, ''), 'upstream_http_auth');
+  assert.equal(classifyHttpFailure(400, 'authentication failed'), 'upstream_http_auth');
+  assert.equal(classifyHttpFailure(400, 'invalid api key'), 'upstream_http_auth');
+});
+
+test('normalizeHttpFailure: a 2xx completion keeps its empty_completion class', () => {
+  const emptyBody = JSON.stringify({
+    id: 'x',
+    choices: [{ finish_reason: 'length', index: 0, message: { content: '', reasoning_content: 'thinking about auth tokens…' } }]
+  });
+  const normalized = normalizeHttpFailure({
+    errorType: 'empty_completion',
+    status: 200,
+    message: 'empty',
+    responseText: emptyBody
+  });
+  assert.equal(normalized.errorType, 'empty_completion');
+
+  // A 2xx error payload IS classifiable from its body: some surfaces use 200
+  // for real failures and there is no other evidence.
+  const errorBody = JSON.stringify({ error: { message: 'insufficient_quota' } });
+  assert.equal(
+    normalizeHttpFailure({ errorType: 'upstream_http', status: 200, message: 'x', responseText: errorBody }).errorType,
+    'upstream_http_payment_required'
+  );
+});
+
 test('isClassifiedFailoverError: quota and unavailable trigger, auth does not', () => {
   assert.equal(isClassifiedFailoverError('upstream_http_quota'), true);
   assert.equal(isClassifiedFailoverError('upstream_http_unavailable'), true);
@@ -150,10 +201,25 @@ test('buildFailoverPreservedBody: preserves conversation context and injects fai
   assert.equal(preserved.model, 'provider-b/model-y');
   assert.equal(preserved.messages.length, 5);
   const lastMsg = preserved.messages[preserved.messages.length - 1];
-  assert.equal(lastMsg.role, 'system');
+  // The marker must NOT be a second system turn: gateways reject a system
+  // message that is not first (Z.ai: {"code":1214,"Incorrect role information"}).
+  assert.equal(lastMsg.role, 'user');
   const event = JSON.parse(lastMsg.content);
   assert.equal(event.event, 'local_router.failover');
   assert.equal(event.data.from, 'provider-a/model-x');
   assert.equal(event.data.to, 'provider-b/model-y');
   assert.ok(event.data.timestamp);
+});
+
+test('buildFailoverPreservedBody: system message stays first across a failover hop', () => {
+  const body = {
+    model: 'provider-a/model-x',
+    messages: [
+      { role: 'system', content: 'You are helpful.' },
+      { role: 'user', content: 'Hello' }
+    ]
+  };
+  const roles = buildFailoverPreservedBody(body, 'provider-b/model-y').messages.map((m) => m.role);
+  assert.deepEqual(roles, ['system', 'user', 'user']);
+  assert.equal(roles.indexOf('system'), roles.lastIndexOf('system'));
 });

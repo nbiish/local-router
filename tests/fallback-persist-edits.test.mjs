@@ -208,21 +208,24 @@ test('router settings export/import/reset persists fallback routes and settings'
   assert.deepEqual(sysRouteReset?.models, []);
 });
 
-test('router-settings.json is authoritative over the derived fallback-models.json cache at boot', async () => {
-  // Single-source contract (2026-09-04): router-settings.json is THE chain
-  // definition; fallback-models.json is a derived cache. The file wins at
-  // boot even when the cache disagrees — that drift (file 23 models, cache
-  // 1) is exactly what this guards against.
+test('router-settings.json is the only chain file written after boot', async () => {
+  // Single-source contract (2026-11-20): router-settings.json is THE chain
+  // definition and the only file written. `fallback-models.json` is read once
+  // for migration and then never touched again — measured before this change on
+  // the operator's host: the checkout copy held 19 steps and the machine copy 17,
+  // so which chain ran depended on which loader won.
   await stopServer();
 
   const configDir = join(testHome, '.config', 'local-router');
   mkdirSync(configDir, { recursive: true });
 
-  // Derived cache has an outdated chain
-  writeFileSync(join(configDir, 'fallback-models.json'), JSON.stringify({
+  // A legacy machine copy that disagrees with the authoritative file.
+  const legacyPath = join(configDir, 'fallback-models.json');
+  writeFileSync(legacyPath, JSON.stringify({
     version: 1,
     routes: [{ id: 'fallback-models', models: ['stale-model-1'] }]
   }, null, 2));
+  const legacyBefore = readFileSync(legacyPath, 'utf8');
 
   // The single source carries the real chain
   writeFileSync(join(configDir, 'router-settings.json'), JSON.stringify({
@@ -234,5 +237,13 @@ test('router-settings.json is authoritative over the derived fallback-models.jso
 
   const routes = await requestJson('/api/fallback-models');
   const sysRoute = (routes.body?.data || []).find((r) => r.routeId === 'fallback-models');
-  assert.deepEqual(sysRoute?.models, ['stale-model-1', 'stale-model-2'], 'router-settings.json must be applied at boot over the derived cache');
+  assert.deepEqual(sysRoute?.models, ['stale-model-1', 'stale-model-2'], 'router-settings.json must be applied at boot over the legacy file');
+
+  // Drive a write through the API, then prove the machine copy was not rewritten.
+  await requestJson('/api/fallback-models', {
+    method: 'POST',
+    body: JSON.stringify({ id: 'fallback-models', models: ['stale-model-1'] })
+  });
+  assert.equal(readFileSync(legacyPath, 'utf8'), legacyBefore,
+    'the machine-local fallback-models.json must never be written again');
 });

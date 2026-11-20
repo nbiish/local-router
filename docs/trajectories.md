@@ -6,7 +6,9 @@ working, which is being silently skipped, and why"** after the fact, from the lo
 repro. If you are an agent reviewing a failure, start here.
 
 - **On disk:** `~/.config/local-router/trajectories/trajectories.jsonl` (append-only, newest last).
-- **Spill:** payloads over 4 KB go to `trajectories/spill/<sha256>.txt`, referenced by a `sha:` handle.
+- **Spill:** any payload larger than the 400-char inline preview goes to
+  `trajectories/spill/<sha256>.txt`, referenced by a `sha:` handle. Every such payload is
+  retrievable — a receipt is either fully inline or fully spilled, never neither.
 - **Disable:** `LOCAL_ROUTER_TRAJECTORY_LOG=0`.
 - **Redirect:** `LOCAL_ROUTER_TRAJECTORY_DIR=<dir>` (tests and verification runs use this).
 - **Code:** `src/trajectories.ts`. **Page:** `/config/trajectories`.
@@ -34,22 +36,56 @@ Schema v2 records this as its own field so you never have to infer it:
 
 Never treat an absent `shedding` as "shed to nothing".
 
-## Record shape (schema 2)
+## Record shape (schema 3)
 
 | Field | Meaning |
 |---|---|
-| `schema_version` | `1` or `2`. v2 added `shedding`, `clientSource`, `userAgent`. v1 records stay readable. |
+| `schema_version` | `1`, `2`, or `3`. v2 added `shedding`, `clientSource`, `userAgent`; v3 added the outbound-body receipt, `clampedTokens`, `droppedFields`, `degradedTargets`, and the tier-2 downgrade flags. Older records stay readable. |
 | `client` | Who called. Resolved from `x-local-router-client`, else the User-Agent (`pi/1.5.2 …` → `pi`). |
 | `clientSource` | `header`, `user-agent`, or `unknown` — **how** the name was derived. |
 | `userAgent` | Raw UA, kept so attribution can be improved retroactively. |
 | `presentedModel` | The model id the client asked for (often the alias). |
 | `routeKind` | `direct`, `fallback`, or `direct+cascade` (direct failed, chain carried it). |
-| `chain` | Snapshot of intent: configured targets, eligible targets, excluded targets **with reasons**. |
-| `stages` | Ordered timeline — every attempt, skip, and reason. |
+| `chain` | Snapshot of intent: configured targets, eligible targets, `degradedTargets` (tier 2), excluded targets **with reasons**. |
+| `stages` | Ordered timeline — every attempt, skip, and reason — plus what the router SENT. |
 | `result` | Status, winner, error type, usage (incl. cached tokens), cost. |
 | `receipts` | `sha:` handles for request/response/thinking/toolCalls payloads. |
 
 `shedding` is present only on a successful alias shed.
+
+### What the router sent (`stages[i]` in v3)
+
+The client-request summary cannot explain a router-authored failure. These fields exist so a
+400 can be diagnosed from the log alone:
+
+| Field | Meaning |
+|---|---|
+| `outbound` | `sha:` receipt for the exact JSON body sent upstream. Spilled whenever it exceeds the inline preview, so it always round-trips. |
+| `clampedTokens` | `{requested, clamped}` when the client's output budget exceeded the target model's ceiling and the router lowered it. |
+| `droppedFields` | Field names removed because the target's schema validates and would have rejected them. |
+| `reasoningDialDowngraded` | The model has no request-level thinking dial, so the caller's level did not reach it. |
+| `requestedLevel` | The level the caller asked for, recorded beside the downgrade. |
+
+Read the outbound body for a failed stage:
+
+```bash
+# Through the API (works whether or not the payload was spilled):
+curl -s 'localhost:11434/api/trajectories/<id>?part=outbound&stage=0'
+
+# Or straight off disk when it was spilled:
+curl -s localhost:11434/api/trajectories/<id> \
+  | jq -r '.stages[] | select(.outcome=="failed") | .outbound.sha' \
+  | sed 's/^sha://' \
+  | xargs -I{} cat ~/.config/local-router/trajectories/spill/{}.txt
+```
+
+### Tier-2: a thinking request served without a dial
+
+`chain.degradedTargets` lists members reachable only at their own fixed reasoning depth. They are
+planned after every dial-capable member, so a request that chose a thinking level still gets the
+best available answer instead of a 400 when the dial-capable steps fail. Accepting one of them is
+stamped `reasoningDialDowngraded: true` — the downgrade is stated, not implied. A member skipped
+every time is now a real fault; a member deferred to tier 2 is not.
 
 ## Reading the stage timeline
 
@@ -106,7 +142,9 @@ excluded from the roll-up so an unmapped string never masquerades as a known tri
 | `GET /api/trajectories?limit=&route=&outcome=&since=` | Summaries (newest first). Includes `clientSource` and `shedTo`. |
 | `GET /api/trajectories/:id` | Full record. |
 | `GET /api/trajectories/:id?part=request\|response\|thinking\|toolCalls` | Spilled payload by part. |
+| `GET /api/trajectories/:id?part=outbound&stage=0` | The exact JSON body sent upstream for that stage. |
 | `GET /api/trajectories/health` | Per-route chain analysis, flags, `chainHealth`. |
+| `GET /api/chain/recommendations` | Advisory auto-disable recommendations. **Never applied** — the router does not edit the chain. |
 | `GET /api/trajectories/export` | Raw JSONL. |
 | `DELETE /api/trajectories` | Clear the log (destructive). |
 

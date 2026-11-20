@@ -216,10 +216,10 @@ test('LOCAL_ROUTER_ROUTES_CONFIG applies declared chains + curation at boot', as
   assert.deepEqual(source.body?.curatedEndpointModelKeys, ['nvidia-nim::minimax/minimax-m3']);
   assert.equal(source.body?.filterConfigured, false);
 
-  const persisted = JSON.parse((await import('node:fs')).readFileSync(join(configDir, 'fallback-models.json'), 'utf8'));
+  const persisted = JSON.parse((await import('node:fs')).readFileSync(join(configDir, 'router-settings.json'), 'utf8'));
   assert.ok(
     (persisted.routes || []).some((route) => route.id === 'free-from-file'),
-    'config-declared chains persist to fallback-models.json'
+    'config-declared chains persist to router-settings.json, the single authoritative file'
   );
 });
 

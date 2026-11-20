@@ -220,7 +220,7 @@ test('the routes are seeded on first boot and left alone on later boots', async 
   assert.deepEqual(decision.models, ['typesafe/jev-1.14']);
 
   // The persisted file records both, so a restart reads them rather than reseeding.
-  const persisted = JSON.parse(readFileSync(join(home, '.config', 'local-router', 'fallback-models.json'), 'utf8'));
+  const persisted = JSON.parse(readFileSync(join(home, '.config', 'local-router', 'router-settings.json'), 'utf8'));
   const persistedIds = JSON.stringify(persisted);
   assert.match(persistedIds, /fallback-embedding/);
   assert.match(persistedIds, /fallback-decision/);
@@ -260,7 +260,7 @@ test('a persisted chain that mixes embedding models is reconciled on boot', asyn
     `the incompatible step must be recorded as disabled, saw: ${JSON.stringify(route.disabledModels)}`);
 
   // And the narrowing is persisted, so it does not re-run every boot.
-  const persisted = JSON.parse(readFileSync(join(home, '.config', 'local-router', 'fallback-models.json'), 'utf8'));
+  const persisted = JSON.parse(readFileSync(join(home, '.config', 'local-router', 'router-settings.json'), 'utf8'));
   const saved = (persisted.routes || []).find((r) => r.id === 'fallback-embedding');
   assert.equal(new Set(saved.models.map((m) => m.slice(m.indexOf('/') + 1))).size, 1);
 });
@@ -293,7 +293,7 @@ test('a persisted chain that starts on zenmux is corrected to lead with openrout
   ], `a removed step must stay removed: ${route.models.join(' -> ')}`);
 
   // The correction is persisted, so the route cannot flip back on the next boot.
-  const persisted = JSON.parse(readFileSync(join(home, '.config', 'local-router', 'fallback-models.json'), 'utf8'));
+  const persisted = JSON.parse(readFileSync(join(home, '.config', 'local-router', 'router-settings.json'), 'utf8'));
   const saved = (persisted.routes || []).find((r) => r.id === 'fallback-embedding');
   assert.ok(!saved.models.includes('openrouter/openai/text-embedding-3-small'),
     `the removed step must not be resurrected on disk: ${saved.models.join(' -> ')}`);

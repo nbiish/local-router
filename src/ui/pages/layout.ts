@@ -3298,6 +3298,53 @@ export function renderLayout(
           }
         }
 
+        // Advisory chain recommendations. The router never edits the chain, so
+        // this renders a suggestion the operator can act on, never an applied
+        // change. A member failing past the threshold for a day shows here.
+        async function loadChainRecommendations() {
+          const el = document.getElementById('chainRecommendations');
+          if (!el) return;
+          try {
+            const res = await fetch('/api/chain/recommendations');
+            if (!res.ok) throw new Error('HTTP ' + res.status);
+            const payload = await res.json();
+            const rows = Array.isArray(payload.recommendations) ? payload.recommendations : [];
+            if (rows.length === 0) {
+              el.innerHTML = '<div class="muted">No member has failed continuously for '
+                + escapeHtml(String(payload.thresholdHours || 24))
+                + 'h. Nothing to recommend.</div>';
+              return;
+            }
+            el.innerHTML = '<p class="muted" style="margin:0 0 8px;">Advisory only — the router does not edit your chain. Disable a model in the fallback editor to apply.</p>'
+              + '<div style="overflow-x:auto;"><table style="width:100%; border-collapse:collapse; font-size:13px;">'
+              + '<thead><tr style="background:var(--surface-soft); border-bottom:2px solid var(--border);">'
+              + '<th style="padding:6px 10px; text-align:left;">Model</th>'
+              + '<th style="padding:6px 10px; text-align:left;">Route</th>'
+              + '<th style="padding:6px 10px; text-align:right;">Failing</th>'
+              + '<th style="padding:6px 10px; text-align:right;">Rate</th>'
+              + '<th style="padding:6px 10px; text-align:left;">Action</th>'
+              + '<th style="padding:6px 10px; text-align:left;">Why</th>'
+              + '</tr></thead><tbody>'
+              + rows.map(function(r) {
+                const action = r.action === 'disable'
+                  ? '<span style="color:var(--danger-text); font-weight:600;">disable</span>'
+                  : '<span style="color:var(--warning-text);">keep</span>';
+                const rate = (r.failureRate == null) ? '—' : (Math.round(r.failureRate * 100) + '%');
+                return '<tr>'
+                  + '<td style="padding:6px 10px; font-weight:600;">' + escapeHtml(r.model) + '</td>'
+                  + '<td style="padding:6px 10px; font-size:12px;">' + escapeHtml(r.routeId) + '</td>'
+                  + '<td style="padding:6px 10px; text-align:right;">' + escapeHtml(String(r.failingHours)) + 'h</td>'
+                  + '<td style="padding:6px 10px; text-align:right;">' + escapeHtml(rate) + '</td>'
+                  + '<td style="padding:6px 10px;">' + action + '</td>'
+                  + '<td style="padding:6px 10px; font-size:12px; color:var(--muted);">' + escapeHtml(r.why || '') + '</td>'
+                  + '</tr>';
+              }).join('')
+              + '</tbody></table></div>';
+          } catch (error) {
+            el.innerHTML = '<div class="muted">Failed to load recommendations: ' + escapeHtml(error && error.message ? error.message : String(error)) + '</div>';
+          }
+        }
+
         async function loadTrajectoryList() {
           const el = document.getElementById('trajectoryList');
           if (!el) return;
@@ -3387,6 +3434,7 @@ export function renderLayout(
         safeInit('loadAgentHarnessStatus', loadAgentHarnessStatus);
         safeInit('loadTrajectoryHealth', loadTrajectoryHealth);
         safeInit('loadTrajectoryList', loadTrajectoryList);
+        safeInit('loadChainRecommendations', loadChainRecommendations);
 
         function bindOAuthProviderButtons(listEl) {
           listEl.querySelectorAll('button[data-copy-code]').forEach((button) => {

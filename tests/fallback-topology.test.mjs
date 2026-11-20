@@ -241,7 +241,7 @@ function specsById(table) {
   return (modelId) => table[modelId] || { contextLength: 64000, outputTokens: 4096, supportsImages: false, supportsTools: true };
 }
 
-test('the filter drops no-dial steps and reports why', () => {
+test('the filter defers no-dial steps to the tier-2 tail instead of dropping them', () => {
   const table = {
     'dial-model': { contextLength: 1000000, outputTokens: 8192, supportsImages: false, supportsTools: true, reasoningLevelCount: 4 },
     'fixed-model': { contextLength: 1000000, outputTokens: 8192, supportsImages: false, supportsTools: true, reasoningLevelCount: 0 }
@@ -252,7 +252,10 @@ test('the filter drops no-dial steps and reports why', () => {
     specsById(table)
   );
   assert.deepEqual(result.eligible, ['dial-model']);
-  assert.deepEqual(result.skipped.map((s) => s.reason), ['no_reasoning_dial']);
+  // Not `skipped`: a skipped member is never tried, and dropping these was the
+  // bug that made two paid subscriptions unreachable for 167 of 200 requests.
+  assert.deepEqual(result.degraded, ['fixed-model']);
+  assert.deepEqual(result.skipped.map((s) => s.reason), []);
   assert.equal(result.requiresReasoningDial, true);
 });
 
@@ -270,7 +273,7 @@ test('the filter keeps every step when the caller stated no level', () => {
   assert.equal(result.requiresReasoningDial, false);
 });
 
-test('a chain with no eligible dial fails loudly instead of degrading silently', () => {
+test('a chain with no dial-capable member serves the request as a recorded tier-2 tail', () => {
   const table = {
     'fixed-model': { contextLength: 1000000, outputTokens: 8192, supportsImages: false, supportsTools: true, reasoningLevelCount: 0 }
   };
@@ -279,14 +282,40 @@ test('a chain with no eligible dial fails loudly instead of degrading silently',
     { model: 'route', messages: [{ role: 'user', content: 'hi' }], reasoning_effort: 'high' },
     specsById(table)
   );
+  // The old behaviour was `error: 'no_reasoning_models'` with 0 attempts. That
+  // turned a downgrade into an outage: measured live 2026-11-20, four members
+  // (two paid subscriptions) were unreachable for 167 of 200 requests because
+  // the harness always sends `reasoning_effort`. The member is now reachable as
+  // the tier-2 tail, and the caller must read `degraded` to know the level will
+  // not be honoured.
   assert.deepEqual(result.eligible, []);
-  assert.equal(result.error, 'no_reasoning_models');
+  assert.deepEqual(result.degraded, ['fixed-model']);
+  assert.equal(result.error, undefined);
+});
+
+test('dial-capable members are always tried before dial-less ones', () => {
+  const table = {
+    'fixed-model': { contextLength: 1000000, outputTokens: 8192, supportsImages: false, supportsTools: true, reasoningLevelCount: 0 },
+    'dial-model': { contextLength: 1000000, outputTokens: 8192, supportsImages: false, supportsTools: true, reasoningLevelCount: 4 }
+  };
+  const result = filterEligibleFallbackModels(
+    ['fixed-model', 'dial-model'],
+    { model: 'route', messages: [{ role: 'user', content: 'hi' }], reasoning_effort: 'high' },
+    specsById(table)
+  );
+  // Chain order put the dial-less model first; the partition must still hold it
+  // back until the dial-capable one has failed.
+  assert.deepEqual(result.eligible, ['dial-model']);
+  assert.deepEqual(result.degraded, ['fixed-model']);
+  // No member may appear in both tiers, or the plan would attempt it twice.
+  assert.equal(result.eligible.filter((m) => result.degraded.includes(m)).length, 0);
 });
 
 test('the largest-context fallback cannot reintroduce a filtered step', () => {
   // When nothing fits the context window the filter retries the biggest model.
-  // That rescue must operate on the already-narrowed set, or a request that
-  // required a dial would silently land on a model without one.
+  // That rescue must operate on the already-narrowed tier-1 set, or a request
+  // that required a dial would be served as a silent success by a model with no
+  // dial rather than as an explicitly recorded tier-2 downgrade.
   const table = {
     'big-no-dial': { contextLength: 2000000, outputTokens: 8192, supportsImages: false, supportsTools: true, reasoningLevelCount: 0 },
     'small-with-dial': { contextLength: 32000, outputTokens: 8192, supportsImages: false, supportsTools: true, reasoningLevelCount: 4 }
@@ -297,9 +326,10 @@ test('the largest-context fallback cannot reintroduce a filtered step', () => {
     { model: 'route', reasoning_effort: 'high', messages: [{ role: 'user', content: 'x'.repeat(4000000) }] },
     specsById(table)
   );
-  assert.ok(result.eligible.includes('small-with-dial') || result.eligible.length === 0);
   assert.equal(result.eligible.includes('big-no-dial'), false,
-    'the context rescue must not bypass the reasoning-dial gate');
+    'the tier-1 context rescue must not bypass the reasoning-dial gate');
+  // It stays reachable, but only as the tail that the caller can see is degraded.
+  assert.deepEqual(result.degraded, ['big-no-dial']);
 });
 
 // ── Provider coverage ──────────────────────────────────────────────────────
