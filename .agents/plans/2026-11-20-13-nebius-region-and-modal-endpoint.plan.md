@@ -323,30 +323,27 @@ off the same host, so they move together.
 
 ## 7. Open Decisions
 
-- Whether `modal` (the `ak-`/`as-` API-token provider) is still wanted at all, now that every
-  own-deployment path is proxy-token based — settled once a token exists and one chat completes, or
-  the operator retires the row.
-- Whether the region row should later become the *default* Nebius for latency — settled by measuring
-  TTFT from this host against both bases.
+{The forks still open at close, each with what settles it.}
 
-## 7. Outcome (closed 2026-11-20)
+- Whether `modal` (the `ak-`/`as-` API-token provider) is still wanted at all, now that every
+  own-deployment path is proxy-token based — settled once an `ak-`/`as-` token exists and one chat
+  completes, or the operator retires the row.
+- Whether the region row should become the default Nebius for latency — settled by measuring TTFT
+  from this host against both bases.
+
+### Outcome (closed 2026-11-20)
 
 All twelve todos landed on `main` via merge commit `8a16520`; branch deleted, worktree removed.
 
-- **§4.4 was corrected by measurement during implementation.** The original note said the DeepSeek
-  family override "already rescues" Nebius. Measuring the OTHER families showed the opposite problem:
+- **§4.4 was corrected by measurement during implementation.** The plan assumed the DeepSeek family
+  override "already rescues" Nebius. Measuring the OTHER families showed the opposite problem:
   `enable_thinking` is inert on that wire, so GLM/Kimi/MiniMax levels were silently dropped. That
   required a code change (`providerDeclaresDialect`), not just a policy-row edit — recorded here
   because it invalidated the plan's assumption rather than diverging quietly.
 - **`modal-proxy` remains unverified** pending the operator's token rotation. Its code is correct and
-  its receipt says FAIL with the upstream's own words. Per §4.3 this is the accepted state.
+  its receipt reports FAIL with the upstream's own words. Per §4.3 this is the accepted state.
 - **Not done, by design:** the operator's `router-settings.json` still curates the retired
   `modal-proxy::GLM-5.3-Flash*` ids, and `custom-providers.json` still holds a `modal-glm` row pointed
-  at the dead GLM host. Both live outside the checkout or are operator-owned; flagged in the task
-  record and COMMS ledger. Cleaning them is a one-line curation edit the operator should make, because
-  until then `/v1/models` advertises three `modal-proxy-glm-5.3-flash*` rows that can only 401.
-
-- Whether `modal` (the `ak-`/`as-` API-token provider) is still wanted at all — **still open**: no
-  `ak-`/`as-` token exists to settle it.
-- Whether the region row should become the default Nebius for latency — **still open**: needs a TTFT
-  measurement from this host against both bases.
+  at the dead GLM host. Both are operator-owned and live outside the checkout; flagged in the task
+  record and COMMS ledger. Until cleaned, `/v1/models` advertises three `modal-proxy-glm-5.3-flash*`
+  rows that can only 401.
