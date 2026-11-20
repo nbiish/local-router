@@ -11,12 +11,19 @@ Three separate properties combine to make a "successful" sync leave a machine ru
 Measured on 2026-11-20: Windows sat at `706bb78` with a `build/index.js` from 2026-11-10 while the
 Mac was 38 commits ahead. The sync reported synced. The router was running ten-day-old code.
 
-The reliable post-sync check is one line, run ON THE PEER:
+The reliable post-sync check, run ON THE PEER, compares the build against the commit rather than
+against file mtimes:
 
-    find src -name '*.ts' -newer build/index.js | wc -l     # 0 means the build matches the source
+    build_t=$(stat -c %Y build/index.js); head_t=$(git log -1 --format=%ct)
+    [ "$build_t" -ge "$head_t" ] && echo CURRENT || echo STALE
 
-Non-zero means the running code predates the synced source, and a rebuild is required. A live
-request is the only other honest proof; an exit code is not.
+Build must be at or after the HEAD commit time. A live request against a route the new code added
+is the only other honest proof; an exit code is not.
+
+DO NOT use `find src -name '*.ts' -newer build/index.js` for this. It looks right and is wrong:
+`git checkout`/`git merge` rewrite the mtime of every file they touch, including files whose content
+did not change, so a fast-forward reports dozens of "newer" files on a perfectly current build.
+Measured 2026-11-20: 59 files flagged as newer while `git diff -- src/` showed zero content change.
 
 Two related traps found the same day:
 

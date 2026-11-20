@@ -204,8 +204,10 @@ Mac (ccc3662..f8fddf0)                    Windows (D:/Code/local-router == WSL /
 - `git rev-parse --short HEAD` on both machines — identical (`f8fddf0` at close).
 - Live fallback request on both — Mac `MAC-FINAL`, Windows `REBUILT-OK` / `PARITY`, all HTTP 200.
 - `curl /api/chain/recommendations` — 200 on both (404 before, proving the new build is live).
-- Peer `find src -name '*.ts' -newer build/index.js` — 0 after rebuild.
-- Peer `AGENTS.md` sha256 — equals `/mnt/d/Code/ainish-coder-mac/AGENTS.md`.
+- Peer build-vs-commit check (`stat -c %Y build/index.js` >= `git log -1 --format=%ct`) — CURRENT.
+  Note: the earlier `find src -newer build/index.js` form was discarded as unreliable; it flagged 59
+  files on a current build because checkout rewrites mtimes.
+- Peer `AGENTS.md` sha256 — equals `/mnt/d/Code/ainish-coder-mac/AGENTS.md` (rules converged).
 - 60-second HEAD watch on the Mac — no new commits (the loop had stopped).
 - Machine-sync `--status` — `wip: clean`, peer refs present.
 

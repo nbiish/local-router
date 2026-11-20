@@ -54,5 +54,8 @@ the latest `local-router` actually running.
 ## Expected first failure if this is wrong
 
 A future sync reports success while Windows runs an older build. The check that catches it is
-`find src -name '*.ts' -newer build/index.js` on the peer — non-zero means the running code predates
-the synced source. Run it after every sync; refs advancing is not evidence the code is current.
+`stat -c %Y build/index.js` >= `git log -1 --format=%ct` ON THE PEER — a build older than the HEAD
+commit is stale. Refs advancing is not evidence the code is current.
+
+Do not use `find src -newer build/index.js`: checkout rewrites mtimes of unchanged files, so it
+reported 59 "newer" files on a verified-current build.
