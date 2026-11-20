@@ -2,7 +2,7 @@
 plan_format: ainish/plan/v1
 slug: fallback-tooling-audit
 date: 2026-11-20
-status: implementing
+status: done
 branch: feat/fallback-tooling-audit
 worktree: /Volumes/1tb-sandisk/code-external/local-router-fallback-audit
 task_record: .agents/tasks/TASK.2026-11-20-15-fallback-tooling-audit.md
