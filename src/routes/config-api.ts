@@ -52,6 +52,7 @@ import {
   clearTrajectories
 } from '../trajectories';
 import { healthRegistry } from '../health-registry';
+import { planAutoDisable } from '../auto-disable';
 import { costBandFor, providerCoverageGaps } from '../fallback-topology';
 
 export interface ConfigApiDeps {
@@ -1763,6 +1764,70 @@ app.get('/api/trajectories/health', (_req: Request, res: Response) => {
   return res.json({ ...analyzeTrajectories(), chainHealth: healthRegistry.snapshot() });
 });
 
+/**
+ * Advisory chain recommendations.
+ *
+ * The auto-disable machinery (`planAutoDisable`) was written and tested but
+ * never called from production code, so a member failing for a day was still a
+ * chain member — skipped forever on the 5-minute cooldown cycle. This endpoint
+ * exposes that reasoning WITHOUT applying it: the router never writes
+ * `disabledModels`, because the chain is operator-authored truth and an
+ * automatic edit there is an unattended change to the routing behaviour of every
+ * agent on this machine. The operator reads the recommendation, then edits the
+ * chain (which the file watcher applies live).
+ */
+app.get('/api/chain/recommendations', (_req: Request, res: Response) => {
+  const health = analyzeTrajectories();
+  const candidates = healthRegistry.autoDisableCandidates();
+  const byChain = new Map<string, typeof candidates>();
+  for (const candidate of candidates) {
+    const chainId = (candidate.chainId as string | null) || '(direct)';
+    const bucket = byChain.get(chainId);
+    if (bucket) bucket.push(candidate);
+    else byChain.set(chainId, [candidate]);
+  }
+
+  const recommendations: Array<Record<string, unknown>> = [];
+  for (const [chainId, members] of byChain.entries()) {
+    const route = health.routes.find((entry) => entry.routeId === chainId);
+    const configuredModels = route ? route.models.map((model) => model.model) : members.map((m) => m.model);
+    const plan = planAutoDisable({
+      configuredModels,
+      operatorDisabledModels: [],
+      candidates: members.map((member) => ({
+        model: member.model,
+        failingMs: member.failingMs,
+        failureRate: healthRegistry.failureRate(member.chainId, member.model),
+        consecutiveFailures: 1
+      }))
+    });
+    const kept = new Map(plan.kept.map((entry) => [entry.model, entry.why]));
+    for (const member of members) {
+      const wouldDisable = plan.disable.some((entry) => entry.model === member.model);
+      recommendations.push({
+        routeId: chainId,
+        model: member.model,
+        failingHours: Math.round((member.failingMs / 3_600_000) * 10) / 10,
+        failureRate: healthRegistry.failureRate(member.chainId, member.model),
+        action: wouldDisable ? 'disable' : 'keep',
+        why: wouldDisable
+          ? 'Failed continuously past the threshold with no success in the window.'
+          : kept.get(member.model) || 'Kept because disabling it would empty the chain.',
+        // Stated so a caller never assumes the router acted on this.
+        applied: false
+      });
+    }
+  }
+
+  return res.json({
+    generatedAt: new Date().toISOString(),
+    advisoryOnly: true,
+    note: 'The router never edits the chain. Apply a recommendation by disabling the model in the fallback editor or router-settings.json.',
+    thresholdHours: Number(process.env.LOCAL_ROUTER_AUTO_DISABLE_AFTER_HOURS || 24),
+    recommendations
+  });
+});
+
 app.get('/api/trajectories/export', (_req: Request, res: Response) => {
   res.setHeader('Content-Type', 'application/x-ndjson; charset=utf-8');
   res.setHeader('Content-Disposition', 'attachment; filename="trajectories.jsonl"');
@@ -1776,8 +1841,25 @@ app.get('/api/trajectories/:id', (req: Request, res: Response) => {
   }
   const part = typeof req.query.part === 'string' ? req.query.part : '';
   if (part) {
+    // `outbound` addresses a specific stage's request body: ?part=outbound&stage=0.
+    // Without this an agent could see the sha: handle in the record but had no
+    // supported way to read the body, which is the fact the 2026-11-20 audit
+    // needed for every defect it found.
+    if (part === 'outbound') {
+      const index = Number(req.query.stage ?? 0);
+      const stage = Number.isInteger(index) && index >= 0 ? record.stages?.[index] : undefined;
+      if (!stage) {
+        return res.status(404).json({ error: `No stage at index ${req.query.stage ?? 0}.` });
+      }
+      const text = readReceiptPayload(stage.outbound);
+      if (text == null) {
+        return res.status(404).json({ error: 'This stage recorded no outbound body.' });
+      }
+      res.setHeader('Content-Type', 'application/json; charset=utf-8');
+      return res.send(text);
+    }
     if (part !== 'request' && part !== 'response' && part !== 'thinking' && part !== 'toolCalls') {
-      return res.status(400).json({ error: 'Unknown part. Use request|response|thinking|toolCalls.' });
+      return res.status(400).json({ error: 'Unknown part. Use request|response|thinking|toolCalls|outbound.' });
     }
     const text = readReceiptPayload(record.receipts[part]);
     if (text == null) {

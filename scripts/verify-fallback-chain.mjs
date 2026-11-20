@@ -74,11 +74,85 @@ if (coverage.coverage.singleStepProviders.length > 0) {
 //    answered by a step with no dial.
 const dialless = coverage.steps.filter((step) => step.reasoningLevels === 0).map((step) => step.model);
 if (dialless.length > 0) {
-  console.log(`\nsteps with no reasoning dial (excluded when a level is requested): ${dialless.join(', ')}`);
+  console.log(`\nsteps with no reasoning dial (tier-2 tail — reached only after every dial-capable step fails): ${dialless.join(', ')}`);
 }
+
+// 6. Trajectory evidence: the failures the router caused itself must be gone.
+//
+// These are the assertions that make the audit reproducible rather than a
+// one-off reading of a log. Each was a measured defect on 2026-11-20.
+const healthy = await json('/api/trajectories?limit=500&route=fallback-models');
+const summaries = Array.isArray(healthy.trajectories) ? healthy.trajectories : [];
+
+// 6a. A 2xx completion must never be booked as an auth or invalid-request
+//     failure. `AUTH_RE`'s bare `auth` alternative made 45 of these.
+const completionMisreads = [];
+for (const summary of summaries) {
+  const record = await json(`/api/trajectories/${encodeURIComponent(summary.id)}`);
+  for (const stage of record.stages || []) {
+    if (stage.outcome !== 'failed') continue;
+    const status = Number(stage.status);
+    const preview = String(stage.providerErrorPreview || '');
+    if (status >= 200 && status < 300 && preview.includes('"choices"')) {
+      completionMisreads.push(`${stage.targetModel} (${stage.errorType})`);
+    }
+  }
+}
+if (completionMisreads.length > 0) {
+  failures.push(`2xx completions booked as failures: ${completionMisreads.slice(0, 5).join(', ')}`
+    + `${completionMisreads.length > 5 ? ` (+${completionMisreads.length - 5} more)` : ''}`);
+}
+
+// 6b. Tier-2 ordering: no dial-less member may be ATTEMPTED before every
+//     dial-capable member of the same request has failed. A breach means a
+//     thinking request was silently downgraded while looking successful.
+let tierOrderBreaches = 0;
+for (const summary of summaries) {
+  if (summary.answeredBy) continue;
+  const record = await json(`/api/trajectories/${encodeURIComponent(summary.id)}`);
+  const stages = record.stages || [];
+  const firstDegraded = stages.findIndex((stage) => stage.reasoningDialDowngraded);
+  if (firstDegraded === -1) continue;
+  // Only a real upstream ATTEMPT after tier 2 started is a breach. A `skipped`
+  // stage there is a cooldown note, which is expected and correct.
+  const attemptedAfter = stages.slice(firstDegraded + 1).some((stage) => !stage.reasoningDialDowngraded
+    && stage.outcome === 'failed');
+  if (attemptedAfter) tierOrderBreaches += 1;
+}
+if (tierOrderBreaches > 0) {
+  failures.push(`${tierOrderBreaches} trajectory(ies) attempted a dial-less member before exhausting dial-capable ones`);
+}
+
+// 6c. Every plan step must be either executed or explicitly explained. A
+//     configured member that vanished (no stage, no exclusion) is the silent
+//     drop this log exists to catch.
+let unexplained = 0;
+for (const summary of summaries.slice(0, 20)) {
+  const record = await json(`/api/trajectories/${encodeURIComponent(summary.id)}`);
+  const chain = record.chain;
+  if (!chain) continue;
+  const seen = new Set([
+    ...(chain.eligibleTargets || []),
+    ...(chain.degradedTargets || []),
+    ...(chain.excludedTargets || []).map((entry) => entry.model)
+  ]);
+  for (const model of chain.configuredTargets || []) {
+    if (!seen.has(model)) unexplained += 1;
+  }
+}
+if (unexplained > 0) {
+  failures.push(`${unexplained} configured chain member(s) appear in no tier and no exclusion reason`);
+}
+
+console.log(`\ntrajectory evidence: ${summaries.length} fallback summary(ies) inspected`);
+console.log(`  2xx completions booked as failures: ${completionMisreads.length}`);
+console.log(`  tier-2 ordering breaches: ${tierOrderBreaches}`);
+console.log(`  unexplained chain members: ${unexplained}`);
 
 if (failures.length > 0) {
   console.error(`\nFAILED\n- ${failures.join('\n- ')}`);
   process.exit(1);
 }
-console.log('\nPASS: cost order is monotonic, coverage is complete, and every step resolves.');
+console.log('\nPASS: cost order is monotonic, coverage is complete, every step resolves,');
+console.log('      no 2xx completion is booked as a failure, tier-2 ordering holds,');
+console.log('      and every configured member is reached or explained.');

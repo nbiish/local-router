@@ -46,8 +46,10 @@ import { hasExplicitThinkingRequest, sanitizeProviderRequestBody, stripReasoning
 import {
   anthropicThinkingToChatFields,
   countCacheMarkers,
+  dropUnsupportedRequestFields,
   modelMatchesReasoningFamily,
   reasoningLevelsFor,
+  requestedThinkingLevel,
   resolveCachingPolicy,
   resolveReasoningPolicy,
   responsesReasoningToChatFields,
@@ -58,13 +60,14 @@ import {
   type TopologyCandidate
 } from './fallback-topology';
 import { loadExpertLogs, LogEntryTracker, createUsageSpyStream } from './expert-logs';
-import { TrajectoryTracker, TrajectoryChain, TrajectoryExcludedTarget, TrajectoryRecord, resolveTrajectoryClient } from './trajectories';
+import { TrajectoryTracker, TrajectoryChain, TrajectoryExcludedTarget, TrajectoryRecord, TrajectoryReceipt, resolveTrajectoryClient, storeReceipt } from './trajectories';
 import { healthRegistry } from './health-registry';
 import { buildWraparoundExecutionPlan, buildEscalatingWraparoundPlan, buildMultiPassExecutionPlan, DEFAULT_FALLBACK_ROUNDS } from './execution-plan';
 import {
   filterEligibleFallbackModels,
   estimateRequestContext,
   requestRequiresMultimodal,
+  MAX_OUTPUT_HEADROOM_TOKENS,
   ModelCapabilitySpecs
 } from './routing-capabilities';
 import {
@@ -232,13 +235,39 @@ type AttemptFailure = {
   responseText?: string;
   /** For health_cooldown skips: `cooldown:<errorType>`, recorded verbatim. */
   cooldownReason?: string;
+  /**
+   * The JSON body the router actually sent, kept on the FAILURE path too.
+   *
+   * A router-authored 400 is only diagnosable against what was sent, and the
+   * failure path is exactly where that evidence is needed. It is not persisted
+   * on the error object beyond the attempt: the trajectory writes it to a
+   * content-addressed receipt and drops the raw value.
+   */
+  outboundBody?: string;
+  /** Output ceiling imposed when the ask exceeded the target model. */
+  clampedTokens?: { requested: number; clamped: number };
+  /** Fields dropped because the target's schema would have rejected them. */
+  droppedFields?: string[];
 };
 
 type AttemptSuccess = {
   providerName: string;
   actualModel: string;
   requestBody: any;
+  /**
+   * The exact JSON string sent upstream, for the trajectory receipt. Absent for
+   * the CLI `auto` bridges, which shell out instead of POSTing a body.
+   */
+  outboundBody?: string;
   response: globalThis.Response;
+  /**
+   * Output-token ceiling the router had to impose because the client asked for
+   * more than the target model supports. Present only when a clamp happened, so
+   * a reader can never mistake a clamp for the caller's own budget.
+   */
+  clampedTokens?: { requested: number; clamped: number };
+  /** Fields dropped because this surface's schema would have rejected them. */
+  droppedFields?: string[];
 };
 
 type AttemptResult =
@@ -1424,6 +1453,38 @@ function modelMaxOutputTokens(model: ProviderModel) {
   return model.outputTokens || DEFAULT_OUTPUT_TOKENS;
 }
 
+/**
+ * Cap the caller's output budget at what the target model can actually produce.
+ *
+ * A client that asks for a 943718-token completion (a Codex/`pi` max-output
+ * default, not a considered budget) reaches a model that supports 131072 and the
+ * provider rejects the entire request with `upstream_http_invalid_request`:
+ * measured live 2026-11-20, 30 stage failures from exactly this. The request was
+ * valid; the router forwarded an impossible budget. Clamping keeps the turn
+ * alive, and because the adjustment is returned rather than applied silently the
+ * trajectory can state that the router — not the caller — chose the ceiling.
+ *
+ * Only ever lowers. A caller with a smaller budget keeps it: growing their
+ * request would change both latency and cost.
+ */
+export function clampOutputTokens(
+  body: any,
+  maxOutputTokens: number
+): { body: any; clamped?: { requested: number; clamped: number } } {
+  if (!maxOutputTokens || maxOutputTokens <= 0) return { body };
+  const fields = ['max_completion_tokens', 'max_tokens'];
+  for (const field of fields) {
+    const raw = body?.[field];
+    if (typeof raw !== 'number' || !Number.isFinite(raw) || raw <= 0) continue;
+    if (raw <= maxOutputTokens) return { body };
+    return {
+      body: { ...body, [field]: maxOutputTokens },
+      clamped: { requested: raw, clamped: maxOutputTokens }
+    };
+  }
+  return { body };
+}
+
 function stripOllamaLatestSuffix(value: string) {
   return value.endsWith(':latest') ? value.slice(0, -':latest'.length) : value;
 }
@@ -1807,23 +1868,14 @@ function persistFallbackModels() {
   const routes = Object.values(fallbackModelStore)
     .map((model) => cloneFallbackModel(model))
     .sort((a, b) => a.id.localeCompare(b.id));
-  const payload = {
-    version: 1,
-    routes
-  };
-  const temporaryPath = `${FALLBACK_MODELS_PATH}.${process.pid}.tmp`;
 
-  fs.writeFileSync(temporaryPath, `${JSON.stringify(payload, null, 2)}\n`, {
-    encoding: 'utf8',
-    mode: 0o600
-  });
-  fs.renameSync(temporaryPath, FALLBACK_MODELS_PATH);
-  fs.chmodSync(FALLBACK_MODELS_PATH, 0o600);
-
+  // Single source of truth (2026-11-20). `router-settings.json` is the ONLY file
+  // written. The machine-local `fallback-models.json` used to be written in
+  // parallel, which produced two chain files that could disagree — measured on
+  // this host: the checkout copy held 19 steps and the machine copy 17, so which
+  // chain ran depended on which loader won. It is now read once for migration
+  // (see `migrateLegacyFallbackModelsFile`) and never written again.
   try {
-    // Single-source sync (2026-09-04): the FULL chain set mirrors into
-    // router-settings.json — the authoritative file the boot loader and the
-    // disk watcher apply. Keeps API/toggle writers and the file convergent.
     const sysRoute = fallbackModelStore[SYSTEM_FALLBACK_ROUTE_ID];
     let text = '';
     if (sysRoute) {
@@ -1835,8 +1887,46 @@ function persistFallbackModels() {
     const merged = { ...loadRouterSettings(), fallbackModelsText: text, routes };
     lastAppliedSettingsSnapshot = JSON.stringify({ fallbackModelsText: text, routes });
     saveRouterSettings(merged);
-  } catch (error) {
-    // Non-fatal sync
+  } catch (error: any) {
+    console.error(
+      '[config] failed to persist the chain to router-settings.json:',
+      sanitizeDiagnosticText(String(error?.message || error))
+    );
+    throw error;
+  }
+}
+
+/**
+ * One-time move of the legacy machine-local chain file into `router-settings.json`.
+ *
+ * The machine copy is no longer written, so a build that starts on a host with
+ * only the old file must adopt it exactly once rather than appear to have no
+ * chain. Only runs when the authoritative file has no `routes` of its own, so a
+ * chain already in the checkout is never overwritten by a stale leftover.
+ *
+ * Returns true only when an adoption actually happened.
+ */
+function migrateLegacyFallbackModelsFile(): boolean {
+  const legacyPath = existingPath(FALLBACK_MODELS_PATH, LEGACY_FALLBACK_MODELS_PATH);
+  if (!fs.existsSync(legacyPath)) return false;
+  const current = loadRouterSettings();
+  if (Array.isArray(current.routes) && current.routes.length > 0) return false;
+  try {
+    const parsed = JSON.parse(fs.readFileSync(legacyPath, 'utf8'));
+    const routes = Array.isArray(parsed?.routes) ? parsed.routes : Array.isArray(parsed) ? parsed : [];
+    if (routes.length === 0) return false;
+    saveRouterSettings({ ...current, routes });
+    console.log(
+      `[config] migrated the legacy chain from ${legacyPath} into ${routerSettingsPath()} — `
+      + `the machine copy is no longer authoritative or written.`
+    );
+    return true;
+  } catch (error: any) {
+    console.error(
+      '[config] failed to migrate the legacy fallback-models.json:',
+      sanitizeDiagnosticText(String(error?.message || error))
+    );
+    return false;
   }
 }
 
@@ -1952,10 +2042,24 @@ function loadPersistedRouterSettings() {
   const location = routerSettingsLocation();
   console.log(`[config] chain config: ${describeConfigLocation(location)}`);
   try {
-    if (applyRouterSettingsToStore()) {
+    const applied = applyRouterSettingsToStore();
+    if (applied) {
       const sysRoute = fallbackModelStore[SYSTEM_FALLBACK_ROUTE_ID];
       const stepCount = Array.isArray(sysRoute?.models) ? sysRoute!.models.length : 0;
-      console.log(`[config] router-settings.json is the single source of truth — applied (${stepCount} system chain step(s)).`);
+      console.log(
+        `[config] router-settings.json is the single source of truth — applied (${stepCount} system chain step(s)). `
+        + 'The machine-local fallback-models.json is no longer read or written.'
+      );
+    }
+    // Absence is a fact the operator needs stated, not a silent empty chain. A
+    // fleet that synced the checkout but not its config file would otherwise run
+    // with no safety net and report every request as "no eligible targets".
+    if (!fs.existsSync(location.path)) {
+      console.warn(
+        `[config] WARNING: the authoritative chain file does not exist yet: ${location.path}. `
+        + 'Direct calls still work and cascade has nowhere to go until you author a chain '
+        + '(save one at /config/fallback, or sync the checkout copy from another machine).'
+      );
     }
   } catch (error: any) {
     console.error('Failed to load persisted router settings:', sanitizeDiagnosticText(String(error?.message || error)));
@@ -5695,6 +5799,7 @@ if (waferZdrEnabled) {
 // left in ~/.config/local-router, so the first boot copies it across once before
 // the loader (and then the watcher) treats the checkout file as authoritative.
 seedRouterSettings();
+migrateLegacyFallbackModelsFile();
 loadPersistedRouterSettings();
 if (shouldServe) {
   watchRouterSettingsFile();
@@ -6740,7 +6845,14 @@ function fallbackStagePreflight(modelName: string, chainId?: string): AttemptFai
 // for them (OpenAI reports `insufficient_quota` as 429; gateways answer
 // 400/402), and an empty balance must never be counted as a usage limit.
 const OUT_OF_FUNDS_RE = /insufficient[_\s-]?quota|exceeded your current quota|insufficient[_\s-]?(funds|credit|balance)|out[_\s-]?of[_\s-]?(funds|credit|balance|money)|zero[_\s-]?balance|billing|payment|invoice|overdue|past[_\s-]?due|subscription[_\s-]?expired|declined|top[_\s-]?up/;
-const AUTH_RE = /invalid[_\s-]?api[_\s-]?key|unauthorized|auth|credentials|access[_\s-]?denied|token[_\s-]?invalid|expired[_\s-]?key/;
+// Auth evidence must be specific. A bare `auth` alternative matched ordinary
+// completion prose — "The author of this request…", "authorized users only" —
+// and, because the classifier used to run on 200 bodies too, booked healthy
+// answers as rejected keys. `key_rejected` is a one-strike immediate
+// quarantine (src/health-registry.ts), so that single alternative evicted
+// working providers on every request whose reasoning text mentioned an author.
+// Measured live 2026-11-20: 45 stages were 200 completions classified as auth.
+const AUTH_RE = /invalid[_\s-]?api[_\s-]?key|unauthorized|(^|[^a-z])auth(entication|orization)?[_\s-]?(failed|error|required|denied)|credentials|access[_\s-]?denied|token[_\s-]?invalid|expired[_\s-]?key/;
 const USAGE_LIMIT_RE = /rate[_\s-]?limit|too many requests|usage[_\s-]?limit|quota|requests per/;
 const USAGE_ERROR_RE = /api[_\s-]?usage[_\s-]?error|unknown model|context[_\s-]?length|invalid[_\s-]?request|bad[_\s-]?request|validation|does not support|maximum.*tokens/;
 const UNAVAILABLE_RE = /unavailable|maintenance|downtime|temporarily[_\s-]?unavailable|service[_\s-]?unavailable/;
@@ -6755,9 +6867,38 @@ const ROUTE_NOT_FOUND_RE = /route .*not found|no route|endpoint .*not found|path
 // the 404 branch below is what actually decides permanence.
 const MODEL_NOT_FOUND_RE = /model [^:]*not found|model .*does not exist|no such model|model_not_found/;
 
+/**
+ * Does this body look like an actual completion rather than an error report?
+ *
+ * Some surfaces answer 200 with `{"error": …}` for a real failure, so a 2xx
+ * status alone cannot mean success — but a body carrying `choices` is a
+ * completion, and completion *prose* is not evidence about the request.
+ * Distinguishing the two is what stops classifier false positives: measured
+ * live 2026-11-20, 45 completed answers were booked as `upstream_http_auth`
+ * because their reasoning text happened to contain the word "auth".
+ */
+function bodyIsCompletion(bodyText: string): boolean {
+  if (!bodyText) return false;
+  try {
+    const parsed = JSON.parse(bodyText);
+    if (!parsed || typeof parsed !== 'object') return false;
+    if (parsed.error) return false;
+    return Array.isArray(parsed.choices) || Array.isArray(parsed.data);
+  } catch {
+    // Not JSON: could be an HTML error page or a raw SSE frame. Neither is a
+    // parseable completion, so body evidence below is allowed to decide.
+    return false;
+  }
+}
+
 export function classifyHttpFailure(status: number, bodyText: string): AttemptFailure['errorType'] {
   const lower = String(bodyText || '').toLowerCase();
-  // Money first: 402 is unambiguous, and body evidence beats the status code
+  // A 2xx is success unless the body reports an error. When it DOES report one,
+  // the body decides the class (some surfaces use 200 for real failures). When
+  // it is a completion, it is never auth/payment/limit evidence — classifying
+  // completion prose was how healthy providers got one-strike quarantined.
+  if (status >= 200 && status < 300 && bodyIsCompletion(bodyText)) return 'upstream_http';
+  // Money next: 402 is unambiguous, and body evidence beats the status code
   // (an `insufficient_quota` 429 is a dead balance, not a rate limit).
   if (status === 402) return 'upstream_http_payment_required';
   if (OUT_OF_FUNDS_RE.test(lower)) return 'upstream_http_payment_required';
@@ -6783,7 +6924,15 @@ export function classifyHttpFailure(status: number, bodyText: string): AttemptFa
 export function normalizeHttpFailure(error: AttemptFailure): AttemptFailure {
   if (error.errorType !== 'upstream_http') return error;
   const status = typeof error.status === 'number' ? error.status : 500;
-  const classified = classifyHttpFailure(status, error.responseText || '');
+  const bodyText = error.responseText || '';
+  // A 2xx that is a COMPLETION has no failure class to derive: the content
+  // classifier already decided the body was unusable, and `isNoUsableContent`
+  // already said whether that is a model-budget outcome (`empty_completion`) or
+  // a provider fault. A 2xx carrying an `error` payload is a different matter —
+  // some surfaces report real failures that way and the body is the only
+  // evidence there is — so it is classified like any other error body.
+  if (status >= 200 && status < 300 && bodyIsCompletion(bodyText)) return error;
+  const classified = classifyHttpFailure(status, bodyText);
   if (classified !== 'upstream_http') {
     return { ...error, errorType: classified };
   }
@@ -6955,6 +7104,89 @@ function classifyStreamChunkAsError(chunk: string): boolean {
   return isStreamErrorFrame(chunk);
 }
 
+/**
+ * Inspect the first SSE frame of a 200 stream, and hand back a usable response.
+ *
+ * Why this exists: a provider can answer HTTP 200 and then report the real
+ * outcome inside the stream ("error" event, or a `finish_reason` of `error`).
+ * `isStreamErrorFrame` was written for that case and never wired anywhere, so
+ * such a turn was forwarded to the client as a successful response and the
+ * fallback chain never saw a failure. Peeking lets the chain try the next member
+ * while the caller still has received nothing.
+ *
+ * The peek is deliberately shallow and non-destructive:
+ *  - Only the FIRST frame is read, so a long generation is never buffered here.
+ *  - If it is an error frame, the attempt fails with that text as evidence.
+ *  - If it is real content (or a `[DONE]`), the consumed bytes are prepended
+ *    back so the downstream pipe receives a byte-identical stream.
+ *  - A body that cannot be read is returned untouched: this must never turn a
+ *    working stream into a failure.
+ */
+async function peekStreamForErrorFrame(
+  response: globalThis.Response
+): Promise<{ response: globalThis.Response; errorText?: string }> {
+  if (!response.body) return { response };
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let consumed = '';
+  let firstFrame = '';
+  try {
+    // Read until one frame delimiter, or a small cap, whichever comes first.
+    while (!firstFrame.includes('\n\n') && consumed.length < 8192) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      consumed += decoder.decode(value, { stream: true });
+    }
+    firstFrame = consumed;
+  } catch {
+    // A read failure is not evidence about the provider's answer shape; hand the
+    // stream back as-is and let the normal path report it.
+    return { response };
+  }
+
+  const frames = firstFrame.split('\n\n');
+  const head = (frames.find((frame) => frame.trim().length > 0) || '').trim();
+  if (head && head !== 'data: [DONE]' && isStreamErrorFrame(head)) {
+    try { await reader.cancel(); } catch { /* already closed */ }
+    return { response, errorText: head };
+  }
+
+  // Rebuild a stream that begins with the bytes already consumed.
+  const rebuilt = new ReadableStream<Uint8Array>({
+    start(controller) {
+      if (consumed) controller.enqueue(new TextEncoder().encode(consumed));
+    },
+    async pull(controller) {
+      try {
+        const { done, value } = await reader.read();
+        if (done) { controller.close(); return; }
+        if (value) controller.enqueue(value);
+      } catch (error) {
+        controller.error(error);
+      }
+    },
+    cancel(reason) {
+      return reader.cancel(reason).catch(() => undefined);
+    }
+  });
+  const headers = new Headers(response.headers);
+  return {
+    response: new Response(rebuilt, { status: response.status, statusText: response.statusText, headers })
+  };
+}
+
+/**
+ * Preserve the conversation and the failover marker without breaking role
+ * ordering.
+ *
+ * The marker used to be appended as a second `system` message, producing
+ * `system → user → system`. Several upstreams reject a system turn that is not
+ * first — Z.ai answers `{"error":{"code":1214,"message":"Incorrect role
+ * information"}}` — so the marker itself caused the failure it was meant to
+ * annotate. Measured live 2026-11-20: 21 stage failures were this shape. The
+ * marker still travels (a downstream model can see why the conversation moved)
+ * but as a `user` note, which every chat-completions upstream accepts anywhere.
+ */
 export function buildFailoverPreservedBody(body: any, preservedModel: string): any {
   const messages = Array.isArray(body?.messages) ? [...body.messages] : [];
   const systemEvent = {
@@ -6965,7 +7197,11 @@ export function buildFailoverPreservedBody(body: any, preservedModel: string): a
       timestamp: new Date().toISOString()
     }
   };
-  const prepared = { ...body, model: preservedModel, messages: [...messages, { role: 'system', content: JSON.stringify(systemEvent) }] };
+  const prepared = {
+    ...body,
+    model: preservedModel,
+    messages: [...messages, { role: 'user', content: JSON.stringify(systemEvent) }]
+  };
   return prepared;
 }
 
@@ -7596,8 +7832,31 @@ async function proxyModelAttempt(
     providerName: target.providerName,
     modelName: target.actualModel
   });
-  const cachedRequestBody = injectPromptCaching(safeRequestBody, target.providerName, target.actualModel);
-  const finalBody = provider.formatBody ? provider.formatBody(cachedRequestBody) : cachedRequestBody;
+  // Output ceiling (measured live 2026-11-20: 30 failures were a client max
+  // budget above the target's own limit, rejected as invalid_request). Applied
+  // after dialect sanitizing so it sees the field name this provider will read,
+  // and before caching/formatBody so nothing downstream re-introduces it.
+  const targetModel = findCatalogModel(targetModelName) || findProviderModel(targetModelName);
+  const clamped = clampOutputTokens(
+    safeRequestBody,
+    targetModel ? modelMaxOutputTokens(targetModel) : DEFAULT_OUTPUT_TOKENS
+  );
+  const cachedRequestBody = injectPromptCaching(clamped.body, target.providerName, target.actualModel);
+  // Strict-schema gate LAST: it must see everything the router itself injected
+  // (sticky keys, retention hints) as well as the caller's passthrough fields,
+  // because a strict surface rejects a router-injected field exactly as hard as
+  // a caller's. A lenient surface is untouched.
+  const fieldGate = dropUnsupportedRequestFields(cachedRequestBody, target.providerName, target.actualModel);
+  const finalBody = provider.formatBody ? provider.formatBody(fieldGate.body) : fieldGate.body;
+  // Captured once, attached to BOTH outcomes: the failure path is where an
+  // outbound body is most needed (a router-authored 400) and where it was
+  // previously unavailable. The trajectory spills it and keeps only a sha:
+  // handle, so this string does not outlive the attempt.
+  const outboundBody = JSON.stringify(finalBody);
+  const shaping = {
+    ...(clamped.clamped ? { clampedTokens: clamped.clamped } : {}),
+    ...(fieldGate.dropped.length > 0 ? { droppedFields: fieldGate.dropped } : {})
+  };
 
   const attemptStartedAt = Date.now();
   try {
@@ -7605,13 +7864,43 @@ async function proxyModelAttempt(
     const chatFetchInit: RequestInit = {
       method: 'POST',
       headers: providerHeaders,
-      body: JSON.stringify(finalBody),
+      body: outboundBody,
       signal: AbortSignal.timeout(stream ? 15000 : 30000)
     };
     // SSRF guard: custom providers have user-controlled endpoints.
     const response = isCustomProvider(target.providerName)
       ? await safeFetch(chatUrl, chatFetchInit)
       : await fetch(chatUrl, chatFetchInit);
+
+    // Stream pre-flight: some upstreams answer 200 with an SSE stream whose
+    // ONLY frame is an error (an auth failure, a quota message). Forwarding that
+    // to the client is a failed turn the chain never gets to route around —
+    // `isStreamErrorFrame` existed for exactly this and was never called, so
+    // `mid_stream_error` had no producer. Peeking one frame lets the chain try
+    // the next member instead; if the frame is real content, the body is
+    // reconstructed and nothing downstream can tell the difference.
+    let effectiveResponse = response;
+    if (response.ok && stream) {
+      const peeked = await peekStreamForErrorFrame(response);
+      if (peeked.errorText) {
+        return {
+          ok: false,
+          error: {
+            ...normalizeHttpFailure({
+              errorType: 'upstream_http',
+              providerName: target.providerName,
+              actualModel: target.actualModel,
+              status: response.status,
+              message: `Provider answered 200 but the stream reported an error before any content.`,
+              responseText: peeked.errorText,
+              outboundBody,
+              ...shaping
+            })
+          }
+        };
+      }
+      effectiveResponse = peeked.response;
+    }
 
     if (!response.ok) {
       const responseText = await response.text();
@@ -7629,6 +7918,8 @@ async function proxyModelAttempt(
         status: response.status,
         message: `Provider error (${response.status})`,
         responseText,
+        outboundBody,
+        ...shaping,
         ...(Object.keys(responseHeaders).length > 0 ? { responseHeaders } : {})
       };
       return { ok: false, error: normalizeHttpFailure(rawError) };
@@ -7658,7 +7949,9 @@ async function proxyModelAttempt(
             message: emptyCompletion
               ? 'Provider returned 200 with no usable content or tool calls'
               : 'Provider returned error in 200 response body',
-            responseText: responseBodyText
+            responseText: responseBodyText,
+            outboundBody,
+            ...shaping
           };
           return { ok: false, error: normalizeHttpFailure(bodyError) };
         }
@@ -7673,7 +7966,9 @@ async function proxyModelAttempt(
         providerName: target.providerName,
         actualModel: target.actualModel,
         requestBody: finalBody,
-        response
+        outboundBody,
+        response: effectiveResponse,
+        ...shaping
       }
     };
   } catch (error: any) {
@@ -7687,6 +7982,42 @@ async function proxyModelAttempt(
       }
     };
   }
+}
+
+/**
+ * A pass-through that watches for an error frame arriving AFTER content has
+ * already reached the client.
+ *
+ * At that point the response headers and deltas are sent, so the chain cannot
+ * retry — but silently forwarding an error frame as if it were an answer is how
+ * a failed turn looks like a successful one. The observer records
+ * `mid_stream_error` (the errorType that previously had no producer) so the log
+ * and the health registry see the failure the client experienced.
+ */
+function createStreamErrorObserver(
+  onError: (frameText: string) => void
+): Transform {
+  let sawContent = false;
+  let reported = false;
+  return new Transform({
+    transform(chunk: Buffer, _enc, callback) {
+      const text = chunk.toString('utf8');
+      for (const frame of text.split('\n\n')) {
+        const trimmed = frame.trim();
+        if (!trimmed || trimmed === 'data: [DONE]') continue;
+        if (isStreamErrorFrame(trimmed)) {
+          if (sawContent && !reported) {
+            reported = true;
+            onError(trimmed);
+          }
+          continue;
+        }
+        // Any non-error frame means the upstream has begun answering.
+        sawContent = true;
+      }
+      callback(null, chunk);
+    }
+  });
 }
 
 async function sendSuccessfulProxyResponse(
@@ -7717,6 +8048,17 @@ async function sendSuccessfulProxyResponse(
         console.error('[proxy] nodeStream error:', err instanceof Error ? err.message : String(err));
       });
 
+      // Late-error observer: a stream that dies after content cannot be retried,
+      // but it must not be invisible either.
+      const errorObserver = createStreamErrorObserver((frameText) => {
+        const message = `Upstream reported an error mid-stream after content: ${sanitizeDiagnosticText(frameText, 240)}`;
+        console.error(`[proxy] mid_stream_error (${success.providerName}/${success.actualModel}): ${message}`);
+        if (logTracker) logTracker.onFailure(502, 'mid_stream_error', message);
+      });
+      errorObserver.on('error', (err: unknown) => {
+        console.error('[proxy] errorObserver stream error:', err instanceof Error ? err.message : String(err));
+      });
+
       const spyStream = logTracker ? createUsageSpyStream((data) => logTracker.onUsage(data)) : null;
       if (spyStream) {
         spyStream.on('error', (err: unknown) => {
@@ -7731,9 +8073,9 @@ async function sendSuccessfulProxyResponse(
           console.error('[proxy] transform stream error:', err instanceof Error ? err.message : String(err));
         });
         if (spyStream) {
-          nodeStream.pipe(transform).pipe(spyStream).pipe(res);
+          nodeStream.pipe(errorObserver).pipe(transform).pipe(spyStream).pipe(res);
         } else {
-          nodeStream.pipe(transform).pipe(res);
+          nodeStream.pipe(errorObserver).pipe(transform).pipe(res);
         }
       } else {
         const stripTransform = createOpenAIReasoningStripTransform();
@@ -7741,9 +8083,9 @@ async function sendSuccessfulProxyResponse(
           console.error('[proxy] stripTransform stream error:', err instanceof Error ? err.message : String(err));
         });
         if (spyStream) {
-          nodeStream.pipe(stripTransform).pipe(spyStream).pipe(res);
+          nodeStream.pipe(errorObserver).pipe(stripTransform).pipe(spyStream).pipe(res);
         } else {
-          nodeStream.pipe(stripTransform).pipe(res);
+          nodeStream.pipe(errorObserver).pipe(stripTransform).pipe(res);
         }
       }
 
@@ -8047,6 +8389,32 @@ async function proxyEmbeddingAttempt(
       }
     };
   }
+}
+
+/**
+ * The outbound-body receipt plus shaping facts for a DIRECT model call.
+ *
+ * The direct path had the same blind spot the fallback path did: it recorded the
+ * client's request and the provider's error, never the body in between — so a
+ * router-authored 400 on a direct model was as undiagnosable as one on a chain
+ * hop. Measured live 2026-11-20 on a direct antigravity call whose 401 was real
+ * but whose request shape could not be inspected from the record.
+ */
+function directShapingFacts(source: {
+  outboundBody?: string;
+  clampedTokens?: { requested: number; clamped: number };
+  droppedFields?: string[];
+}): {
+  outbound?: TrajectoryReceipt;
+  clampedTokens?: { requested: number; clamped: number };
+  droppedFields?: string[];
+} {
+  const receipt = source.outboundBody ? storeReceipt(source.outboundBody) : undefined;
+  return {
+    ...(receipt ? { outbound: receipt } : {}),
+    ...(source.clampedTokens ? { clampedTokens: source.clampedTokens } : {}),
+    ...(source.droppedFields && source.droppedFields.length > 0 ? { droppedFields: source.droppedFields } : {})
+  };
 }
 
 // Feed the health registry (plan T1) at stage resolution, not at request end:
@@ -8366,7 +8734,8 @@ async function handleChatCompletion(req: Request, res: Response, bodyOverrides?:
         stageAttempts: 1,
         outcome: 'answered',
         status: directModelResult.value.response.status,
-        ms: Date.now() - requestStartedAt
+        ms: Date.now() - requestStartedAt,
+        ...directShapingFacts(directModelResult.value)
       });
       return sendSuccessfulProxyResponse(
         res,
@@ -8399,7 +8768,8 @@ async function handleChatCompletion(req: Request, res: Response, bodyOverrides?:
         errorType: directModelResult.error.errorType,
         status: directModelResult.error.status || null,
         errorMessage: sanitizeDiagnosticText(directModelResult.error.message, 220),
-        providerErrorPreview: sanitizeDiagnosticText(directModelResult.error.responseText || '', 280)
+        providerErrorPreview: sanitizeDiagnosticText(directModelResult.error.responseText || '', 280),
+        ...directShapingFacts(directModelResult.error)
       });
       trajectory.markCascade(sysFallback.id);
       return executeFallbackRoute(sysFallback, body, model, stream, requestRoute, outputFormat, requestStartedAt, res, logTracker, trajectory);
@@ -8419,7 +8789,8 @@ async function handleChatCompletion(req: Request, res: Response, bodyOverrides?:
         errorType: directModelResult.error.errorType,
         status: errStatus,
         errorMessage: sanitizeDiagnosticText(directModelResult.error.message, 220),
-        providerErrorPreview: sanitizeDiagnosticText(directModelResult.error.responseText || '', 280)
+        providerErrorPreview: sanitizeDiagnosticText(directModelResult.error.responseText || '', 280),
+        ...directShapingFacts(directModelResult.error)
       });
       logTracker.onFinish(Date.now() - requestStartedAt);
       return res.status(errStatus).send(errorBody);
@@ -8446,7 +8817,8 @@ async function handleChatCompletion(req: Request, res: Response, bodyOverrides?:
       outcome: 'failed',
       errorType: directModelResult.error.errorType,
       status: directStatus,
-      errorMessage: sanitizeDiagnosticText(directModelResult.error.message, 220)
+      errorMessage: sanitizeDiagnosticText(directModelResult.error.message, 220),
+      ...directShapingFacts(directModelResult.error)
     });
     logTracker.onFinish(Date.now() - requestStartedAt);
 
@@ -8507,6 +8879,7 @@ async function executeFallbackRoute(
     configuredTargets: fallbackRoute.models.slice(),
     excludedTargets: [],
     eligibleTargets: filterResult.eligible.slice(),
+    ...(filterResult.degraded.length > 0 ? { degradedTargets: filterResult.degraded.slice() } : {}),
     requiredContext: filterResult.requiredContext,
     requiresMultimodal: filterResult.requiresMultimodal,
     planStageCount: 0
@@ -8542,27 +8915,14 @@ async function executeFallbackRoute(
     });
   }
 
-  if (filterResult.error === 'no_reasoning_models') {
-    // A caller who chose a thinking level asked for something no step in this
-    // chain can deliver. Answering 200 while running at each model's own fixed
-    // depth is the silent downgrade this rejects; say so instead.
-    const status = 400;
-    const errorMsg = `Fallback model "${fallbackRoute.id}" has no reasoning-capable targets to honour the requested thinking level.`;
-    if (logTracker) {
-      logTracker.onFailure(status, 'unsupported_reasoning', errorMsg);
-      logTracker.onFinish(Date.now() - requestStartedAt);
-    }
-    return res.status(status).json({
-      error: errorMsg,
-      provider: 'local-router',
-      fallback: {
-        id: fallbackRoute.id,
-        requiresReasoningDial: true,
-        configuredTargets: fallbackRoute.models,
-        attempts: attemptLog
-      }
-    });
-  }
+  // The tier-2 tail: members that can serve this request only at their own
+  // fixed reasoning depth. Planned after every dial-capable member, and each
+  // stage from this set is stamped `reasoningDialDowngraded` so the record
+  // never implies the caller's level reached the model.
+  const degraded = filterResult.degraded;
+  const degradedSet = new Set(degraded);
+  // The level the caller chose, recorded on a tier-2 stage for the same reason.
+  const requestedThinkingLevelValue = requestedThinkingLevel(body);
 
   if (filterResult.error === 'no_multimodal_models') {
     const status = 400;
@@ -8605,10 +8965,59 @@ async function executeFallbackRoute(
     });
   }
 
-  const plan = fallbackExecutionPlan(fallbackRoute, body);
+  const tier1Plan = fallbackExecutionPlan(fallbackRoute, body);
+  // Tier 2: the same escalating wraparound over the dial-less members, appended
+  // so it is reached only after every dial-capable member has failed across its
+  // full retry budget. Labelled `degraded-` so a reader of the plan (and of the
+  // trajectory stage name) can tell the two tiers apart at a glance.
+  const tier2Plan = degraded.length > 0
+    ? buildEscalatingWraparoundPlan(degraded, {
+        skipRevisitsFor: (model) => !healthRegistry.mayAttempt(fallbackRoute.id, model).allowed
+      }).map((stage) => ({ ...stage, stage: `degraded-${stage.stage}` }))
+    : [];
+  const plan = [...tier1Plan, ...tier2Plan];
   chainSnapshot.planStageCount = plan.length;
   let lastFailure: AttemptFailure | null = null;
   const attemptedModels = new Set<string>();
+
+  /**
+   * The tier-2 marker for a stage, or an empty object for a tier-1 stage.
+   *
+   * A stage belongs to tier 2 when its model is in the degraded set. The plan
+   * label alone is not enough to decide: escalating wraparound can revisit a
+   * model later, and the model is the durable fact.
+   */
+  const degradedMarker = (model: string): { reasoningDialDowngraded?: true; requestedLevel?: string } => {
+    if (!degradedSet.has(model)) return {};
+    return {
+      reasoningDialDowngraded: true,
+      ...(requestedThinkingLevelValue ? { requestedLevel: requestedThinkingLevelValue } : {})
+    };
+  };
+
+  /**
+   * The outbound-body receipt plus the two shaping facts, for either outcome.
+   *
+   * A successful stage records them so a reader can answer "what did the router
+   * actually send when this worked", which is the baseline every later failure
+   * is compared against.
+   */
+  const outboundFacts = (source: {
+    outboundBody?: string;
+    clampedTokens?: { requested: number; clamped: number };
+    droppedFields?: string[];
+  }): {
+    outbound?: TrajectoryReceipt;
+    clampedTokens?: { requested: number; clamped: number };
+    droppedFields?: string[];
+  } => {
+    const receipt = source.outboundBody ? storeReceipt(source.outboundBody) : undefined;
+    return {
+      ...(receipt ? { outbound: receipt } : {}),
+      ...(source.clampedTokens ? { clampedTokens: source.clampedTokens } : {}),
+      ...(source.droppedFields && source.droppedFields.length > 0 ? { droppedFields: source.droppedFields } : {})
+    };
+  };
 
   for (let stageIndex = 0; stageIndex < plan.length; stageIndex += 1) {
     const stage = plan[stageIndex];
@@ -8629,7 +9038,8 @@ async function executeFallbackRoute(
         errorType: preflightFailure.errorType,
         reason: skipReason,
         errorMessage: sanitizeDiagnosticText(preflightFailure.message, 220),
-        skipped: true
+        skipped: true,
+        ...degradedMarker(stage.model)
       });
       trajectory?.addStage({
         stage: stage.stage,
@@ -8642,7 +9052,8 @@ async function executeFallbackRoute(
         skipReason,
         errorType: preflightFailure.errorType,
         status: preflightFailure.status || null,
-        errorMessage: sanitizeDiagnosticText(preflightFailure.message, 220)
+        errorMessage: sanitizeDiagnosticText(preflightFailure.message, 220),
+        ...degradedMarker(stage.model)
       });
       continue;
     }
@@ -8691,7 +9102,9 @@ async function executeFallbackRoute(
           stageAttempts: stage.attempts,
           outcome: 'answered',
           status: result.value.response.status,
-          ms: Date.now() - attemptStartedAt
+          ms: Date.now() - attemptStartedAt,
+          ...degradedMarker(stage.model),
+          ...outboundFacts(result.value)
         });
         return sendSuccessfulProxyResponse(
           res,
@@ -8742,7 +9155,9 @@ async function executeFallbackRoute(
           errorMessage: sanitizeDiagnosticText(result.error.message, 220),
           providerErrorPreview: sanitizeDiagnosticText(result.error.responseText || '', 280),
           waitBeforeRetrySeconds: waitSeconds,
-          ms: Date.now() - attemptStartedAt
+          ms: Date.now() - attemptStartedAt,
+          ...degradedMarker(stage.model),
+          ...outboundFacts(result.error)
         });
         if (waitSeconds > 0) {
           await waitMs(waitSeconds * 1000);
@@ -8761,7 +9176,9 @@ async function executeFallbackRoute(
           status: result.error.status || null,
           errorMessage: sanitizeDiagnosticText(result.error.message, 220),
           providerErrorPreview: sanitizeDiagnosticText(result.error.responseText || '', 280),
-          ms: Date.now() - attemptStartedAt
+          ms: Date.now() - attemptStartedAt,
+          ...degradedMarker(stage.model),
+          ...outboundFacts(result.error)
         });
       }
     }
@@ -8817,7 +9234,9 @@ async function executeFallbackRoute(
         outcome: 'answered',
         status: result.value.response.status,
         ms: Date.now() - attemptStartedAt,
-        forced: true
+        forced: true,
+        ...degradedMarker(member.model),
+        ...outboundFacts(result.value)
       });
       return sendSuccessfulProxyResponse(
         res,
@@ -8864,7 +9283,9 @@ async function executeFallbackRoute(
       errorMessage: sanitizeDiagnosticText(result.error.message, 220),
       providerErrorPreview: sanitizeDiagnosticText(result.error.responseText || '', 280),
       ms: Date.now() - attemptStartedAt,
-      forced: true
+      forced: true,
+      ...degradedMarker(member.model),
+      ...outboundFacts(result.error)
     });
   }
 
@@ -10115,5 +10536,6 @@ serverV6?.on('upgrade', handleHttpUpgrade);
 export {
   estimateRequestContext,
   requestRequiresMultimodal,
-  filterEligibleFallbackModels
+  filterEligibleFallbackModels,
+  MAX_OUTPUT_HEADROOM_TOKENS
 };

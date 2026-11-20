@@ -4,7 +4,8 @@ import {
   estimateRequestContext,
   requestRequiresMultimodal,
   filterEligibleFallbackModels,
-  fallbackExecutionPlan
+  fallbackExecutionPlan,
+  MAX_OUTPUT_HEADROOM_TOKENS
 } from '../build/index.js';
 import {
   buildMultiPassExecutionPlan,
@@ -32,6 +33,20 @@ test('estimateRequestContext: calculates conservative token requirement from mes
   };
   const largeTokens = estimateRequestContext(largeBody);
   assert.ok(largeTokens >= 100000 + 8192);
+});
+
+test('estimateRequestContext: caps an absurd output ask so it cannot empty the chain', () => {
+  // Measured live 2026-11-20: a two-message prompt carrying max_tokens 943718
+  // produced requiredContext 945635 and excluded every model under that window.
+  const body = {
+    messages: [{ role: 'user', content: 'hi' }],
+    max_tokens: 943718
+  };
+  const tokens = estimateRequestContext(body);
+  assert.ok(tokens <= MAX_OUTPUT_HEADROOM_TOKENS + 100,
+    `requiredContext ${tokens} should be bounded by the output headroom cap`);
+  // A genuinely large output ask is still respected up to the cap.
+  assert.equal(estimateRequestContext({ messages: [], max_tokens: 1000 }), 1024);
 });
 
 test('estimateRequestContext: accounts for visual image tokens', () => {

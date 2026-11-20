@@ -1,0 +1,35 @@
+Two pieces of dead or near-dead code surfaced by the 2026-11-20 fallback audit, neither touched by it.
+
+1. src/tiers.ts has zero importers.
+   It defines a complete success-rate tier model — verified | insufficient | deranked, with
+   SUCCESS_RATE_THRESHOLD = 0.85, TIER_MIN_SAMPLES = 50, and a MAD latency outlier rule — that nothing
+   imports. `rg "from './tiers'"` returns nothing across src/ and tests/.
+
+   Two coherent options, and they are not equivalent:
+   - Delete it. The chain now ranks by cost band then capability (src/fallback-topology.ts) and by
+     observed health (src/health-registry.ts); a third ranking concept that nothing reads is a maintenance
+     trap, because it will be edited by someone who assumes it runs.
+   - Adopt it as the ordering input for chain steps that have enough observations. That is a real feature,
+     but it needs a chain-ordering decision the operator has not made, and it competes with cost-first
+     ordering which was an explicit operator decision on 2026-11-09.
+
+   Recommendation: delete, and re-derive from health-registry if success-rate ranking is ever wanted —
+   the registry already holds the rolling window the tier model would need.
+
+2. src/index.ts is ~10.2k lines and holds the HTTP surface, the classifiers, the request-shaping pipeline,
+   the config loaders, and the trajectory wiring in one module.
+
+   This audit had to edit eight separate regions of it, and the cost was visible: the direct-call path and
+   the fallback path needed the same outbound-evidence wiring in two places, and the first pass recorded
+   it only on the fallback path. The bug was caught live, not by a test, because the two paths are
+   reachable only through an HTTP call.
+
+   A decomposition is not urgent, but the highest-value split is available now and is low risk: move the
+   request-shaping pipeline (sanitizeProviderRequestBody -> clampOutputTokens -> injectPromptCaching ->
+   dropUnsupportedRequestFields -> provider.formatBody) into one named function with one call site. Today
+   the order of those five steps is implicit in proxyModelAttempt's body, and every one of them was added
+   by a different change. Making the order a named, tested pipeline would have prevented this audit's
+   second defect (the trailing system turn) from needing to be found by replaying a log.
+
+   Not done here: touching the routing surface during a correctness fix would have made both harder to
+   verify.
