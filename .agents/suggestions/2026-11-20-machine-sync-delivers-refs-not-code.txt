@@ -1,0 +1,32 @@
+`--machine-sync` moves refs. It does not move runnable code, and nothing in its output says so.
+
+Three separate properties combine to make a "successful" sync leave a machine running old code:
+
+1. `build/` is gitignored (.gitignore:80), so compiled output never crosses.
+2. `node_modules/` is gitignored (.gitignore:233), so a fresh peer cannot build without npm install.
+3. `--machine-sync` fast-forwards the peer checkout ONLY when the peer tree is clean, and a
+   gitignored-file-only tree can still be dirty enough to block it. It reports
+   "ref delivered, checkout untouched" — accurate, but easy to read as success.
+
+Measured on 2026-11-20: Windows sat at `706bb78` with a `build/index.js` from 2026-11-10 while the
+Mac was 38 commits ahead. The sync reported synced. The router was running ten-day-old code.
+
+The reliable post-sync check is one line, run ON THE PEER:
+
+    find src -name '*.ts' -newer build/index.js | wc -l     # 0 means the build matches the source
+
+Non-zero means the running code predates the synced source, and a rebuild is required. A live
+request is the only other honest proof; an exit code is not.
+
+Two related traps found the same day:
+
+- `router-settings.json` is gitignored (.gitignore:234) BY DESIGN (it is operator-authored truth),
+  so a chain edit on one machine does not reach the other. A sync alone will not reproduce a
+  working chain.
+- `.agents/ainish-deploy.json` records `source_repo` as a host-local absolute path. It can never be
+  byte-identical on two machines, so a peer with rules deployment enabled will always show a dirty
+  tree. Do not treat that as corruption, and expect to fast-forward explicitly.
+
+Suggested improvement to `--machine-sync` itself: after any run that advances a peer's checkout,
+print a `build-freshness: STALE (N src files newer than build/)` line. The tool already knows the
+peer path and can run that `find`; reporting it would turn a silent staleness into a stated fact.
