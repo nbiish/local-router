@@ -286,6 +286,19 @@ const DEFAULT_OUTPUT_TOKENS = 4096;
 const FALLBACK_PROVIDER_NAME = 'local-router';
 const FALLBACK_PROVIDER_LEGACY_NAMES = ['fvs-code', 'fallback'];
 const FALLBACK_PRIMARY_ATTEMPTS = 3;
+// Attempt deadlines (see attemptModel). A streaming attempt is bounded by how
+// long its first byte takes, not by how long the whole answer takes: the old
+// whole-response 15 s deadline cut healthy long generations mid-body.
+const STREAM_FIRST_BYTE_TIMEOUT_MS = Number(process.env.LOCAL_ROUTER_STREAM_FIRST_BYTE_MS) > 0
+  ? Number(process.env.LOCAL_ROUTER_STREAM_FIRST_BYTE_MS)
+  : 30000;
+const NON_STREAM_TIMEOUT_MS = 120000;
+// Silence tolerated between two upstream bytes once a stream is flowing. A
+// provider that thinks for 60 s before its first token is slow, not dead; one
+// that has sent nothing at all for minutes is gone.
+const STREAM_IDLE_TIMEOUT_MS = Number(process.env.LOCAL_ROUTER_STREAM_IDLE_MS) > 0
+  ? Number(process.env.LOCAL_ROUTER_STREAM_IDLE_MS)
+  : 120000;
 const LOCAL_ROUTER_CONFIG_DIR = path.join(os.homedir(), '.config', 'local-router');
 const LEGACY_FVS_CONFIG_DIR = path.join(os.homedir(), '.config', 'fvs-code');
 const FALLBACK_MODELS_PATH = path.join(LOCAL_ROUTER_CONFIG_DIR, 'fallback-models.json');
@@ -7105,7 +7118,7 @@ function classifyStreamChunkAsError(chunk: string): boolean {
 }
 
 /**
- * Inspect the first SSE frame of a 200 stream, and hand back a usable response.
+ * Inspect the first SSE frame of a 200 stream, and hand back a USABLE response.
  *
  * Why this exists: a provider can answer HTTP 200 and then report the real
  * outcome inside the stream ("error" event, or a `finish_reason` of `error`).
@@ -7119,8 +7132,16 @@ function classifyStreamChunkAsError(chunk: string): boolean {
  *  - If it is an error frame, the attempt fails with that text as evidence.
  *  - If it is real content (or a `[DONE]`), the consumed bytes are prepended
  *    back so the downstream pipe receives a byte-identical stream.
- *  - A body that cannot be read is returned untouched: this must never turn a
- *    working stream into a failure.
+ *  - A body that cannot be read still comes back as a usable stream carrying
+ *    whatever was consumed, then the underlying failure.
+ *
+ * The invariant this function must uphold (defect measured live 2026-11-20):
+ * a ReadableStream can be locked by `getReader()` exactly once, and once read,
+ * its bytes are gone. Returning the ORIGINAL response after locking it handed
+ * the caller a locked body, and `Readable.fromWeb()` then threw
+ * `TypeError [ERR_INVALID_STATE]: Invalid state: ReadableStream is locked` —
+ * surfaced to the client as a 500 with that text instead of an answer. Every
+ * return path below therefore returns a NEW Response over a rebuilt stream.
  */
 async function peekStreamForErrorFrame(
   response: globalThis.Response
@@ -7129,63 +7150,84 @@ async function peekStreamForErrorFrame(
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let consumed = '';
-  let firstFrame = '';
+  let readError: unknown;
   try {
     // Read until one frame delimiter, or a small cap, whichever comes first.
-    while (!firstFrame.includes('\n\n') && consumed.length < 8192) {
+    while (!consumed.includes('\n\n') && consumed.length < 8192) {
       const { done, value } = await reader.read();
       if (done) break;
       consumed += decoder.decode(value, { stream: true });
     }
-    firstFrame = consumed;
-  } catch {
+  } catch (error) {
     // A read failure is not evidence about the provider's answer shape; hand the
-    // stream back as-is and let the normal path report it.
-    return { response };
+    // stream back and let the normal path report it. The bytes already consumed
+    // (and the error itself) must still reach downstream, because the reader has
+    // taken them off the original body.
+    readError = error;
   }
 
-  const frames = firstFrame.split('\n\n');
+  /** Rebuild a stream that replays `consumed`, then continues (or fails). */
+  const rebuild = (): globalThis.Response => {
+    const rebuilt = new ReadableStream<Uint8Array>({
+      start(controller) {
+        if (consumed) controller.enqueue(new TextEncoder().encode(consumed));
+      },
+      async pull(controller) {
+        if (readError) {
+          controller.error(readError);
+          return;
+        }
+        try {
+          const { done, value } = await reader.read();
+          if (done) { controller.close(); return; }
+          if (value) controller.enqueue(value);
+        } catch (error) {
+          controller.error(error);
+        }
+      },
+      cancel(reason) {
+        return reader.cancel(reason).catch(() => undefined);
+      }
+    });
+    const headers = new Headers(response.headers);
+    return new Response(rebuilt, { status: response.status, statusText: response.statusText, headers });
+  };
+
+  if (readError) return { response: rebuild() };
+
+  const frames = consumed.split('\n\n');
   const head = (frames.find((frame) => frame.trim().length > 0) || '').trim();
   if (head && head !== 'data: [DONE]' && isStreamErrorFrame(head)) {
     try { await reader.cancel(); } catch { /* already closed */ }
     return { response, errorText: head };
   }
 
-  // Rebuild a stream that begins with the bytes already consumed.
-  const rebuilt = new ReadableStream<Uint8Array>({
-    start(controller) {
-      if (consumed) controller.enqueue(new TextEncoder().encode(consumed));
-    },
-    async pull(controller) {
-      try {
-        const { done, value } = await reader.read();
-        if (done) { controller.close(); return; }
-        if (value) controller.enqueue(value);
-      } catch (error) {
-        controller.error(error);
-      }
-    },
-    cancel(reason) {
-      return reader.cancel(reason).catch(() => undefined);
-    }
-  });
-  const headers = new Headers(response.headers);
-  return {
-    response: new Response(rebuilt, { status: response.status, statusText: response.statusText, headers })
-  };
+  return { response: rebuild() };
 }
 
 /**
  * Preserve the conversation and the failover marker without breaking role
  * ordering.
  *
- * The marker used to be appended as a second `system` message, producing
- * `system → user → system`. Several upstreams reject a system turn that is not
- * first — Z.ai answers `{"error":{"code":1214,"message":"Incorrect role
- * information"}}` — so the marker itself caused the failure it was meant to
- * annotate. Measured live 2026-11-20: 21 stage failures were this shape. The
- * marker still travels (a downstream model can see why the conversation moved)
- * but as a `user` note, which every chat-completions upstream accepts anywhere.
+ * The marker has caused two separate failures.
+ *
+ * 1. It was appended as a second `system` message, producing
+ *    `system → user → system`. Several upstreams reject a system turn that is
+ *    not first — Z.ai answers `{"error":{"code":1214,"message":"Incorrect role
+ *    information"}}` — so the marker itself caused the failure it was meant to
+ *    annotate. Measured live 2026-11-20: 21 stage failures were this shape.
+ * 2. It was then moved to a trailing `user` message. A `user` turn is a thing the
+ *    model answers, so the marker became the newest instruction in the
+ *    conversation: a request whose last real turn was "Now summarize it." was
+ *    answered with "That block is just a failover event from a local router …
+ *    I can't treat it as a directive." The caller's question was dropped in
+ *    favour of a routing note.
+ *
+ * The marker is routing metadata, so it belongs in the instructions, not in a
+ * turn. It is appended to the FIRST system message (which stays first, so no
+ * 1214), or inserted as a new leading system message when the caller sent none.
+ * Nothing is added to the turn list, so no model can mistake the note for a
+ * question it must answer.
  */
 export function buildFailoverPreservedBody(body: any, preservedModel: string): any {
   const messages = Array.isArray(body?.messages) ? [...body.messages] : [];
@@ -7197,12 +7239,39 @@ export function buildFailoverPreservedBody(body: any, preservedModel: string): a
       timestamp: new Date().toISOString()
     }
   };
-  const prepared = {
-    ...body,
-    model: preservedModel,
-    messages: [...messages, { role: 'user', content: JSON.stringify(systemEvent) }]
-  };
-  return prepared;
+  const marker = JSON.stringify(systemEvent);
+
+  const next = messages.map((message: any) => ({ ...message }));
+  const systemAt = next.findIndex((message: any) => message?.role === 'system');
+  if (systemAt >= 0) {
+    next[systemAt] = {
+      ...next[systemAt],
+      content: appendSystemNote(next[systemAt].content, marker)
+    };
+  } else {
+    next.unshift({ role: 'system', content: marker });
+  }
+
+  return { ...body, model: preservedModel, messages: next };
+}
+
+/** Append a routing note to a system message's content, whatever shape it is. */
+function appendSystemNote(content: any, note: string): any {
+  if (typeof content === 'string') {
+    return content.trim() ? `${content}\n\n${note}` : note;
+  }
+  if (Array.isArray(content)) {
+    const parts = content.filter((part) => part && typeof part === 'object');
+    const lastText = [...parts].reverse().find((part: any) => part.type === 'text');
+    if (lastText) {
+      const index = parts.lastIndexOf(lastText);
+      const updated = [...parts];
+      updated[index] = { ...lastText, text: `${lastText.text || ''}\n\n${note}` };
+      return updated;
+    }
+    return [...parts, { type: 'text', text: note }];
+  }
+  return note;
 }
 
 export function extractMessageText(content: any): string {
@@ -7861,16 +7930,36 @@ async function proxyModelAttempt(
   const attemptStartedAt = Date.now();
   try {
     const chatUrl = `${provider.baseUrl}/chat/completions`;
-    const chatFetchInit: RequestInit = {
-      method: 'POST',
-      headers: providerHeaders,
-      body: outboundBody,
-      signal: AbortSignal.timeout(stream ? 15000 : 30000)
-    };
-    // SSRF guard: custom providers have user-controlled endpoints.
-    const response = isCustomProvider(target.providerName)
-      ? await safeFetch(chatUrl, chatFetchInit)
-      : await fetch(chatUrl, chatFetchInit);
+    // Timeout shape (measured live 2026-11-20): `AbortSignal.timeout(15000)` was
+    // used for streaming attempts, but that signal is a deadline on the WHOLE
+    // response, not time-to-first-byte. A real opus turn that streams for longer
+    // than 15 s was therefore cut mid-generation — 14 771 bytes delivered, no
+    // `message_stop` — which Claude Code reports as "The response stream was
+    // malformed". A stream's lifetime is its own business; what the router must
+    // bound is how long it waits for the FIRST byte. The signal below aborts only
+    // if headers never arrive, and an idle watchdog (installed by the caller once
+    // the body is flowing) covers a stall after that.
+    const firstByteMs = stream ? STREAM_FIRST_BYTE_TIMEOUT_MS : NON_STREAM_TIMEOUT_MS;
+    const attemptAbort = new AbortController();
+    const firstByteTimer = setTimeout(() => {
+      attemptAbort.abort(new Error(`No response headers within ${firstByteMs} ms`));
+    }, firstByteMs);
+    let response: globalThis.Response;
+    try {
+      const chatFetchInit: RequestInit = {
+        method: 'POST',
+        headers: providerHeaders,
+        body: outboundBody,
+        signal: attemptAbort.signal
+      };
+      // SSRF guard: custom providers have user-controlled endpoints.
+      response = isCustomProvider(target.providerName)
+        ? await safeFetch(chatUrl, chatFetchInit)
+        : await fetch(chatUrl, chatFetchInit);
+    } finally {
+      // Headers arrived (or the wait failed): the body's own watchdog takes over.
+      clearTimeout(firstByteTimer);
+    }
 
     // Stream pre-flight: some upstreams answer 200 with an SSE stream whose
     // ONLY frame is an error (an auth failure, a quota message). Forwarding that
@@ -8044,8 +8133,51 @@ async function sendSuccessfulProxyResponse(
     if (fetchResponse.body) {
       // @ts-ignore
       const nodeStream = Readable.fromWeb(fetchResponse.body);
+      let streamTornDown = false;
+
+      // Upstream death must reach the client (measured live 2026-11-20).
+      // `Readable.fromWeb(...).pipe(...).pipe(res)` only forwards data: when the
+      // upstream socket reset or its body was aborted, the error was logged and
+      // the client's response stayed open forever — no `end`, no `error`. A Claude
+      // client shows that as "The response stream was malformed" only after its own
+      // timeout; a Codex client simply hangs. Every failure below therefore
+      // destroys the destination with the reason attached, and records a failure on
+      // the log so the trajectory is not left claiming success.
+      //
+      // `destroy(err)` is the one signal both destinations understand: an Express
+      // response closes the socket, and the Anthropic translator wraps this call in
+      // a Writable that turns the destruction into a complete closing frame
+      // sequence (see the `close` handler on its fake response).
+      const teardown = (reason: string, detail: string) => {
+        if (streamTornDown) return;
+        streamTornDown = true;
+        console.error(`[proxy] stream teardown (${success.providerName}/${success.actualModel}): ${reason}: ${detail}`);
+        if (logTracker) logTracker.onFailure(502, reason, detail);
+        const err = Object.assign(new Error(detail), { errorType: reason });
+        // The failure is already recorded above, so the destroy below is a
+        // notification, not something a handler still has to act on. Without a
+        // listener the destination emits 'error' on the next tick and Node kills
+        // the whole router — measured live 2026-11-20: one mid-stream death took
+        // the daemon down after the client had already been served correctly.
+        try {
+          // @ts-ignore -- every destination in this file is a writable response.
+          if (typeof res.once === 'function') res.once('error', () => { /* recorded above */ });
+          // @ts-ignore
+          res.destroy(err);
+        } catch {
+          try { res.end(); } catch { /* already gone */ }
+        }
+      };
+
       nodeStream.on('error', (err: unknown) => {
-        console.error('[proxy] nodeStream error:', err instanceof Error ? err.message : String(err));
+        teardown('upstream_stream_error', err instanceof Error ? err.message : String(err));
+      });
+      // An aborted body ends without an 'end' event on the source; `close` with
+      // `readableEnded === false` is the reliable "died mid-flight" signal.
+      nodeStream.on('close', () => {
+        if (!nodeStream.readableEnded) {
+          teardown('upstream_stream_reset', 'Upstream closed the stream before it finished.');
+        }
       });
 
       // Late-error observer: a stream that dies after content cannot be retried,
@@ -8070,7 +8202,7 @@ async function sendSuccessfulProxyResponse(
         const isGenerate = outputFormat === 'ollama_generate';
         const transform = createOllamaStreamTransform(model, isGenerate);
         transform.on('error', (err: unknown) => {
-          console.error('[proxy] transform stream error:', err instanceof Error ? err.message : String(err));
+          teardown('ollama_transform_error', err instanceof Error ? err.message : String(err));
         });
         if (spyStream) {
           nodeStream.pipe(errorObserver).pipe(transform).pipe(spyStream).pipe(res);
@@ -8080,7 +8212,7 @@ async function sendSuccessfulProxyResponse(
       } else {
         const stripTransform = createOpenAIReasoningStripTransform();
         stripTransform.on('error', (err: unknown) => {
-          console.error('[proxy] stripTransform stream error:', err instanceof Error ? err.message : String(err));
+          teardown('strip_transform_error', err instanceof Error ? err.message : String(err));
         });
         if (spyStream) {
           nodeStream.pipe(errorObserver).pipe(stripTransform).pipe(spyStream).pipe(res);
@@ -8089,7 +8221,39 @@ async function sendSuccessfulProxyResponse(
         }
       }
 
+      // Idle watchdog: a stream that is alive but silent forever is as unusable
+      // as a dead one, and without this an upstream that simply stops writing
+      // holds the client's socket open indefinitely. Refreshed by every chunk, so
+      // a slow-but-progressing generation (a long thinking turn) is never cut —
+      // only genuine silence is.
+      let lastActivity = Date.now();
+      let idleTimer: NodeJS.Timeout | null = null;
+      const touch = () => { lastActivity = Date.now(); };
+      nodeStream.on('data', touch);
+      idleTimer = setInterval(() => {
+        if (Date.now() - lastActivity >= STREAM_IDLE_TIMEOUT_MS) {
+          clearInterval(idleTimer!);
+          idleTimer = null;
+          teardown(
+            'upstream_stream_idle',
+            `Upstream sent nothing for ${Math.round((Date.now() - lastActivity) / 1000)} s.`
+          );
+        }
+      }, Math.min(STREAM_IDLE_TIMEOUT_MS, 15000));
+      // @ts-ignore -- unref keeps a finished request from pinning the event loop.
+      idleTimer.unref?.();
+      res.on('close', () => {
+        if (idleTimer) {
+          clearInterval(idleTimer);
+          idleTimer = null;
+        }
+      });
+
       res.on('finish', () => {
+        if (idleTimer) {
+          clearInterval(idleTimer);
+          idleTimer = null;
+        }
         if (logTracker) {
           logTracker.onFinish(Date.now() - requestStartedAt);
         }
@@ -9404,6 +9568,144 @@ function chatCompletionToAnthropicResponse(chatData: any, requestedModel?: strin
   };
 }
 
+/**
+ * Translate Anthropic `/v1/messages` content into the chat-completions message
+ * list, which is the only shape an upstream of this router understands.
+ *
+ * The defect this replaces (measured live 2026-11-20): the previous inline
+ * mapping renamed the *part types* but never the *message types*, so an
+ * Anthropic conversation was forwarded to chat-completions upstreams with
+ * `{"type":"thinking",…,"signature":…}` parts, `{"type":"tool_result",…}` parts
+ * inside a `user` message, and a `{"type":"tool_calls"}` content part where the
+ * wire expects `assistant.tool_calls[]`. None of those three is legal on the
+ * target wire; an upstream that validates its schema 400s, and one that does not
+ * simply never sees the tool result — so the model re-issues the same call.
+ *
+ * The mapping each Anthropic construct needs:
+ *
+ *   text                 → text part (cache_control preserved)
+ *   image                → image_url part
+ *   thinking             → DROPPED (an upstream that produced this text will not
+ *                          accept it back; a Claude signature is meaningless there)
+ *   tool_use (assistant) → collected into the assistant message's `tool_calls[]`
+ *   tool_result (user)   → its own `role:'tool'` message, keyed by tool_call_id
+ *
+ * A user turn may carry text and tool results together; Anthropic allows that
+ * shape and chat-completions does not, so the text becomes the user message and
+ * each result becomes a tool message after it.
+ */
+export function anthropicMessagesToChat(messages: any[]): any[] {
+  const out: any[] = [];
+
+  for (const msg of messages) {
+    if (!msg || typeof msg !== 'object') continue;
+    const role = msg.role === 'assistant' ? 'assistant' : msg.role;
+    const content = msg.content;
+
+    if (typeof content === 'string') {
+      if (content.length > 0 || role !== 'assistant') out.push({ role, content });
+      else out.push({ role, content: '' });
+      continue;
+    }
+    if (!Array.isArray(content)) {
+      out.push({ role, content: content ?? '' });
+      continue;
+    }
+
+    const textParts: any[] = [];
+    const imageParts: any[] = [];
+    const toolCalls: any[] = [];
+    const toolResults: any[] = [];
+
+    for (const part of content) {
+      if (!part || typeof part !== 'object') continue;
+      switch (part.type) {
+        case 'text':
+          textParts.push({
+            type: 'text',
+            text: part.text ?? '',
+            ...(part.cache_control ? { cache_control: part.cache_control } : {})
+          });
+          break;
+        case 'image': {
+          const source = part.source || {};
+          const url = source.type === 'url'
+            ? String(source.url || '')
+            : source.data ? `data:${source.media_type};base64,${source.data}` : '';
+          imageParts.push({ type: 'image_url', image_url: { url } });
+          break;
+        }
+        case 'tool_use':
+          toolCalls.push({
+            id: part.id,
+            type: 'function',
+            function: {
+              name: part.name,
+              arguments: JSON.stringify(part.input ?? {})
+            }
+          });
+          break;
+        case 'tool_result': {
+          // A tool result's content is a string, or an array of text/image blocks.
+          let text = '';
+          if (typeof part.content === 'string') {
+            text = part.content;
+          } else if (Array.isArray(part.content)) {
+            text = part.content
+              .map((block: any) => {
+                if (typeof block === 'string') return block;
+                if (block?.type === 'text') return block.text ?? '';
+                if (block?.type === 'image') return '[image omitted]';
+                return '';
+              })
+              .join('\n');
+          } else if (part.content != null) {
+            text = JSON.stringify(part.content);
+          }
+          toolResults.push({ role: 'tool', tool_call_id: part.tool_use_id, content: text });
+          break;
+        }
+        case 'thinking':
+        case 'redacted_thinking':
+          // Deliberately dropped: see the docblock.
+          break;
+        default:
+          // Unknown part: keep the text if it has any, never forward an
+          // Anthropic-only type verbatim.
+          if (typeof part.text === 'string' && part.text) {
+            textParts.push({ type: 'text', text: part.text });
+          }
+          break;
+      }
+    }
+
+    if (role === 'assistant') {
+      if (toolCalls.length > 0) {
+        out.push({
+          role: 'assistant',
+          // Anthropic always expects content alongside tool calls; chat-completions
+          // accepts an empty string, but null is rejected by some strict upstreams.
+          content: textParts.length > 0 ? textParts : '',
+          tool_calls: toolCalls
+        });
+      } else if (textParts.length > 0 || imageParts.length > 0) {
+        out.push({ role: 'assistant', content: [...textParts, ...imageParts] });
+      }
+      continue;
+    }
+
+    // user (or any non-assistant role)
+    if (textParts.length > 0 || imageParts.length > 0) {
+      const parts = [...textParts, ...imageParts];
+      const onlyText = parts.length === 1 && parts[0].type === 'text' && !parts[0].cache_control;
+      out.push({ role, content: onlyText ? parts[0].text : parts });
+    }
+    out.push(...toolResults);
+  }
+
+  return out;
+}
+
 app.post(['/v1/messages', '/messages'], async (req: Request, res: Response) => {
   const body = req.body || {};
 
@@ -9465,44 +9767,7 @@ app.post(['/v1/messages', '/messages'], async (req: Request, res: Response) => {
   }
 
   if (Array.isArray(body.messages)) {
-    for (const msg of body.messages) {
-      const role = msg.role;
-      let content = msg.content;
-      if (Array.isArray(content)) {
-        content = content.map((part: any) => {
-          if (part.type === 'text') {
-            return {
-              type: 'text',
-              text: part.text,
-              ...(part.cache_control ? { cache_control: part.cache_control } : {})
-            };
-          } else if (part.type === 'image') {
-            const url = part.source?.data ? `data:${part.source.media_type};base64,${part.source.data}` : '';
-            return {
-              type: 'image_url',
-              image_url: { url }
-            };
-          } else if (part.type === 'tool_use') {
-            return {
-              type: 'tool_calls',
-              id: part.id,
-              function: {
-                name: part.name,
-                arguments: JSON.stringify(part.input)
-              }
-            };
-          } else if (part.type === 'tool_result') {
-            return {
-              type: 'tool_result',
-              tool_use_id: part.tool_use_id,
-              content: part.content
-            };
-          }
-          return part;
-        });
-      }
-      messages.push({ role, content });
-    }
+    messages.push(...anthropicMessagesToChat(body.messages));
   }
   chatBody.messages = messages;
 
@@ -9524,14 +9789,25 @@ app.post(['/v1/messages', '/messages'], async (req: Request, res: Response) => {
     res.setHeader('Connection', 'keep-alive');
 
     let messageStarted = false;
-    let contentBlockStarted = false;
-    let toolBlockStarted = false;
-    let thinkingBlockStarted = false;
     let messageDeltaSent = false;
     let messageStopped = false;
     let openAiSseBuffer = '';
-    let textIndex = 0;
+    // Every open content block, by its Anthropic index. The previous code kept a
+    // single `toolBlockStarted` boolean and one `textIndex`, so with two parallel
+    // tool calls it closed index 1 twice and never closed index 2 — a sequence
+    // Anthropic clients reject. A map is the only correct structure: N blocks can
+    // be open and they must be closed exactly once each.
+    const openBlocks = new Set<number>();
+    let nextIndex = 0;
+    let thinkingIndex: number | null = null;
+    let textIndex: number | null = null;
+    const toolBlockByOpenAiIndex = new Map<number, number>();
+    let pendingFinishTimer: NodeJS.Timeout | null = null;
+    let finalStopReason = 'end_turn';
     let outputTokens = 0;
+    let promptTokens = 0;
+    let cacheReadTokens = 0;
+    let cacheWriteTokens = 0;
 
     // Anthropic SSE frames are `event: <name>\ndata: <json>\n\n`. Every frame
     // must be newline-terminated or the client concatenates the next `event:`
@@ -9542,9 +9818,27 @@ app.post(['/v1/messages', '/messages'], async (req: Request, res: Response) => {
       res.write(`event: ${event}\ndata: ${JSON.stringify(payload)}\n\n`);
     };
 
+    const openBlock = (block: Record<string, unknown>) => {
+      const index = nextIndex++;
+      writeSse('content_block_start', { type: 'content_block_start', index, content_block: block });
+      openBlocks.add(index);
+      return index;
+    };
+
+    const closeBlock = (index: number) => {
+      if (!openBlocks.has(index)) return;
+      openBlocks.delete(index);
+      writeSse('content_block_stop', { type: 'content_block_stop', index });
+    };
+
     const ensureMessageStart = (data?: any) => {
       if (messageStarted) return;
       messageStarted = true;
+      // Usage on `message_start` must reflect the upstream's prompt count when it
+      // is already known. The old code read `data.usage` only for
+      // `completion_tokens`, so a streamed turn always reported 0 input tokens.
+      const usage = data?.usage || {};
+      promptTokens = typeof usage.prompt_tokens === 'number' ? usage.prompt_tokens : promptTokens;
       writeSse('message_start', {
         type: 'message_start',
         message: {
@@ -9555,24 +9849,13 @@ app.post(['/v1/messages', '/messages'], async (req: Request, res: Response) => {
           content: [],
           stop_reason: null,
           stop_sequence: null,
-          usage: { input_tokens: data?.usage?.prompt_tokens || 0, output_tokens: 0 }
+          usage: { input_tokens: promptTokens, output_tokens: 0 }
         }
       });
     };
 
     const closeOpenBlocks = () => {
-      // A thinking block must be closed before the text block opens, because Anthropic streams
-      // index blocks in order and a client that sees text at index N then a delta at index N-1
-      // discards the late one.
-      if (thinkingBlockStarted) {
-        writeSse('content_block_stop', { type: 'content_block_stop', index: 0 });
-        thinkingBlockStarted = false;
-        textIndex = 1;
-      }
-      if (!contentBlockStarted && !toolBlockStarted) return;
-      writeSse('content_block_stop', { type: 'content_block_stop', index: textIndex });
-      contentBlockStarted = false;
-      toolBlockStarted = false;
+      for (const index of [...openBlocks].sort((a, b) => a - b)) closeBlock(index);
     };
 
     // Exactly one message_delta and one message_stop per stream, after every
@@ -9584,10 +9867,19 @@ app.post(['/v1/messages', '/messages'], async (req: Request, res: Response) => {
       closeOpenBlocks();
       if (!messageDeltaSent) {
         messageDeltaSent = true;
+        // The final usage report is the one a Claude client bills and displays.
+        // Anthropic reports cache reads and writes separately from input_tokens,
+        // and the upstream's prompt_tokens already includes both.
+        const billedInput = Math.max(0, promptTokens - cacheReadTokens - cacheWriteTokens);
         writeSse('message_delta', {
           type: 'message_delta',
           delta: { stop_reason: stopReason, stop_sequence: null },
-          usage: { output_tokens: outputTokens }
+          usage: {
+            input_tokens: billedInput,
+            output_tokens: outputTokens,
+            ...(cacheReadTokens > 0 ? { cache_read_input_tokens: cacheReadTokens } : {}),
+            ...(cacheWriteTokens > 0 ? { cache_creation_input_tokens: cacheWriteTokens } : {})
+          }
         });
       }
       writeSse('message_stop', { type: 'message_stop' });
@@ -9604,17 +9896,40 @@ app.post(['/v1/messages', '/messages'], async (req: Request, res: Response) => {
         if (!trimmed.startsWith('data:')) continue;
         const dataStr = trimmed.slice(5).trim();
         if (dataStr === '[DONE]') {
-          finishMessage('end_turn');
+          if (pendingFinishTimer) {
+            clearTimeout(pendingFinishTimer);
+            pendingFinishTimer = null;
+          }
+          finishMessage(finalStopReason);
           continue;
         }
 
         try {
           const data = JSON.parse(dataStr);
-          if (typeof data.usage?.completion_tokens === 'number') {
-            outputTokens = data.usage.completion_tokens;
+          // Usage arrives on its own chunk when `stream_options.include_usage` is
+          // set — and that chunk comes AFTER the one carrying `finish_reason`. The
+          // old code therefore fired `finishMessage` with `outputTokens` still 0,
+          // and every streamed Anthropic turn reported zero output tokens. Usage is
+          // captured here; finalization is deferred (below) so the closing delta can
+          // carry it.
+          if (data.usage && typeof data.usage === 'object') {
+            if (typeof data.usage.completion_tokens === 'number') {
+              outputTokens = data.usage.completion_tokens;
+            }
+            if (typeof data.usage.prompt_tokens === 'number') {
+              promptTokens = data.usage.prompt_tokens;
+            }
+            const read = data.usage.prompt_tokens_details?.cached_tokens
+              ?? data.usage.cache_read_input_tokens;
+            if (typeof read === 'number') cacheReadTokens = read;
+            const write = data.usage.prompt_tokens_details?.cache_write_tokens
+              ?? data.usage.cache_creation_input_tokens;
+            if (typeof write === 'number') cacheWriteTokens = write;
           }
           const choice = data.choices?.[0] || {};
           const delta = choice.delta || {};
+          // A pure usage chunk carries no choices and must not open the message.
+          if (!choice || Object.keys(choice).length === 0) continue;
           ensureMessageStart(data);
 
           // Thinking first: Anthropic orders blocks, and a Claude client renders the thinking
@@ -9622,36 +9937,27 @@ app.post(['/v1/messages', '/messages'], async (req: Request, res: Response) => {
           // the streaming wire even though the non-streaming path could return it.
           const deltaThinking = delta.reasoning ?? delta.reasoning_content ?? delta.thinking;
           if (typeof deltaThinking === 'string' && deltaThinking) {
-            if (!thinkingBlockStarted) {
-              writeSse('content_block_start', {
-                type: 'content_block_start',
-                index: 0,
-                content_block: { type: 'thinking', thinking: '', signature: '' }
-              });
-              thinkingBlockStarted = true;
-              textIndex = 1;
+            if (thinkingIndex === null) {
+              // Reasoning and the answer are separate blocks; reasoning closes as
+              // soon as text starts so the client stops attributing deltas to it.
+              if (textIndex !== null) closeBlock(textIndex);
+              textIndex = null;
+              thinkingIndex = openBlock({ type: 'thinking', thinking: '', signature: '' });
             }
             writeSse('content_block_delta', {
               type: 'content_block_delta',
-              index: 0,
+              index: thinkingIndex,
               delta: { type: 'thinking_delta', thinking: deltaThinking }
             });
           }
 
           if (delta.content) {
-            if (thinkingBlockStarted) {
-              // Close reasoning before the answer starts so the client stops attributing deltas to it.
-              writeSse('content_block_stop', { type: 'content_block_stop', index: 0 });
-              thinkingBlockStarted = false;
-              textIndex = contentBlockStarted ? textIndex : 1;
+            if (thinkingIndex !== null) {
+              closeBlock(thinkingIndex);
+              thinkingIndex = null;
             }
-            if (!contentBlockStarted) {
-              writeSse('content_block_start', {
-                type: 'content_block_start',
-                index: textIndex,
-                content_block: { type: 'text', text: '' }
-              });
-              contentBlockStarted = true;
+            if (textIndex === null) {
+              textIndex = openBlock({ type: 'text', text: '' });
             }
             writeSse('content_block_delta', {
               type: 'content_block_delta',
@@ -9661,35 +9967,43 @@ app.post(['/v1/messages', '/messages'], async (req: Request, res: Response) => {
           }
 
           if (Array.isArray(delta.tool_calls) && delta.tool_calls.length > 0) {
-            if (contentBlockStarted) {
-              writeSse('content_block_stop', { type: 'content_block_stop', index: textIndex });
-              contentBlockStarted = false;
-              textIndex++;
+            // A tool call forces every non-tool block closed first: Anthropic
+            // requires blocks to open and close in index order, so text cannot
+            // remain open while a tool block starts after it.
+            if (thinkingIndex !== null) {
+              closeBlock(thinkingIndex);
+              thinkingIndex = null;
+            }
+            if (textIndex !== null) {
+              closeBlock(textIndex);
+              textIndex = null;
             }
 
             for (const tc of delta.tool_calls) {
-              if (tc.id) {
-                if (toolBlockStarted) {
-                  writeSse('content_block_stop', { type: 'content_block_stop', index: textIndex });
-                  toolBlockStarted = false;
-                  textIndex++;
-                }
-                writeSse('content_block_start', {
-                  type: 'content_block_start',
-                  index: textIndex,
-                  content_block: {
-                    type: 'tool_use',
-                    id: tc.id,
-                    name: tc.function?.name || '',
-                    input: {}
-                  }
+              // OpenAI streams a parallel call's fragments under its own
+              // `index`; that is the only way to tell two concurrent calls
+              // apart. Falling back to `0` keeps a provider that omits it
+              // working, and matches OpenAI's own single-call shape.
+              const openAiIndex = typeof tc.index === 'number' ? tc.index : 0;
+              let anthropicIndex = toolBlockByOpenAiIndex.get(openAiIndex) ?? null;
+
+              // A new call is identified by an id. Some providers send the id
+              // only on the first fragment; others repeat it. Opening a block
+              // when one is already open for this index is the bug that produced
+              // duplicate starts, so the id only opens when no block exists.
+              if (anthropicIndex === null) {
+                anthropicIndex = openBlock({
+                  type: 'tool_use',
+                  id: tc.id || `toolu_${cryptoRandomId()}`,
+                  name: tc.function?.name || '',
+                  input: {}
                 });
-                toolBlockStarted = true;
+                toolBlockByOpenAiIndex.set(openAiIndex, anthropicIndex);
               }
-              if (tc.function?.arguments) {
+              if (typeof tc.function?.arguments === 'string' && tc.function.arguments) {
                 writeSse('content_block_delta', {
                   type: 'content_block_delta',
-                  index: textIndex,
+                  index: anthropicIndex,
                   delta: { type: 'input_json_delta', partial_json: tc.function.arguments }
                 });
               }
@@ -9699,8 +10013,20 @@ app.post(['/v1/messages', '/messages'], async (req: Request, res: Response) => {
           if (choice.finish_reason) {
             let stopReason = 'end_turn';
             if (choice.finish_reason === 'length') stopReason = 'max_tokens';
-            else if (choice.finish_reason === 'tool_calls') stopReason = 'tool_use';
-            finishMessage(stopReason);
+            else if (choice.finish_reason === 'tool_calls' || choice.finish_reason === 'function_call') stopReason = 'tool_use';
+            else if (choice.finish_reason === 'content_filter') stopReason = 'refusal';
+            // Defer: the usage chunk that follows still has to be read, and the
+            // closing message_delta is where it belongs.
+            finalStopReason = stopReason;
+            if (pendingFinishTimer) clearTimeout(pendingFinishTimer);
+            // If the upstream closes without a usage chunk (or never sends
+            // [DONE]), finalize shortly after the finish rather than hanging.
+            pendingFinishTimer = setTimeout(() => {
+              pendingFinishTimer = null;
+              finishMessage(finalStopReason);
+            }, 250);
+            // @ts-ignore -- do not pin the event loop.
+            pendingFinishTimer.unref?.();
           }
         } catch {
           // Malformed upstream chunk — keep the stream alive and let the
@@ -9717,6 +10043,52 @@ app.post(['/v1/messages', '/messages'], async (req: Request, res: Response) => {
           // ignore
         }
         callback();
+      },
+      // The upstream died mid-body. `sendSuccessfulProxyResponse` reports that by
+      // destroying this writable, and the client still owes a valid Anthropic
+      // sequence: close whatever is open, state the reason, and stop. Passing the
+      // error on (rather than swallowing it) is what makes the response end
+      // instead of hanging forever.
+      destroy(error, callback) {
+        try {
+          if (pendingFinishTimer) {
+            clearTimeout(pendingFinishTimer);
+            pendingFinishTimer = null;
+          }
+          const reason = (error as any)?.errorType === 'upstream_stream_idle'
+            ? 'The upstream model stopped responding.'
+            : 'The upstream model closed the stream before finishing.';
+          ensureMessageStart();
+          closeOpenBlocks();
+          if (!messageDeltaSent) {
+            messageDeltaSent = true;
+            const billedInput = Math.max(0, promptTokens - cacheReadTokens - cacheWriteTokens);
+            writeSse('message_delta', {
+              type: 'message_delta',
+              delta: { stop_reason: 'end_turn', stop_sequence: null },
+              usage: {
+                input_tokens: billedInput,
+                output_tokens: outputTokens,
+                ...(cacheReadTokens > 0 ? { cache_read_input_tokens: cacheReadTokens } : {}),
+                ...(cacheWriteTokens > 0 ? { cache_creation_input_tokens: cacheWriteTokens } : {})
+              }
+            });
+          }
+          writeSse('message_stop', { type: 'message_stop' });
+          messageStopped = true;
+          console.error(`[claude-proxy] stream interrupted: ${reason}`);
+        } catch {
+          // Best effort: a torn tail must still not hold the socket open.
+        }
+        if (!res.writableEnded) {
+          try { res.end(); } catch { /* already gone */ }
+        }
+        // `callback(error)` would make this Writable emit 'error', and an
+        // unhandled 'error' on a stream destroys the process. The failure is
+        // already recorded (logTracker.onFailure in sendSuccessfulProxyResponse)
+        // and the client has been given a complete sequence, so the destruction
+        // is finished from this side: report success to the stream and stop.
+        callback(null);
       }
     }) as any;
     fakeRes.statusCode = 200;
@@ -9732,7 +10104,11 @@ app.post(['/v1/messages', '/messages'], async (req: Request, res: Response) => {
       // An upstream that closes without finish_reason still owes the client a
       // complete Anthropic frame sequence.
       try {
-        finishMessage('end_turn');
+        if (pendingFinishTimer) {
+          clearTimeout(pendingFinishTimer);
+          pendingFinishTimer = null;
+        }
+        finishMessage(finalStopReason);
       } catch {
         // Best effort: never hold the connection open on a malformed tail.
       }
@@ -10390,6 +10766,24 @@ const server = shouldServe ? app.listen(PORT, bindHost, () => {
   // request after a restart does not re-walk members that were known dead.
   // Fails open: a missing or corrupt file starts clean with a warning.
   healthRegistry.load();
+  // State-location warning (found live 2026-11-20): the daemon had been started
+  // with `LOCAL_ROUTER_TRAJECTORY_DIR=/tmp/lr-verify/traj` and
+  // `LOCAL_ROUTER_HEALTH_STATE=/tmp/lr-verify/quarantine.json` left over from a
+  // verification run. Every record then went to a scratch directory and the
+  // trajectories page showed a log the operator never looks at, which is exactly
+  // the invisibility the log exists to remove. Those variables are for tests, so a
+  // long-lived process that inherits them must say so rather than look healthy.
+  for (const [name, value] of [
+    ['LOCAL_ROUTER_TRAJECTORY_DIR', process.env.LOCAL_ROUTER_TRAJECTORY_DIR],
+    ['LOCAL_ROUTER_HEALTH_STATE', process.env.LOCAL_ROUTER_HEALTH_STATE]
+  ] as const) {
+    if (!value) continue;
+    const inTemp = /^\/(tmp|var\/folders|private\/var\/folders)\b/.test(value)
+      || value.toLowerCase().startsWith(os.tmpdir().toLowerCase());
+    console.warn(
+      `[state] ${name}=${value}${inTemp ? ' — WARNING: recording to a temporary directory; observations will not survive a reboot or be visible on the config pages' : ''}`
+    );
+  }
   console.log(`Point your VS Code extension to: http://localhost:${PORT}/v1`);
   if (isDevMode) {
     console.log(`[DEV] Hot reload enabled — file changes will restart the server automatically.`);

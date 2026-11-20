@@ -199,12 +199,22 @@ test('buildFailoverPreservedBody: preserves conversation context and injects fai
   };
   const preserved = buildFailoverPreservedBody(body, 'provider-b/model-y');
   assert.equal(preserved.model, 'provider-b/model-y');
-  assert.equal(preserved.messages.length, 5);
-  const lastMsg = preserved.messages[preserved.messages.length - 1];
-  // The marker must NOT be a second system turn: gateways reject a system
-  // message that is not first (Z.ai: {"code":1214,"Incorrect role information"}).
-  assert.equal(lastMsg.role, 'user');
-  const event = JSON.parse(lastMsg.content);
+  // The marker is ROUTING METADATA, so it travels in the instructions and adds no
+  // turn. It was previously appended as a trailing `user` message, which made it
+  // the newest thing the model was asked to answer: a request ending in "Now
+  // summarize it." was answered with "That block is just a failover event from a
+  // local router … I can't treat it as a directive." Measured live 2026-11-20.
+  assert.equal(preserved.messages.length, 4, 'no new turn may be added');
+  assert.equal(preserved.messages[3].role, 'user');
+  assert.equal(preserved.messages[3].content, 'How are you?', 'the caller question stays last');
+
+  // The marker still travels, inside the leading system message (so it stays
+  // first, which is the Z.ai 1214 constraint).
+  assert.equal(preserved.messages[0].role, 'system');
+  const systemText = preserved.messages[0].content;
+  assert.ok(systemText.includes('You are helpful.'));
+  const markerLine = systemText.split('\n\n').pop();
+  const event = JSON.parse(markerLine);
   assert.equal(event.event, 'local_router.failover');
   assert.equal(event.data.from, 'provider-a/model-x');
   assert.equal(event.data.to, 'provider-b/model-y');
@@ -220,6 +230,20 @@ test('buildFailoverPreservedBody: system message stays first across a failover h
     ]
   };
   const roles = buildFailoverPreservedBody(body, 'provider-b/model-y').messages.map((m) => m.role);
-  assert.deepEqual(roles, ['system', 'user', 'user']);
+  // No trailing `user` note: the marker lives in the system turn, so the turn
+  // list is unchanged and there is exactly one system message, first.
+  assert.deepEqual(roles, ['system', 'user']);
   assert.equal(roles.indexOf('system'), roles.lastIndexOf('system'));
+});
+
+test('buildFailoverPreservedBody: injects a leading system turn when the caller sent none', () => {
+  // Chat-completions has no system turn to append to here, so one is inserted.
+  // It must still be FIRST — the whole point of not appending it later.
+  const preserved = buildFailoverPreservedBody(
+    { model: 'provider-a/model-x', messages: [{ role: 'user', content: 'Do the thing.' }] },
+    'provider-b/model-y'
+  );
+  assert.deepEqual(preserved.messages.map((m) => m.role), ['system', 'user']);
+  assert.ok(preserved.messages[0].content.includes('local_router.failover'));
+  assert.equal(preserved.messages[1].content, 'Do the thing.');
 });
