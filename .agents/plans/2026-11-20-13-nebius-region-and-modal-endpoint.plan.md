@@ -2,7 +2,7 @@
 plan_format: ainish/plan/v1
 slug: nebius-region-and-modal-endpoint
 date: 2026-11-20
-status: ready
+status: done
 branch: feat/providers-nebius-region-modal-endpoint
 worktree: /Volumes/1tb-sandisk/code-external/local-router-providers
 task_record: .agents/tasks/TASK.2026-11-20-13-nebius-region-and-modal-endpoint.md
@@ -267,44 +267,44 @@ off the same host, so they move together.
 
 ## 5. Todos
 
-- [ ] **T1** Add the `nebius-us-north1` registry row to `src/provider-registry.ts` sharing
+- [x] **T1** Add the `nebius-us-north1` registry row to `src/provider-registry.ts` sharing
       `NEBIUS_API_KEY`, and correct the `modal` host and `modal-proxy` endpoint in the same file.
   - from: §4.1, §4.2 | done when: registry lists 22 rows, both Modal hosts are live-valid, and the
     region row shares the Nebius key var | verify: `npm run build && node -e "…PROVIDER_REGISTRY check"`
-- [ ] **T2** Add `EFFORT_SIX` and move the `nebius` policy row to `effortPolicy` with the measured note.
+- [x] **T2** Add `EFFORT_SIX` and move the `nebius` policy row to `effortPolicy` with the measured note.
   - from: §4.4 | done when: `resolveReasoningPolicy('nebius','zai-org/GLM-5.3-Flash')` reports
     `openai-effort` with six levels | verify: `npm run build && node --test tests/provider-policy-matrix.test.mjs`
-- [ ] **T3** Add the `nebius-us-north1` policy row and the `nebius-us-north1` usage-policy row.
+- [x] **T3** Add the `nebius-us-north1` policy row and the `nebius-us-north1` usage-policy row.
   - from: §3 | done when: coverage tests pass and the region row classifies as `paid` |
     verify: `node --test tests/provider-policy-matrix.test.mjs tests/provider-policy-docs.test.mjs tests/usage-policy.test.mjs`
-- [ ] **T4** Reconcile the `nebius` registry block: drop ids proven `404`, rename
+- [x] **T4** Reconcile the `nebius` registry block: drop ids proven `404`, rename
       `DeepSeek-V4-Pro`→`DeepSeek-V4-Pro-0813` and `Nemotron-3-Ultra-550B-A55B`→lowercase-`b`.
   - from: §2 | done when: every remaining id answers on the global host |
     verify: T9 receipt against the global base.
-- [ ] **T5** Add the `nebius-us-north1` registry block with exactly the 8 live ids and their specs.
+- [x] **T5** Add the `nebius-us-north1` registry block with exactly the 8 live ids and their specs.
   - from: §2 | done when: block matches the live listing | verify: T9 receipt against the region base.
-- [ ] **T6** Rewrite the `modal-proxy` registry block and `src/providers/modal-proxy.ts`'s default
+- [x] **T6** Rewrite the `modal-proxy` registry block and `src/providers/modal-proxy.ts`'s default
       base URL + fallback model list for the DeepSeek-V4.1-Flash deployment.
   - from: §4.2 | done when: no code path mentions the GLM host | verify: `rg -n "glm-5-3-flash-server" src/`
     returns nothing.
-- [ ] **T7** Reconcile the `modal` registry block against the shared-endpoint gateway.
+- [x] **T7** Reconcile the `modal` registry block against the shared-endpoint gateway.
   - from: §4.2 | done when: rows name models the gateway serves, or carry an evidence note |
     verify: T9 receipt against `inference.us-west.modal.direct`.
-- [ ] **T8** Update `docs/caching/{nebius,nebius-us-north1,modal-proxy,modal}.txt` with fresh
+- [x] **T8** Update `docs/caching/{nebius,nebius-us-north1,modal-proxy,modal}.txt` with fresh
       `Last verified: 2026-11-20` dates, the regional/global split, and the measured dialect.
   - from: §3 | done when: policy-docs bijection test passes and every file has a fresh date |
     verify: `node --test tests/provider-policy-docs.test.mjs`
-- [ ] **T9** Add `scripts/verify-provider-endpoints.mjs`: a read-only receipt that probes each
+- [x] **T9** Add `scripts/verify-provider-endpoints.mjs`: a read-only receipt that probes each
       provider's `/v1/models` and one chat completion, printing status per provider and never a key.
   - from: §3 | done when: the script runs green for global Nebius and honestly reports the Modal
     401 while the token is invalid | verify: `node scripts/verify-provider-endpoints.mjs`
-- [ ] **T10** Retarget the `modal-proxy` pricing entry to the served model in `src/provider-pricing.ts`.
+- [x] **T10** Retarget the `modal-proxy` pricing entry to the served model in `src/provider-pricing.ts`.
   - from: §3 | done when: no pricing entry references the retired Kimi deployment URL |
     verify: `rg -n "ep-kimi-k3" src/` returns nothing.
-- [ ] **T11** Update `llms.txt` provider rows/notes, `data/provider-watch.json`, and regenerate
+- [x] **T11** Update `llms.txt` provider rows/notes, `data/provider-watch.json`, and regenerate
       `PROVIDER_ENDPOINTS.md` by booting the server once.
   - from: §3 | done when: docs match the code | verify: `git diff --stat llms.txt PROVIDER_ENDPOINTS.md`
-- [ ] **T12** Write the task record, COMMS ledger lines, memory facts, and merge the worktree.
+- [x] **T12** Write the task record, COMMS ledger lines, memory facts, and merge the worktree.
   - from: §3 | done when: `git log main..feat/providers-nebius-region-modal-endpoint` is empty and the
     worktree is removed | verify: `git worktree list`
 
@@ -328,3 +328,25 @@ off the same host, so they move together.
   the operator retires the row.
 - Whether the region row should later become the *default* Nebius for latency — settled by measuring
   TTFT from this host against both bases.
+
+## 7. Outcome (closed 2026-11-20)
+
+All twelve todos landed on `main` via merge commit `8a16520`; branch deleted, worktree removed.
+
+- **§4.4 was corrected by measurement during implementation.** The original note said the DeepSeek
+  family override "already rescues" Nebius. Measuring the OTHER families showed the opposite problem:
+  `enable_thinking` is inert on that wire, so GLM/Kimi/MiniMax levels were silently dropped. That
+  required a code change (`providerDeclaresDialect`), not just a policy-row edit — recorded here
+  because it invalidated the plan's assumption rather than diverging quietly.
+- **`modal-proxy` remains unverified** pending the operator's token rotation. Its code is correct and
+  its receipt says FAIL with the upstream's own words. Per §4.3 this is the accepted state.
+- **Not done, by design:** the operator's `router-settings.json` still curates the retired
+  `modal-proxy::GLM-5.3-Flash*` ids, and `custom-providers.json` still holds a `modal-glm` row pointed
+  at the dead GLM host. Both live outside the checkout or are operator-owned; flagged in the task
+  record and COMMS ledger. Cleaning them is a one-line curation edit the operator should make, because
+  until then `/v1/models` advertises three `modal-proxy-glm-5.3-flash*` rows that can only 401.
+
+- Whether `modal` (the `ak-`/`as-` API-token provider) is still wanted at all — **still open**: no
+  `ak-`/`as-` token exists to settle it.
+- Whether the region row should become the default Nebius for latency — **still open**: needs a TTFT
+  measurement from this host against both bases.
