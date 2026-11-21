@@ -2,7 +2,7 @@
 plan_format: ainish/plan/v1
 slug: anthropic-codex-wire
 date: 2026-11-20
-status: ready
+status: done
 branch: fix/agent-wire
 worktree: /Volumes/1tb-sandisk/code-external/local-router-worktrees/fix-agent-wire
 task_record: .agents/tasks/2026-11-20-22-anthropic-codex-wire.md
@@ -154,14 +154,14 @@ one definition of a legal chat-completions message list.
 
 ## 5. Todos
 
-- [ ] T1  Replace the absolute stream timeout with a first-byte deadline + idle watchdog.
-- [ ] T2  Propagate upstream stream death to the client and to the log.
-- [ ] T3  Emit real usage on the Anthropic stream.
-- [ ] T4  Track open content blocks by index; close each exactly once.
-- [ ] T5  Translate Anthropic thinking/tool_use/tool_result into legal chat messages.
-- [ ] T6  Stop the failover marker from becoming an answerable user turn.
-- [ ] T7  Keep the daemon on the durable trajectory directory.
-- [ ] T8  Tests + live verification, then merge and journal.
+- [x] T1  Replace the absolute stream timeout with a first-byte deadline + idle watchdog.
+- [x] T2  Propagate upstream stream death to the client and to the log.
+- [x] T3  Emit real usage on the Anthropic stream.
+- [x] T4  Track open content blocks by index; close each exactly once.
+- [x] T5  Translate Anthropic thinking/tool_use/tool_result into legal chat messages.
+- [x] T6  Stop the failover marker from becoming an answerable user turn.
+- [x] T7  Keep the daemon on the durable trajectory directory.
+- [x] T8  Tests + live verification, then merge and journal.
 
 ## 6. Threats
 

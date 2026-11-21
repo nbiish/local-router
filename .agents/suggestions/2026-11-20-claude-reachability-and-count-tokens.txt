@@ -1,0 +1,27 @@
+Two findings from the 2026-11-20 Claude/Codex wire audit that outlive the task and were not
+fixed, because each needs an operator decision rather than a code change.
+
+1. No Claude model is ever reachable through this router.
+
+   The production chain has 19 targets and every one is a non-Claude model. The two
+   Claude-capable OAuth slots, `github-copilot-auto` and `cursor-auto`, are excluded on
+   every request with `context_window_too_small` — the trajectory records show
+   `requiredContext: 150174` to `159630`, which those two rows cannot satisfy. The first
+   chain member, `openrouter-ling-3.2-flash-free`, 429s and is then quarantined for 30 s,
+   so most turns land on a Kilo-hosted ERNIE model.
+
+   Consequence: an operator selecting "opus" gets ERNIE. The wire fix makes that turn
+   well-formed and honestly metered, but it does not make it Claude.
+
+   Options, none of which the audit should pick unilaterally: raise the context window on
+   the two Claude-capable rows, place a Claude-capable member before the free members, or
+   accept the shed and rename the slots so the picker does not promise Claude.
+
+2. `POST /v1/messages/count_tokens` returns 404.
+
+   Claude Code calls this endpoint on some paths (notably before large tool-use turns).
+   A 404 is survivable — the client proceeds — but it costs a round trip and shows up as
+   an error in the client's own telemetry. Implementing it needs a deliberate tokenizer
+   choice: the router has no Anthropic tokenizer, and returning a char/4 estimate would be
+   a different number than the one the model was billed for. Either vendor the tokenizer
+   or return a documented approximation with a header saying it is one — but not silently.

@@ -50,3 +50,35 @@ Process notes:
   requested provider answered.
 - `npm run validate:model-specs` has a pre-existing 95-error baseline; after
   removing dead Nebius rows it is 90. Compare counts, never assert green.
+
+Claude/Codex wire audit (22:00Z, task 22):
+
+- `AbortSignal.timeout(n)` is a deadline on the WHOLE response, not time-to-first
+  byte. Used on a streaming fetch it cuts any generation longer than `n`. The
+  router did this at 15 s, which is the operator's "response stream was
+  malformed". A stream needs a first-byte deadline plus an idle watchdog.
+- `Readable.fromWeb(body).pipe(a).pipe(b).pipe(res)` forwards data only. An
+  upstream reset/abort leaves the client's response open forever: no `end`, no
+  `error`. Reproduced and confirmed.
+- Locked-stream trap: `peekStreamForErrorFrame` took `getReader()` on the
+  original response, then returned that same response when a read failed.
+  `Readable.fromWeb` then throws `ERR_INVALID_STATE: Invalid state:
+  ReadableStream is locked`. This was the `[error-handler]` line in the
+  production log. Once a body is read it must be rebuilt, never returned.
+- Destroying a writable response with an error and no `'error'` listener kills
+  the whole Node process on the next tick. The client is already served at that
+  point, so the crash looks unrelated to the request.
+- `stream_options.include_usage` sends the usage chunk AFTER the one carrying
+  `finish_reason`. Finalising on `finish_reason` therefore always logs 0 tokens.
+- Thinking + parallel tool calls: tracking open blocks with one boolean closed
+  one index twice and never closed another. Anthropic block indexes must each
+  open and close exactly once, in order.
+- Anthropic `thinking` / `tool_result` / `tool_calls` content parts are not legal
+  chat-completions and were being forwarded verbatim. Read the `outbound` spill
+  to see this; the client-request summary cannot show it.
+- The failover marker appended as a trailing `user` message becomes the newest
+  thing the model answers. A request ending "Now summarize it." was answered with
+  "That block is just a failover event from a local router". Metadata belongs in
+  the system turn.
+- A daemon that inherited `LOCAL_ROUTER_TRAJECTORY_DIR=/tmp/...` from a
+  verification run logs where nobody looks. `ps eww <pid>` is the way to find it.
