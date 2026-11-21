@@ -2,7 +2,7 @@
 plan_format: ainish/plan/v1
 slug: unattended-durability
 date: 2026-11-20
-status: ready
+status: done
 branch: fix/unattended-durability
 worktree: /Volumes/1tb-sandisk/code-external/local-router-worktrees/fix-unattended
 task_record: .agents/tasks/2026-11-20-23-unattended-durability.md
@@ -117,12 +117,12 @@ logs
 
 ## 5. Todos
 
-- [ ] T1  Install `uncaughtException` / `unhandledRejection` handlers that log, record, and survive.
-- [ ] T2  Add graceful shutdown on SIGTERM/SIGINT that drains in-flight work.
-- [ ] T3  Tighten the launchd supervisor: `KeepAlive.Crashed` + `ThrottleInterval` ~15 s.
-- [ ] T4  Add bounded log rotation for the proxy, launchd, and backend logs.
-- [ ] T5  Add `GET /api/health` with uptime, in-flight, last crash, and state paths.
-- [ ] T6  Tests + live verification (SIGTERM drain, kill -9 recovery, soak), then merge and journal.
+- [x] T1  Install `uncaughtException` / `unhandledRejection` handlers that log, record, and survive.
+- [x] T2  Add graceful shutdown on SIGTERM/SIGINT that drains in-flight work.
+- [x] T3  Tighten the launchd supervisor: `KeepAlive.Crashed` + `ThrottleInterval` ~15 s.
+- [x] T4  Add bounded log rotation for the proxy, launchd, and backend logs.
+- [x] T5  Add `GET /api/health` with uptime, in-flight, last crash, and state paths.
+- [x] T6  Tests + live verification (SIGTERM drain, kill -9 recovery, soak), then merge and journal.
 
 ## 6. Threats
 

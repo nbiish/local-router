@@ -82,3 +82,28 @@ Claude/Codex wire audit (22:00Z, task 22):
   the system turn.
 - A daemon that inherited `LOCAL_ROUTER_TRAJECTORY_DIR=/tmp/...` from a
   verification run logs where nobody looks. `ps eww <pid>` is the way to find it.
+
+Unattended durability audit (23:30Z, task 23):
+
+- Node 22 exits on an unhandled rejection. The router had NO handlers, so one
+  stray promise in any request path killed it and every in-flight agent. Proved
+  with a control pair: unguarded child dies, guarded child survives.
+- A launchd `KeepAlive` is only as good as the process it watches. The watchdog
+  ran `ensure`, a ONE-SHOT that exits 0 once the router is up — so launchd had
+  nothing to supervise and `KeepAlive.Crashed` never fired. `launchctl print`
+  showed `state = not running, runs = 1, last exit code = 0` after kill -9.
+  A supervisor must be long-lived, not a periodic one-shot.
+- Rotate logs by copy-then-TRUNCATE, never rename. launchd binds stdout/stderr to
+  an open fd; renaming leaves it writing to an unlinked inode, so the log
+  silently stops growing where the operator looks.
+- A 15 s shutdown grace protects almost nothing: agent turns are minutes long.
+  Measured `curl: (18) transfer closed with outstanding read data remaining`.
+  Default is now 10 min, tunable via LOCAL_ROUTER_SHUTDOWN_GRACE_MS.
+- `await new Promise(r => setTimeout(r, ms))` inside a drain loop dies if nothing
+  else holds the event loop: the timer is cleared and the await never resumes.
+  The timer must NOT be unref'd during a drain.
+- A crash handler that masks corrupt state is worse than a restart. Survive,
+  record, expose on /api/health with repeat counts, and keep pre-boot failures
+  fatal so a never-healthy process still restarts.
+- Measured on this host: kill -9 -> 16 s to serving again, on :11434, via the
+  new `supervise --run` loop. Was up to 120 s and in practice never.
