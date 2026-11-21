@@ -23,6 +23,10 @@ function usage() {
 Usage:
   localrouter serve [--port 11434] [--host 127.0.0.1]
   localrouter start|stop|status [--port 11434] [--host 127.0.0.1]
+  localrouter supervise [--port 11434] [--host 127.0.0.1]
+                                       Install or refresh the crash watchdog (macOS
+                                       launchd). Instant restart on abnormal exit,
+                                       15s throttle, 600s drift tick.
   localrouter list [--custom|--all] [--json]
   localrouter show <model> [--json]
   localrouter ps [--json]

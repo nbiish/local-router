@@ -217,7 +217,15 @@ test.before(async () => {
 });
 
 test.after(async () => {
-  if (serverProcess && serverProcess.exitCode == null) serverProcess.kill();
+  if (serverProcess && serverProcess.exitCode == null) {
+    // Wait for the process to actually exit before removing its HOME. Since
+    // 2026-11-20 the router drains on SIGTERM and its drain handler flushes
+    // health state, so a fire-and-forget kill raced the rmdir below and left an
+    // ENOTEMPTY behind.
+    const exited = new Promise((resolve) => serverProcess.once('exit', resolve));
+    serverProcess.kill();
+    await Promise.race([exited, delay(8000)]);
+  }
   if (upstreamServer) await new Promise((resolve) => upstreamServer.close(resolve));
   if (testHome) rmSync(testHome, { recursive: true, force: true });
 });

@@ -60,6 +60,8 @@ import {
   type TopologyCandidate
 } from './fallback-topology';
 import { loadExpertLogs, LogEntryTracker, createUsageSpyStream } from './expert-logs';
+import { durability, installCrashGuards, installShutdown, trackInFlight } from './durability';
+import { rotateKnownLogs } from './log-rotation';
 import { TrajectoryTracker, TrajectoryChain, TrajectoryExcludedTarget, TrajectoryRecord, TrajectoryReceipt, resolveTrajectoryClient, storeReceipt } from './trajectories';
 import { healthRegistry } from './health-registry';
 import { buildWraparoundExecutionPlan, buildEscalatingWraparoundPlan, buildMultiPassExecutionPlan, DEFAULT_FALLBACK_ROUNDS } from './execution-plan';
@@ -289,17 +291,17 @@ const FALLBACK_PRIMARY_ATTEMPTS = 3;
 // Attempt deadlines (see attemptModel). A streaming attempt is bounded by how
 // long its first byte takes, not by how long the whole answer takes: the old
 // whole-response 15 s deadline cut healthy long generations mid-body.
-const STREAM_FIRST_BYTE_TIMEOUT_MS = Number(process.env.LOCAL_ROUTER_STREAM_FIRST_BYTE_MS) > 0
+export const STREAM_FIRST_BYTE_TIMEOUT_MS = Number(process.env.LOCAL_ROUTER_STREAM_FIRST_BYTE_MS) > 0
   ? Number(process.env.LOCAL_ROUTER_STREAM_FIRST_BYTE_MS)
   : 30000;
-const NON_STREAM_TIMEOUT_MS = 120000;
+export const NON_STREAM_TIMEOUT_MS = 120000;
 // Silence tolerated between two upstream bytes once a stream is flowing. A
 // provider that thinks for 60 s before its first token is slow, not dead; one
 // that has sent nothing at all for minutes is gone.
-const STREAM_IDLE_TIMEOUT_MS = Number(process.env.LOCAL_ROUTER_STREAM_IDLE_MS) > 0
+export const STREAM_IDLE_TIMEOUT_MS = Number(process.env.LOCAL_ROUTER_STREAM_IDLE_MS) > 0
   ? Number(process.env.LOCAL_ROUTER_STREAM_IDLE_MS)
   : 120000;
-const LOCAL_ROUTER_CONFIG_DIR = path.join(os.homedir(), '.config', 'local-router');
+export const LOCAL_ROUTER_CONFIG_DIR = path.join(os.homedir(), '.config', 'local-router');
 const LEGACY_FVS_CONFIG_DIR = path.join(os.homedir(), '.config', 'fvs-code');
 const FALLBACK_MODELS_PATH = path.join(LOCAL_ROUTER_CONFIG_DIR, 'fallback-models.json');
 const LEGACY_FALLBACK_MODELS_PATH = path.join(LEGACY_FVS_CONFIG_DIR, 'fallback-models.json');
@@ -521,14 +523,27 @@ function isMainModule(): boolean {
 // importing process can exit when its work is done.
 export const shouldServe = isMainModule() || process.env.LOCAL_ROUTER_FORCE_SERVE === 'true';
 
+// Crash guards go in BEFORE anything else that can fail, so a fault during boot
+// or catalog seeding is observed rather than silently ending the process. A
+// library consumer (tests importing pure helpers) must not install handlers on
+// its own process, since that would swallow the importer's failures.
+let bootCompleted = false;
+if (shouldServe) installCrashGuards(() => bootCompleted);
+
 const parsedPort = Number.parseInt(process.env.PORT || String(DEFAULT_PORT), 10);
-const PORT = Number.isInteger(parsedPort) && parsedPort > 0 && parsedPort <= 65535
+export const PORT = Number.isInteger(parsedPort) && parsedPort > 0 && parsedPort <= 65535
   ? parsedPort
   : DEFAULT_PORT;
 
 app.disable('x-powered-by');
 app.use(helmet({ contentSecurityPolicy: false }));
 app.use(cors());
+// In-flight accounting goes FIRST: a request counted here is counted before any
+// async handler can start, so shutdown's drain is accurate and `/api/health`
+// never under-reports concurrency.
+if (shouldServe) {
+  app.use((req: Request, res: Response, next: NextFunction) => trackInFlight(req, res, next));
+}
 app.use(express.json({ limit: '10mb' }));
 
 // Stricter rate limiting for config mutations and OAuth login.
@@ -10785,6 +10800,38 @@ const server = shouldServe ? app.listen(PORT, bindHost, () => {
     );
   }
   console.log(`Point your VS Code extension to: http://localhost:${PORT}/v1`);
+  bootCompleted = true;
+  installShutdown([server, serverV6], {
+    graceMs: Number(process.env.LOCAL_ROUTER_SHUTDOWN_GRACE_MS) > 0
+      ? Number(process.env.LOCAL_ROUTER_SHUTDOWN_GRACE_MS)
+      : 10 * 60 * 1000,
+    onDrain: () => {
+      // Flush health/quarantine memory so a restart does not immediately re-walk
+      // members that were already known dead.
+      try { healthRegistry.save(); } catch { /* best effort */ }
+    }
+  });
+
+  // Log rotation on a long cadence. Every log this deployment writes is
+  // append-only, and a router meant to run for days would otherwise fill the
+  // operator's config directory. Hourly is frequent enough that a 10 MB cap is
+  // never reached by normal traffic between checks, and cheap enough to ignore.
+  const logRotationTimer = setInterval(() => {
+    try {
+      const rotated = rotateKnownLogs(LOCAL_ROUTER_CONFIG_DIR, PORT);
+      if (rotated.length > 0) {
+        console.log(`[logs] rotated ${rotated.map((file) => path.basename(file)).join(', ')}`);
+      }
+    } catch (error) {
+      console.warn('[logs] rotation failed:', sanitizeDiagnosticText(String(error)));
+    }
+  }, 60 * 60 * 1000);
+  logRotationTimer.unref?.();
+  // One pass at boot so a long-dead previous run's oversized log is handled
+  // before it grows again.
+  try {
+    rotateKnownLogs(LOCAL_ROUTER_CONFIG_DIR, PORT);
+  } catch { /* non-fatal */ }
   if (isDevMode) {
     console.log(`[DEV] Hot reload enabled — file changes will restart the server automatically.`);
     console.log(`[DEV] Config UI: http://localhost:${PORT}/config`);

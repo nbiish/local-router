@@ -132,7 +132,15 @@ test.before(async () => {
 });
 
 test.after(async () => {
-  for (const child of servers) child.kill();
+  // Wait for each child to exit before removing its HOME: the router now drains
+  // on SIGTERM and its drain handler writes health state, so a fire-and-forget
+  // kill raced the rmdir and left ENOTEMPTY behind.
+  await Promise.all(servers.map((child) => {
+    if (child.exitCode != null) return Promise.resolve();
+    const exited = new Promise((resolve) => child.once('exit', resolve));
+    child.kill();
+    return Promise.race([exited, delay(8000)]);
+  }));
   for (const home of [keyedHome, unkeyedHome]) {
     if (home) rmSync(home, { recursive: true, force: true });
   }
