@@ -5,6 +5,19 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { spawn, spawnSync } = require('child_process');
+// The rotation routine lives with the server so both processes share one
+// definition of "how big is too big". The launcher runs from source or from a
+// build; resolve whichever exists.
+let rotateLogIfNeeded = () => 0;
+for (const candidate of ['../build/log-rotation.js', '../src/log-rotation.ts']) {
+  try {
+    // eslint-disable-next-line global-require, import/no-dynamic-require
+    rotateLogIfNeeded = require(candidate).rotateLogIfNeeded;
+    break;
+  } catch {
+    // Try the next location; a missing helper must not break the CLI.
+  }
+}
 const IS_WIN = process.platform === 'win32';
 
 const DEFAULT_HOST = '127.0.0.1';
@@ -114,6 +127,12 @@ function parseOptions(args) {
     }
     if (token === '--foreground') {
       options.foreground = true;
+      continue;
+    }
+    if (token === '--run') {
+      // `supervise --run` is the long-lived loop the launchd job invokes; it is
+      // not a general flag, so it is only meaningful for that command.
+      options.run = true;
       continue;
     }
     if (token === '--json') {
@@ -362,6 +381,17 @@ async function cmdStart(options) {
 
   ensureConfigDir();
   const logPath = path.join(CONFIG_DIR, `proxy-${options.port}.log`);
+  // Rotate before opening the append fd. The supervisor binds stdout/stderr to
+  // this exact path, so a rename here would leave launchd writing to an unlinked
+  // inode; rotateLogIfNeeded copies then truncates in place for that reason.
+  try {
+    rotateLogIfNeeded(logPath);
+    rotateLogIfNeeded(path.join(CONFIG_DIR, 'launchd.log'));
+    rotateLogIfNeeded(path.join(CONFIG_DIR, 'launchd.err'));
+    rotateLogIfNeeded(path.join(CONFIG_DIR, 'ollama-backend-11435.log'));
+  } catch {
+    // A log that cannot be rotated must not stop the router from starting.
+  }
   const logFd = fs.openSync(logPath, 'a');
 
   const child = spawn(entry.command, entry.args, {
@@ -977,12 +1007,208 @@ function reportLaunchAgentResult(ok, plistPath, label, successMessage) {
   console.log(`    launchctl bootstrap gui/$(id -u) "${plistPath}"`);
 }
 
-function setupDesktopAndServiceAutostart(routeMode, target) {
-  const routerHost = routeMode === 'custom' ? target.host : '127.0.0.1';
+/**
+ * Write and (re)load the macOS watchdog LaunchAgent for a given ensure target.
+ *
+ * Extracted from `setupDesktopAndServiceAutostart` (which only runs on
+ * `route set`) so an EXISTING install can be brought up to the current
+ * supervision policy without re-running routing setup. That matters because the
+ * plist encodes recovery behaviour: an install created before 2026-11-20 still
+ * carries `StartInterval 120` and no `Crashed` key, so a crashed router stays
+ * dead for up to two minutes no matter what the code does.
+ *
+ * Returns `{ ok, plistPath, label }` — `ok` is launchd's confirmation, not the
+ * success of writing the file.
+ */
+function installWatchdogLaunchAgent(ensureArgs) {
+  const launchAgentsDir = path.join(os.homedir(), 'Library', 'LaunchAgents');
+  fs.mkdirSync(launchAgentsDir, { recursive: true });
+  const plistPath = path.join(launchAgentsDir, 'com.localrouter.daemon.plist');
+  const label = 'com.localrouter.daemon';
+  const programArgs = [
+    process.execPath,
+    path.join(__dirname, 'local-router.js'),
+    ...ensureArgs
+  ];
+  const plistContent = [
+    '<?xml version="1.0" encoding="UTF-8"?>',
+    '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">',
+    '<plist version="1.0">',
+    '<dict>',
+    '    <key>Label</key>',
+    `    <string>${label}</string>`,
+    '    <key>ProgramArguments</key>',
+    '    <array>',
+    ...programArgs.map((arg) => `        <string>${arg}</string>`),
+    '    </array>',
+    '    <key>RunAtLoad</key>',
+    '    <true/>',
+    // Crash recovery is KeepAlive's job, not StartInterval's. The old pair
+    // (`StartInterval` 120 + `KeepAlive{SuccessfulExit:false}`) meant a crashed
+    // router stayed dead until the next two-minute tick — long enough for an
+    // agent turn to fail and be retried against a dead port. `Crashed: true`
+    // asks launchd to restart on an abnormal exit immediately;
+    // `SuccessfulExit: false` keeps a deliberate stop stopped. The 15 s throttle
+    // bounds a restart loop so a broken boot cannot spin.
+    '    <key>KeepAlive</key>',
+    '    <dict>',
+    '        <key>SuccessfulExit</key>',
+    '        <false/>',
+    '        <key>Crashed</key>',
+    '        <true/>',
+    '    </dict>',
+    '    <key>ThrottleInterval</key>',
+    '    <integer>15</integer>',
+    // A long drift-correction tick: catches the case where the process is alive
+    // but has lost the port, which KeepAlive cannot see.
+    '    <key>StartInterval</key>',
+    '    <integer>600</integer>',
+    '    <key>StandardOutPath</key>',
+    `    <string>${path.join(CONFIG_DIR, 'launchd.log')}</string>`,
+    '    <key>StandardErrorPath</key>',
+    `    <string>${path.join(CONFIG_DIR, 'launchd.err')}</string>`,
+    '</dict>',
+    '</plist>'
+  ].join('\n');
+  fs.writeFileSync(plistPath, plistContent, 'utf8');
+  const ok = reloadLaunchAgent(plistPath, label);
+  return { ok, plistPath, label, plistContent };
+}
+
+/**
+ * `supervise` — install or refresh the crash watchdog without touching routing.
+ *
+ * Two modes:
+ *  - default: write + (re)load the launchd plist, print the effective policy.
+ *  - `--run`: the long-lived supervisor loop the plist invokes. Kept in this file
+ *    so the supervised behaviour and the plist that launches it cannot drift.
+ *
+ * Why `--run` exists (measured 2026-11-20): the installed watchdog ran `ensure`,
+ * which is a ONE-SHOT — it confirms the router is up and exits 0. launchd then
+ * has no process left to supervise, so `KeepAlive.Crashed` never fires and the
+ * only recovery was the `StartInterval` tick. With the old 120 s interval a
+ * router killed with `kill -9` stayed dead for up to two minutes; verified live
+ * (`launchctl print` showed `state = not running, runs = 1, last exit code = 0`).
+ * A supervisor that stays alive and re-ensures is what actually makes the
+ * restart prompt.
+ */
+function cmdSupervise(options) {
+  if (options.run) return runSupervisorLoop(options);
+  if (IS_WIN) {
+    console.log('supervise: on Windows the watchdog is a Scheduled Task.');
+    console.log('Run `local-router route set` to (re)install it; the macOS LaunchAgent');
+    console.log('policy described here has no Windows equivalent.');
+    return 0;
+  }
+  if (process.platform !== 'darwin') {
+    console.log('supervise: only macOS (launchd) and Windows are supported.');
+    return 1;
+  }
+  const ensureArgs = ['supervise', '--run', '--host', options.host, '--port', String(options.port)];
+  const installed = installWatchdogLaunchAgent(ensureArgs);
+  console.log(`Watchdog plist: ${installed.plistPath}`);
+  console.log('Policy:');
+  console.log('  process                 = `supervise --run` (stays alive and re-ensures)');
+  console.log('  KeepAlive.Crashed       = true   (restart immediately after an abnormal exit)');
+  console.log('  KeepAlive.SuccessfulExit= false  (a deliberate stop stays stopped)');
+  console.log('  ThrottleInterval        = 15 s   (bounds a restart loop)');
+  console.log('  StartInterval           = 600 s  (drift correction if the port is lost)');
+  reportLaunchAgentResult(
+    installed.ok,
+    installed.plistPath,
+    installed.label,
+    `✓ watchdog active for ${options.host}:${options.port}`
+  );
+  if (!installed.ok) return 1;
+  return 0;
+}
+
+/**
+ * The supervisor loop. Never resolves: it is meant to be the process launchd
+ * watches, so it must outlive individual router instances.
+ *
+ * Recovery is deliberately not a single failed probe — a router that is busy
+ * booting, or one request that timed out, must not trigger a restart. Three
+ * consecutive failures (~15 s at the 5 s cadence) means genuinely gone.
+ */
+async function runSupervisorLoop(options) {
+  const probeUrl = `http://${options.host}:${options.port}/api/version`;
+  const POLL_MS = Number(process.env.LOCAL_ROUTER_SUPERVISE_POLL_MS) > 0
+    ? Number(process.env.LOCAL_ROUTER_SUPERVISE_POLL_MS)
+    : 5000;
+  const FAILURES_BEFORE_RESTART = 3;
+  let consecutiveFailures = 0;
+  let restarting = false;
+
+  const stamp = () => new Date().toISOString();
+  const probe = async () => {
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 3000);
+      try {
+        const res = await fetch(probeUrl, { signal: controller.signal });
+        return res.ok;
+      } finally {
+        clearTimeout(timer);
+      }
+    } catch {
+      return false;
+    }
+  };
+
+  const ensureRunning = async () => {
+    if (restarting) return;
+    restarting = true;
+    try {
+      console.log(`[supervise] ${stamp()} router is down — re-ensuring ${options.host}:${options.port}`);
+      await cmdEnsure({ ...options, noEvict: true });
+      // Give a cold boot a moment before the loop starts judging again.
+      for (let attempt = 0; attempt < 40; attempt += 1) {
+        if (await probe()) {
+          console.log(`[supervise] ${stamp()} router is back`);
+          break;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 500));
+      }
+    } catch (error) {
+      console.error(`[supervise] ${stamp()} ensure failed: ${error?.message || error}`);
+    } finally {
+      consecutiveFailures = 0;
+      restarting = false;
+    }
+  };
+
+  console.log(`[supervise] ${stamp()} watching ${probeUrl} every ${POLL_MS}ms`);
+  // A first ensure covers the case where launchd starts the supervisor while the
+  // router is not yet running (fresh login, or right after a reboot).
+  if (!(await probe())) await ensureRunning();
+
+  // An interval, not a recursive timer: it cannot stack if one probe is slow.
+  setInterval(() => {
+    void (async () => {
+      const healthy = await probe();
+      if (healthy) {
+        if (consecutiveFailures > 0) {
+          console.log(`[supervise] ${stamp()} router answering again`);
+        }
+        consecutiveFailures = 0;
+        return;
+      }
+      consecutiveFailures += 1;
+      if (consecutiveFailures >= FAILURES_BEFORE_RESTART) {
+        await ensureRunning();
+      }
+    })();
+  }, POLL_MS);
+
+  return 0;
+}
+
+function setupDesktopAndServiceAutostart(routeMode, target) {  const routerHost = routeMode === 'custom' ? target.host : '127.0.0.1';
   const routerPort = routeMode === 'custom' ? target.port : DEFAULT_PORT;
   const ensureArgs = routeMode === 'custom'
-    ? ['ensure', '--host', routerHost, '--port', String(routerPort)]
-    : ['ensure'];
+    ? ['supervise', '--run', '--host', routerHost, '--port', String(routerPort)]
+    : ['supervise', '--run'];
   const ensureArgsStr = ensureArgs.join(' ');
 
   if (process.platform === 'darwin') {
@@ -1036,48 +1262,14 @@ function setupDesktopAndServiceAutostart(routeMode, target) {
     }
 
     // 2. Watchdog LaunchAgent: ensures the router owns 11434 at boot AND
-    //    periodically re-enforces the contract (evicts a hijacking ollama,
-    //    restarts the router if it died).
+    //    re-enforces the contract when it has died or lost the port. The policy
+    //    (instant restart on crash, 15 s throttle, 600 s drift tick) lives in
+    //    `installWatchdogLaunchAgent` so `supervise` can refresh an existing
+    //    install without re-running routing setup.
     try {
-      const launchAgentsDir = path.join(os.homedir(), 'Library', 'LaunchAgents');
-      fs.mkdirSync(launchAgentsDir, { recursive: true });
-      const plistPath = path.join(launchAgentsDir, 'com.localrouter.daemon.plist');
-      const programArgs = [
-        process.execPath,
-        path.join(__dirname, 'local-router.js'),
-        ...ensureArgs
-      ];
-      const plistContent = [
-        '<?xml version="1.0" encoding="UTF-8"?>',
-        '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">',
-        '<plist version="1.0">',
-        '<dict>',
-        '    <key>Label</key>',
-        '    <string>com.localrouter.daemon</string>',
-        '    <key>ProgramArguments</key>',
-        '    <array>',
-        ...programArgs.map((arg) => `        <string>${arg}</string>`),
-        '    </array>',
-        '    <key>RunAtLoad</key>',
-        '    <true/>',
-        '    <key>StartInterval</key>',
-        '    <integer>120</integer>',
-        '    <key>KeepAlive</key>',
-        '    <dict>',
-        '        <key>SuccessfulExit</key>',
-        '        <false/>',
-        '    </dict>',
-        '    <key>StandardOutPath</key>',
-        `    <string>${path.join(CONFIG_DIR, 'launchd.log')}</string>`,
-        '    <key>StandardErrorPath</key>',
-        `    <string>${path.join(CONFIG_DIR, 'launchd.err')}</string>`,
-        '</dict>',
-        '</plist>'
-      ].join('\n');
-      fs.writeFileSync(plistPath, plistContent, 'utf8');
-      const daemonOk = reloadLaunchAgent(plistPath, 'com.localrouter.daemon');
-      reportLaunchAgentResult(daemonOk, plistPath, 'com.localrouter.daemon',
-        `✓ macOS ensure watchdog LaunchAgent installed: ${plistPath}`);
+      const installed = installWatchdogLaunchAgent(ensureArgs);
+      reportLaunchAgentResult(installed.ok, installed.plistPath, installed.label,
+        `✓ macOS ensure watchdog LaunchAgent installed: ${installed.plistPath}`);
     } catch (err) {
       console.log(`ℹ LaunchAgent registration notice: ${err.message}`);
     }
@@ -1839,6 +2031,10 @@ async function main() {
   }
   if (command === 'status') {
     process.exitCode = await cmdStatus(options);
+    return;
+  }
+  if (command === 'supervise') {
+    process.exitCode = cmdSupervise(options);
     return;
   }
   if (command === 'check-update' || command === 'check-updates') {

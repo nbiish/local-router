@@ -29,7 +29,12 @@ import {
   FallbackModelParseResult,
   ProviderModel,
   ProviderModelParseResult,
-  applyEmbeddingProviderOrderToStore
+  applyEmbeddingProviderOrderToStore,
+  LOCAL_ROUTER_CONFIG_DIR,
+  PORT,
+  STREAM_FIRST_BYTE_TIMEOUT_MS,
+  STREAM_IDLE_TIMEOUT_MS,
+  NON_STREAM_TIMEOUT_MS
 } from '../index';
 import type { RouterSettings, AgentProxyConfig } from '../config-persistence';
 import {
@@ -49,9 +54,11 @@ import {
   readReceiptPayload,
   readTrajectoryLogRaw,
   analyzeTrajectories,
-  clearTrajectories
+  clearTrajectories,
+  trajectoryDir
 } from '../trajectories';
-import { healthRegistry } from '../health-registry';
+import { healthRegistry, healthStatePath } from '../health-registry';
+import { durability } from '../durability';
 import { planAutoDisable } from '../auto-disable';
 import { costBandFor, providerCoverageGaps } from '../fallback-topology';
 
@@ -2216,6 +2223,78 @@ app.head('/api/version', (req: Request, res: Response) => {
 app.get('/api/version', async (req: Request, res: Response) => {
   res.json({ version: await currentOllamaVersion() });
 });
+
+/**
+ * `/api/health` — the always-on operator surface.
+ *
+ * `/api/version` answers "is a version-shaped thing listening", which is what an
+ * Ollama client probes and must stay cheap and static. This endpoint answers the
+ * question an unattended deployment actually has: has this process been up
+ * continuously, is anything stuck in flight, and what has it survived?
+ *
+ * `incidents` is the important field. With crash handlers installed the process
+ * keeps serving after a stray rejection, which is right for a router powering
+ * long agent runs — but it means a repeating fault could otherwise go unnoticed
+ * forever. Reporting `repeats` turns "survived quietly" into "survived, and it
+ * has happened 40 times", which is actionable.
+ */
+app.get('/api/health', (req: Request, res: Response) => {
+  const snapshot = durability.snapshot();
+  const startedMs = Date.parse(snapshot.startedAt);
+  const uptimeMs = Number.isFinite(startedMs) ? Date.now() - startedMs : 0;
+  // Quarantine count comes from the registry's own snapshot: a member parked
+  // under an active cooldown is the single most common reason a chain looks
+  // "broken" after a long uptime, so health states the number up front.
+  let quarantined = 0;
+  try {
+    for (const chain of Object.values(healthRegistry.snapshot())) {
+      quarantined += (chain.dead?.length || 0) + (chain.degraded?.length || 0);
+    }
+  } catch {
+    // A registry failure must not make health itself fail.
+  }
+  res.json({
+    ok: !snapshot.shuttingDown,
+    status: snapshot.shuttingDown ? 'draining' : 'serving',
+    startedAt: snapshot.startedAt,
+    uptimeMs,
+    uptimeHuman: formatUptime(uptimeMs),
+    inFlight: snapshot.inFlight,
+    peakInFlight: snapshot.peakInFlight,
+    incidents: snapshot.incidents,
+    quarantinedMembers: quarantined,
+    state: {
+      configDir: LOCAL_ROUTER_CONFIG_DIR,
+      trajectoryDir: trajectoryDir(),
+      healthStatePath: healthStatePath(),
+      logPath: path.join(LOCAL_ROUTER_CONFIG_DIR, `proxy-${PORT}.log`)
+    },
+    // The limits a long-running process is actually working under, so an
+    // operator can reason about behaviour without reading source.
+    limits: {
+      streamFirstByteMs: STREAM_FIRST_BYTE_TIMEOUT_MS,
+      streamIdleMs: STREAM_IDLE_TIMEOUT_MS,
+      nonStreamMs: NON_STREAM_TIMEOUT_MS,
+      shutdownGraceMs: Number(process.env.LOCAL_ROUTER_SHUTDOWN_GRACE_MS) > 0
+        ? Number(process.env.LOCAL_ROUTER_SHUTDOWN_GRACE_MS)
+        : 10 * 60 * 1000
+    }
+  });
+});
+
+/** `3d 4h 12m` — readable at a glance in a JSON dump or a `jq` pipeline. */
+function formatUptime(ms: number): string {
+  if (!Number.isFinite(ms) || ms <= 0) return '0s';
+  const totalSeconds = Math.floor(ms / 1000);
+  const days = Math.floor(totalSeconds / 86400);
+  const hours = Math.floor((totalSeconds % 86400) / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  if (days > 0) return `${days}d ${hours}h ${minutes}m`;
+  if (hours > 0) return `${hours}h ${minutes}m`;
+  if (minutes > 0) return `${minutes}m ${seconds}s`;
+  return `${seconds}s`;
+}
 
 }
 
