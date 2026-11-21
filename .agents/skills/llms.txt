@@ -22,5 +22,7 @@ Every skill must define a bounded procedure, explicit stop conditions, verificat
 - [`ainish-security/`](./ainish-security/) — the single security contract: code, AI/agentic, secrets, PQC, supply chain, governance. Mandatory.
 - [`pqc-secrets/`](./pqc-secrets/) — secret operations and ML-DSA-65 signing. Mandatory.
 - [`typesafe-jev/`](./typesafe-jev/) — typed decision contract.
+- [`specialized-agents/`](./specialized-agents/) — check the `hermes` CLI for the most relevant
+  specialized agent profile before starting a task or automation, and invoke it non-interactively.
 - [`wtf-is-going-on-mcp/`](./wtf-is-going-on-mcp/) — cross-machine agent record, messaging, and task dispatch.
 - [`../templates/egm-design.md`](../templates/egm-design.md) — optional written design artifact; no longer a required gate.

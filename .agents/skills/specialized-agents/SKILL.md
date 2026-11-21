@@ -20,7 +20,7 @@ hermes profile describe <name>         # one-line purpose — the discovery hook
 invisible to routing** — if you create one, describe it in the same breath:
 
 ```bash
-hermes profile describe <name> "one line: what it is expert at"
+hermes profile describe <name> --text "one line: what it is expert at"
 ```
 
 ## 2. Choose by task domain
