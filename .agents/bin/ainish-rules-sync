@@ -16,6 +16,7 @@ field() {
 SRC=$(field source_repo)
 DEPLOYED_COMMIT=$(field source_commit)
 DEPLOYED_SHA=$(field source_agents_sha256)
+DEPLOYED_PACK=$(field source_pack_sha256)
 [ -n "$SRC" ] || exit 0
 
 CUR_SHA=""
@@ -29,18 +30,38 @@ sha_of() {
     fi
 }
 
+# Digest of a directory tree, mirroring the source's pack digest. Used so a skill-pack
+# edit (not just an AGENTS.md edit) is still seen as a real change.
+sha_dir() {
+    [ -d "$1" ] || return 0
+    local tmp
+    tmp="$(mktemp "${TMPDIR:-/tmp}/ainish-pack.XXXXXX" 2>/dev/null)" || return 0
+    (cd "$1" 2>/dev/null && find . -type f | LC_ALL=C sort | while IFS= read -r f; do
+        printf '%s  %s\n' "$(sha_of "$f")" "$f"
+    done) > "$tmp" 2>/dev/null
+    sha_of "$tmp"
+    rm -f "$tmp"
+}
+
 CURRENT_COMMIT=""
 if command -v git >/dev/null 2>&1; then
     # git -C resolves both a normal checkout and a worktree (where .git is a file).
     CURRENT_COMMIT=$(git -C "$SRC" rev-parse HEAD 2>/dev/null || true)
 fi
 
+# Content, not commit SHA, decides staleness: a commit that did not change the deployed
+# bytes must not redeploy and re-sign the whole fleet. Commit equality is only a fallback
+# for manifests written before content hashes were recorded.
 UP_TO_DATE=0
-if [ -n "$CURRENT_COMMIT" ] && [ "$CURRENT_COMMIT" = "$DEPLOYED_COMMIT" ]; then
-    UP_TO_DATE=1
-elif [ -z "$CURRENT_COMMIT" ] && [ -f "$SRC/AGENTS.md" ]; then
+if [ -f "$SRC/AGENTS.md" ] && [ -n "$DEPLOYED_SHA" ]; then
     CUR_SHA=$(sha_of "$SRC/AGENTS.md")
-    [ -n "$CUR_SHA" ] && [ "$CUR_SHA" = "$DEPLOYED_SHA" ] && UP_TO_DATE=1
+    CUR_PACK=$(sha_dir "$SRC/skills-to-distribute/skills/pqc-secrets")
+    if [ -n "$CUR_SHA" ] && [ "$CUR_SHA" = "$DEPLOYED_SHA" ] && \
+       { [ -z "$DEPLOYED_PACK" ] || { [ -n "$CUR_PACK" ] && [ "$CUR_PACK" = "$DEPLOYED_PACK" ]; }; }; then
+        UP_TO_DATE=1
+    fi
+elif [ -n "$CURRENT_COMMIT" ] && [ "$CURRENT_COMMIT" = "$DEPLOYED_COMMIT" ]; then
+    UP_TO_DATE=1
 fi
 [ "$UP_TO_DATE" = "1" ] && exit 0
 
