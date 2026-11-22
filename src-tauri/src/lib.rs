@@ -7,9 +7,10 @@ use tauri::Manager;
 
 pub fn run() {
     let daemon = Arc::new(DaemonManager::new(11434));
-    let daemon_clone = Arc::clone(&daemon);
+    let daemon_for_setup = Arc::clone(&daemon);
+    let daemon_for_exit = Arc::clone(&daemon);
 
-    tauri::Builder::default()
+    let app = tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.show();
@@ -22,11 +23,13 @@ pub fn run() {
         ))
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_process::init())
+        .manage(Arc::clone(&daemon))
         .setup(move |app| {
             // 1. Ensure backend daemon is active on 11434
-            daemon_clone.ensure_started();
+            daemon_for_setup.ensure_started();
 
-            // 2. Setup native corner system tray icon
+            // 2. Setup native corner system tray icon (the single tray; no
+            //    config-level trayIcon block)
             tray::setup_tray(app.handle())?;
 
             // 3. Show and focus main application window
@@ -44,6 +47,15 @@ pub fn run() {
                 api.prevent_close();
             }
         })
-        .run(tauri::generate_context!())
-        .expect("error while running Local Router desktop application");
+        .build(tauri::generate_context!())
+        .expect("error while building Local Router desktop application");
+
+    app.run(move |_app_handle, event| {
+        // Quit paths (tray Quit item, Cmd+Q, logout) all land here. Only the
+        // daemon this app started is stopped; an externally started daemon
+        // keeps running.
+        if let tauri::RunEvent::Exit = event {
+            daemon_for_exit.stop();
+        }
+    });
 }

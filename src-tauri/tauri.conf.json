@@ -26,11 +26,6 @@
         "fullscreen": false
       }
     ],
-    "trayIcon": {
-      "iconPath": "icons/icon.png",
-      "iconAsTemplate": true,
-      "tooltip": "Local Router (127.0.0.1:11434)"
-    },
     "security": {
       "csp": null
     }
