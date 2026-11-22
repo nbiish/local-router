@@ -37,6 +37,8 @@
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build",
+    "desktop:build": "tauri build",
+    "desktop:install": "node scripts/install-desktop.mjs",
     "tauri:icons": "node scripts/generate-icons.mjs",
     "verify:usage": "node --test tests/usage-policy.test.mjs"
   },
