@@ -9,6 +9,7 @@ import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { WebSocket } from 'ws';
 
+import { scrubbedEnv } from './test-env.mjs';
 const port = String(19000 + Math.floor(Math.random() * 1000));
 const baseUrl = `http://127.0.0.1:${port}`;
 
@@ -114,7 +115,7 @@ async function waitForServerReady() {
 
 async function startProxyProcess() {
   const pEnv = {
-    ...process.env,
+    ...scrubbedEnv(),
     HOME: testHome,
     USERPROFILE: testHome,
     PORT: port,

@@ -9,6 +9,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 
+import { scrubbedEnv } from './test-env.mjs';
 const port = String(18000 + Math.floor(Math.random() * 1000));
 const baseUrl = `http://127.0.0.1:${port}`;
 
@@ -1196,7 +1197,7 @@ test('localrouter CLI lists models against running server', async (t) => {
 
   const cliPath = fileURLToPath(new URL('../bin/localrouter.js', import.meta.url));
   const cliEnv = {
-    ...process.env,
+    ...scrubbedEnv(),
     LOCAL_ROUTER_HOST: '127.0.0.1',
     LOCAL_ROUTER_PORT: port
   };

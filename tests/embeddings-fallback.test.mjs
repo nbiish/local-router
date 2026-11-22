@@ -9,6 +9,7 @@ import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { gzipSync } from 'node:zlib';
 
+import { scrubbedEnv } from './test-env.mjs';
 /**
  * Embeddings proxy regression coverage.
  *
@@ -95,7 +96,7 @@ async function withRouter(t, { providers, routes, env, embedding, registryProvid
   const child = spawn(process.execPath, ['build/index.js'], {
     cwd: process.cwd(),
     env: {
-      ...process.env,
+      ...scrubbedEnv(),
       HOME: home,
       USERPROFILE: home,
       PORT: port,

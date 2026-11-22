@@ -25,6 +25,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 
+import { scrubbedEnv } from './test-env.mjs';
 const port = String(19900 + Math.floor(Math.random() * 400));
 const baseUrl = `http://127.0.0.1:${port}`;
 
@@ -142,7 +143,7 @@ async function startFakeUpstream() {
 
 async function bootRouter() {
   testHome = mkdtempSync(join(tmpdir(), 'lr-anth-'));
-  const env = { ...process.env };
+  const env = { ...scrubbedEnv() };
   for (const key of Object.keys(env)) {
     if (/^[A-Z0-9_]+_API_KEY$/.test(key)) delete env[key];
   }

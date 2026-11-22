@@ -8,6 +8,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 
+import { scrubbedEnv } from './test-env.mjs';
 // pioneer → fastino (2026-11-12): legacy pioneer-* presented ids must resolve
 // to the fastino record with the right wire model, and a key the operator
 // saved under PIONEER_API_KEY must keep working after the rename.
@@ -81,7 +82,7 @@ test.before(async () => {
   serverProcess = spawn(process.execPath, ['build/index.js'], {
     cwd: process.cwd(),
     env: {
-      ...process.env,
+      ...scrubbedEnv(),
       HOME: testHome,
       USERPROFILE: testHome,
       PORT: port,

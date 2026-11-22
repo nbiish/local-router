@@ -8,6 +8,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 
+import { scrubbedEnv } from './test-env.mjs';
 // 2026-11-12: live model IDENTITY survives refresh — case/alias twins are
 // distinct upstream models and must not collapse into a registry baseline
 // (the bug that silently dropped wafer's DeepSeek-V4-Pro and
@@ -79,7 +80,7 @@ test.before(async () => {
   serverProcess = spawn(process.execPath, ['build/index.js'], {
     cwd: process.cwd(),
     env: {
-      ...process.env,
+      ...scrubbedEnv(),
       HOME: testHome,
       USERPROFILE: testHome,
       PORT: port,

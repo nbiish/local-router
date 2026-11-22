@@ -8,6 +8,7 @@ import { homedir, tmpdir, userInfo } from 'node:os';
 import { join, resolve } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 
+import { scrubbedEnv } from './test-env.mjs';
 // Where the chain config lives (2026-11-10).
 //
 // router-settings.json used to be `~/.config/local-router/router-settings.json`
@@ -52,7 +53,7 @@ function makeCheckout(dir) {
 
 /** Resolve the config location in a child process with exactly `env`. */
 function resolveLocationIn(env) {
-  const clean = { ...process.env };
+  const clean = { ...scrubbedEnv() };
   for (const key of Object.keys(clean)) {
     if (key.startsWith('LOCAL_ROUTER_') || key === 'HOME' || key === 'USERPROFILE') delete clean[key];
   }
@@ -75,7 +76,7 @@ async function startServer(env) {
   serverProcess = spawn(process.execPath, ['build/index.js'], {
     cwd: process.cwd(),
     env: {
-      ...process.env,
+      ...scrubbedEnv(),
       PORT: port,
       LOCAL_ROUTER_SKIP_PQC_LOAD: 'true',
       LOCAL_ROUTER_SKIP_OLLAMA_ENSURE: 'true',

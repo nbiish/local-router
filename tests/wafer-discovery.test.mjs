@@ -8,6 +8,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 
+import { scrubbedEnv } from './test-env.mjs';
 const { PROVIDER_MODEL_REGISTRY } = await import('../build/provider-model-registries.js');
 
 test('wafer-serverless registry contains DeepSeek-V4.1-Flash baseline', () => {
@@ -26,7 +27,7 @@ test('wafer-serverless live probe returns DeepSeek-V4.1-Flash via probe.mjs', as
     '--json'
   ], {
     cwd: process.cwd(),
-    env: { ...process.env, WAFER_SERVERLESS_API_KEY: 'test_wafer_persistence_key_123' }
+    env: { ...scrubbedEnv(), WAFER_SERVERLESS_API_KEY: 'test_wafer_persistence_key_123' }
   });
 
   let stdout = '';
@@ -95,7 +96,7 @@ test('router endpoint logic recovers from 401 on public pass catalogs and extrac
   const router = spawn(process.execPath, ['build/index.js'], {
     cwd: process.cwd(),
     env: {
-      ...process.env,
+      ...scrubbedEnv(),
       HOME: testHome,
       USERPROFILE: testHome,
       PORT: String(routerPort),

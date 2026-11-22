@@ -7,6 +7,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { setTimeout as delay } from 'node:timers/promises';
 
+import { scrubbedEnv } from './test-env.mjs';
 /**
  * Pinned decision models: `openrouter/jev-1.14` must be served whenever the
  * OpenRouter key is configured — no curation toggle, catalog edit, or shadowing
@@ -62,7 +63,7 @@ function seedHome(home, options = {}) {
 
 function baseEnv(home, port) {
   const env = {
-    ...process.env,
+    ...scrubbedEnv(),
     PORT: port,
     HOME: home,
     USERPROFILE: home,

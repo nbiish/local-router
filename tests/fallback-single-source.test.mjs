@@ -7,6 +7,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 
+import { scrubbedEnv } from './test-env.mjs';
 // router-settings.json is the SINGLE SOURCE for fallback chains:
 //  1. Boot precedence — it is authoritative over the derived
 //     fallback-models.json cache (that drift is what previously wiped the
@@ -33,7 +34,7 @@ async function startServer() {
   serverProcess = spawn(process.execPath, ['build/index.js'], {
     cwd: process.cwd(),
     env: {
-      ...process.env,
+      ...scrubbedEnv(),
       HOME: testHome,
       USERPROFILE: testHome,
       PORT: port,

@@ -8,6 +8,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 
+import { scrubbedEnv } from './test-env.mjs';
 // End-to-end contract for the Agents page system:
 //   PUT /api/agents-proxy  → env.sh + ~/.codex provider/profile wiring
 //   GET /api/agents-proxy/status → readiness for both harnesses
@@ -98,7 +99,7 @@ async function startFakeUpstream() {
 async function startProxyProcess() {
   serverProcess = spawn('node', ['build/index.js'], {
     env: {
-      ...process.env,
+      ...scrubbedEnv(),
       HOME: testHome,
       USERPROFILE: testHome,
       PORT: port,

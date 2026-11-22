@@ -8,6 +8,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 
+import { scrubbedEnv } from './test-env.mjs';
 // Codex CLI speaks the Responses API exclusively (0.135+ dropped wire_api=chat).
 // Every case here is a defect that made a real `codex exec` turn hang or loop
 // against the shim: flat tool declarations, typed turn items, tool calls in the
@@ -84,7 +85,7 @@ async function startFakeUpstream() {
 async function startProxy() {
   serverProcess = spawn('node', ['build/index.js'], {
     env: {
-      ...process.env,
+      ...scrubbedEnv(),
       HOME: testHome,
       USERPROFILE: testHome,
       PORT: port,

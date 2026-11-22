@@ -7,6 +7,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 
+import { scrubbedEnv } from './test-env.mjs';
 /**
  * `/api/routing/availability` backs the readiness badges on the Fallback Routes page, so a wrong
  * answer is worse than no answer: an operator reads "Unavailable" on a route that works and either
@@ -33,7 +34,7 @@ async function boot(t, { routes, env }) {
   const child = spawn(process.execPath, ['build/index.js'], {
     cwd: process.cwd(),
     env: {
-      ...process.env, HOME: home, USERPROFILE: home, PORT: port,
+      ...scrubbedEnv(), HOME: home, USERPROFILE: home, PORT: port,
       LOCAL_ROUTER_SKIP_PQC_LOAD: 'true', LOCAL_ROUTER_SKIP_OLLAMA_ENSURE: 'true', LOCAL_ROUTER_DEV: 'true',
       ...env
     },

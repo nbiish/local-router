@@ -7,6 +7,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 
+import { scrubbedEnv } from './test-env.mjs';
 const { decisionProvider, decisionModelFor, decisionWireModelFor } = await import('../build/decisions/catalog.js');
 
 /**
@@ -26,7 +27,7 @@ async function boot(t, env) {
   const child = spawn(process.execPath, ['build/index.js'], {
     cwd: process.cwd(),
     env: {
-      ...process.env, HOME: home, USERPROFILE: home, PORT: port,
+      ...scrubbedEnv(), HOME: home, USERPROFILE: home, PORT: port,
       LOCAL_ROUTER_SKIP_PQC_LOAD: 'true', LOCAL_ROUTER_SKIP_OLLAMA_ENSURE: 'true', LOCAL_ROUTER_DEV: 'true',
       ...env
     },

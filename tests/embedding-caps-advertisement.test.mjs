@@ -8,6 +8,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 
+import { scrubbedEnv } from './test-env.mjs';
 /**
  * Capability advertisement contract.
  *
@@ -108,7 +109,7 @@ async function bootRouterFromHome(t, { home, providerName, upstreams }) {
   const child = spawn(process.execPath, ['build/index.js'], {
     cwd: process.cwd(),
     env: {
-      ...process.env,
+      ...scrubbedEnv(),
       HOME: home,
       USERPROFILE: home,
       PORT: port,

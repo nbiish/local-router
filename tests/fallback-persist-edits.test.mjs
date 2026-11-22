@@ -7,6 +7,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 
+import { scrubbedEnv } from './test-env.mjs';
 const port = String(28000 + Math.floor(Math.random() * 500));
 const baseUrl = `http://127.0.0.1:${port}`;
 
@@ -18,7 +19,7 @@ function spawnServer(extraEnv = {}) {
   const child = spawn(process.execPath, ['build/index.js'], {
     cwd: process.cwd(),
     env: {
-      ...process.env,
+      ...scrubbedEnv(),
       HOME: testHome,
       USERPROFILE: testHome,
       PORT: port,

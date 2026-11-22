@@ -7,6 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 
+import { scrubbedEnv } from './test-env.mjs';
 // Boot-time regression for the metadata pipeline:
 //   1. a live-discovered model must survive registry seeding (it used to be
 //      dropped because seeding replaced the provider's cache section);
@@ -76,7 +77,7 @@ test.before(async () => {
 
   serverProcess = spawn('node', ['build/index.js'], {
     env: {
-      ...process.env,
+      ...scrubbedEnv(),
       HOME: testHome,
       USERPROFILE: testHome,
       PORT: port,

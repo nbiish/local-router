@@ -9,6 +9,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { createHash } from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
 
+import { scrubbedEnv } from './test-env.mjs';
 // Regression coverage for the "logout does nothing" bug: deleting the stored
 // OAuth credential used to be instantly undone by host-session re-detection
 // (the Cursor IDE state DB is re-read by getOAuthState's fallback), so the UI
@@ -68,7 +69,7 @@ async function startServer(extraEnv = {}) {
   serverProcess = spawn(process.execPath, ['build/index.js'], {
     cwd: process.cwd(),
     env: {
-      ...process.env,
+      ...scrubbedEnv(),
       HOME: testHome,
       USERPROFILE: testHome,
       APPDATA: join(testHome, 'AppData', 'Roaming'),

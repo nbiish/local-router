@@ -8,6 +8,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { setTimeout as delay } from 'node:timers/promises';
 
+import { scrubbedEnv } from './test-env.mjs';
 /**
  * `scripts/verify-decisions.mjs` is the one-command proof the decisions
  * transport is alive. This test runs it against a real router on a temp home
@@ -147,7 +148,7 @@ test.before(async () => {
   await startUpstreams();
 
   const env = {
-    ...process.env,
+    ...scrubbedEnv(),
     PORT: port,
     HOME: testHome,
     USERPROFILE: testHome,
@@ -176,7 +177,7 @@ test.before(async () => {
   // skip dependent checks instead of crashing on an undefined pinned set.
   keylessHome = mkdtempSync(join(tmpdir(), 'lr-verify-keyless-'));
   const keylessEnv = {
-    ...process.env,
+    ...scrubbedEnv(),
     PORT: keylessPort,
     HOME: keylessHome,
     USERPROFILE: keylessHome,

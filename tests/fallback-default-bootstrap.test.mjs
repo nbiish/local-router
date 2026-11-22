@@ -7,6 +7,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 
+import { scrubbedEnv } from './test-env.mjs';
 // 2026-08-24 empty-by-default: chains are NOT seeded at boot; users author
 // their own (config UI) or declare them via LOCAL_ROUTER_ROUTES_CONFIG /
 // `local-router start --config <file>`. This file covers the empty boot, the
@@ -65,7 +66,7 @@ function spawnServer(extraEnv) {
   const child = spawn(process.execPath, ['build/index.js'], {
     cwd: process.cwd(),
     env: {
-      ...process.env,
+      ...scrubbedEnv(),
       HOME: testHome,
       USERPROFILE: testHome,
       PORT: port,
@@ -227,7 +228,7 @@ test('missing config file fails closed (non-zero boot exit)', async () => {
   const child = spawn(process.execPath, ['build/index.js'], {
     cwd: process.cwd(),
     env: {
-      ...process.env,
+      ...scrubbedEnv(),
       HOME: testHome,
       USERPROFILE: testHome,
       PORT: String(Number(port) + 7),

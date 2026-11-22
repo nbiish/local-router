@@ -8,6 +8,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 
+import { scrubbedEnv } from './test-env.mjs';
 /**
  * Purpose-scoped fallback routes: `fallback-embedding` and `fallback-decision`.
  *
@@ -90,7 +91,7 @@ async function bootRouter(t, { routes, providers, env, embeddingFor, routesConfi
   const child = spawn(process.execPath, ['build/index.js'], {
     cwd: process.cwd(),
     env: {
-      ...process.env, HOME: home, USERPROFILE: home, PORT: port,
+      ...scrubbedEnv(), HOME: home, USERPROFILE: home, PORT: port,
       LOCAL_ROUTER_SKIP_PQC_LOAD: 'true', LOCAL_ROUTER_SKIP_OLLAMA_ENSURE: 'true', LOCAL_ROUTER_DEV: 'true',
       ...(routesConfigPath ? { LOCAL_ROUTER_ROUTES_CONFIG: routesConfigPath } : {}),
       ...env

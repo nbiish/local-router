@@ -8,6 +8,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 
+import { scrubbedEnv } from './test-env.mjs';
 // Federated hide-toggles (2026-11-12, plan T4): the curated serve-list travels
 // in router-settings.json beside the chain — a toggle write must preserve the
 // chain (the 2026-11-10 bulk-write hazard) — and refreshed discoveries land
@@ -96,7 +97,7 @@ test.before(async () => {
   serverProcess = spawn(process.execPath, ['build/index.js'], {
     cwd: process.cwd(),
     env: {
-      ...process.env,
+      ...scrubbedEnv(),
       HOME: testHome,
       USERPROFILE: testHome,
       PORT: port,
