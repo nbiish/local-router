@@ -21,12 +21,12 @@ ainish-coder --context "<user request, verbatim, or this step's concrete context
 ```
 
 Pass the request verbatim, or mid-task the concrete step. The block holds the rules you are bound by and
-the relevant record. Read `.agents/` directly: `tasks/` (in flight), `plans/` (plan of record), `comms/`
-(daily ledger), `memories/` (durable facts), `suggestions/` (findings awaiting work), `jobs/` (recurring
-automation), `wiki/` (architecture); `.agents/llms.txt` maps the tree.
+the relevant record. Read `.agents/` directly: `tasks/` for work in flight, `plans/` for the plan of
+record, `comms/` for the daily ledger, `memories/` for durable facts, `suggestions/` for findings awaiting
+work, `jobs/` for recurring automation, and `wiki/` for architecture; `.agents/llms.txt` maps the tree.
 
-**This one command is the whole context system.** Never call a second priming command; it consolidates old records into dated
-digests and tunes retrieval in the background. Do not pre-summarise a record — write it and consolidation keeps it.
+**This one command is the whole context system.** Never call a second command to prime yourself; it consolidates old records into
+dated digests and tunes retrieval in the background. Do not pre-summarise a record — write it and consolidation keeps it.
 **The reviewer must not be the drafter.** A pinned reviewer colliding with the drafter is *refused*,
 not run; a same-model reviewer in a fresh `--no-session` context runs with its verdict marked
 **provisional** (shared weights, shared blind spots). `--allow-self-review` records that downgrade.
@@ -95,9 +95,8 @@ touches credentials or production gets an explicit human decision in the loop.
 host; a secret would have to leave the vault; a destructive path resolves outside the worktree;
 verification disagrees with the report; or the task would require weakening a gate to complete.
 
-**State this in your report:** what you changed, with the exact command or read-back that proves it
-took effect; which gates you ran and their real result, including pre-existing failures and their
-baseline; what you deliberately did not do, and why; and the failure you would expect first if this is wrong.
+**State this in your report:** what you changed, with the exact command or read-back that proves it took effect; which gates you ran and their real result, including pre-existing failures and their baseline;
+what you deliberately did not do, and why; and the failure you would expect first if this is wrong.
 
 ## Destructive commands
 
