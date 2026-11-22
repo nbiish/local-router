@@ -5,7 +5,7 @@ date: 2026-11-20
 status: done
 branch: fix/unattended-durability
 worktree: /Volumes/1tb-sandisk/code-external/local-router-worktrees/fix-unattended
-task_record: .agents/tasks/2026-11-20-23-unattended-durability.md
+task_record: .agents/tasks/TASK.2026-11-20-23-unattended-durability.md
 operator: question-me
 ---
 

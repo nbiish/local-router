@@ -20,6 +20,9 @@ Every skill must define a bounded procedure, explicit stop conditions, verificat
 ## Child DOX index
 
 - [`ainish-security/`](./ainish-security/) — the single security contract: code, AI/agentic, secrets, PQC, supply chain, governance. Mandatory.
+- [`aiRPC/`](./aiRPC/) — ai robotic process automation over an interactive tldraw canvas: project
+  the `.agents/` record as blocks, receive per-block Enter calls, edit the record, and wait for the
+  user's next response.
 - [`pqc-secrets/`](./pqc-secrets/) — secret operations and ML-DSA-65 signing. Mandatory.
 - [`typesafe-jev/`](./typesafe-jev/) — typed decision contract.
 - [`specialized-agents/`](./specialized-agents/) — check the `hermes` CLI for the most relevant

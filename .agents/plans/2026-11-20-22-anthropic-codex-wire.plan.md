@@ -5,7 +5,7 @@ date: 2026-11-20
 status: done
 branch: fix/agent-wire
 worktree: /Volumes/1tb-sandisk/code-external/local-router-worktrees/fix-agent-wire
-task_record: .agents/tasks/2026-11-20-22-anthropic-codex-wire.md
+task_record: .agents/tasks/TASK.2026-11-20-22-anthropic-codex-wire.md
 operator: question-me
 ---
 

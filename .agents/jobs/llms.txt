@@ -1,0 +1,56 @@
+# `.agents/jobs/` — recurring agentic automation, as data
+
+A **job** is a repeating piece of agent work: something that should happen on a cadence, through a
+named harness, with a profile and a prompt that are already decided. This folder is where those
+decisions are written down so they are reviewable, distributable, and not lost in a shell history or an
+operator's memory.
+
+## What a job is not
+
+It is **not executable**. Nothing in this folder is sourced, run, or imported by any tool. A job record
+is read by a human or an agent and acted on deliberately. That is a security property, not an
+inconvenience: a folder that agents can author and tooling then executes is a write primitive, and the
+contract's first rule about external text applies to a job prompt as much as to a web page.
+
+## The record
+
+One file per job, `<name>.md`, with frontmatter:
+
+```
+---
+name:        kebab-case, matches the filename
+status:      active | paused | retired
+harness:     which agent CLI runs it (hermes, codex, claude, cursor, ...)
+profile:     the harness profile or role, if the harness has them
+cadence:     cron expression, or an interval like `6h`, or `manual`
+prompt:      a one-line summary; the full prompt lives in the body
+tooling:     commands, scripts, or MCP servers the job invokes
+purpose:     one sentence: what this exists to make true
+owner:       who to ask before changing it
+---
+```
+
+The body holds the full prompt and the notes a next operator needs: what it does, how to run it by
+hand, what it has gotten wrong before, and what to check when it fails.
+
+## The three that exist
+
+| Job | What it makes true |
+|---|---|
+| [`sync-fleet`](./sync-fleet.md) | every linked repository reaches every peer without a human typing a command |
+| [`consolidate-record`](./consolidate-record.md) | the coordination folders stay small and reviewable without losing what they recorded |
+| [`learn-harness`](./learn-harness.md) | the context engine's own retrieval tuning improves from this repository's history |
+
+## Adding a job
+
+1. Copy [`_template.md`](./_template.md).
+2. Fill the frontmatter — `purpose` and `owner` are not optional. A job whose purpose cannot be stated
+   in one sentence is probably two jobs, or not worth running.
+3. Write the body so someone who has never seen the job can run it by hand and tell whether it worked.
+4. Add it to this index.
+
+## Why this folder is deployed by `--rules`
+
+A target repository that receives the contract also receives the habit of writing down what recurs. The
+records ship with the rules; the harness and profile they name are the target's own choice, which is why
+`harness` and `profile` are data rather than assumed.
