@@ -24,6 +24,7 @@ fn build_menu(app: &AppHandle<Wry>, running: bool) -> tauri::Result<Menu<Wry>> {
     let fallback_i = MenuItem::with_id(app, "fallback", "Fallback Routes", true, None::<&str>)?;
     let thinking_i = MenuItem::with_id(app, "thinking", "Prompt & Thinking", true, None::<&str>)?;
     let logs_i = MenuItem::with_id(app, "logs", "Expert Logs", true, None::<&str>)?;
+    let support_i = MenuItem::with_id(app, "support", "♥ Support Local Router", true, None::<&str>)?;
     let separator1 = PredefinedMenuItem::separator(app)?;
     let restart_i = MenuItem::with_id(app, "restart", "Restart Server", true, None::<&str>)?;
     let separator2 = PredefinedMenuItem::separator(app)?;
@@ -38,6 +39,7 @@ fn build_menu(app: &AppHandle<Wry>, running: bool) -> tauri::Result<Menu<Wry>> {
             &fallback_i,
             &thinking_i,
             &logs_i,
+            &support_i,
             &separator1,
             &restart_i,
             &separator2,
@@ -101,6 +103,12 @@ fn handle_menu_event(app: &AppHandle<Wry>, id: &str) {
         }
         "logs" => {
             let _ = open::that("http://127.0.0.1:11434/api/logs");
+        }
+        "support" => {
+            // Donations open in the system browser (works even if the webview
+            // window is on another page). Ko-fi is live today; the card flow
+            // activates once STRIPE_SECRET_KEY is set on the Pages project.
+            let _ = open::that("https://local-router.com/donate");
         }
         "restart" => {
             println!("[tray] Restart requested from tray context menu.");
