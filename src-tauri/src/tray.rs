@@ -17,7 +17,7 @@ fn status_text(running: bool) -> String {
     }
 }
 
-fn build_menu(app: &AppHandle<Wry>, running: bool) -> tauri::Result<Menu<Wry>> {
+fn build_menu(app: &AppHandle<Wry>, running: bool, update_label: &str) -> tauri::Result<Menu<Wry>> {
     let status_i = MenuItem::with_id(app, "status", status_text(running), false, None::<&str>)?;
     let dashboard_i = MenuItem::with_id(app, "dashboard", "Open Dashboard", true, None::<&str>)?;
     let providers_i = MenuItem::with_id(app, "providers", "Providers & Keys", true, None::<&str>)?;
@@ -25,6 +25,7 @@ fn build_menu(app: &AppHandle<Wry>, running: bool) -> tauri::Result<Menu<Wry>> {
     let thinking_i = MenuItem::with_id(app, "thinking", "Prompt & Thinking", true, None::<&str>)?;
     let logs_i = MenuItem::with_id(app, "logs", "Expert Logs", true, None::<&str>)?;
     let support_i = MenuItem::with_id(app, "support", "♥ Support Local Router", true, None::<&str>)?;
+    let updates_i = MenuItem::with_id(app, "updates", update_label, true, None::<&str>)?;
     let separator1 = PredefinedMenuItem::separator(app)?;
     let restart_i = MenuItem::with_id(app, "restart", "Restart Server", true, None::<&str>)?;
     let separator2 = PredefinedMenuItem::separator(app)?;
@@ -40,6 +41,7 @@ fn build_menu(app: &AppHandle<Wry>, running: bool) -> tauri::Result<Menu<Wry>> {
             &thinking_i,
             &logs_i,
             &support_i,
+            &updates_i,
             &separator1,
             &restart_i,
             &separator2,
@@ -50,7 +52,7 @@ fn build_menu(app: &AppHandle<Wry>, running: bool) -> tauri::Result<Menu<Wry>> {
 }
 
 pub fn setup_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
-    let menu = build_menu(app, true)?;
+    let menu = build_menu(app, true, "Check for Updates")?;
 
     let mut builder = TrayIconBuilder::with_id(TRAY_ID)
         .menu(&menu)
@@ -110,6 +112,21 @@ fn handle_menu_event(app: &AppHandle<Wry>, id: &str) {
             // activates once STRIPE_SECRET_KEY is set on the Pages project.
             let _ = open::that("https://local-router.com/donate");
         }
+        "updates" => {
+            let has_pending = {
+                let state = app.state::<crate::updater::SharedUpdateState>();
+                let s = state.inner().lock().unwrap();
+                s.pending.is_some()
+            };
+            let app = app.clone();
+            std::thread::spawn(move || {
+                if has_pending {
+                    crate::updater::run_install(&app);
+                } else {
+                    crate::updater::run_check(&app);
+                }
+            });
+        }
         "restart" => {
             println!("[tray] Restart requested from tray context menu.");
             let app = app.clone();
@@ -135,8 +152,13 @@ fn restart_daemon_and_refresh(app: &AppHandle<Wry>) {
     let running = state.is_running();
     let app_in_closure = app.clone();
     if let Err(e) = app.run_on_main_thread(move || {
+        let update_label = {
+            let state = app_in_closure.state::<crate::updater::SharedUpdateState>();
+            let s = state.inner().lock().unwrap();
+            s.label.clone()
+        };
         if let Some(tray) = app_in_closure.tray_by_id(TRAY_ID) {
-            match build_menu(&app_in_closure, running) {
+            match build_menu(&app_in_closure, running, &update_label) {
                 Ok(menu) => {
                     if let Err(e) = tray.set_menu(Some(menu)) {
                         eprintln!("[tray] Failed to refresh tray menu: {}", e);
@@ -161,4 +183,25 @@ fn open_or_show_window(app: &AppHandle<Wry>, url: &str) {
     } else {
         let _ = open::that(url);
     }
+}
+
+/// Rebuild the tray menu from current daemon + updater state. Safe to call from
+/// any thread: the actual swap runs on the main thread.
+pub fn refresh_menu(app: &AppHandle<Wry>) {
+    let app_in_closure = app.clone();
+    let _ = app.run_on_main_thread(move || {
+        let update_label = {
+            let state = app_in_closure.state::<crate::updater::SharedUpdateState>();
+            let s = state.inner().lock().unwrap();
+            s.label.clone()
+        };
+        let running = app_in_closure
+            .state::<Arc<crate::daemon::DaemonManager>>()
+            .is_running();
+        if let Some(tray) = app_in_closure.tray_by_id(TRAY_ID) {
+            if let Ok(menu) = build_menu(&app_in_closure, running, &update_label) {
+                let _ = tray.set_menu(Some(menu));
+            }
+        }
+    });
 }
