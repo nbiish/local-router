@@ -83,10 +83,14 @@ function installMacOS() {
   const installTarget = path.join(applicationsDir, `${APP_NAME}.app`);
   const desktopLink = path.join(homeDir, "Desktop", `${APP_NAME}.app`);
 
-  if (!DRY_RUN && !fs.existsSync(BUNDLE_APP)) {
+  const bundleExists = fs.existsSync(BUNDLE_APP);
+  if (!DRY_RUN && !bundleExists) {
     fail(`release bundle not found at ${BUNDLE_APP} — run without --skip-build first.`);
   }
-  console.log(`${DRY_RUN ? "[dry-run] " : ""}✓ Bundle source: ${BUNDLE_APP}`);
+  console.log(
+    `${DRY_RUN ? "[dry-run] " : ""}${bundleExists ? "✓" : "⚠"} Bundle source: ${BUNDLE_APP}` +
+    (bundleExists ? "" : " (not built yet — run without --skip-build)")
+  );
 
   // 1. Install (owner-marker protected) into ~/Applications
   const targetExists = fs.existsSync(installTarget);
