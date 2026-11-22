@@ -7,6 +7,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { setTimeout as delay } from 'node:timers/promises';
+import { scrubbedEnv } from './test-env.mjs';
 
 const worktreeRoot = fileURLToPath(new URL('..', import.meta.url));
 
@@ -176,8 +177,12 @@ test.before(async () => {
   await startOpenrouterUpstream();
   await startZenmuxUpstream();
 
+  // Scrubbed: a developer shell may carry the operator's real provider keys
+  // (pqc-secrets export / env.sh), and the router prefers a real key over the
+  // dummy below — which both fails the assertions and hands a live credential to
+  // the mock upstream. See tests/test-env.mjs.
   const env = {
-    ...process.env,
+    ...scrubbedEnv(),
     PORT: port,
     HOME: testHome,
     USERPROFILE: testHome,
