@@ -219,3 +219,18 @@ Expected: `Verify PASSED` with non-zero `catalog-custom` and `fallback-routes`.
 Both CLIs report the same version as `package.json` (`1.1.0`), read at runtime
 so they cannot drift.
 
+### 7.7 Desktop App & Tray Icon
+
+`npm run desktop:install` builds the Tauri release bundle and installs
+`~/Applications/Local Router.app` plus a `~/Desktop/Local Router.app` symlink
+(on Windows: Desktop and Start Menu `.lnk` shortcuts). Flags: `--dry-run`
+(preview), `--skip-build` (reuse an existing build). An existing
+`~/Applications/Local Router.app` is only replaced when it carries our
+`.local-router-owner` marker — a foreign app is never touched.
+
+The running desktop app shows one full-color tray icon. Left-click opens the
+dashboard; the context menu offers deep links, **Restart Server** (CLI
+`stop`+`start`, works even for a daemon started outside the app), and **Quit
+Local Router** (stops only a daemon the app itself started, then exits). The
+app resolves the server absolutely — repo root walked up from the executable,
+then the PATH `local-router` shim — so launching from Finder (`/` cwd) works.

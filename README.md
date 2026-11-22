@@ -133,9 +133,12 @@ Local Router can be run either as a **standalone desktop application** or as a *
 1. **Native Desktop Application (Tauri v2 / Rust)**:
    - Full GUI window opening automatically on launch for managing providers, models, fallback chains, prompt/thinking injection, and token telemetry.
    - Corner system tray controls (bottom-right notification area on Windows, top-right menu bar extra on macOS, AppIndicator on Linux).
+   - A single full-color tray icon (no duplicates): left-click opens the dashboard; the context menu carries the status line, Open Dashboard, Providers & Keys, Fallback Routes, Prompt & Thinking, Expert Logs, Restart Server, and Quit Local Router.
+   - **Restart Server** actually restarts the router daemon (CLI `stop` + `start`, so it also restarts a daemon started outside the app) and refreshes the status line. **Quit Local Router** stops the daemon this app started — a daemon started from a terminal keeps running — and exits the app.
    - Closing the window minimizes to the tray to keep local proxy routing alive for all terminal agents and IDE extensions.
    - Run in desktop mode: `npm run tauri:dev`
    - Build native release installers (`.msi`, `.exe`, `.dmg`, `.app`, `.AppImage`, `.deb`): `npm run tauri:build`
+   - Install a desktop launcher: `npm run desktop:install` (add `--dry-run` to preview, `--skip-build` to reuse an existing release build). On macOS it installs `~/Applications/Local Router.app` (owner-marker protected, ad-hoc codesigned, atomic swap) and symlinks it onto `~/Desktop`; on Windows it creates Desktop and Start Menu shortcuts pointing at the release exe with the branded icon.
 
 2. **Web Browser Management**:
    - Access `http://127.0.0.1:11434/config` in any web browser (Chrome, Safari, Firefox, Edge).
