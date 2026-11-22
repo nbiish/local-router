@@ -39,7 +39,13 @@ session: 114 of 3733 recorded stages (3.1%), affecting 7 requests with ≥3 occu
 by reasoning models given a very small `max_tokens` — they spend the budget thinking and return
 empty content, so the chain walks several passes before a non-reasoning member answers. Real agent
 turns use a large budget and are unaffected (a realistic alias request answered first-step in 2.7s).
-Worth folding into T4 as a sizing consideration, not as a blocker.
+Evidence refined later the same day, over 996 recorded requests: only **16** contained any
+`empty_completion` stage, and **15 of those 16 still returned 200**. The single failure was a
+deliberate tiny-`max_tokens` probe. By client, the occurrences are `curl` 112, `chain-probe` 40,
+`tinycap` 14, `bigctx` 2, and `claude` 1 — and that one Claude request succeeded in 4 stages
+(answered by kilo) after the starved member returned empty. So `empty_completion` is behaving as
+designed: it routes past a starved model and the request still completes. This is a sizing
+consideration for T4, NOT a blocker and not evidence of chain fragility.
 
 ## Todos
 

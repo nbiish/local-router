@@ -1,0 +1,39 @@
+Modal — two providers, two credential schemes
+Last verified: 2026-11-22
+
+Providers
+  `modal`        https://inference.us-west.modal.direct/v1
+                 canonical key LOCALROUTER_MODAL_API_KEY
+                 Expects an `ak-/as-` API token. This is the credential that WORKS.
+  `modal-proxy`  https://nbiish--ep-deepseek-v4-1-flash-1017-server.us-west.modal.direct/v1
+                 canonical key LOCALROUTER_MODAL_PROXY_API_KEY
+                 Also accepts MODAL_PROXY_TOKEN_ID + MODAL_PROXY_TOKEN_SECRET joined as `ID.SECRET`.
+
+Observed state (measured from the trajectory log, not assumed)
+  modal        answered 2, failed 10 — every failure is `empty_completion` with HTTP 200.
+               A 200 means authentication SUCCEEDED; the model simply returned no content.
+               So the `modal` credential is valid.
+  modal-proxy  answered 0, failed 1 — `upstream_http_auth` HTTP 401
+               "Webhook token not found: wk-...". The stored credential is a `wk-` webhook
+               token, which this endpoint rejects.
+
+The precedence trap
+  `src/providers/modal-proxy.ts` resolves, in order:
+    MODAL_PROXY_TOKEN_ID + MODAL_PROXY_TOKEN_SECRET  (joined `ID.SECRET`)
+    MODAL_PROXY_API_KEY
+    LOCALROUTER_MODAL_PROXY_API_KEY
+  So a stale token PAIR silently shadows a valid single key. Both are present in the bundle
+  today and both 401, so the pair is simply dead — but the ordering means replacing only the
+  single key would change nothing until the pair is removed.
+
+What to do on a machine that needs modal-proxy
+  1. Delete MODAL_PROXY_TOKEN_ID and MODAL_PROXY_TOKEN_SECRET (they are dead `wk-` webhooks and
+     `pqc:doctor` reports both as unmapped), OR
+  2. Replace both with a current `wk-`/`ws-` pair that this endpoint accepts.
+  Until then, prefer the `modal` provider: its key is valid and its only failures are
+  empty-completion, which is a max_tokens sizing issue, not an auth one.
+
+Why this matters for the chain
+  A 401 from a dead credential is an IMMEDIATE_QUARANTINE_CLASS failure, so modal-proxy parks
+  itself for the auth cooldown and its chain step is dead weight. The `modal` step carries real
+  traffic. Do not treat a modal-proxy 401 as evidence the provider is down.
