@@ -239,3 +239,6 @@ src/**/*.d.ts.map
 src/**/*.js
 src/**/*.js.map
 
+
+# test-env.mjs is a credential SANITIZER (scrubs keys from test servers), not an env file
+!tests/test-env.mjs
