@@ -1,5 +1,6 @@
 mod daemon;
 mod tray;
+mod updater;
 
 use daemon::DaemonManager;
 use std::sync::Arc;
@@ -23,7 +24,9 @@ pub fn run() {
         ))
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(Arc::clone(&daemon))
+        .manage(updater::default_state())
         .setup(move |app| {
             // 1. Ensure backend daemon is active on 11434
             daemon_for_setup.ensure_started();
@@ -32,7 +35,11 @@ pub fn run() {
             //    config-level trayIcon block)
             tray::setup_tray(app.handle())?;
 
-            // 3. Show and focus main application window
+            // 3. Probe the update endpoint in the background so the tray can
+            //    surface a newer remote release without blocking launch.
+            updater::background_check(app.handle());
+
+            // 4. Show and focus main application window
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.show();
                 let _ = window.set_focus();

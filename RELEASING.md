@@ -95,3 +95,42 @@ decision. See `.agents/tasks/TASK.2026-08-30.v1.1.0-release-and-pqc-docs.md`.
 
 Draft → review assets (exe, msi, dmg, AppImage, deb, rpm all present) → hit
 **Publish release** on GitHub. Then announce/change-log as needed.
+
+## 6. Self-update manifest (desktop app auto-update)
+
+The desktop app checks `https://local-router.com/updates/latest.json` on startup
+(20s delay) and via the tray **Check for Updates** item. Updates are
+minisign-verified against the public key embedded in `src-tauri/tauri.conf.json`
+(`plugins.updater.pubkey`) — unsigned or tampered updates are rejected.
+
+Release steps (after step 5):
+
+1. **Sign the artifacts** — `tauri build` emits `.sig` files next to the
+   updater artifacts when the signing key is available:
+   ```sh
+   export TAURI_SIGNING_PRIVATE_KEY_PATH="$HOME/.config/local-router/tauri-updater.key"
+   export TAURI_SIGNING_PRIVATE_KEY_PASSWORD=""   # key has no passphrase
+   npm run tauri:build
+   ```
+   The private key is operator-owned (`~/.config/local-router/tauri-updater.key`,
+   mode 600). It must be moved into the pqc-secrets vault and injected at build
+   time; never commit it, never paste it into chat. If the key is ever lost,
+   updates must ship with a new keypair (bump `pubkey`, document it).
+
+2. **Build the manifest**:
+   ```sh
+   node scripts/make-update-manifest.mjs \
+     --version 1.2.0 --notes "<changelog>" \
+     --platform darwin-aarch64=<github-release-url-of-.app.tar.gz>=<path-to-.sig> \
+     --platform windows-x86_64=<url-of-.nsis.zip>=<sig> \
+     --out latest.json
+   ```
+
+3. **Publish the manifest** — copy `latest.json` into the
+   `local-router-dot-com` repo at `public/updates/latest.json` and deploy
+   (`npx wrangler pages deploy public --project-name local-router-dot-com`).
+   Upload the signed artifacts to the GitHub release (step 5).
+
+4. **Verify** — launch the previous version's app; the tray item should flip to
+   "⬆ Install v<new> Update" within ~20s; click it; the app restarts on the new
+   version (window title / `--version` reflects the bump).
