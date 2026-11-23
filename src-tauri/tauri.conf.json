@@ -16,6 +16,7 @@
         "title": "Local Router — AI Model Gateway",
         "label": "main",
         "url": "http://127.0.0.1:11434/config",
+        "dragDropEnabled": false,
         "width": 1200,
         "height": 820,
         "minWidth": 900,

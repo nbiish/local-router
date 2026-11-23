@@ -79,6 +79,7 @@ import {
   cryptoRandomId,
   formatResponsesSseEvent
 } from './responses-stream';
+import { attachSseKeepalive, markNonTerminal } from './sse-keepalive';
 import { ensureOllamaBackend, probeOllamaBackend, pullOllamaCloudModels } from './ollama-backend';
 import {
   filterOllamaCloudPullTags,
@@ -8144,6 +8145,15 @@ async function sendSuccessfulProxyResponse(
     }
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
+    res.setHeader('X-Accel-Buffering', 'no');
+    if (!outputFormat.startsWith('ollama')) {
+      // SSE idle keepalive: comment lines injected during upstream silence keep
+      // idle-timeout proxies (Cloudflare ~100 s read timeout on the HTTPS bridge)
+      // from killing the stream during tool-run / silent-reasoning pauses.
+      // NDJSON (ollama wire) outputs are exempt — a `: ping` line would break
+      // JSON-per-line parsers.
+      attachSseKeepalive(res);
+    }
 
     if (fetchResponse.body) {
       // @ts-ignore
@@ -9802,6 +9812,11 @@ app.post(['/v1/messages', '/messages'], async (req: Request, res: Response) => {
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
+    res.setHeader('X-Accel-Buffering', 'no');
+    // SSE idle keepalive on the real client socket (see src/sse-keepalive.ts):
+    // the Anthropic wire's long silent pauses (tool runs, reasoning) must keep
+    // bytes moving through the HTTPS bridge or the tunnel kills the stream.
+    attachSseKeepalive(res);
 
     let messageStarted = false;
     let messageDeltaSent = false;
@@ -10107,6 +10122,9 @@ app.post(['/v1/messages', '/messages'], async (req: Request, res: Response) => {
       }
     }) as any;
     fakeRes.statusCode = 200;
+    // Translator fake: bytes written here feed the OpenAI→Anthropic translator,
+    // not the client socket. Keepalive must target the real res only.
+    markNonTerminal(fakeRes);
     fakeRes.setHeader = () => {};
     fakeRes.status = (code: number) => {
       fakeRes.statusCode = code;
@@ -10378,6 +10396,9 @@ app.post(['/v1/responses', '/responses'], async (req: Request, res: Response) =>
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
+    res.setHeader('X-Accel-Buffering', 'no');
+    // SSE idle keepalive on the real client socket (see src/sse-keepalive.ts).
+    attachSseKeepalive(res);
 
     const modelId = String(body.model);
     const responseId = `resp_${cryptoRandomId()}`;
@@ -10414,6 +10435,7 @@ app.post(['/v1/responses', '/responses'], async (req: Request, res: Response) =>
       responseId,
       onFinished: endStream
     });
+    markNonTerminal(fakeRes);
 
     try {
       await handleChatCompletion(fakeReq, fakeRes as any);
@@ -10933,6 +10955,7 @@ wss.on('connection', (ws: WebSocket) => {
             isGenerating = false;
           }
         });
+        markNonTerminal(fakeRes);
 
         try {
           fakeReq.body.stream = true;

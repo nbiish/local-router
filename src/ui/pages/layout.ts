@@ -1264,6 +1264,9 @@ export function renderLayout(
           dragSourceIndex = parseInt(itemEl.getAttribute('data-candidate-index'), 10);
           itemEl.classList.add('dragging');
           e.dataTransfer.effectAllowed = 'move';
+          // WebKit and Firefox only begin an HTML5 drag when dataTransfer carries
+          // payload; without this the reorder drag never starts in some webviews.
+          try { e.dataTransfer.setData('text/plain', String(dragSourceIndex)); } catch (err) { /* older engines */ }
         }
 
         function candidateDragOver(e) {
