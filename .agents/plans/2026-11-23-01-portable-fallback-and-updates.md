@@ -2,7 +2,7 @@
 plan_format: ainish/plan/v1
 slug: portable-fallback-and-updates
 date: 2026-11-23
-status: ready
+status: done
 branch: feat/portable-config-and-updates
 worktree: /Volumes/1tb-sandisk/code-external/local-router-worktrees/portable-config
 task_record: .agents/tasks/2026-11-23-01-portable-config-and-updates.task.md

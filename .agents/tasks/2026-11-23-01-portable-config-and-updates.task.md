@@ -2,7 +2,7 @@
 
 - Plan: `.agents/plans/2026-11-23-01-portable-fallback-and-updates.md`
 - Branch: `feat/portable-config-and-updates` (worktree `local-router-worktrees/portable-config`, off `origin/main@efc374e`)
-- Status: implementing
+- Status: done (PR open; human merge pending; signed release publish needs operator authority)
 - Operator directive: "just port the fallback-models chain", "update the ui", "icon and the app to have a check for updates section", "windows version updated after our configuration here".
 
 ## Evidence log
@@ -15,7 +15,14 @@
 - Export/import reuses `applyRouterSettingsPayload()`, so `persistFallbackModels()` remains the single writer; import is dry-run by default.
 - Tray and app now share the same `SharedUpdateState` through Tauri commands; `/api/apply-update` (git pull) is deliberately not surfaced in the UI.
 
-## Not verified yet
+## Verification
 
-- Windows cross-architecture import and read-back (next step).
-- Published signed release / `latest.json` (operator authority required).
+- Focused tests: bundle 8/8, API 4/4, update UI 3/3, page-script parse 5/5.
+- Full suite: 437 pass / 2 fail / 13 skipped. One fail is the known Cursor baseline flake; the other (decisions.integration ENOTEMPTY temp rmdir) passes 14/14 in isolation — suite-ordering race, not a regression.
+- `npm run build` and `cargo check` clean on macOS; `npm run build` clean on WSL and native Windows.
+- Cross-architecture: exported bundle sha256 `5fa45df7ef2305d4df52782a3538496651526bf5c179ea71422ee052250b0d56` verified on both Windows hosts; WSL live 11434 and native Windows isolated 28136 both read back the exact 20-step chain.
+- No credentials in the bundle (tested), no secret fields in the diff.
+
+## Not verified
+
+- Published signed release / `latest.json` update — needs operator signing/publishing authority. Human merge of the PR.
