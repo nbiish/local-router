@@ -98,6 +98,15 @@ Draft → review assets (exe, msi, dmg, AppImage, deb, rpm all present) → hit
 
 ## 6. Self-update manifest (desktop app auto-update)
 
+The updater consumes a *signed archive*, not the raw `.app`. `tauri build` emits the
+`.app.tar.gz` + `.sig` only when ALL of these hold (learned on v1.2.0's first cut —
+without item 1 the build ships with no update artifacts at all):
+
+1. `bundle.createUpdaterArtifacts: true` in `src-tauri/tauri.conf.json`.
+2. `plugins.updater.endpoints` + `plugins.updater.pubkey` (minisign pubkey, base64).
+3. Signing env at build time: `TAURI_SIGNING_PRIVATE_KEY_PATH` and
+   `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` (may be empty).
+
 The desktop app checks `https://local-router.com/updates/latest.json` on startup
 (20s delay) and via the tray **Check for Updates** item. Updates are
 minisign-verified against the public key embedded in `src-tauri/tauri.conf.json`
