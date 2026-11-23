@@ -40,7 +40,9 @@
     "desktop:build": "tauri build",
     "desktop:install": "node scripts/install-desktop.mjs",
     "tauri:icons": "node scripts/generate-icons.mjs",
-    "verify:usage": "node --test tests/usage-policy.test.mjs"
+    "verify:usage": "node --test tests/usage-policy.test.mjs",
+    "config:export": "node scripts/fallback-config.mjs export",
+    "config:import": "node scripts/fallback-config.mjs import"
   },
   "keywords": [
     "ollama",

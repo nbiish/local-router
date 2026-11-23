@@ -58,6 +58,13 @@ import {
   trajectoryDir
 } from '../trajectories';
 import { healthRegistry, healthStatePath } from '../health-registry';
+import {
+  buildFallbackBundle,
+  bundleToRouterSettings,
+  describeChainChange,
+  parseFallbackBundle,
+  serializeFallbackBundle
+} from '../fallback-config-bundle';
 import { durability } from '../durability';
 import { planAutoDisable } from '../auto-disable';
 import { costBandFor, providerCoverageGaps } from '../fallback-topology';
@@ -1662,12 +1669,17 @@ app.get('/api/router-settings', (req: Request, res: Response) => {
   });
 });
 
-app.put('/api/router-settings', (req: Request, res: Response) => {
-  const body = req.body || {};
+/**
+ * The single writer for bulk chain settings. Both PUT /api/router-settings and
+ * the portable-config import funnel through here so `persistFallbackModels()`
+ * remains the only code that writes the authoritative chain file.
+ */
+function applyRouterSettingsPayload(body: any): { success: true; settings: RouterSettings } {
+  const payload = body && typeof body === 'object' ? body : {};
   const settings: RouterSettings = {};
 
-  if (Array.isArray(body.routes)) {
-    for (const routeEntry of body.routes) {
+  if (Array.isArray(payload.routes)) {
+    for (const routeEntry of payload.routes) {
       const parsed = parseFallbackModel(routeEntry, { allowShort: true });
       if (parsed.ok) {
         fallbackModelStore[parsed.model.id] = cloneFallbackModel(parsed.model);
@@ -1675,9 +1687,9 @@ app.put('/api/router-settings', (req: Request, res: Response) => {
     }
   }
 
-  if (typeof body.fallbackModelsText === 'string') {
-    settings.fallbackModelsText = body.fallbackModelsText;
-    const parsed = parseFallbackModel({ id: 'fallback-models', modelsText: body.fallbackModelsText }, { allowShort: true });
+  if (typeof payload.fallbackModelsText === 'string') {
+    settings.fallbackModelsText = payload.fallbackModelsText;
+    const parsed = parseFallbackModel({ id: 'fallback-models', modelsText: payload.fallbackModelsText }, { allowShort: true });
     if (parsed.ok) {
       fallbackModelStore['fallback-models'] = cloneFallbackModel(parsed.model);
     }
@@ -1685,21 +1697,70 @@ app.put('/api/router-settings', (req: Request, res: Response) => {
   // Bulk settings writes carry whole routes, so the embedding provider pin is re-applied here too.
   applyEmbeddingProviderOrderToStore();
 
+  // `persistFallbackModels` already writes the COMPLETE settings file (every
+  // route plus the chain text). A second `saveRouterSettings(settings)` here
+  // used to overwrite that file with `{ fallbackModelsText }` alone, silently
+  // dropping the purpose-scoped routes (fallback-embedding/fallback-decision)
+  // from the authoritative file on every bulk settings write.
+  persistFallbackModels();
+  return { success: true, settings };
+}
+
+app.put('/api/router-settings', (req: Request, res: Response) => {
   try {
-    // `persistFallbackModels` already writes the COMPLETE settings file (every
-    // route plus the chain text). A second `saveRouterSettings(settings)` here
-    // used to overwrite that file with `{ fallbackModelsText }` alone, silently
-    // dropping the purpose-scoped routes (fallback-embedding/fallback-decision)
-    // from the authoritative file on every bulk settings write.
-    persistFallbackModels();
+    return res.json(applyRouterSettingsPayload(req.body));
   } catch (error: any) {
     return res.status(500).json({
       error: 'Failed to persist router settings.',
       details: sanitizeDiagnosticText(String(error?.message || error))
     });
   }
+});
 
-  return res.json({ success: true, settings });
+/** Export only the fallback chain as a versioned, credential-free JSON file. */
+app.get('/api/config/fallback/export', (req: Request, res: Response) => {
+  const bundle = buildFallbackBundle(loadRouterSettings());
+  const config = serializeFallbackBundle(bundle);
+  const filename = `local-router-fallback-${new Date().toISOString().slice(0, 10)}.json`;
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+  return res.json({ success: true, filename, config });
+});
+
+/**
+ * Import a portable chain. Defaults to a no-write dry run so a stray POST can
+ * never replace the live chain; the UI and CLI must opt in with `dryRun:false`.
+ * The previous bundle is returned so the operator can roll back.
+ */
+app.post('/api/config/fallback/import', (req: Request, res: Response) => {
+  const body = req.body || {};
+  if (typeof body.config !== 'string') {
+    return res.status(400).json({ success: false, error: 'Config must be text.' });
+  }
+  const parsed = parseFallbackBundle(body.config);
+  if (!parsed.ok) {
+    return res.status(400).json({ success: false, error: parsed.error });
+  }
+
+  const current = loadRouterSettings();
+  const next = bundleToRouterSettings(parsed.bundle);
+  const diff = describeChainChange(current, next);
+  const previousConfig = serializeFallbackBundle(buildFallbackBundle(current));
+
+  if (body.dryRun !== false) {
+    return res.json({ success: true, dryRun: true, diff, previousConfig });
+  }
+
+  try {
+    applyRouterSettingsPayload(next);
+  } catch (error: any) {
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to import fallback chain.',
+      details: sanitizeDiagnosticText(String(error?.message || error))
+    });
+  }
+  return res.json({ success: true, dryRun: false, diff, previousConfig });
 });
 
 app.delete('/api/router-settings', (req: Request, res: Response) => {

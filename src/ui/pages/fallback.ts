@@ -69,6 +69,129 @@ export function renderFallbackPage(params: {
                       <p class="muted" style="margin:10px 0 0;">This page is the only fallback chain editor. Use the <strong>+ Fallback</strong> button on any model in the Providers &amp; Models catalog to stage it here (existing chains save instantly); then drag to order. Configure provider keys — candidates light up when ready.</p>
         </div>
       </div>
+      <div class="card" id="portableConfigCard">
+        <h3>Portable configuration</h3>
+        <p class="muted">Save the fallback chain to a versioned JSON file you can carry to another machine. Import shows a preview before anything is written. Provider keys and catalog selection never travel — each machine keeps its own credentials.</p>
+        <div class="button-row">
+          <button type="button" onclick="exportFallbackConfigBundle()">Export chain</button>
+          <label class="button button-secondary" for="fallbackConfigFile" style="cursor:pointer;">Import chain…</label>
+          <input id="fallbackConfigFile" type="file" accept="application/json,.json" style="display:none;" onchange="previewFallbackConfigFile(this)">
+        </div>
+        <div id="fallbackImportPreview" style="display:none; margin-top:12px; padding:10px 14px; border:1px solid var(--border); border-radius:4px; background:var(--surface-soft);"></div>
+        <div id="fallbackImportActions" class="button-row" style="display:none; margin-top:10px;">
+          <button type="button" onclick="applyFallbackConfigBundle()">Apply imported chain</button>
+          <button type="button" class="button-secondary" onclick="cancelFallbackConfigImport()">Cancel</button>
+        </div>
+      </div>
+      <script>
+        var pendingFallbackConfigText = '';
+
+        function portableEscape(value) {
+          return String(value == null ? '' : value)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+        }
+
+        function portableMessage(text, kind) {
+          if (typeof setMessage === 'function') setMessage(text, kind || 'success');
+        }
+
+        function portableList(label, values) {
+          if (!values || values.length === 0) return '';
+          return '<div style="margin:4px 0;"><strong>' + portableEscape(label) + ':</strong> ' +
+            values.map(function(v) { return '<code>' + portableEscape(v) + '</code>'; }).join(', ') + '</div>';
+        }
+
+        function downloadFallbackConfigBundle(config, filename) {
+          var blob = new Blob([config], { type: 'application/json' });
+          var url = URL.createObjectURL(blob);
+          var anchor = document.createElement('a');
+          anchor.href = url;
+          anchor.download = filename;
+          document.body.appendChild(anchor);
+          anchor.click();
+          document.body.removeChild(anchor);
+          setTimeout(function() { URL.revokeObjectURL(url); }, 1000);
+        }
+
+        async function exportFallbackConfigBundle() {
+          try {
+            var response = await fetch('/api/config/fallback/export');
+            var data = await response.json();
+            if (!response.ok || !data.success) throw new Error(data.error || 'Export failed');
+            downloadFallbackConfigBundle(data.config, data.filename);
+            portableMessage('Fallback chain exported to ' + data.filename, 'success');
+          } catch (error) {
+            portableMessage('Export failed: ' + (error && error.message ? error.message : String(error)), 'error');
+          }
+        }
+
+        function cancelFallbackConfigImport() {
+          pendingFallbackConfigText = '';
+          var preview = document.getElementById('fallbackImportPreview');
+          var actions = document.getElementById('fallbackImportActions');
+          if (preview) { preview.style.display = 'none'; preview.innerHTML = ''; }
+          if (actions) actions.style.display = 'none';
+        }
+
+        async function previewFallbackConfigFile(input) {
+          var file = input.files && input.files[0];
+          input.value = '';
+          if (!file) return;
+          if (file.size > 1024 * 1024) {
+            portableMessage('Config file is too large (limit 1 MiB).', 'error');
+            return;
+          }
+          try {
+            var text = await file.text();
+            var response = await fetch('/api/config/fallback/import', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ config: text, dryRun: true })
+            });
+            var data = await response.json();
+            if (!response.ok || !data.success) {
+              portableMessage('Import rejected: ' + (data.error || 'invalid config'), 'error');
+              return;
+            }
+            pendingFallbackConfigText = text;
+            var diff = data.diff || {};
+            var html = '<strong>Preview — nothing has been written.</strong>' +
+              portableList('Added steps', diff.chainAdded) +
+              portableList('Removed steps', diff.chainRemoved) +
+              portableList('Added routes', diff.routesAdded) +
+              portableList('Removed routes', diff.routesRemoved) +
+              (diff.orderChanged ? '<div><strong>Step order changed.</strong></div>' : '') +
+              '<div class="muted" style="margin-top:6px;">Save the current chain first if you may want to roll back.</div>';
+            var preview = document.getElementById('fallbackImportPreview');
+            var actions = document.getElementById('fallbackImportActions');
+            if (preview) { preview.innerHTML = html; preview.style.display = 'block'; }
+            if (actions) actions.style.display = 'flex';
+          } catch (error) {
+            portableMessage('Import preview failed: ' + (error && error.message ? error.message : String(error)), 'error');
+          }
+        }
+
+        async function applyFallbackConfigBundle() {
+          if (!pendingFallbackConfigText) return;
+          try {
+            var response = await fetch('/api/config/fallback/import', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ config: pendingFallbackConfigText, dryRun: false })
+            });
+            var data = await response.json();
+            if (!response.ok || !data.success) {
+              portableMessage('Import failed: ' + (data.error || 'unknown error'), 'error');
+              return;
+            }
+            portableMessage('Fallback chain imported. Reloading…', 'success');
+            setTimeout(function() { window.location.reload(); }, 600);
+          } catch (error) {
+            portableMessage('Import failed: ' + (error && error.message ? error.message : String(error)), 'error');
+          }
+        }
+      </script>
 `;
   return renderLayout('Fallback Routes', body, params);
 }
