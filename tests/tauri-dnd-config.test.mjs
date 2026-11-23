@@ -19,8 +19,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const repoRoot = new URL('..', import.meta.url).pathname;
+const repoRoot = fileURLToPath(new URL('..', import.meta.url));
 
 test('tauri window config keeps dragDropEnabled false for HTML5 DnD', () => {
   const raw = readFileSync(join(repoRoot, 'src-tauri', 'tauri.conf.json'), 'utf8');
