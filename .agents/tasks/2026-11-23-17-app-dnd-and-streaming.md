@@ -69,8 +69,13 @@ during upstream silence.
 
 - The desktop fix is verified at the source level and by config regression test;
   an actual drag inside the packaged app needs a human (no GUI in CI).
-- Full `npm run test:integration` (62 files) not run — scoped to new + related
-  per the task's verification bar.
+- CI (run 45234710922, after 99d6d74 de-flake): all 11 tests from this change
+  pass on macos/ubuntu/windows. Remaining red matches the pre-existing main
+  baseline (run 45087757534 @ efc374e): `custom-providers.integration.test.mjs`
+  `upstreamRequests.length 2 !== 1` (ubuntu/windows) and ENOTEMPTY temp-dir
+  cleanup races in decisions*/ollama-version-config-ui teardown (macos) — none
+  of which this branch touches.
+- Full local `npm run test:integration` not run locally; CI ran the full suite.
 - Non-stream responses cannot carry keepalives: an upstream stalling >100 s
   before first byte still dies at the tunnel (router's NON_STREAM_TIMEOUT_MS
   backstop). Documented in the PR.
