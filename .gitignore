@@ -220,6 +220,9 @@ bin/ainish-rag.native.exe
 # Project-specific patterns (preserved from existing .gitignore)
 # ═══════════════════════════════════════════════════════════════════════════
 
+!tests/test-env.mjs
+*.dmg
+*.pkg
 .agents/comms/*-team.live.txt
 .agents/context-harness/
 .agents/rag/
@@ -227,8 +230,6 @@ bin/ainish-rag.native.exe
 .config/
 .opencode/
 .workbuddy-ai/
-*.dmg
-*.pkg
 example-repos/
 node_modules
 router-settings.json
@@ -239,6 +240,3 @@ src/**/*.d.ts.map
 src/**/*.js
 src/**/*.js.map
 
-
-# test-env.mjs is a credential SANITIZER (scrubs keys from test servers), not an env file
-!tests/test-env.mjs
