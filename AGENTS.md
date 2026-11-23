@@ -50,8 +50,8 @@ missing, failed, `degraded:` or `insufficient`, say so in one line and carry on 
    output changes git identity, hooks, signing, or config. A harness forcing its own authorship commits
    as `Nanoboozhoo embodied by: {agent harness}`, never `claude`/`cursor`/`copilot`; the hooks that
    enforce this run automatically, and the operator's git profile wins.
-5. **Prefer the smallest sufficient context.** The one context call, then the specific files. Do not
-   paste whole files or whole ledgers into your reasoning.
+5. **Prefer the smallest sufficient context.** One context call, then specific files; state objective,
+   constraints and acceptance criteria up front; strip boilerplate, stale TODOs, raw logs, uncurated docs.
 6. **Decisions live in code.** Models may classify, rank, or draft; thresholds, allowlists, side effects,
    and refusals are deterministic code.
 7. **One writer per mutation boundary.** Read-only work may fan out; dependent writes serialize.
@@ -67,11 +67,16 @@ missing, failed, `degraded:` or `insufficient`, say so in one line and carry on 
     why. A weaker implementation posing as the strong one is worse than a refusal.
 12. **Quality is the measure.** Always believe in yourself and you will be graded based on the quality
     of task completion; deliver correctness and verification, not just activity.
+13. **Govern prompts before blaming the model.** Specify modern, production-grade patterns, typing
+    and architecture explicitly; treat legacy code and frameworks as reference, never a quality ceiling.
+    Audit weak output for prompt defects first; promote recurring prompts to versioned templates and prune
+    rules that stop paying. Full policy: `.agents/templates/prompt-context-governance.md`.
+14. **Legal text is canonical.** Never hand-edit `LICENSE`: CI compares bytes before merge and syncs
+    on merges to `main`; follow `critical.md` §7 where that standards file exists.
 
 ## Security-first posture
 
-This is the order of operations, not a checklist bolted onto a workflow. A task that produces the
-right artifact through an unsafe path has failed, even when the tests pass.
+Security is an order of operations, not a checklist: a right artifact via an unsafe path has failed.
 
 1. **Threat-model first, in one paragraph.** What are we protecting, from whom, and what is the worst
    realistic outcome of this change? If you cannot name the asset, you cannot judge the risk — stop
@@ -100,8 +105,7 @@ what you deliberately did not do, and why; and the failure you would expect firs
 
 ## Destructive commands
 
-On 2026-11-08 a cleanup ran `Remove-Item '~' -Recurse -Force`; PowerShell expanded `~` to `C:\Users\kenwa`
-and destroyed 26 dot-directories, `.ssh` and `.aws` among them. Hence these rules:
+After a 2026-11-08 `Remove-Item '~' -Recurse -Force` destroyed 26 dot-directories (`.ssh`, `.aws`):
 
 1. **Print the resolved absolute path first**; if it is not what you were asked to clean, stop.
 2. **Never pass `~`, `.`, `..`, `$HOME`, `%USERPROFILE%`, a glob, or an unvalidated variable** to a delete.
@@ -112,10 +116,9 @@ and destroyed 26 dot-directories, `.ssh` and `.aws` among them. Hence these rule
 
 ## Worktrees
 
-A worktree is a task's surface, not a shelf: prove the branch is pushed and its PR is open and green, then
-remove it; stale work rebases on the latest `main` first. Delivery is by PR after human approval — never
-self-merge. Journal branch/dates/diffstat/PR, then `git worktree remove` + `git branch -d` (a refusal means
-the PR is unmerged): `templates/worktree-merge.md`.
+A worktree is a task's surface: prove the branch is pushed and its PR open and green, then remove it;
+rebase stale work on `main`. Delivery is by PR after human approval — never self-merge. Journal
+branch/dates/diffstat/PR, then `git worktree remove` + `git branch -d`: `templates/worktree-merge.md`.
 
 ## Git & Pull Request Protocol
 
@@ -126,10 +129,9 @@ the PR is unmerged): `templates/worktree-merge.md`.
 
 ## Close
 
-- Mark the task record done or blocked, with evidence; append lifecycle lines to the daily COMMS ledger
-  and scrubbed facts to the daily memory file; leave the worktree clean.
-- Findings that outlive the task go to `.agents/suggestions/{date}-{HH}-{slug}.md`, one file per topic,
-  so the next context call retrieves them; consolidation digests old records rather than losing them.
+- Mark the task record done with evidence; append COMMS lifecycle lines and scrubbed memory facts; leave
+  the worktree clean. Keep outliving findings in `.agents/suggestions/{date}-{HH}-{slug}.md` (one topic
+  per file), so the next context call retrieves them; digests replace old records rather than losing them.
 
 ## Where everything else lives
 
@@ -147,8 +149,7 @@ Do not read ahead. Open these only when your task needs them:
 | Reason a peer machine is stale, or you need its work | `ainish-coder --machine-sync DIR --latest` (see *Cross-machine federation* in `README.md`) |
 | Reasoning lenses for a hard decision | [`.agents/templates/masters.md`](./.agents/templates/masters.md) |
 
-`.agents/{audit,canonical}/` are **generated**: read the context call, never hand-edit signed
-receipts or contract copies.
+`.agents/{audit,canonical}/` are generated: read them, never hand-edit signed receipts or contract copies.
 
 ## Writing
 
