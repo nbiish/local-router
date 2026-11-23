@@ -504,6 +504,7 @@ export function renderLayout(
         <a href="https://local-router.com/donate?utm_source=app&utm_medium=inapp-heart&utm_campaign=gtm-2026-11&utm_content=sidebar"
            title="Support Local Router"
            style="display:inline-block; margin-bottom:10px; font-size:1em; text-decoration:none;">♥</a>
+        <div id="appUpdateStatus" class="app-update-status" style="margin-bottom:10px; font-size:.85em;"></div>
         <div class="theme-panel-compact">
           <label for="themeSelect">Theme</label>
           <select id="themeSelect" onchange="setTheme(this.value)">
@@ -3592,6 +3593,104 @@ export function renderLayout(
           }
           bindOAuthProviderButtons(listEl);
         }
+
+        // -- Check for updates -------------------------------------------------
+        // In the desktop shell, the tray and this control share one signed
+        // updater state via Tauri commands. Outside it, the legacy git-based
+        // probe is labelled as a source checkout check and never installs.
+
+        function isDesktopShellForUpdates() {
+          return typeof window !== 'undefined' && Boolean(window.__TAURI_INTERNALS__) &&
+            typeof window.__TAURI_INTERNALS__.invoke === 'function';
+        }
+
+        function updateCheckButton() {
+          return '<button type="button" class="button-secondary" style="padding:2px 8px; font-size:.9em; margin-left:6px;" onclick="checkForAppUpdates()">Check for updates</button>';
+        }
+
+        function renderAppUpdateStatus(info, desktop) {
+          var el = document.getElementById('appUpdateStatus');
+          if (!el || !info) return;
+          var text;
+          var buttons = updateCheckButton();
+          if (desktop) {
+            if (info.update_available) {
+              text = 'Update v' + escapeHtml(String(info.available_version || '')) + ' available';
+              buttons += '<button type="button" class="button-secondary" style="padding:2px 8px; font-size:.9em; margin-left:4px;" onclick="installAppUpdate()">Install</button>';
+            } else {
+              text = 'Up to date' + (info.current_version ? ' (v' + escapeHtml(String(info.current_version)) + ')' : '');
+            }
+          } else {
+            text = info.hasUpdate
+              ? 'Newer source commit: ' + escapeHtml(String(info.latestCommit || '').slice(0, 7))
+              : 'Source up to date';
+          }
+          el.innerHTML = '<div class="muted" style="white-space:nowrap;">' + text + buttons + '</div>';
+        }
+
+        async function renderSourceUpdateStatus() {
+          try {
+            var response = await fetch('/api/update-status');
+            var data = await response.json();
+            renderAppUpdateStatus({
+              hasUpdate: Boolean(data.hasUpdate),
+              latestCommit: data.latestCommit
+            }, false);
+          } catch (error) {
+            var el = document.getElementById('appUpdateStatus');
+            if (el) el.textContent = '';
+          }
+        }
+
+        async function hydrateAppUpdateStatus() {
+          if (!isDesktopShellForUpdates()) {
+            await renderSourceUpdateStatus();
+            return;
+          }
+          try {
+            var info = await window.__TAURI_INTERNALS__.invoke('update_status');
+            renderAppUpdateStatus(info, true);
+          } catch (error) {
+            await renderSourceUpdateStatus();
+          }
+        }
+
+        async function checkForAppUpdates() {
+          if (isDesktopShellForUpdates()) {
+            try {
+              var info = await window.__TAURI_INTERNALS__.invoke('check_updates');
+              renderAppUpdateStatus(info, true);
+              if (typeof setMessage === 'function') {
+                setMessage(info.update_available ? 'A signed update is available.' : 'Already up to date.', 'success');
+              }
+            } catch (error) {
+              if (typeof setMessage === 'function') setMessage('Update check failed.', 'error');
+            }
+            return;
+          }
+          try {
+            var response = await fetch('/api/check-updates', { method: 'POST' });
+            var data = await response.json();
+            renderAppUpdateStatus(data, false);
+            if (typeof setMessage === 'function') {
+              setMessage(data.hasUpdate ? 'A newer source commit exists on main.' : 'Source is current.', 'success');
+            }
+          } catch (error) {
+            if (typeof setMessage === 'function') setMessage('Update check failed.', 'error');
+          }
+        }
+
+        async function installAppUpdate() {
+          if (!isDesktopShellForUpdates()) return;
+          if (typeof setMessage === 'function') setMessage('Installing signed update…', 'success');
+          try {
+            await window.__TAURI_INTERNALS__.invoke('install_update');
+          } catch (error) {
+            if (typeof setMessage === 'function') setMessage('Update install failed.', 'error');
+          }
+        }
+
+        safeInit('hydrateAppUpdateStatus', hydrateAppUpdateStatus);
 
         (async () => { await loadOAuthProviders(); })();
 

@@ -11,8 +11,68 @@
 
 use std::sync::{Arc, Mutex};
 
+use serde::Serialize;
 use tauri::{AppHandle, Manager, Wry};
 use tauri_plugin_updater::UpdaterExt;
+
+/// What both the tray menu and the in-app control render. There is one source
+/// of truth: the SharedUpdateState populated by the signed updater.
+#[derive(Serialize, Clone)]
+pub struct UpdateInfo {
+    pub current_version: String,
+    pub label: String,
+    pub update_available: bool,
+    pub available_version: Option<String>,
+}
+
+type CheckResult = Result<Option<tauri_plugin_updater::Update>, tauri_plugin_updater::Error>;
+
+pub fn current_info(app: &AppHandle<Wry>) -> UpdateInfo {
+    let (label, available_version) = match app.try_state::<SharedUpdateState>() {
+        Some(state) => {
+            let guard = state.inner().lock().unwrap();
+            let version = guard.pending.as_ref().map(|update| update.version.clone());
+            (guard.label.clone(), version)
+        }
+        None => ("Check for Updates".to_string(), None)
+    };
+    UpdateInfo {
+        current_version: env!("CARGO_PKG_VERSION").to_string(),
+        update_available: available_version.is_some(),
+        label,
+        available_version,
+    }
+}
+
+/// Record one check result, refresh the tray, and return the shared status.
+fn record_check(app: &AppHandle<Wry>, result: CheckResult) -> UpdateInfo {
+    match result {
+        Ok(Some(update)) => {
+            let label = format!("\u{2b06} Install v{} Update", update.version);
+            println!("[updater] update available: v{}", update.version);
+            if let Some(state) = app.try_state::<SharedUpdateState>() {
+                let mut guard = state.inner().lock().unwrap();
+                guard.pending = Some(update);
+                guard.label = label;
+            }
+            crate::tray::refresh_menu(app);
+        }
+        Ok(None) => {
+            println!("[updater] already on the latest version (v{})", env!("CARGO_PKG_VERSION"));
+            if let Some(state) = app.try_state::<SharedUpdateState>() {
+                let mut guard = state.inner().lock().unwrap();
+                guard.pending = None;
+                guard.label = format!("\u{2713} Up to date (v{})", env!("CARGO_PKG_VERSION"));
+            }
+            crate::tray::refresh_menu(app);
+        }
+        Err(e) => {
+            // Endpoint 404 (no manifest yet) or offline: keep the default label.
+            println!("[updater] check skipped/failed: {}", e);
+        }
+    }
+    current_info(app)
+}
 
 pub struct UpdateState {
     pub label: String,
@@ -45,31 +105,36 @@ pub fn run_check(app: &AppHandle<Wry>) {
         let updater = handle.updater()?;
         updater.check().await
     });
-    match result {
-        Ok(Some(update)) => {
-            let label = format!("\u{2b06} Install v{} Update", update.version);
-            println!("[updater] update available: v{}", update.version);
-            if let Some(state) = app.try_state::<SharedUpdateState>() {
-                let mut s = state.inner().lock().unwrap();
-                s.pending = Some(update);
-                s.label = label;
-            }
-            crate::tray::refresh_menu(app);
-        }
-        Ok(None) => {
-            println!("[updater] already on the latest version (v{})", env!("CARGO_PKG_VERSION"));
-            if let Some(state) = app.try_state::<SharedUpdateState>() {
-                let mut s = state.inner().lock().unwrap();
-                s.pending = None;
-                s.label = format!("\u{2713} Up to date (v{})", env!("CARGO_PKG_VERSION"));
-            }
-            crate::tray::refresh_menu(app);
-        }
+    let _ = record_check(app, result);
+}
+
+/// Tauri command used by the in-app control. Awaits the signed check and
+/// returns the same state the tray renders, so the two never disagree.
+#[tauri::command]
+pub async fn check_updates(app: tauri::AppHandle) -> UpdateInfo {
+    let handle = app.clone();
+    let spawned = tauri::async_runtime::spawn(async move {
+        let updater = handle.updater()?;
+        updater.check().await
+    });
+    match spawned.await {
+        Ok(result) => record_check(&app, result),
         Err(e) => {
-            // Endpoint 404 (no manifest yet) or offline: keep the default label.
-            println!("[updater] check skipped/failed: {}", e);
+            println!("[updater] check task failed: {}", e);
+            current_info(&app)
         }
     }
+}
+
+#[tauri::command]
+pub fn update_status(app: tauri::AppHandle) -> UpdateInfo {
+    current_info(&app)
+}
+
+#[tauri::command]
+pub fn install_update(app: tauri::AppHandle) {
+    let handle = app.clone();
+    std::thread::spawn(move || run_install(&handle));
 }
 
 /// Install a previously checked update, then restart into it.

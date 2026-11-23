@@ -47,6 +47,11 @@ pub fn run() {
 
             Ok(())
         })
+        .invoke_handler(tauri::generate_handler![
+            updater::check_updates,
+            updater::update_status,
+            updater::install_update
+        ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 // Closing the window minimizes to corner tray so background routing continues

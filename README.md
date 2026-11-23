@@ -136,6 +136,7 @@ Local Router can be run either as a **standalone desktop application** or as a *
    - A single full-color tray icon (no duplicates): left-click opens the dashboard; the context menu carries the status line, Open Dashboard, Providers & Keys, Fallback Routes, Prompt & Thinking, Expert Logs, Restart Server, and Quit Local Router.
    - **Restart Server** actually restarts the router daemon (CLI `stop` + `start`, so it also restarts a daemon started outside the app) and refreshes the status line. **Quit Local Router** stops the daemon this app started — a daemon started from a terminal keeps running — and exits the app.
    - Closing the window minimizes to the tray to keep local proxy routing alive for all terminal agents and IDE extensions.
+   - **Check for updates** is available in both the tray menu and the in-app sidebar footer. Both read the same signed updater state: a check downloads only manifests verified by the minisign public key embedded in the app, and an install is performed by the signed Tauri updater (never by `git pull`). Outside the desktop shell the browser UI falls back to an honest "source checkout" check with no install button.
    - Run in desktop mode: `npm run tauri:dev`
    - Build native release installers (`.msi`, `.exe`, `.dmg`, `.app`, `.AppImage`, `.deb`): `npm run tauri:build`
    - Install a desktop launcher: `npm run desktop:install` (add `--dry-run` to preview, `--skip-build` to reuse an existing release build). On macOS it installs `~/Applications/Local Router.app` (owner-marker protected, ad-hoc codesigned, atomic swap) and symlinks it onto `~/Desktop`; on Windows it creates Desktop and Start Menu shortcuts pointing at the release exe with the branded icon.
@@ -143,6 +144,18 @@ Local Router can be run either as a **standalone desktop application** or as a *
 2. **Web Browser Management**:
    - Access `http://127.0.0.1:11434/config` in any web browser (Chrome, Safari, Firefox, Edge).
    - Full real-time synchronization: changes made in the desktop GUI or browser update the same underlying PQC secret bundles and `~/.config/local-router/` configuration files immediately.
+
+## Portable fallback configuration
+
+The fallback chain is the one piece of router configuration that is useful to carry between machines. On **/config/fallback** use **Export chain** to save a versioned `local-router-fallback/v1` JSON file, and **Import chain** to preview the exact step/route changes before applying them. Imports are dry runs by default: nothing is written until you confirm, and the previous bundle is returned so you can roll back. The same operations are available headlessly:
+
+```sh
+npm run config:export -- --out ~/local-router-fallback.json
+npm run config:import -- ~/local-router-fallback.json --dry-run   # preview only
+npm run config:import -- ~/local-router-fallback.json --apply     # write the chain
+```
+
+The CLI talks only to the loopback router API and never writes the config file itself. The bundle contains **only** the fallback text and named routes — provider keys remain in each machine's PQC store and never travel. Model ids are validated against a strict charset, and unknown/unsupported fields are rejected.
 
 ## Platforms
 
