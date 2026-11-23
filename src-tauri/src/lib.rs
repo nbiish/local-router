@@ -1,6 +1,7 @@
 mod daemon;
 mod tray;
 mod updater;
+mod window;
 
 use daemon::DaemonManager;
 use std::sync::Arc;
@@ -39,7 +40,12 @@ pub fn run() {
             //    surface a newer remote release without blocking launch.
             updater::background_check(app.handle());
 
-            // 4. Show and focus main application window
+            // 4. Build the main window with the navigation guard: external
+            //    links open in the user's browser, the webview stays on the
+            //    dashboard (see src/window.rs).
+            window::build_main_window(app.handle())?;
+
+            // 5. Show and focus main application window
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.show();
                 let _ = window.set_focus();
