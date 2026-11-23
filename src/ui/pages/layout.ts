@@ -501,8 +501,9 @@ export function renderLayout(
         <a href="/config/trajectories" class="nav-link">Trajectories</a>
       </nav>
       <div class="sidebar-footer">
-        <a href="https://local-router.com/donate" rel="noopener"
-           style="display:block; margin-bottom:10px; font-size:.85em; text-decoration:none;">♥ Support Local Router</a>
+        <a href="https://local-router.com/donate?utm_source=app&utm_medium=inapp-heart&utm_campaign=gtm-2026-11&utm_content=sidebar"
+           title="Support Local Router"
+           style="display:inline-block; margin-bottom:10px; font-size:1em; text-decoration:none;">♥</a>
         <div class="theme-panel-compact">
           <label for="themeSelect">Theme</label>
           <select id="themeSelect" onchange="setTheme(this.value)">

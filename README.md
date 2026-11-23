@@ -404,3 +404,29 @@ Primary implementation files:
 - `bin/local-router.js`: CLI lifecycle and Ollama route shim.
 - `ROUTER.md`: fallback-chain design notes and maintainer guide.
 - `BRAND.md`: product identity and character brief for the original cyberpunk Anishinaabe guide concept.
+
+## Hosted control plane
+
+The router is free and self-hostable forever. If you want zero-knowledge config sync across
+your machines, PQC-secured access keys, and an HTTPS bridge for tools that refuse localhost,
+there is a hosted control plane:
+
+[local-router.com](https://local-router.com?utm_source=github-readme&utm_medium=readme&utm_campaign=gtm-2026-11&utm_content=hosted-section) — your local models, behind real HTTPS.
+
+## Support
+
+Local Router is open source (ISC) and free forever. If it saves you time, you can support
+development:
+
+[![GitHub Sponsors](https://img.shields.io/github/sponsors/nbiish?style=flat-square)](https://github.com/sponsors/nbiish?utm_source=github-readme&utm_medium=readme&utm_campaign=gtm-2026-11&utm_content=readme)
+
+- [GitHub Sponsors](https://github.com/sponsors/nbiish?utm_source=github-readme&utm_medium=readme&utm_campaign=gtm-2026-11&utm_content=readme) — recurring, tiers below
+- [Ko-fi](https://ko-fi.com/nbiish?utm_source=github-readme&utm_medium=readme&utm_campaign=gtm-2026-11&utm_content=readme) — one-time tips
+
+| Tier | Perk |
+|---|---|
+| $5/mo — Backer | Sponsor badge on the supporters wall |
+| $15/mo — Early access | Pre-release builds and changelogs before public |
+| $50/mo — Priority support | Priority issue triage + a direct support channel |
+
+Sponsoring never unlocks features — everything stays free and self-hostable.
