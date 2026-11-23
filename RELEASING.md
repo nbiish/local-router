@@ -104,8 +104,11 @@ without item 1 the build ships with no update artifacts at all):
 
 1. `bundle.createUpdaterArtifacts: true` in `src-tauri/tauri.conf.json`.
 2. `plugins.updater.endpoints` + `plugins.updater.pubkey` (minisign pubkey, base64).
-3. Signing env at build time: `TAURI_SIGNING_PRIVATE_KEY_PATH` and
-   `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` (may be empty).
+3. Signing env at build time: `TAURI_SIGNING_PRIVATE_KEY` = the key FILE CONTENTS
+   (e.g. `export TAURI_SIGNING_PRIVATE_KEY=*** ~/.config/local-router/tauri-updater.key)"`)
+   and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` (may be empty). Note: the CLI reads
+   `TAURI_SIGNING_PRIVATE_KEY` — there is no `_PATH` variant; a wrong name fails with
+   "A public key has been found, but no private key" AFTER the archive is built.
 
 The desktop app checks `https://local-router.com/updates/latest.json` on startup
 (20s delay) and via the tray **Check for Updates** item. Updates are
