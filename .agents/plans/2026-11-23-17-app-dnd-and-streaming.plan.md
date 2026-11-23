@@ -1,3 +1,14 @@
+---
+plan_format: ainish/plan/v1
+slug: app-dnd-and-streaming
+date: 2026-11-23
+status: done
+branch: fix/app-dnd-and-streaming
+worktree: /Volumes/1tb-sandisk/code-external/local-router-worktrees/prod-fixes
+task_record: .agents/tasks/2026-11-23-17-app-dnd-and-streaming.md
+operator: question-me
+---
+
 # Plan: fix/app-dnd-and-streaming — desktop DnD reorder + SSE idle keepalive
 
 Date: 2026-11-23 (17 UTC)
