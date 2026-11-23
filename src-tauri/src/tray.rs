@@ -24,12 +24,13 @@ fn build_menu(app: &AppHandle<Wry>, running: bool, update_label: &str) -> tauri:
     let fallback_i = MenuItem::with_id(app, "fallback", "Fallback Routes", true, None::<&str>)?;
     let thinking_i = MenuItem::with_id(app, "thinking", "Prompt & Thinking", true, None::<&str>)?;
     let logs_i = MenuItem::with_id(app, "logs", "Expert Logs", true, None::<&str>)?;
-    let support_i = MenuItem::with_id(app, "support", "♥ Support Local Router", true, None::<&str>)?;
     let updates_i = MenuItem::with_id(app, "updates", update_label, true, None::<&str>)?;
     let separator1 = PredefinedMenuItem::separator(app)?;
     let restart_i = MenuItem::with_id(app, "restart", "Restart Server", true, None::<&str>)?;
     let separator2 = PredefinedMenuItem::separator(app)?;
     let quit_i = MenuItem::with_id(app, "quit", "Quit Local Router", true, None::<&str>)?;
+    let separator3 = PredefinedMenuItem::separator(app)?;
+    let support_i = MenuItem::with_id(app, "support", "♥ Support Local Router", true, None::<&str>)?;
 
     let menu = Menu::with_items(
         app,
@@ -40,12 +41,13 @@ fn build_menu(app: &AppHandle<Wry>, running: bool, update_label: &str) -> tauri:
             &fallback_i,
             &thinking_i,
             &logs_i,
-            &support_i,
             &updates_i,
             &separator1,
             &restart_i,
             &separator2,
             &quit_i,
+            &separator3,
+            &support_i,
         ],
     )?;
     Ok(menu)
@@ -107,10 +109,11 @@ fn handle_menu_event(app: &AppHandle<Wry>, id: &str) {
             let _ = open::that("http://127.0.0.1:11434/api/logs");
         }
         "support" => {
-            // Donations open in the system browser (works even if the webview
-            // window is on another page). Ko-fi is live today; the card flow
-            // activates once STRIPE_SECRET_KEY is set on the Pages project.
-            let _ = open::that("https://local-router.com/donate");
+            // Contribution rail (sponsor-rails.md §2.4): opens /donate in the
+            // system browser with attribution UTM. Never nags elsewhere.
+            let _ = open::that(
+                "https://local-router.com/donate?utm_source=app&utm_medium=inapp-heart&utm_campaign=gtm-2026-11&utm_content=tray",
+            );
         }
         "updates" => {
             let has_pending = {
