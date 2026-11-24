@@ -102,6 +102,12 @@ async function startProxyProcess() {
       ...scrubbedEnv(),
       HOME: testHome,
       USERPROFILE: testHome,
+      LOCALAPPDATA: join(testHome, 'AppData', 'Local'),
+      HERMES_HOME: process.platform === 'win32'
+        ? join(testHome, 'AppData', 'Local', 'hermes')
+        : join(testHome, '.hermes'),
+      CODEX_HOME: join(testHome, '.codex'),
+      PI_CODING_AGENT_DIR: join(testHome, '.pi', 'agent'),
       PORT: port,
       LOCAL_ROUTER_SKIP_OLLAMA_ENSURE: 'true',
       LOCAL_ROUTER_SKIP_PQC_LOAD: 'true',
@@ -357,4 +363,59 @@ test('PUT /api/agents-proxy rejects malformed Codex models', async () => {
     body: JSON.stringify({ codex: { enabled: true, model: 'bad\nmodel' } })
   });
   assert.equal(response.status, 400);
+});
+
+test('PUT /api/agents-proxy wires Hermes and pi harnesses, status, and chat verify', async () => {
+  const hermesHome = process.platform === 'win32'
+    ? join(testHome, 'AppData', 'Local', 'hermes')
+    : join(testHome, '.hermes');
+  const ctxProfileDir = join(hermesHome, 'profiles', 'context-elephant');
+  mkdirSync(ctxProfileDir, { recursive: true });
+  writeFileSync(join(ctxProfileDir, 'config.yaml'), 'model:\n  default: old\n  provider: zai\n', 'utf8');
+
+  const putRes = await fetch(`${baseUrl}/api/agents-proxy`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      hermes: { enabled: true, model: agentModel(), syncProfiles: true },
+      pi: { enabled: true, model: agentModel() }
+    })
+  });
+  assert.equal(putRes.status, 200);
+  const putJson = await putRes.json();
+  assert.equal(putJson.config.hermes.enabled, true);
+  assert.equal(putJson.config.pi.enabled, true);
+
+  const hermesCfg = readFileSync(join(hermesHome, 'config.yaml'), 'utf8');
+  assert.match(hermesCfg, /local-router:/);
+  assert.match(hermesCfg, new RegExp(`base_url: http://127\\.0\\.0\\.1:${port}/v1`));
+
+  const ctxCfg = readFileSync(join(ctxProfileDir, 'config.yaml'), 'utf8');
+  assert.match(ctxCfg, /provider: local-router/);
+
+  const piModels = JSON.parse(readFileSync(join(testHome, '.pi', 'agent', 'models.json'), 'utf8'));
+  assert.equal(piModels.providers['local-router'].baseUrl, `http://127.0.0.1:${port}/v1`);
+
+  const statusRes = await fetch(`${baseUrl}/api/agents-proxy/status`);
+  assert.equal(statusRes.status, 200);
+  const { status } = await statusRes.json();
+  assert.equal(status.hermes.config.providerPresent, true);
+  assert.equal(status.pi.config.providerState, 'present');
+
+  for (const harness of ['hermes', 'pi']) {
+    const vRes = await fetch(`${baseUrl}/api/agents-proxy/verify`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ harness })
+    });
+    assert.equal(vRes.status, 200);
+    const vJson = await vRes.json();
+    assert.equal(vJson.ok, true, JSON.stringify(vJson));
+    assert.equal(vJson.result.requestedModel, agentModel());
+  }
+
+  const pageRes = await fetch(`${baseUrl}/config/agents`);
+  const html = await pageRes.text();
+  assert.match(html, /id="hermesProxyToggle"/);
+  assert.match(html, /id="piProxyToggle"/);
 });

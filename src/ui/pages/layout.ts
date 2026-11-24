@@ -1742,6 +1742,50 @@ export function renderLayout(
           if (cfgEl) cfgEl.title = config.configPath || '';
         }
 
+        function renderHermesHarness(s) {
+          const cli = s.cli || {};
+          const interception = s.interception || {};
+          const config = s.config || {};
+          setHarnessBadge('hermesCliState', cli.found ? 'found' : 'not installed', cli.found ? 'good' : 'bad');
+          const cliEl = document.getElementById('hermesCliState');
+          if (cliEl) cliEl.title = cli.path || 'Not on PATH';
+          setHarnessBadge(
+            'hermesInterceptState',
+            interception.enabled ? 'provider ' + (interception.model || 'local-router/fallback-models') : 'off',
+            interception.enabled ? 'good' : 'plain'
+          );
+          const ctxProfiles = Array.isArray(config.profiles) ? config.profiles.filter(function(p) { return p && p.isContextProfile; }) : [];
+          const wiredProfiles = ctxProfiles.filter(function(p) { return p.providerPresent; }).length;
+          let text = config.providerPresent ? 'provider wired' : 'missing';
+          if (ctxProfiles.length > 0) {
+            text += ' (' + wiredProfiles + '/' + ctxProfiles.length + ' ctx)';
+          }
+          const tone = config.providerPresent ? 'good' : 'bad';
+          setHarnessBadge('hermesConfigState', text, tone);
+          const cfgEl = document.getElementById('hermesConfigState');
+          if (cfgEl) cfgEl.title = config.configPath || '';
+        }
+
+        function renderPiHarness(s) {
+          const cli = s.cli || {};
+          const interception = s.interception || {};
+          const config = s.config || {};
+          setHarnessBadge('piCliState', cli.found ? 'found' : 'not installed', cli.found ? 'good' : 'bad');
+          const cliEl = document.getElementById('piCliState');
+          if (cliEl) cliEl.title = cli.path || 'Not on PATH';
+          setHarnessBadge(
+            'piInterceptState',
+            interception.enabled ? 'model ' + (interception.model || 'local-router/fallback-models') : 'off',
+            interception.enabled ? 'good' : 'plain'
+          );
+          const state = config.providerState || 'missing';
+          const text = state === 'present' ? 'models.json wired' : state;
+          const tone = state === 'present' ? 'good' : 'bad';
+          setHarnessBadge('piConfigState', text, tone);
+          const cfgEl = document.getElementById('piConfigState');
+          if (cfgEl) cfgEl.title = config.modelsPath || '';
+        }
+
         async function loadAgentHarnessStatus() {
           const stamp = document.getElementById('harnessStatusStamp');
           if (!stamp) return;
@@ -1752,6 +1796,8 @@ export function renderLayout(
             const status = payload.status || {};
             renderClaudeHarness(status.claude || {});
             renderCodexHarness(status.codex || {});
+            renderHermesHarness(status.hermes || {});
+            renderPiHarness(status.pi || {});
             if (stamp) stamp.textContent = 'Checked ' + new Date(status.generatedAt || Date.now()).toLocaleTimeString();
             const envEl = document.getElementById('envSyncStatus');
             const env = (status.claude && status.claude.env) || (status.codex && status.codex.env) || {};
@@ -1861,6 +1907,111 @@ export function renderLayout(
           saveCodexAgentConfig();
         }
 
+        async function saveHermesAgentConfig() {
+          const toggleEl = document.getElementById('hermesProxyToggle');
+          const modelEl = document.getElementById('hermesModelSelect');
+          const syncEl = document.getElementById('hermesSyncProfilesToggle');
+          const enabled = Boolean(toggleEl && toggleEl.checked);
+          const syncProfiles = syncEl ? Boolean(syncEl.checked) : true;
+          try {
+            const res = await fetch('/api/agents-proxy', {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                hermes: {
+                  enabled: enabled,
+                  model: (modelEl && modelEl.value) || 'local-router/fallback-models',
+                  syncProfiles: syncProfiles
+                }
+              })
+            });
+            const resData = await res.json();
+            if (!res.ok) throw new Error(resData && resData.error ? resData.error : 'Failed to save Hermes configuration');
+            agentProxyConfig = resData.config;
+            const warnings = Array.isArray(resData.warnings) ? resData.warnings.filter(Boolean) : [];
+            loadAgentHarnessStatus();
+            if (warnings.length > 0) {
+              setMessage(warnings.join(' '), 'error');
+              return false;
+            }
+            setMessage('Hermes configuration saved.', 'success');
+            loadAgentProxyConfig();
+            return true;
+          } catch (err) {
+            setMessage(err.message || String(err), 'error');
+            return false;
+          }
+        }
+
+        async function toggleHermesProxy() {
+          const toggleEl = document.getElementById('hermesProxyToggle');
+          const fieldsEl = document.getElementById('hermesConfigFields');
+          const enabled = Boolean(toggleEl && toggleEl.checked);
+          if (fieldsEl) fieldsEl.style.display = enabled ? 'block' : 'none';
+          const ok = await saveHermesAgentConfig();
+          if (!ok && toggleEl) {
+            toggleEl.checked = !enabled;
+            if (fieldsEl) fieldsEl.style.display = !enabled ? 'block' : 'none';
+          }
+        }
+
+        function resetHermesAgentConfigToDefault() {
+          const select = document.getElementById('hermesModelSelect');
+          if (select) select.value = 'local-router/fallback-models';
+          saveHermesAgentConfig();
+        }
+
+        async function savePiAgentConfig() {
+          const toggleEl = document.getElementById('piProxyToggle');
+          const modelEl = document.getElementById('piModelSelect');
+          const enabled = Boolean(toggleEl && toggleEl.checked);
+          try {
+            const res = await fetch('/api/agents-proxy', {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                pi: {
+                  enabled: enabled,
+                  model: (modelEl && modelEl.value) || 'local-router/fallback-models'
+                }
+              })
+            });
+            const resData = await res.json();
+            if (!res.ok) throw new Error(resData && resData.error ? resData.error : 'Failed to save pi configuration');
+            agentProxyConfig = resData.config;
+            const warnings = Array.isArray(resData.warnings) ? resData.warnings.filter(Boolean) : [];
+            loadAgentHarnessStatus();
+            if (warnings.length > 0) {
+              setMessage(warnings.join(' '), 'error');
+              return false;
+            }
+            setMessage('pi configuration saved.', 'success');
+            loadAgentProxyConfig();
+            return true;
+          } catch (err) {
+            setMessage(err.message || String(err), 'error');
+            return false;
+          }
+        }
+
+        async function togglePiProxy() {
+          const toggleEl = document.getElementById('piProxyToggle');
+          const fieldsEl = document.getElementById('piConfigFields');
+          const enabled = Boolean(toggleEl && toggleEl.checked);
+          if (fieldsEl) fieldsEl.style.display = enabled ? 'block' : 'none';
+          const ok = await savePiAgentConfig();
+          if (!ok && toggleEl) {
+            toggleEl.checked = !enabled;
+            if (fieldsEl) fieldsEl.style.display = !enabled ? 'block' : 'none';
+          }
+        }
+
+        function resetPiAgentConfigToDefault() {
+          const select = document.getElementById('piModelSelect');
+          if (select) select.value = 'local-router/fallback-models';
+          savePiAgentConfig();
+        }
+
         function updateActiveNavLinks() {
           const currentPath = window.location.pathname;
           document.querySelectorAll('.sidebar-nav .nav-link').forEach(function(link) {
@@ -1923,6 +2074,46 @@ export function renderLayout(
             fillAgentModelSelect(
               document.getElementById('codexModelSelect'),
               codex.model || 'local-router/fallback-models',
+              availableModels,
+              fallbackRoutes
+            );
+
+            const hermes = (agentProxyConfig && agentProxyConfig.hermes) || {};
+            const hermesEnabled = Boolean(hermes.enabled);
+            const hermesToggle = document.getElementById('hermesProxyToggle');
+            const hermesFields = document.getElementById('hermesConfigFields');
+            const hermesStatus = document.getElementById('hermesProxyStatus');
+            const hermesSync = document.getElementById('hermesSyncProfilesToggle');
+            if (hermesToggle) hermesToggle.checked = hermesEnabled;
+            if (hermesFields) hermesFields.style.display = hermesEnabled ? 'block' : 'none';
+            if (hermesSync) hermesSync.checked = hermes.syncProfiles !== false;
+            if (hermesStatus) {
+              hermesStatus.textContent = hermesEnabled
+                ? 'Provider active — ' + (hermes.model || 'local-router/fallback-models')
+                : 'Disabled';
+            }
+            fillAgentModelSelect(
+              document.getElementById('hermesModelSelect'),
+              hermes.model || 'local-router/fallback-models',
+              availableModels,
+              fallbackRoutes
+            );
+
+            const piCfg = (agentProxyConfig && agentProxyConfig.pi) || {};
+            const piEnabled = Boolean(piCfg.enabled);
+            const piToggle = document.getElementById('piProxyToggle');
+            const piFields = document.getElementById('piConfigFields');
+            const piStatus = document.getElementById('piProxyStatus');
+            if (piToggle) piToggle.checked = piEnabled;
+            if (piFields) piFields.style.display = piEnabled ? 'block' : 'none';
+            if (piStatus) {
+              piStatus.textContent = piEnabled
+                ? 'Provider active — ' + (piCfg.model || 'local-router/fallback-models')
+                : 'Disabled';
+            }
+            fillAgentModelSelect(
+              document.getElementById('piModelSelect'),
+              piCfg.model || 'local-router/fallback-models',
               availableModels,
               fallbackRoutes
             );
