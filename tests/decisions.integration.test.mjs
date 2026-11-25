@@ -210,10 +210,16 @@ test.before(async () => {
 });
 
 test.after(async () => {
-  serverProcess?.kill();
+  if (serverProcess && serverProcess.exitCode === null && serverProcess.signalCode === null) {
+    await new Promise((resolve) => {
+      const t = setTimeout(resolve, 2000);
+      serverProcess.once('exit', () => { clearTimeout(t); resolve(); });
+      serverProcess.kill();
+    });
+  }
   await new Promise((resolve) => openrouterServer?.close(resolve) ?? resolve());
   await new Promise((resolve) => zenmuxServer?.close(resolve) ?? resolve());
-  if (testHome) rmSync(testHome, { recursive: true, force: true });
+  if (testHome) rmSync(testHome, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
 });
 
 test.beforeEach(() => {

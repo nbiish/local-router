@@ -90,9 +90,15 @@ test.before(async () => {
 });
 
 test.after(async () => {
-  if (serverProcess && serverProcess.exitCode === null) serverProcess.kill('SIGTERM');
+  if (serverProcess && serverProcess.exitCode === null && serverProcess.signalCode === null) {
+    await new Promise((resolve) => {
+      const t = setTimeout(resolve, 2000);
+      serverProcess.once('exit', () => { clearTimeout(t); resolve(); });
+      serverProcess.kill('SIGTERM');
+    });
+  }
   if (versionUpstream) versionUpstream.close();
-  if (testHome) rmSync(testHome, { recursive: true, force: true });
+  if (testHome) rmSync(testHome, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
 });
 
 test('GET /api/version mirrors the backend ollama version', { skip: skipReason || undefined }, async () => {
