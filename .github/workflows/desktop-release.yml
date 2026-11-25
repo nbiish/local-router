@@ -78,7 +78,7 @@ jobs:
         with:
           tagName: v__VERSION__
           releaseName: "Local Router Desktop v__VERSION__"
-          releaseBody: "Native cross-platform desktop application with corner system tray controls, Ollama drop-in interception, and 19 model providers."
+          releaseBody: "Native cross-platform desktop application with corner system tray controls, Ollama drop-in interception, and 23 built-in model providers."
           releaseDraft: true
           prerelease: false
           args: ${{ matrix.platform.args }}

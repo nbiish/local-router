@@ -1,0 +1,84 @@
+name: Promote Website Production on Release
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to promote (leave empty to use latest published release)"
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+
+concurrency:
+  group: website-release-promotion
+  cancel-in-progress: false
+
+jobs:
+  update-production-branch:
+    name: Fast-Forward local-router production branch
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.resolve.outputs.tag }}
+      sha: ${{ steps.resolve.outputs.sha }}
+      release_url: ${{ steps.resolve.outputs.release_url }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve release tag and commit SHA
+        id: resolve
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EVENT_TAG: ${{ github.event.release.tag_name }}
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          TAG="${EVENT_TAG:-$INPUT_TAG}"
+          if [ -z "$TAG" ]; then
+            TAG=$(gh release view --repo "${GITHUB_REPOSITORY}" --json tagName --jq '.tagName')
+          fi
+          if [ -z "$TAG" ]; then
+            echo "ERROR: Could not resolve a published release tag." >&2
+            exit 1
+          fi
+          git fetch origin "refs/tags/${TAG}:refs/tags/${TAG}"
+          SHA=$(git rev-list -n 1 "refs/tags/${TAG}")
+          URL="https://github.com/${GITHUB_REPOSITORY}/releases/tag/${TAG}"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "sha=${SHA}" >> "$GITHUB_OUTPUT"
+          echo "release_url=${URL}" >> "$GITHUB_OUTPUT"
+          echo "Resolved ${TAG} -> ${SHA}"
+
+      - name: Update refs/heads/production to released commit
+        run: |
+          git push origin "${{ steps.resolve.outputs.sha }}:refs/heads/production"
+
+  dispatch-website-promotion:
+    name: Dispatch promotion to nbiish/local-router-dot-com
+    needs: update-production-branch
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger local-router-dot-com promote-production workflow
+        env:
+          WEBSITE_DISPATCH_TOKEN: ${{ secrets.WEBSITE_DISPATCH_TOKEN }}
+          RELEASE_TAG: ${{ needs.update-production-branch.outputs.tag }}
+          RELEASE_SHA: ${{ needs.update-production-branch.outputs.sha }}
+          RELEASE_URL: ${{ needs.update-production-branch.outputs.release_url }}
+        run: |
+          if [ -z "$WEBSITE_DISPATCH_TOKEN" ]; then
+            echo "ERROR: secrets.WEBSITE_DISPATCH_TOKEN is not set. Configure a fine-grained PAT with Contents: Read & Write scoped to nbiish/local-router-dot-com." >&2
+            exit 1
+          fi
+          curl --fail --silent --show-error -X POST \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer ${WEBSITE_DISPATCH_TOKEN}" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            https://api.github.com/repos/nbiish/local-router-dot-com/dispatches \
+            -d "$(jq -n --arg tag "$RELEASE_TAG" --arg sha "$RELEASE_SHA" --arg url "$RELEASE_URL" \
+              '{event_type:"local-router-release",client_payload:{tag:$tag,sha:$sha,release_url:$url}}')"
+          echo "Dispatched local-router-release (${RELEASE_TAG}) to nbiish/local-router-dot-com"
