@@ -108,7 +108,26 @@ export const INFERENCE_PATH_ALLOWLIST: readonly string[] = [
   '/api/version'     // ollama version handshake (client compatibility checks)
 ];
 
+/**
+ * Path shapes a public client never legitimately sends. The allowlist matches
+ * the raw (undecoded, unnormalized) path, and Express does not normalize
+ * either — so without this check `/v1/../api/router-settings` or
+ * `/v1/%2e%2e/api/router-settings` would satisfy the `/v1` entry. No route
+ * resolves to the admin surface from those strings today (and Cloudflare
+ * normalizes dot segments at the edge), but the gate must not depend on
+ * either fact. Defense in depth: any dot-segment, empty segment, backslash,
+ * NUL, or percent-encoded `.`, `/`, `\`, NUL → rejected before the allowlist.
+ */
+export function isSuspiciousPath(rawPath: unknown): boolean {
+  const pathname = String(rawPath ?? '').split('?')[0];
+  if (pathname.includes('\\') || pathname.includes('\0')) return true;
+  if (/%(2e|2f|5c|00)/i.test(pathname)) return true;
+  if (pathname.includes('//')) return true;
+  return pathname.split('/').some((segment) => segment === '.' || segment === '..');
+}
+
 export function isInferenceAllowlistPath(rawPath: unknown): boolean {
+  if (isSuspiciousPath(rawPath)) return false;
   const pathname = String(rawPath ?? '').split('?')[0];
   for (const entry of INFERENCE_PATH_ALLOWLIST) {
     if (pathname === entry || pathname.startsWith(`${entry}/`)) return true;

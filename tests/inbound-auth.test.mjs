@@ -11,6 +11,7 @@ import {
   inboundUpgradeRejectionResponse,
   isLoopbackAddress,
   isInferenceAllowlistPath,
+  isSuspiciousPath,
   loopbackAllowedOrigins,
   noteVaultAccessKey,
   timingSafeKeyMatch
@@ -267,4 +268,45 @@ test('upgrade rejection response is a fixed, non-reflective HTTP/1.1 document', 
   assert.ok(raw403.startsWith('HTTP/1.1 403 Forbidden\r\n'));
   const raw503 = inboundUpgradeRejectionResponse(503, 'access key not configured');
   assert.ok(raw503.startsWith('HTTP/1.1 503 Service Unavailable\r\n'));
+});
+
+// Defense in depth (reviewer hardening, 2026-11-25): the allowlist matches the
+// raw path, so traversal-shaped and encoded-separator paths must be refused
+// outright for public requests instead of relying on Express routing and
+// Cloudflare normalization to make them harmless.
+test('dot-segment, encoded-separator, and malformed paths are refused for public requests', () => {
+  const key = 'correct horse battery staple';
+  process.env[ACCESS_KEY_ENV_VAR] = key;
+  try {
+    const refused = [
+      '/v1/../api/router-settings',
+      '/v1/./models',
+      '/api/show/../../router-settings',
+      '/v1//models',
+      '//v1/models',
+      '/v1/%2e%2e/api/router-settings',
+      '/v1/%2E%2E/api/router-settings',
+      '/v1%2f..%2fapi%2frouter-settings',
+      '/v1/models%00',
+      '/v1\\..\\api\\router-settings',
+      '/v1/%5c..%5capi%5crouter-settings'
+    ];
+    for (const p of refused) {
+      assert.equal(isSuspiciousPath(p), true, `suspicious: ${p}`);
+      assert.equal(isInferenceAllowlistPath(p), false, `allowlist: ${p}`);
+      const verdict = evaluateInboundAccess(
+        reqOf({ cf: '203.0.113.9', path: p, headers: { authorization: `Bearer ${key}` } })
+      );
+      assert.deepEqual(verdict, { allow: false, status: 403, body: 'local access only' }, `verdict: ${p}`);
+    }
+    // A traversal-shaped path is still fine from loopback: loopback is never gated.
+    assert.equal(evaluateInboundAccess(reqOf({ path: '/v1/../api/router-settings' })).allow, true);
+    // Ordinary inference paths are untouched by the hardening.
+    for (const p of ['/v1/chat/completions', '/v1/models?provider=zai', '/api/show/mistral:7b', '/v1/messages']) {
+      assert.equal(isSuspiciousPath(p), false, `clean: ${p}`);
+      assert.equal(isInferenceAllowlistPath(p), true, `clean allowlist: ${p}`);
+    }
+  } finally {
+    delete process.env[ACCESS_KEY_ENV_VAR];
+  }
 });
