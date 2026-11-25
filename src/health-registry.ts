@@ -164,7 +164,12 @@ class FallbackHealthRegistry {
    * evidence the failing response carried. Pure delegation to `decideCooldown`
    * so the rule table stays in one reviewable place.
    */
-  private cooldownFor(input: HealthOutcomeInput, errorType: string): { ms: number; reason: string; inferred: boolean } {
+  private cooldownFor(input: HealthOutcomeInput, errorType: string): {
+    ms: number;
+    reason: string;
+    inferred: boolean;
+    source: 'header' | 'body-hint' | 'window' | 'default';
+  } {
     const policy = input.policy
       || (input.provider ? usagePolicyFor(input.provider) : undefined);
     const decision = decideCooldown({
@@ -183,7 +188,8 @@ class FallbackHealthRegistry {
     return {
       ms,
       reason: permanent ? `permanent: ${decision.reason}` : decision.reason,
-      inferred: decision.evidence.inferred
+      inferred: decision.evidence.inferred,
+      source: decision.evidence.source
     };
   }
 
@@ -304,10 +310,15 @@ class FallbackHealthRegistry {
 
     const errorClass = errorClassFor(errorType);
     const permanent = errorType === 'upstream_route_not_found' || errorType === 'upstream_model_not_found';
-    if (IMMEDIATE_QUARANTINE_CLASSES.has(errorClass) || permanent) {
-      // One strike: retrying a rejected key, an empty balance, or a route that
-      // does not exist cannot heal on the next attempt.
-      const cooldown = this.cooldownFor(input, errorType);
+    const cooldown = this.cooldownFor(input, errorType);
+    // Self-healing immediate park: auth/funds/404, explicit quota exhaustion,
+    // or any rate-limit carrying a published reset header or subscription window
+    // exhaustion parks on strike 1 so multi-turn agent conversations route around
+    // exhausted members immediately instead of burning 3 consecutive turns.
+    const immediateUsagePark = errorType === 'upstream_http_quota'
+      || cooldown.source === 'header'
+      || cooldown.source === 'window';
+    if (IMMEDIATE_QUARANTINE_CLASSES.has(errorClass) || permanent || immediateUsagePark) {
       state.consecutiveFailures = 0;
       state.quarantineUntil = now + cooldown.ms;
       state.quarantineErrorType = errorType;
@@ -318,7 +329,6 @@ class FallbackHealthRegistry {
 
     state.consecutiveFailures += 1;
     if (state.consecutiveFailures >= STRIKES_BEFORE_RETRYABLE_QUARANTINE) {
-      const cooldown = this.cooldownFor(input, errorType);
       state.quarantineUntil = now + cooldown.ms;
       state.quarantineErrorType = errorType;
       state.quarantineReason = cooldown.reason;
@@ -596,6 +606,32 @@ export function healthStatePath(): string {
   const configDir = process.env.LOCAL_ROUTER_CONFIG_DIR
     || path.join(os.homedir(), '.config', 'local-router');
   return path.join(configDir, 'quarantine-state.json');
+}
+
+/**
+ * Select eligible quarantined members for the §4.2 last-pass recovery attempt.
+ *
+ * Filters strictly to `eligibleActiveModels` (respecting operator disabledModels,
+ * context window, and multimodal capability for this request) excluding models
+ * already attempted in the same request, then orders by earliest-expiring cooldown
+ * (`until` ascending, tie-breaking by original chain order) so the member closest
+ * to healing is tried first.
+ */
+export function selectForcedLastPassMembers(
+  quarantined: QuarantinedMember[],
+  eligibleActiveModels: string[],
+  attemptedModels: Set<string>
+): QuarantinedMember[] {
+  const rank = new Map<string, number>();
+  eligibleActiveModels.forEach((model, idx) => {
+    if (!rank.has(model)) rank.set(model, idx);
+  });
+  return quarantined
+    .filter((member) => rank.has(member.model) && !attemptedModels.has(member.model))
+    .sort((a, b) => {
+      if (a.until !== b.until) return a.until - b.until;
+      return (rank.get(a.model) ?? 0) - (rank.get(b.model) ?? 0);
+    });
 }
 
 export const healthRegistry = new FallbackHealthRegistry();
