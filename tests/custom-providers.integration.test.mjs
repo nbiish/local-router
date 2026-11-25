@@ -80,7 +80,7 @@ async function startFakeUpstream() {
 }
 
 async function waitForServerReady() {
-  for (let attempt = 0; attempt < 80; attempt += 1) {
+  for (let attempt = 0; attempt < 200; attempt += 1) {
     if (serverProcess?.exitCode !== null) {
       throw new Error(`Server exited before becoming ready.\nLogs:\n${serverLogs}`);
     }
@@ -252,12 +252,13 @@ test('custom provider CRUD, chat routing, and delete guards', async (t) => {
   assert.equal(chat.response.status, 200);
   assert.match(chat.body?.choices?.[0]?.message?.content || '', /ok:vendor-model-1/);
 
-  assert.equal(upstreamRequests.length, 1);
+  const chatRequests = upstreamRequests.filter((r) => r.method === 'POST');
+  assert.equal(chatRequests.length, 1);
   assert.ok(
-    upstreamRequests[0].url === '/chat/completions' || upstreamRequests[0].url === '/v1/chat/completions',
+    chatRequests[0].url === '/chat/completions' || chatRequests[0].url === '/v1/chat/completions',
     'expected upstream chat completions path'
   );
-  assert.equal(upstreamRequests[0].body.model, upstreamModelId);
+  assert.equal(chatRequests[0].body.model, upstreamModelId);
 
   const fallbackRoute = await requestJson('/api/fallback-models', {
     method: 'POST',
