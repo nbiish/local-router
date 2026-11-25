@@ -29,7 +29,7 @@ export function renderAgentsPage(params: {
             <button class="button-secondary" id="claudeProbeBtn" onclick="verifyHarness('claude')" style="padding:4px 12px;">Verify messages</button>
           </div>
 
-          <div class="harness-row" style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding:12px 14px;border:1px solid var(--border);border-radius:8px;background:var(--surface-soft);">
+          <div class="harness-row" style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding:12px 14px;border:1px solid var(--border);border-radius:8px;background:var(--surface-soft);margin-bottom:10px;">
             <div style="min-width:200px;">
               <strong>Codex CLI</strong>
               <div class="muted" style="font-size:12px;"><code>codex</code> &rarr; <code>POST /v1/responses</code></div>
@@ -39,6 +39,30 @@ export function renderAgentsPage(params: {
             <div style="font-size:12px;"><span class="muted">Config</span> <span id="codexConfigState">checking&hellip;</span></div>
             <div style="font-size:12px;flex:1;min-width:180px;" id="codexProbeState"><span class="muted">Not probed yet</span></div>
             <button class="button-secondary" id="codexProbeBtn" onclick="verifyHarness('codex')" style="padding:4px 12px;">Verify responses</button>
+          </div>
+
+          <div class="harness-row" style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding:12px 14px;border:1px solid var(--border);border-radius:8px;background:var(--surface-soft);margin-bottom:10px;">
+            <div style="min-width:200px;">
+              <strong>Hermes Agent</strong>
+              <div class="muted" style="font-size:12px;"><code>hermes</code> &rarr; <code>POST /v1/chat/completions</code></div>
+            </div>
+            <div style="font-size:12px;"><span class="muted">CLI</span> <span id="hermesCliState">checking&hellip;</span></div>
+            <div style="font-size:12px;"><span class="muted">Interception</span> <span id="hermesInterceptState">checking&hellip;</span></div>
+            <div style="font-size:12px;"><span class="muted">Config</span> <span id="hermesConfigState">checking&hellip;</span></div>
+            <div style="font-size:12px;flex:1;min-width:180px;" id="hermesProbeState"><span class="muted">Not probed yet</span></div>
+            <button class="button-secondary" id="hermesProbeBtn" onclick="verifyHarness('hermes')" style="padding:4px 12px;">Verify chat</button>
+          </div>
+
+          <div class="harness-row" style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding:12px 14px;border:1px solid var(--border);border-radius:8px;background:var(--surface-soft);">
+            <div style="min-width:200px;">
+              <strong>pi CLI</strong>
+              <div class="muted" style="font-size:12px;"><code>pi</code> &rarr; <code>POST /v1/chat/completions</code></div>
+            </div>
+            <div style="font-size:12px;"><span class="muted">CLI</span> <span id="piCliState">checking&hellip;</span></div>
+            <div style="font-size:12px;"><span class="muted">Interception</span> <span id="piInterceptState">checking&hellip;</span></div>
+            <div style="font-size:12px;"><span class="muted">Config</span> <span id="piConfigState">checking&hellip;</span></div>
+            <div style="font-size:12px;flex:1;min-width:180px;" id="piProbeState"><span class="muted">Not probed yet</span></div>
+            <button class="button-secondary" id="piProbeBtn" onclick="verifyHarness('pi')" style="padding:4px 12px;">Verify chat</button>
           </div>
         </div>
         <p class="muted" style="font-size:12px;margin:10px 0 0;line-height:1.5;">
@@ -180,6 +204,80 @@ export function renderAgentsPage(params: {
             <button onclick="saveCodexAgentConfig()">Save Codex Configuration</button>
             <button class="button-secondary" onclick="resetCodexAgentConfigToDefault()">Reset to System Fallback Chain</button>
             <button class="button-secondary" id="codexTestBtn" onclick="verifyHarness('codex')">Test Responses Endpoint</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="catalog-meta">
+          <div>
+            <h2>Hermes Agent Interception</h2>
+            <p class="muted">
+              Register Local Router inside Hermes Agent&apos;s <code>config.yaml</code> (and optionally sync all
+              <code>context-*</code> and <code>consolidate-*</code> profiles to route through port 11434).
+            </p>
+          </div>
+          <div class="muted" id="hermesProxyStatus">Not checked</div>
+        </div>
+        <div style="margin-top:14px;">
+          <label style="display:inline-flex;align-items:center;gap:10px;font-weight:bold;cursor:pointer;font-size:15px;">
+            <input type="checkbox" id="hermesProxyToggle" onchange="toggleHermesProxy()" style="width:18px;height:18px;">
+            Enable Hermes Local Router provider wiring
+          </label>
+        </div>
+        <div id="hermesConfigFields" style="margin-top:16px; display:none;">
+          <div class="form-group" style="background:var(--surface-soft);padding:14px;border:1px solid var(--border);border-radius:8px;max-width:520px;">
+            <label for="hermesModelSelect">Model for Hermes Local Router provider</label>
+            <p class="muted" style="font-size:12px;margin:2px 0 8px;">
+              Written into <code>providers.local-router</code> in Hermes <code>config.yaml</code> and context profiles.
+            </p>
+            <select id="hermesModelSelect" class="agent-model-select" onchange="saveHermesAgentConfig()">
+              <option value="">Loading models...</option>
+            </select>
+            <label style="display:inline-flex;align-items:center;gap:8px;margin-top:10px;font-size:13px;cursor:pointer;">
+              <input type="checkbox" id="hermesSyncProfilesToggle" onchange="saveHermesAgentConfig()" checked>
+              Sync <code>context-*</code> &amp; <code>consolidate-*</code> profiles automatically
+            </label>
+          </div>
+          <div class="button-row" style="margin-top:16px;">
+            <button onclick="saveHermesAgentConfig()">Save Hermes Configuration</button>
+            <button class="button-secondary" onclick="resetHermesAgentConfigToDefault()">Reset to System Fallback Chain</button>
+            <button class="button-secondary" id="hermesTestBtn" onclick="verifyHarness('hermes')">Test Chat Endpoint</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="catalog-meta">
+          <div>
+            <h2>pi CLI Interception</h2>
+            <p class="muted">
+              Manage the <code>local-router</code> provider inside <code>~/.pi/agent/models.json</code> so
+              <code>pi --model local-router/fallback-models</code> resolves cleanly on every host.
+            </p>
+          </div>
+          <div class="muted" id="piProxyStatus">Not checked</div>
+        </div>
+        <div style="margin-top:14px;">
+          <label style="display:inline-flex;align-items:center;gap:10px;font-weight:bold;cursor:pointer;font-size:15px;">
+            <input type="checkbox" id="piProxyToggle" onchange="togglePiProxy()" style="width:18px;height:18px;">
+            Enable pi CLI Local Router provider
+          </label>
+        </div>
+        <div id="piConfigFields" style="margin-top:16px; display:none;">
+          <div class="form-group" style="background:var(--surface-soft);padding:14px;border:1px solid var(--border);border-radius:8px;max-width:520px;">
+            <label for="piModelSelect">Default model for pi Local Router provider</label>
+            <p class="muted" style="font-size:12px;margin:2px 0 8px;">
+              Written into <code>providers[&quot;local-router&quot;]</code> in <code>~/.pi/agent/models.json</code>.
+            </p>
+            <select id="piModelSelect" class="agent-model-select" onchange="savePiAgentConfig()">
+              <option value="">Loading models...</option>
+            </select>
+          </div>
+          <div class="button-row" style="margin-top:16px;">
+            <button onclick="savePiAgentConfig()">Save pi Configuration</button>
+            <button class="button-secondary" onclick="resetPiAgentConfigToDefault()">Reset to System Fallback Chain</button>
+            <button class="button-secondary" id="piTestBtn" onclick="verifyHarness('pi')">Test Chat Endpoint</button>
           </div>
         </div>
       </div>

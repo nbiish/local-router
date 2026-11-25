@@ -170,12 +170,26 @@ export type CodexHarnessConfig = {
   model: string;
 };
 
+export type HermesHarnessConfig = {
+  enabled: boolean;
+  model: string;
+  /** Keep context-* and consolidate-* profiles pointed at Local Router. */
+  syncProfiles: boolean;
+};
+
+export type PiHarnessConfig = {
+  enabled: boolean;
+  model: string;
+};
+
 export type AgentProxyConfig = {
   claudeCode: {
     enabled: boolean;
     models: ClaudeModelSlotMappings;
   };
   codex: CodexHarnessConfig;
+  hermes?: HermesHarnessConfig;
+  pi?: PiHarnessConfig;
 };
 
 export const DEFAULT_AGENT_PROXY_CONFIG: AgentProxyConfig = {
@@ -192,6 +206,15 @@ export const DEFAULT_AGENT_PROXY_CONFIG: AgentProxyConfig = {
   codex: {
     enabled: false,
     model: 'local-router/fallback-models'
+  },
+  hermes: {
+    enabled: false,
+    model: 'local-router/fallback-models',
+    syncProfiles: true
+  },
+  pi: {
+    enabled: false,
+    model: 'local-router/fallback-models'
   }
 };
 
@@ -204,6 +227,8 @@ export function loadAgentProxyConfig(): AgentProxyConfig {
     const parsed = JSON.parse(raw);
     const claude = parsed?.claudeCode;
     const codex = parsed?.codex;
+    const hermes = parsed?.hermes;
+    const piCfg = parsed?.pi;
     return {
       claudeCode: {
         enabled: Boolean(claude?.enabled),
@@ -220,6 +245,19 @@ export function loadAgentProxyConfig(): AgentProxyConfig {
         model: typeof codex?.model === 'string' && codex.model.trim()
           ? codex.model.trim()
           : DEFAULT_AGENT_PROXY_CONFIG.codex.model
+      },
+      hermes: {
+        enabled: Boolean(hermes?.enabled),
+        model: typeof hermes?.model === 'string' && hermes.model.trim()
+          ? hermes.model.trim()
+          : (DEFAULT_AGENT_PROXY_CONFIG.hermes?.model || 'local-router/fallback-models'),
+        syncProfiles: hermes?.syncProfiles !== undefined ? Boolean(hermes.syncProfiles) : true
+      },
+      pi: {
+        enabled: Boolean(piCfg?.enabled),
+        model: typeof piCfg?.model === 'string' && piCfg.model.trim()
+          ? piCfg.model.trim()
+          : (DEFAULT_AGENT_PROXY_CONFIG.pi?.model || 'local-router/fallback-models')
       }
     };
   } catch (error) {

@@ -91,9 +91,33 @@ async function main() {
     { fatal: Boolean(config.codex?.enabled) }
   ));
 
+  const hermesConfig = status.hermes.config;
+  const ctxProfiles = Array.isArray(hermesConfig.profiles)
+    ? hermesConfig.profiles.filter((p) => p.isContextProfile)
+    : [];
+  const wiredCtx = ctxProfiles.filter((p) => p.providerPresent).length;
+  checks.push(check('hermes.cli', 'Hermes CLI', status.hermes.cli.found, status.hermes.cli.path || 'not on PATH'));
+  checks.push(check(
+    'hermes.config',
+    'Hermes provider + ctx',
+    config.hermes?.enabled ? hermesConfig.providerPresent : true,
+    `${hermesConfig.providerPresent ? 'present' : 'missing'}${ctxProfiles.length ? ` (${wiredCtx}/${ctxProfiles.length} ctx profiles)` : ' (0 ctx profiles)'}`,
+    { fatal: Boolean(config.hermes?.enabled) }
+  ));
+
+  const piConfig = status.pi.config;
+  checks.push(check('pi.cli', 'pi CLI', status.pi.cli.found, status.pi.cli.path || 'not on PATH'));
+  checks.push(check(
+    'pi.config',
+    'pi models.json provider',
+    config.pi?.enabled ? piConfig.providerState === 'present' : true,
+    `${piConfig.providerState}${piConfig.models.length ? ` (${piConfig.models.join(', ')})` : ''}`,
+    { fatal: Boolean(config.pi?.enabled) }
+  ));
+
   const verifications = [];
   if (options.verify) {
-    for (const harness of ['claude', 'codex']) {
+    for (const harness of ['claude', 'codex', 'hermes', 'pi']) {
       const result = await modules.status.verifyAgentHarness(harness, config, { baseUrl });
       verifications.push(result);
       checks.push(check(`${harness}.roundtrip`, `${harness} round trip`, result.ok, result.detail + (result.error ? ` — ${result.error}` : ''), {

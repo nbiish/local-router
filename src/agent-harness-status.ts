@@ -4,16 +4,20 @@ import os from 'node:os';
 import type { AgentProxyConfig } from './config-persistence';
 import { agentHarnessEnv, readShellExport } from './agent-env-sync';
 import { readCodexHarnessState, type CodexHarnessState } from './agent-codex-config';
+import { readHermesHarnessState, type HermesHarnessState } from './agent-hermes-config';
+import { readPiHarnessState, type PiHarnessState } from './agent-pi-config';
 
 /**
  * Read-only harness readiness + on-demand round-trip verification for the
  * Agents page.
  *
- * Readiness is free: it only inspects PATH, the managed env file, and the
- * Codex config files. Verification is an explicit 1-token request through the
- * real fallback chain, so it proves the wire path for the exact shape each
- * harness speaks (Anthropic Messages / OpenAI Responses).
+ * Readiness is free: it only inspects PATH, the managed env file, Codex
+ * files, Hermes config/profiles, and `pi` models.json. Verification is an
+ * explicit 1-token request through the real fallback chain, so it proves the
+ * wire path for the exact shape each harness speaks.
  */
+
+export type AgentHarnessName = 'claude' | 'codex' | 'hermes' | 'pi';
 
 export type HarnessCliInfo = {
   command: string;
@@ -45,10 +49,22 @@ export type AgentHarnessStatus = {
     config: CodexHarnessState;
     launchCommand: string;
   };
+  hermes: {
+    cli: HarnessCliInfo;
+    interception: { enabled: boolean; model: string; syncProfiles: boolean };
+    config: HermesHarnessState;
+    launchCommand: string;
+  };
+  pi: {
+    cli: HarnessCliInfo;
+    interception: { enabled: boolean; model: string };
+    config: PiHarnessState;
+    launchCommand: string;
+  };
 };
 
 export type HarnessVerifyResult = {
-  harness: 'claude' | 'codex';
+  harness: AgentHarnessName;
   ok: boolean;
   status: number | null;
   latencyMs: number;
@@ -109,6 +125,10 @@ export function harnessSearchDirs(opts?: { command?: string; extraDirs?: string[
     if (process.env.LOCALAPPDATA) {
       push(path.join(process.env.LOCALAPPDATA, 'Programs', 'OpenAI', 'Codex', 'bin'));
       push(path.join(process.env.LOCALAPPDATA, 'Programs', 'OpenAI', 'Codex', 'current', 'bin'));
+      push(path.join(process.env.LOCALAPPDATA, 'hermes', 'bin'));
+    }
+    if (process.env.APPDATA) {
+      push(path.join(process.env.APPDATA, 'npm'));
     }
   }
   if ((opts?.command || '') === 'codex') {
@@ -176,7 +196,13 @@ function envInfo(homeDir: string | undefined, baseUrl: string): HarnessEnvInfo {
 
 export function collectAgentHarnessStatus(
   config: AgentProxyConfig,
-  opts?: { homeDir?: string; baseUrl?: string; cli?: { claude?: HarnessCliInfo; codex?: HarnessCliInfo } }
+  opts?: {
+    homeDir?: string;
+    hermesHome?: string;
+    piAgentDir?: string;
+    baseUrl?: string;
+    cli?: { claude?: HarnessCliInfo; codex?: HarnessCliInfo; hermes?: HarnessCliInfo; pi?: HarnessCliInfo };
+  }
 ): AgentHarnessStatus {
   const homeDir = opts?.homeDir || os.homedir();
   const baseUrl = (opts?.baseUrl || `http://127.0.0.1:${process.env.PORT || '11434'}`).replace(/\/+$/, '');
@@ -184,6 +210,16 @@ export function collectAgentHarnessStatus(
   const codexHome = opts?.homeDir && !process.env.CODEX_HOME
     ? path.join(opts.homeDir, '.codex')
     : undefined;
+  const hermesHome = opts?.hermesHome || (opts?.homeDir && !process.env.HERMES_HOME
+    ? (process.platform === 'win32'
+        ? path.join(opts.homeDir, 'AppData', 'Local', 'hermes')
+        : path.join(opts.homeDir, '.hermes'))
+    : undefined);
+  const piDir = opts?.piAgentDir || (opts?.homeDir && !process.env.PI_CODING_AGENT_DIR
+    ? path.join(opts.homeDir, '.pi', 'agent')
+    : undefined);
+  const hermesCfg = config.hermes || { enabled: false, model: 'local-router/fallback-models', syncProfiles: true };
+  const piCfg = config.pi || { enabled: false, model: 'local-router/fallback-models' };
 
   return {
     generatedAt: new Date().toISOString(),
@@ -203,6 +239,25 @@ export function collectAgentHarnessStatus(
       env,
       config: readCodexHarnessState({ codexHome }),
       launchCommand: 'codex --profile local-router'
+    },
+    hermes: {
+      cli: opts?.cli?.hermes || findHarnessCli('hermes'),
+      interception: {
+        enabled: Boolean(hermesCfg.enabled),
+        model: String(hermesCfg.model || 'local-router/fallback-models'),
+        syncProfiles: hermesCfg.syncProfiles !== false
+      },
+      config: readHermesHarnessState({ hermesHome, baseUrl }),
+      launchCommand: 'hermes --provider local-router -m local-router/fallback-models'
+    },
+    pi: {
+      cli: opts?.cli?.pi || findHarnessCli('pi'),
+      interception: {
+        enabled: Boolean(piCfg.enabled),
+        model: String(piCfg.model || 'local-router/fallback-models')
+      },
+      config: readPiHarnessState({ piAgentDir: piDir, baseUrl }),
+      launchCommand: `pi --model ${String(piCfg.model || 'local-router/fallback-models')}`
     }
   };
 }
@@ -215,9 +270,17 @@ function sanitizeBody(text: string, limit = 400): string {
     .slice(0, limit);
 }
 
-function verifyModelFor(harness: 'claude' | 'codex', config: AgentProxyConfig): string {
+function verifyModelFor(harness: AgentHarnessName, config: AgentProxyConfig): string {
   if (harness === 'codex') {
     const model = String(config.codex?.model || '').trim();
+    return model || 'local-router/fallback-models';
+  }
+  if (harness === 'hermes') {
+    const model = String(config.hermes?.model || '').trim();
+    return model || 'local-router/fallback-models';
+  }
+  if (harness === 'pi') {
+    const model = String(config.pi?.model || '').trim();
     return model || 'local-router/fallback-models';
   }
   // With interception off there is no slot to exercise, so probe the loopback
@@ -230,7 +293,7 @@ function verifyModelFor(harness: 'claude' | 'codex', config: AgentProxyConfig): 
 }
 
 export async function verifyAgentHarness(
-  harness: 'claude' | 'codex',
+  harness: AgentHarnessName,
   config: AgentProxyConfig,
   opts?: { baseUrl?: string; timeoutMs?: number }
 ): Promise<HarnessVerifyResult> {
@@ -250,16 +313,27 @@ export async function verifyAgentHarness(
           messages: [{ role: 'user', content: 'Reply with OK.' }]
         }
       }
-    : {
-        path: '/v1/responses',
-        headers: { 'x-local-router-client': 'codex' },
-        body: {
-          model: requestedModel,
-          input: 'Reply with OK.',
-          max_output_tokens: 16,
-          stream: false
+    : harness === 'codex'
+      ? {
+          path: '/v1/responses',
+          headers: { 'x-local-router-client': 'codex' },
+          body: {
+            model: requestedModel,
+            input: 'Reply with OK.',
+            max_output_tokens: 16,
+            stream: false
+          }
         }
-      };
+      : {
+          path: '/v1/chat/completions',
+          headers: { 'x-local-router-client': harness },
+          body: {
+            model: requestedModel,
+            max_tokens: 16,
+            stream: false,
+            messages: [{ role: 'user', content: 'Reply with OK.' }]
+          }
+        };
 
   try {
     const response = await fetch(`${baseUrl}${request.path}`, {
@@ -292,7 +366,15 @@ export async function verifyAgentHarness(
 
     const shapeOk = harness === 'claude'
       ? Boolean(payload && payload.type === 'message' && Array.isArray(payload.content))
-      : Boolean(payload && payload.object === 'response' && Array.isArray(payload.output));
+      : harness === 'codex'
+        ? Boolean(payload && payload.object === 'response' && Array.isArray(payload.output))
+        : Boolean(payload && Array.isArray(payload.choices) && payload.choices.length > 0);
+
+    const wireName = harness === 'claude'
+      ? 'Anthropic Messages'
+      : harness === 'codex'
+        ? 'OpenAI Responses'
+        : 'OpenAI Chat Completions';
 
     return {
       harness,
@@ -302,8 +384,8 @@ export async function verifyAgentHarness(
       requestedModel,
       checkedAt,
       detail: shapeOk
-        ? `${harness === 'claude' ? 'Anthropic Messages' : 'OpenAI Responses'} round-trip OK in ${latencyMs} ms (model ${requestedModel})`
-        : `${request.path} answered 200 but the ${harness === 'claude' ? 'message' : 'response'} envelope was not recognised`,
+        ? `${wireName} round-trip OK in ${latencyMs} ms (model ${requestedModel})`
+        : `${request.path} answered 200 but the ${wireName} envelope was not recognised`,
       ...(shapeOk ? {} : { error: sanitizeBody(text || 'empty response') })
     };
   } catch (error: any) {

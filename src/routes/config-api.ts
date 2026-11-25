@@ -46,7 +46,9 @@ import {
 } from '../config-persistence';
 import { syncSystemAgentEnv, agentHarnessEnv } from '../agent-env-sync';
 import { syncCodexHarnessConfig } from '../agent-codex-config';
-import { collectAgentHarnessStatus, verifyAgentHarness } from '../agent-harness-status';
+import { syncHermesHarnessConfig } from '../agent-hermes-config';
+import { syncPiHarnessConfig } from '../agent-pi-config';
+import { collectAgentHarnessStatus, verifyAgentHarness, type AgentHarnessName } from '../agent-harness-status';
 import { getExpertLogs, importExpertLogs, clearExpertLogs, analyzeLogs } from '../expert-logs';
 import {
   listTrajectorySummaries,
@@ -2130,14 +2132,43 @@ app.put('/api/wafer-config', (req: Request, res: Response) => {
 
 
 // ── Agent Proxy Config API ─────────────────────────────────────────────────
-// Two harnesses, one contract:
+// Four harnesses, one contract:
 //   Claude Code — model remapping on /v1/messages + Anthropic client env.
 //   Codex CLI   — managed provider/profile files + OpenAI client env.
+//   Hermes      — config.yaml + context/consolidate profile provider wiring.
+//   pi CLI      — ~/.pi/agent/models.json local-router provider wiring.
 // Saving reconciles the on-disk wiring, and the status/verify endpoints let
 // the page prove the loopback path instead of guessing.
 
 function agentHarnessBaseUrl(): string {
   return `http://127.0.0.1:${PORT}`;
+}
+
+function validateHarnessModelUpdate(
+  name: string,
+  incoming: any,
+  target: { enabled: boolean; model: string }
+): string | null {
+  if (!incoming || typeof incoming !== 'object') {
+    return `${name} must be an object.`;
+  }
+  if (incoming.enabled !== undefined && typeof incoming.enabled !== 'boolean') {
+    return `${name}.enabled must be a boolean.`;
+  }
+  if (incoming.model !== undefined) {
+    if (typeof incoming.model !== 'string') {
+      return `${name}.model must be a string.`;
+    }
+    const model = incoming.model.trim();
+    if (!model || model.length > 200 || /[\r\n]/.test(model)) {
+      return `${name}.model must be a single non-empty model id (200 chars max).`;
+    }
+    target.model = model;
+  }
+  if (typeof incoming.enabled === 'boolean') {
+    target.enabled = incoming.enabled;
+  }
+  return null;
 }
 
 function applyAgentHarnessState(config: AgentProxyConfig) {
@@ -2151,7 +2182,18 @@ function applyAgentHarnessState(config: AgentProxyConfig) {
     model: String(config.codex?.model || ''),
     baseUrl
   });
-  return { env, codex };
+  const hermes = syncHermesHarnessConfig({
+    enabled: Boolean(config.hermes?.enabled),
+    model: String(config.hermes?.model || 'local-router/fallback-models'),
+    syncProfiles: config.hermes?.syncProfiles !== false,
+    baseUrl
+  });
+  const pi = syncPiHarnessConfig({
+    enabled: Boolean(config.pi?.enabled),
+    model: String(config.pi?.model || 'local-router/fallback-models'),
+    baseUrl
+  });
+  return { env, codex, hermes, pi };
 }
 
 app.get('/api/agents-proxy', (req: Request, res: Response) => {
@@ -2202,35 +2244,45 @@ app.put('/api/agents-proxy', (req: Request, res: Response) => {
   }
 
   if (incoming.codex !== undefined) {
-    if (!incoming.codex || typeof incoming.codex !== 'object') {
-      return res.status(400).json({ error: 'codex must be an object.' });
-    }
-    if (incoming.codex.enabled !== undefined && typeof incoming.codex.enabled !== 'boolean') {
-      return res.status(400).json({ error: 'codex.enabled must be a boolean.' });
-    }
-    if (incoming.codex.model !== undefined) {
-      if (typeof incoming.codex.model !== 'string') {
-        return res.status(400).json({ error: 'codex.model must be a string.' });
+    const err = validateHarnessModelUpdate('codex', incoming.codex, current.codex);
+    if (err) return res.status(400).json({ error: err });
+  }
+
+  if (incoming.hermes !== undefined) {
+    const hermesTarget = current.hermes || { enabled: false, model: 'local-router/fallback-models', syncProfiles: true };
+    const err = validateHarnessModelUpdate('hermes', incoming.hermes, hermesTarget);
+    if (err) return res.status(400).json({ error: err });
+    if (incoming.hermes.syncProfiles !== undefined) {
+      if (typeof incoming.hermes.syncProfiles !== 'boolean') {
+        return res.status(400).json({ error: 'hermes.syncProfiles must be a boolean.' });
       }
-      const model = incoming.codex.model.trim();
-      if (!model || model.length > 200 || /[\r\n]/.test(model)) {
-        return res.status(400).json({ error: 'codex.model must be a single non-empty model id (200 chars max).' });
-      }
-      current.codex.model = model;
+      hermesTarget.syncProfiles = incoming.hermes.syncProfiles;
     }
-    if (typeof incoming.codex.enabled === 'boolean') {
-      current.codex.enabled = incoming.codex.enabled;
-    }
+    current.hermes = hermesTarget;
+  }
+
+  if (incoming.pi !== undefined) {
+    const piTarget = current.pi || { enabled: false, model: 'local-router/fallback-models' };
+    const err = validateHarnessModelUpdate('pi', incoming.pi, piTarget);
+    if (err) return res.status(400).json({ error: err });
+    current.pi = piTarget;
   }
 
   saveAgentProxyConfig(current);
   if (deps.agentProxyConfig) {
     deps.agentProxyConfig.claudeCode = current.claudeCode;
     deps.agentProxyConfig.codex = current.codex;
+    deps.agentProxyConfig.hermes = current.hermes;
+    deps.agentProxyConfig.pi = current.pi;
   }
 
   const applied = applyAgentHarnessState(current);
-  const errors = [applied.env.ok ? null : applied.env.error, applied.codex.ok ? null : applied.codex.error].filter(Boolean);
+  const errors = [
+    applied.env.ok ? null : applied.env.error,
+    applied.codex.ok ? null : applied.codex.error,
+    applied.hermes.ok ? null : applied.hermes.error,
+    applied.pi.ok ? null : applied.pi.error
+  ].filter(Boolean);
 
   return res.json({
     ok: true,
@@ -2242,20 +2294,20 @@ app.put('/api/agents-proxy', (req: Request, res: Response) => {
 
 app.post('/api/agents-proxy/verify', async (req: Request, res: Response) => {
   const harness = String(req.body?.harness || '').toLowerCase();
-  if (harness !== 'claude' && harness !== 'codex') {
-    return res.status(400).json({ error: 'harness must be claude or codex.' });
+  if (harness !== 'claude' && harness !== 'codex' && harness !== 'hermes' && harness !== 'pi') {
+    return res.status(400).json({ error: 'harness must be claude, codex, hermes, or pi.' });
   }
   const config = loadAgentProxyConfig();
-  const result = await verifyAgentHarness(harness as 'claude' | 'codex', config, { baseUrl: agentHarnessBaseUrl() });
+  const result = await verifyAgentHarness(harness as AgentHarnessName, config, { baseUrl: agentHarnessBaseUrl() });
   return res.json({ ok: result.ok, result });
 });
 
 app.post('/api/agents-proxy/sync-env', (req: Request, res: Response) => {
   const config = loadAgentProxyConfig();
   const applied = applyAgentHarnessState(config);
-  if (!applied.env.ok && !applied.codex.ok) {
+  if (!applied.env.ok && !applied.codex.ok && !applied.hermes.ok && !applied.pi.ok) {
     return res.status(500).json({
-      error: applied.env.error || applied.codex.error || 'Failed to synchronize agent environment'
+      error: applied.env.error || applied.codex.error || applied.hermes.error || applied.pi.error || 'Failed to synchronize agent environment'
     });
   }
   return res.json({
