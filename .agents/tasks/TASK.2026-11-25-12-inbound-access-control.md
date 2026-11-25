@@ -25,7 +25,7 @@ admin JSON through the old `cors()` wildcard from the operator's own browser.
 Mitigations: deny-by-default transport classification (`cf-connecting-ip` present
 or non-loopback socket ⇒ public), explicit commented inference allowlist,
 timing-safe key compare (sha256 digests + `timingSafeEqual`), fail-closed 503
-when no key is configured, 403-regardless-of-key for all non-inference paths,
+when no key is configured, 403 on every non-inference path (with or without a key),
 WS-upgrade gate (Express middleware never sees WebSocket upgrades), strict CORS
 (loopback-origin reflection only, no CORS headers on public responses, no
 credentials ever). No secrets in code/tests/logs; key arrives at runtime via
