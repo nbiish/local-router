@@ -137,6 +137,7 @@ impl DaemonManager {
             ServerLauncher::PathShim => shim_command("start", self.port),
         };
         no_window(&mut cmd);
+        pass_inbound_access_key(&mut cmd);
         cmd
     }
 
@@ -273,3 +274,16 @@ fn no_window(cmd: &mut Command) {
 
 #[cfg(not(target_os = "windows"))]
 fn no_window(_cmd: &mut Command) {}
+
+/// Inbound access control (2026-11-25): forward the operator's tunnel access
+/// key to the daemon when the app's own environment carries one, so a daemon
+/// started by the desktop app enforces the same public-surface gate as a
+/// manually started one. Nothing is hardcoded here — the value only ever
+/// flows from the app environment to the child process.
+fn pass_inbound_access_key(cmd: &mut Command) {
+    if let Ok(value) = std::env::var("LOCAL_ROUTER_ACCESS_KEY") {
+        if !value.trim().is_empty() {
+            cmd.env("LOCAL_ROUTER_ACCESS_KEY", value);
+        }
+    }
+}

@@ -302,6 +302,35 @@ Local Router reads **only** `LOCALROUTER_<KEY_ENV_VAR>` names for provider keys 
 - Chain definitions store model IDs and ordering metadata only.
 - New environment variables use `LOCAL_ROUTER_*`; legacy `FVS_*` names are accepted only as compatibility fallback.
 
+### Public exposure (tunnel) access control
+
+The router is designed loopback-first: requests from `127.0.0.1` (desktop app, VS Code, agent CLIs, the real `ollama` CLI) are never gated and need no configuration. When the router is reachable from beyond loopback — a Cloudflare Tunnel such as `inference.local-router.com`, or `LOCAL_ROUTER_BIND_ALL=true` — a transport-level gate (src/inbound-auth.ts, 2026-11-25) classifies every request and enforces three rules:
+
+1. **Loopback stays open.** No `cf-connecting-ip` header and a loopback socket address (`127.*`, `::1`, `::ffff:` forms) → everything works exactly as before, key or not.
+2. **Public clients get inference only, with a key.** A request carrying `cf-connecting-ip` (always set by Cloudflare) or arriving on a non-loopback socket may only reach the inference allowlist — `/v1/*` (OpenAI/Anthropic/decisions shapes) and the ollama-style routes (`/api/chat`, `/api/generate`, `/api/tags`, `/api/show`, `/api/ps`, `/api/embed`, `/api/embeddings`, `/api/version`) — and only with a valid `Authorization: Bearer <key>` (or `x-api-key:` for Anthropic-style clients), compared timing-safe. Wrong/missing key → `401 {"error":"invalid or missing access key"}`.
+3. **The dashboard and admin API are never public.** `/config*`, `/api/router-settings`, `/api/config/*`, key resolution, sync, logs — anything not on the allowlist — answer `403 {"error":"local access only"}` to public requests **regardless of key validity**, including unknown paths (deny by default). The same gate covers the `/v1/responses` WebSocket upgrade.
+
+**Supply the key at runtime** (never in code or committed files) — precedence:
+
+```bash
+# 1) Environment (highest precedence):
+export LOCAL_ROUTER_ACCESS_KEY='choose-a-long-random-value'
+
+# 2) Or provision it into the PQC bundle like a provider key (operator-run):
+pqc-secrets gen --env LOCALROUTER_ACCESS_KEY | pqc-secrets set --stdin
+```
+
+If **no** key is configured, public inference requests fail closed with `503 {"error":"access key not configured"}` — exposure without a key is deliberately useless. A desktop-app-started daemon inherits `LOCAL_ROUTER_ACCESS_KEY` from the app environment (`src-tauri/src/daemon.rs`).
+
+CORS is hardened the same way: public responses carry **no** CORS headers at all (AI tooling is server-side; a wildcard only helps abusive webpages), and loopback responses reflect the request origin only when it is the router's own `http://127.0.0.1:PORT` / `http://localhost:PORT` / `http://[::1]:PORT` origin — no credentials, ever. A malicious webpage can no longer read loopback admin JSON from the operator's browser.
+
+Tunnel example:
+
+```bash
+cloudflared tunnel --url http://127.0.0.1:11434   # clients must send the key
+curl https://your-tunnel.example/v1/models -H "Authorization: Bearer $LOCAL_ROUTER_ACCESS_KEY"
+```
+
 ## Development
 
 ### Quick Start

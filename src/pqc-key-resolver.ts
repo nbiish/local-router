@@ -62,11 +62,30 @@ export function providerKeyAliases(summary: ProviderKeySummary): string[] {
   return Array.from(aliases);
 }
 
-/** Strip one matching pair of shell quotes from an exported value. */
+/**
+ * Strip one matching pair of shell quotes from an exported value.
+ */
 export function unquoteSecretValue(rawValue: string): string {
   const trimmed = String(rawValue ?? '').trim();
   const match = /^(['"])([\s\S]*)\1$/.exec(trimmed);
   return match ? match[2] : trimmed;
+}
+
+const ACCESS_KEY_STEM = 'ACCESS_KEY';
+
+/**
+ * Inbound access control (2026-11-25): the tunnel access key rides the same
+ * pqc-secrets bundle as provider keys, under a Local Router-prefixed name.
+ * A name matches ONLY with an explicit tool prefix — bare `ACCESS_KEY` is
+ * some other tool's secret and must never become the router's front door.
+ * Canonical spellings: LOCALROUTER_ACCESS_KEY, LOCAL_ROUTER_ACCESS_KEY,
+ * LOCAL-ROUTER_ACCESS_KEY.
+ */
+export function isInboundAccessKeyName(fullName: string): boolean {
+  const normalized = String(fullName || '').trim().toUpperCase();
+  if (!normalized) return false;
+  const stripped = stripToolPrefix(normalized);
+  return stripped !== normalized && stripped === ACCESS_KEY_STEM;
 }
 
 export function resolveProvidersForKey<T extends ProviderKeySummary>(fullName: string, summaries: T[]): T[] {
