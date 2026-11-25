@@ -1,5 +1,5 @@
 Z.AI / Zhipu GLM (api.z.ai, docs.z.ai) — Prompt Caching
-Last verified: 2026-08-23
+Last verified: 2026-11-25
 
 Overview
   Z.AI's Open Platform serves GLM-5.x models with built-in context caching
@@ -39,6 +39,7 @@ Limits & thresholds
   subscription- and quota-based rather than metered per token.
 
 Pricing (per 1M tokens, standard platform)
+  GLM-5.4: GLM Coding Plan (1M context / 128K output; 1.5x weekly quota vs GLM-5.3; standalone pay-as-you-go rate not yet published as of 2026-11-25)
   GLM-5.3 / 5.2 / 5.1: in $1.40, cached input $0.26, out $4.40
   GLM-5: in $1.00, cached input $0.20, out $3.20
   GLM-5-Turbo: in $1.20, cached input $0.24, out $4.00

@@ -12,6 +12,7 @@ import {
   reconcileModelMetadata
 } from '../build/model-metadata.js';
 import { PROVIDER_MODEL_REGISTRY } from '../build/provider-model-registries.js';
+import { PROVIDER_REGISTRY } from '../build/provider-registry.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -55,6 +56,8 @@ test('normalizeModelAlias reconciles plan, display and snapshot suffixes', () =>
   assert.equal(normalizeModelAlias('~anthropic/claude-opus-latest'), 'anthropic/claude-opus');
   assert.equal(normalizeModelAlias('deepseek-ai/DeepSeek-V4.1-Flash-1017'), 'deepseek-ai/deepseek-v4.1-flash');
   assert.equal(normalizeModelAlias('glm-5.3[1m]'), 'glm-5.3');
+  assert.equal(normalizeModelAlias('glm-5.4[1m]'), 'glm-5.4');
+  assert.equal(normalizeModelAlias('z-ai/glm-5.3-flashx-legal'), 'z-ai/glm-5.3-flashx');
 });
 
 test('pickBaselineModel matches a dated live id to its curated family row', () => {
@@ -72,11 +75,15 @@ test('pickBaselineModel matches a dated live id to its curated family row', () =
 test('reconcileModelMetadata fills defaults from the registry and keeps live limits', () => {
   const result = reconcileModelMetadata({
     models: [
+      { model: 'glm-5.4', contextLength: 64000, outputTokens: 4096 },
+      { model: 'glm-5.3-flashx-legal', contextLength: 64000, outputTokens: 4096 },
       { model: 'glm-5.3-flash', contextLength: 64000, outputTokens: 4096 },
       { model: 'glm-5.3', contextLength: 1000000, outputTokens: 131072 },
       { model: 'deepseek-ai/DeepSeek-V4.1-Flash', contextLength: 64000, outputTokens: 384000 }
     ],
     registryRows: [
+      { model: 'glm-5.4', contextLength: 1000000, outputTokens: 131072 },
+      { model: 'glm-5.3-flashx', contextLength: 1048576, outputTokens: 131072 },
       { model: 'glm-5.3-flash', contextLength: 1048576, outputTokens: 131072 },
       { model: 'glm-5.3', contextLength: 1000000, outputTokens: 131072 },
       { model: 'deepseek-ai/DeepSeek-V4.1-Flash', contextLength: 1048576, outputTokens: 384000 }
@@ -85,16 +92,26 @@ test('reconcileModelMetadata fills defaults from the registry and keeps live lim
     defaultOutputTokens: 4096
   });
 
-  assert.equal(result.changed, 2);
-  assert.equal(result.models[0].contextLength, 1048576);
+  assert.equal(result.changed, 4);
+  assert.equal(result.models[0].contextLength, 1000000);
   assert.equal(result.models[0].outputTokens, 131072);
-  assert.equal(result.models[1].contextLength, 1000000, 'real provider limit must not be overwritten');
+  assert.equal(result.models[1].contextLength, 1048576);
   assert.equal(result.models[1].outputTokens, 131072);
   assert.equal(result.models[2].contextLength, 1048576);
+  assert.equal(result.models[2].outputTokens, 131072);
+  assert.equal(result.models[3].contextLength, 1000000, 'real provider limit must not be overwritten');
+  assert.equal(result.models[3].outputTokens, 131072);
+  assert.equal(result.models[4].contextLength, 1048576);
 });
 
 test('registry carries correct context windows for the reported models', () => {
   const zai = PROVIDER_MODEL_REGISTRY.zai;
+  const glm54 = zai.find((entry) => entry.id === 'glm-5.4');
+  assert.ok(glm54, 'zai/glm-5.4 must be registered');
+  assert.equal(glm54.contextLength, 1000000, 'glm-5.4 context');
+  assert.equal(glm54.outputTokens, 131072, 'glm-5.4 output');
+  assert.equal(glm54.supportsImages, true, 'glm-5.4 is multimodal');
+
   for (const id of ['glm-5.3-flash', 'glm-5.3-flashx']) {
     const row = zai.find((entry) => entry.id === id);
     assert.ok(row, `zai/${id} must be registered`);
@@ -114,6 +131,10 @@ test('registry carries correct context windows for the reported models', () => {
 
 test('model-specs.json documents the corrected context windows', () => {
   const specs = JSON.parse(fs.readFileSync(path.join(ROOT, 'src', 'model-specs.json'), 'utf8'));
+  assert.ok(specs.models['glm-5.4'], 'model-specs.json must contain glm-5.4');
+  assert.equal(specs.models['glm-5.4'].context, 1000000, 'glm-5.4 spec context');
+  assert.equal(specs.models['glm-5.4'].output, 131072, 'glm-5.4 spec output');
+
   for (const [id, context] of [
     ['glm-5.3-flash', 1048576],
     ['glm-5.3-flashx', 1048576],
@@ -122,5 +143,18 @@ test('model-specs.json documents the corrected context windows', () => {
   ]) {
     assert.ok(specs.models[id], `model-specs.json must contain ${id}`);
     assert.equal(specs.models[id].context, context, `${id} spec context`);
+  }
+});
+
+test('docs/providers.txt documents every built-in provider and glm-5.4 without secrets', () => {
+  const docPath = path.join(ROOT, 'docs', 'providers.txt');
+  assert.ok(fs.existsSync(docPath), 'docs/providers.txt must exist');
+  const content = fs.readFileSync(docPath, 'utf8');
+  for (const row of PROVIDER_REGISTRY) {
+    assert.ok(content.includes(row.name), `docs/providers.txt must include ${row.name}`);
+  }
+  assert.ok(content.includes('glm-5.4'), 'docs/providers.txt must include glm-5.4');
+  for (const pattern of [/\bsk-or-[a-zA-Z0-9_-]{12,}/, /\bghp_[a-zA-Z0-9]{16,}/, /\boc_sk_[a-zA-Z0-9_-]{12,}/]) {
+    assert.ok(!pattern.test(content), `docs/providers.txt must not contain secret matching ${pattern}`);
   }
 });

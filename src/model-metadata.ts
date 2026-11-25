@@ -142,7 +142,7 @@ export function normalizeModelAlias(modelId: string): string {
     .replace(/^~/, '')
     .replace(/\[1m\]$/, '')
     .replace(/:(cloud|free|latest|batch)$/, '')
-    .replace(/-(free|batch|latest|highspeed)$/, '')
+    .replace(/-(free|batch|latest|highspeed|legal)$/, '')
     .replace(/-\d{4}$/, '');
 }
 
