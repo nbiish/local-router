@@ -9479,7 +9479,14 @@ async function executeFallbackRoute(
   }
 
   const terminalFailure = lastFailure as AttemptFailure | null;
-  const status = terminalFailure?.status || 502;
+  // Exhaustion is OUR failure, not the caller's. Returning the last upstream
+  // status (which could be 401 or 429) made an agent believe its own credentials
+  // or quota were at fault, when the router holds every key and the caller only
+  // sent a placeholder that the router never forwards. 503 + `chain_exhausted`
+  // says "the router could not answer" while the detail block still names what
+  // each stage returned, so the truth is not lost — it is relocated from the
+  // status line into evidence.
+  const status = 503;
   const terminalMessage = `Fallback model "${fallbackRoute.id}" exhausted all ${eligible.length} eligible targets across ${DEFAULT_FALLBACK_ROUNDS} retry passes.`;
 
   if (logTracker) {
@@ -9493,7 +9500,12 @@ async function executeFallbackRoute(
 
   return res.status(status).json({
     error: terminalMessage,
+    errorType: 'chain_exhausted',
     provider: 'local-router',
+    // Say plainly that the caller's own key was not the problem, so an agent
+    // harness does not surface a credential prompt for a router-side outage.
+    hint: 'The router holds all provider keys; the caller\'s key was not used upstream. '
+      + 'This is a router/provider failure, not a caller credential problem.',
     fallback: {
       id: fallbackRoute.id,
       configuredTargets: fallbackRoute.models,
@@ -9503,6 +9515,9 @@ async function executeFallbackRoute(
       passesCompleted: DEFAULT_FALLBACK_ROUNDS,
       terminalErrorType: terminalFailure?.errorType || null,
       terminalErrorMessage: terminalFailure?.message || null,
+      // The last upstream status is preserved as evidence, never as the
+      // response status.
+      terminalUpstreamStatus: terminalFailure?.status || null,
       attempts: attemptLog
     }
   });
