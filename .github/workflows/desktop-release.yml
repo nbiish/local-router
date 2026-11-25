@@ -75,10 +75,13 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           tagName: v__VERSION__
           releaseName: "Local Router Desktop v__VERSION__"
-          releaseBody: "Native cross-platform desktop application with corner system tray controls, Ollama drop-in interception, and 23 built-in model providers."
-          releaseDraft: true
+          releaseBody: "Native cross-platform desktop application with corner system tray controls, Ollama drop-in interception, self-healing fallback chains, and 23 built-in model providers."
+          releaseDraft: false
           prerelease: false
+          includeUpdaterJson: true
           args: ${{ matrix.platform.args }}
