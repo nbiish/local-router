@@ -169,6 +169,11 @@ audit.log.*
 .agents/comms/*.live.txt
 .agents/comms/*.live.md
 
+# Cross-machine Federation Chain of Draft (CoD) daily ledgers — live peer state, never committed.
+# Transferred and union-merged directly across connected machines by `ainish-coder --machine-sync`
+# (and `--machine-watch`). `.agents/federation/llms.txt` stays tracked as the DOX contract.
+.agents/federation/*.md
+
 # Multimodal RAG local vector store and runtime process PID.
 # Ignored as directory *contents* rather than as a directory, so the benchmark baseline below can
 # be re-included: git never descends into an ignored directory, so a `!.agents/rag/x` exception is
@@ -222,8 +227,6 @@ bin/ainish-rag.native.exe
 # ═══════════════════════════════════════════════════════════════════════════
 
 !tests/test-env.mjs
-*.dmg
-*.pkg
 .agents/comms/*-team.live.txt
 .agents/context-harness/
 .agents/rag/
@@ -231,6 +234,8 @@ bin/ainish-rag.native.exe
 .config/
 .opencode/
 .workbuddy-ai/
+*.dmg
+*.pkg
 example-repos/
 node_modules
 router-settings.json
