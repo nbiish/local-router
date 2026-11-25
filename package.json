@@ -19,6 +19,7 @@
     "verify:wires": "sh -c 'test -n \"$LOCAL_ROUTER_TEST_URL\" || { echo \"set LOCAL_ROUTER_TEST_URL to the router you want to verify\"; exit 1; }; node --test tests/reasoning-client-wires.test.mjs'",
     "review:build": "node scripts/review-site/generate.mjs",
     "review:site": "node scripts/review-site/generate.mjs && node scripts/review-site/serve.mjs",
+    "docs:providers": "npm run build && node --import tsx scripts/generate-providers-doc.mts",
     "validate:model-specs": "node --import tsx scripts/validate-model-specs.mts",
     "start": "node build/index.js",
     "dev": "tsx watch src/index.ts",

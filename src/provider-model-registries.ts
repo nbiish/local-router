@@ -1290,6 +1290,7 @@ export const PROVIDER_MODEL_REGISTRY: Record<string, RegistryModelEntry[]> = {
     { id: 'mimo-v2.5-tts-voicedesign', contextLength: 8192, outputTokens: 8192, tier: 'subscription' },
   ],
   'zai': [
+    { id: 'glm-5.4', contextLength: 1000000, outputTokens: 131072, supportsTools: true, supportsImages: true, tier: 'subscription', note: 'Context 1M / output 128K; multimodal; Loop Transformer thinking; Coding Plan (glm-5.4 / glm-5.4[1m]); docs.z.ai + live-verified 2026-11-25' },
     { id: 'glm-5.3-flash', contextLength: 1048576, outputTokens: 131072, supportsTools: true, supportsImages: true, tier: 'subscription', note: 'Context 1M / output 128K; video/image/file input; docs.z.ai (2026-10-29)' },
     { id: 'glm-5.3-flashx', contextLength: 1048576, outputTokens: 131072, supportsTools: true, supportsImages: true, tier: 'subscription', note: 'Same limits as glm-5.3-flash; docs.z.ai (2026-10-29)' },
     { id: 'glm-5.3', contextLength: 1000000, outputTokens: 131072, supportsTools: true, tier: 'subscription', note: 'Always-reasoning; effort low/high/max; 1M via glm-5.3[1m]' },
