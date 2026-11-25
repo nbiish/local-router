@@ -1,10 +1,10 @@
 {
   "format": "ainish-coder/rules-deploy/v1",
   "source_repo": "/Users/nbiish/code/ainish-coder",
-  "source_commit": "a57f48334d0948fd43dbfbde638f7063535a23bb",
-  "source_agents_sha256": "72debd37be1942c683e3deca37a5c7d54a19eb19262bb10d4c661e4460207d58",
+  "source_commit": "3d18234e25d92a0b520727d24e5573887e18336c",
+  "source_agents_sha256": "3adb0a7308cb4fc2149edcba6a0a87fdd9bfe59194c1569fed11c19bc0ce8827",
   "source_pack_sha256": "1ead6f19f935e5480d9f3daf307f06bece32e0032ebdc9cbff2c60dc14440787",
-  "deployed_at": "2026-11-23T18:28:12Z",
+  "deployed_at": "2026-11-25T14:39:36Z",
   "auto_sync": true,
   "managed_paths": [
     "AGENTS.md",
@@ -12,6 +12,7 @@
     ".gitignore",
     ".agents/skills",
     ".agents/comms",
+    ".agents/federation",
     ".agents/templates",
     ".agents/plans/llms.txt",
     ".agents/bin/ainish-rules-sync"

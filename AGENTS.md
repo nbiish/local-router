@@ -9,10 +9,8 @@ Everything else lives in `.agents/`, where the durable cross-agent history and c
 
 ## Start here
 
-1. **Call `ainish-coder --context "<the user's request or your current step>"` once**, before you
-   start work and again only when the task genuinely changes direction. It returns the rules and the
-   relevant record from `.agents/`; read it, then open the files it names.
-2. Do the work. Record it as you go (see *Close*).
+1. **Call `ainish-coder --context "<the user's request or your current step>"` once**, before starting and only when the task changes direction; it returns the rules and `.agents/` record — read it, then open the files it names.
+2. Check open PRs, branches, and `.agents/federation/{date}.md` (read-only PQC peer feed) for parallel work; do the work and record it (see *Close*).
 
 ## The context call
 
@@ -22,8 +20,8 @@ ainish-coder --context "<user request, verbatim, or this step's concrete context
 
 Pass the request verbatim, or mid-task the concrete step. The block holds the rules you are bound by and
 the relevant record. Read `.agents/` directly: `tasks/` for work in flight, `plans/` for the plan of
-record, `comms/` for the daily ledger, `memories/` for durable facts, `suggestions/` for findings awaiting
-work, `jobs/` for recurring automation, and `wiki/` for architecture; `.agents/llms.txt` maps the tree.
+record, `comms/` for the daily ledger, `federation/` for cross-machine CoD state, `memories/` for durable
+facts, `suggestions/` for findings awaiting work, `jobs/` for automation, and `wiki/` for architecture; `.agents/llms.txt` maps it.
 
 **This one command is the whole context system.** Never call a second command to prime yourself; it consolidates old records into
 dated digests and tunes retrieval in the background. Do not pre-summarise a record — write it and consolidation keeps it.
@@ -123,15 +121,16 @@ branch/dates/diffstat/PR, then `git worktree remove` + `git branch -d`: `templat
 ## Git & Pull Request Protocol
 
 - **Branching & Sync** — Never commit or push directly to `main` (or protected branches); fetch and branch from the latest `origin/main` (`upstream/main` on forks); prefix branches `feat/ fix/ refactor/ docs/ chore/`.
+- **Parallel Work & Integration** — Other work beyond your task may already exist as open PRs, branches, or `.agents/federation/{date}.md` (read-only PQC peer feed); inspect them before branching to decide whether to integrate into the user's request/existing PR or create a new integration PR.
 - **Scoped Changes & Security** — Keep diffs scoped; never commit secrets, keys, tokens, or `.env`; verify `git diff` before staging; run linters, typechecks, and unit tests before push; use atomic Conventional Commits (`feat: fix: chore: test: docs:`); the operator is the sole author.
 - **Pull Requests** — Push to `origin`, open a PR to `main` (`upstream/main` on forks), Draft if incomplete; describe **What changed**, **Why**, **How verified**; never self-merge, bypass protection, or force-push shared branches.
 - **Review & CI Loop** — Fix CI failures and review comments with new commits on the same branch (no duplicate PR); on conflict fetch `main`, resolve, re-test, push; wait for green CI and human approval before completion.
 
 ## Close
 
-- Mark the task record done with evidence; append COMMS lifecycle lines and scrubbed memory facts; leave
-  the worktree clean. Keep outliving findings in `.agents/suggestions/{date}-{HH}-{slug}.md` (one topic
-  per file), so the next context call retrieves them; digests replace old records rather than losing them.
+- Mark the task record done with evidence; append COMMS lifecycle lines and scrubbed memory facts (federation CoD syncs read-only via PQC `--machine-sync`); leave the worktree clean. Keep outliving findings in
+  `.agents/suggestions/{date}-{HH}-{slug}.md` (one topic per file), so the next context call retrieves
+  them; digests replace old records rather than losing them.
 
 ## Where everything else lives
 
@@ -146,7 +145,7 @@ Do not read ahead. Open these only when your task needs them:
 | Secret storage and signing operations | [`.agents/skills/pqc-secrets/SKILL.md`](./.agents/skills/pqc-secrets/SKILL.md) |
 | Cross-agent history: tasks, COMMS, memory, suggestions | [`.agents/comms/`](./.agents/comms/), [`.agents/tasks/`](./.agents/tasks/), [`.agents/memories/`](./.agents/memories/) |
 | The plan being followed, with its clarifications and todos | [`.agents/plans/`](./.agents/plans/), [`.agents/templates/plan.md`](./.agents/templates/plan.md) |
-| Reason a peer machine is stale, or you need its work | `ainish-coder --machine-sync DIR --latest` (see *Cross-machine federation* in `README.md`) |
+| Cross-machine CoD state or stale peer work | [`.agents/federation/`](./.agents/federation/), `ainish-coder --machine-sync DIR --latest` |
 | Reasoning lenses for a hard decision | [`.agents/templates/masters.md`](./.agents/templates/masters.md) |
 
 `.agents/{audit,canonical}/` are generated: read them, never hand-edit signed receipts or contract copies.

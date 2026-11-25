@@ -11,3 +11,6 @@ dc32dbd0d6ca7de522998d153d12d7d08ab1b010:tests/wafer-discovery.test.mjs:generic-
 69e8183bc90d7951e5db005d9112ebf6e04cb0f4:.agents/skills/pqc-secrets/references/agent-integration.md:generic-api-key:115
 69e8183bc90d7951e5db005d9112ebf6e04cb0f4:.agents/skills/pqc-secrets/SKILL.md:generic-api-key:769
 69e8183bc90d7951e5db005d9112ebf6e04cb0f4:.agents/skills/pqc-secrets/SKILL.md:generic-api-key:805
+# Punctuated prose ("403-regardless-of-key for all non-inference paths") in the
+# inbound-access-control task record, not a credential. Triaged 2026-11-25.
+462ea4cb86db04031a91816e67f2f1fb7f4c62ef:.agents/tasks/TASK.2026-11-25-12-inbound-access-control.md:generic-api-key:28

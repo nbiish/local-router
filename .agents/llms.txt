@@ -16,6 +16,7 @@ This tree contains the durable agent operating system: retrieval context, skills
   here is standing prompt surface for every agent working in this repository.
 - `wiki/` owns generated architecture and operator notes; `ledger.md` is append-only.
 - `comms/`, `tasks/`, `suggestions/`, and `memories/` own coordination and durable knowledge. Comms/tasks are system-of-record; memory is context only.
+- `federation/` owns the gitignored, agent-read-only cross-machine Chain of Draft (CoD) daily feed (`{date}.md`), exchanged exclusively inside FIPS 203 ML-KEM-768 + FIPS 204 ML-DSA-65 + AES-256-GCM envelopes by `ainish-coder --machine-sync` (`src/federation_pqc.py`). `.agents/federation/llms.txt` stays git-tracked.
 - `plans/` owns the per-task plan of record: the problem, anchor facts, design, clarification ledger, and derived todos an agent follows while implementing. Distinct from `docs/` (forward-looking proposals) and from `tasks/` (coordination state).
 - `audit/` owns receipts, signatures, manifests, and privacy evidence. Do not hand-edit signed artifacts.
 - `rag/` owns local retrieval/index state and drift telemetry.
@@ -47,4 +48,5 @@ The packet fields are `request`, `next_action`, `files`, `symbols`, `constraints
 - [`memories/llms.txt`](./memories/llms.txt) — dated durable facts.
 - [`wiki/README.md`](./wiki/README.md) — generated architecture pages and ledger rules.
 - [`audit/`](./audit/) — signed evidence; generated artifacts only.
+- [`federation/llms.txt`](./federation/llms.txt) — gitignored, agent-read-only PQC cross-machine Chain of Draft (CoD) ledger.
 - [`comms/`](./comms/), [`tasks/`](./tasks/), [`suggestions/`](./suggestions/) — coordination records.
