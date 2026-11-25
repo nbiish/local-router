@@ -62,7 +62,7 @@ import { loadExpertLogs, LogEntryTracker, createUsageSpyStream } from './expert-
 import { durability, installCrashGuards, installShutdown, trackInFlight } from './durability';
 import { rotateKnownLogs } from './log-rotation';
 import { TrajectoryTracker, TrajectoryChain, TrajectoryExcludedTarget, TrajectoryRecord, TrajectoryReceipt, resolveTrajectoryClient, storeReceipt } from './trajectories';
-import { healthRegistry } from './health-registry';
+import { healthRegistry, selectForcedLastPassMembers } from './health-registry';
 import { buildWraparoundExecutionPlan, buildEscalatingWraparoundPlan, buildMultiPassExecutionPlan, DEFAULT_FALLBACK_ROUNDS } from './execution-plan';
 import {
   filterEligibleFallbackModels,
@@ -9404,9 +9404,12 @@ async function executeFallbackRoute(
   // re-hammering it is exactly what the cooldown exists to stop. Attempts are
   // recorded as forced stages so the trajectory stays honest about why an
   // attempt happened despite the cooldown.
-  const forcedMembers = healthRegistry
-    .quarantined(fallbackRoute.id)
-    .filter((member) => fallbackRoute.models.includes(member.model) && !attemptedModels.has(member.model));
+  const eligiblePlanModels = Array.from(new Set(plan.map((stage) => stage.model)));
+  const forcedMembers = selectForcedLastPassMembers(
+    healthRegistry.quarantined(fallbackRoute.id),
+    eligiblePlanModels,
+    attemptedModels
+  );
   for (let i = 0; i < forcedMembers.length; i += 1) {
     const member = forcedMembers[i];
     const forcedStage = `last-pass-${i + 1}`;
