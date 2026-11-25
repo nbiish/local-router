@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Local Router",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "identifier": "com.nbiish.localrouter",
   "build": {
     "frontendDist": "../build",
@@ -28,7 +28,7 @@
     ],
     "category": "DeveloperTool",
     "shortDescription": "Local Ollama & OpenAI compatible model gateway and configuration UI",
-    "longDescription": "Local Router is a standalone desktop application and local proxy gateway for 19 AI providers with explicit fallback chains, model curation, and post-quantum secrets protection."
+    "longDescription": "Local Router is a standalone desktop application and local proxy gateway for 23 AI providers with explicit fallback chains, model curation, and post-quantum secrets protection."
   },
   "plugins": {
     "updater": {
