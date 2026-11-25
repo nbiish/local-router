@@ -374,6 +374,22 @@ app.post('/api/keys', async (req: Request, res: Response) => {
       console.warn(`[PQC] Key saved in memory but bundle persistence failed: ${persistence.error || 'unknown error'}`);
     }
 
+    // A new key invalidates the old key's verdict (measured 2026-11-21): the
+    // operator fixed a rejected key, but `key_rejected` parks a member for 30
+    // minutes and this handler touched no health state, so the corrected key was
+    // still skipped. Clearing here means the fix takes effect on the NEXT request
+    // rather than after a cooldown the operator cannot see.
+    let clearedParks = 0;
+    try {
+      clearedParks = healthRegistry.clearProvider(providerName);
+      if (clearedParks > 0) {
+        console.log(`[health] key saved for ${providerName} — cleared ${clearedParks} parked member(s)`);
+      }
+    } catch (error) {
+      // Health bookkeeping must never fail the save: the key is already stored.
+      console.warn('[health] could not clear parks after key save:', sanitizeDiagnosticText(String(error)));
+    }
+
     // Best-effort live model discovery now that this provider holds a key.
     // OAuth providers authenticate through their own flow and are skipped.
     // Discovery is off-by-default: discovered models arrive toggled off so the
@@ -1989,7 +2005,24 @@ app.get('/api/pqc/status', (req: Request, res: Response) => {
 
 app.post('/api/pqc/resync', (req: Request, res: Response) => {
   const result = pqcResync();
-  return res.status(result.ok ? 200 : 500).json(result);
+  // A resync reloads every key from the vault, so any park recorded against an
+  // older key is stale in the same way a single key save makes one stale.
+  // Clearing every park is the only correct answer here: the router cannot tell
+  // which individual keys changed, and a chain that is silently skipping a
+  // provider whose key was just reloaded is exactly the interruption this
+  // endpoint exists to prevent.
+  let clearedParks = 0;
+  if (result.ok) {
+    try {
+      clearedParks = healthRegistry.clearAllParks();
+      if (clearedParks > 0) {
+        console.log(`[health] bundle resync — cleared ${clearedParks} parked member(s)`);
+      }
+    } catch (error) {
+      console.warn('[health] could not clear parks after resync:', sanitizeDiagnosticText(String(error)));
+    }
+  }
+  return res.status(result.ok ? 200 : 500).json({ ...result, clearedParks });
 });
 
 // ── System Prompt ──

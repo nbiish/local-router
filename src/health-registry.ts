@@ -432,6 +432,72 @@ class FallbackHealthRegistry {
   }
 
   /**
+   * Clear every cooldown/park belonging to one provider, across all chains.
+   *
+   * Why this exists (measured 2026-11-21): an operator updated a provider's API
+   * key, but `key_rejected` is an immediate-quarantine class with a 30-minute
+   * cooldown, and saving the key touched nothing in this registry. The corrected
+   * key was therefore skipped until the timer expired — on a chain whose other
+   * members were also down, that is an interruption the operator already fixed.
+   * A new key invalidates the old key's verdict.
+   *
+   * Only the VERDICT is cleared. `history` is kept verbatim, so a provider that
+   * keeps failing after a key change still shows its record and can re-park on
+   * the next outcome. `autoDisabledAt`/`autoDisabledReason` are also kept: those
+   * encode a policy decision to stop trying a member, which a key change alone
+   * does not override.
+   *
+   * Matching is by the model id's provider prefix, not by substring: a chain
+   * member is presented as `provider-...`, and a member is owned by `provider`
+   * when its id equals that provider or starts with `provider-`. Substring
+   * matching would let `zai` clear `zenmux` members.
+   *
+   * Returns the number of members whose park was lifted, so a caller can report
+   * it instead of silently mutating state.
+   */
+  public clearProvider(provider: string): number {
+    const slug = String(provider || '').trim().toLowerCase();
+    if (!slug) return 0;
+    let cleared = 0;
+    for (const [key, state] of this.members) {
+      const model = key.slice(key.indexOf('::') + 2).toLowerCase();
+      const owned = model === slug || model.startsWith(`${slug}-`) || model.startsWith(`${slug}/`);
+      if (!owned) continue;
+      if (state.quarantineUntil > 0 || state.quarantineErrorType || state.failingSince) {
+        cleared += 1;
+      }
+      state.quarantineUntil = 0;
+      state.quarantineErrorType = null;
+      state.quarantineReason = undefined;
+      state.quarantineInferred = undefined;
+      state.consecutiveFailures = 0;
+      state.failingSince = null;
+      this.members.set(key, state);
+    }
+    if (cleared > 0) this.save();
+    return cleared;
+  }
+
+  /** Clear every park, for a full bundle resync where every key may have changed. */
+  public clearAllParks(): number {
+    let cleared = 0;
+    for (const [key, state] of this.members) {
+      if (state.quarantineUntil > 0 || state.quarantineErrorType || state.failingSince) {
+        cleared += 1;
+      }
+      state.quarantineUntil = 0;
+      state.quarantineErrorType = null;
+      state.quarantineReason = undefined;
+      state.quarantineInferred = undefined;
+      state.consecutiveFailures = 0;
+      state.failingSince = null;
+      this.members.set(key, state);
+    }
+    if (cleared > 0) this.save();
+    return cleared;
+  }
+
+  /**
    * Persist the registry so a restart does not re-walk known-dead members.
    *
    * The file is a plain JSON snapshot, deliberately not the trajectory JSONL: it

@@ -1,5 +1,4 @@
 import express, { Request, Response, NextFunction } from 'express';
-import cors from 'cors';
 import dotenv from 'dotenv';
 import { Readable, Transform, Writable } from 'stream';
 import crypto from 'crypto';
@@ -103,6 +102,14 @@ import {
   reconcileModelMetadata
 } from './model-metadata';
 import {
+  evaluateInboundAccess,
+  inboundAccessControl,
+  inboundCors,
+  inboundUpgradeRejectionResponse,
+  noteVaultAccessKey
+} from './inbound-auth';
+import {
+  isInboundAccessKeyName,
   providerKeyAliases,
   resolveProvidersForKey,
   stripToolPrefix,
@@ -538,13 +545,22 @@ export const PORT = Number.isInteger(parsedPort) && parsedPort > 0 && parsedPort
 
 app.disable('x-powered-by');
 app.use(helmet({ contentSecurityPolicy: false }));
-app.use(cors());
+// Inbound access control (2026-11-25), applied before every route:
+//   - inboundCors replaces the old wildcard cors(): public (tunnel) responses
+//     carry no CORS headers; loopback responses reflect only the router's own
+//     loopback origins, so a webpage can never read loopback admin JSON.
+app.use(inboundCors);
 // In-flight accounting goes FIRST: a request counted here is counted before any
 // async handler can start, so shutdown's drain is accurate and `/api/health`
 // never under-reports concurrency.
 if (shouldServe) {
   app.use((req: Request, res: Response, next: NextFunction) => trackInFlight(req, res, next));
 }
+// Public (tunnel / non-loopback) requests: inference allowlist only, valid
+// access key required, admin/config/dashboard 403 regardless of key, unknown
+// paths 403. Loopback is never gated. Sits BEFORE express.json so rejected
+// request bodies are never parsed, and before the rate limiters.
+app.use(inboundAccessControl);
 app.use(express.json({ limit: '10mb' }));
 
 // Stricter rate limiting for config mutations and OAuth login.
@@ -4987,9 +5003,17 @@ function syncKeysFromPqcBundle(options: { force?: boolean } = {}): PqcBundleSync
         value = value.slice('Authorization: Bearer '.length).trim();
       }
       dirSecrets += 1;
-      // Accept every documented naming variant: LOCALROUTER_<KEY_ENV_VAR>,
-      // the legacy LOCAL_ROUTER_ prefix, provider-slug names
-      // (LOCALROUTER_ZAI), and plain <KEY_ENV_VAR>.
+      // Inbound access control (2026-11-25): the tunnel access key rides the
+      // same bundle as provider keys under a Local Router-prefixed name. Env
+      // always wins (noteVaultAccessKey only fills the fallback slot), and the
+      // value must never land in the provider keyStore or any /api response.
+      if (isInboundAccessKeyName(fullName)) {
+        noteVaultAccessKey(value);
+        if (!skipped.includes(fullName)) {
+          skipped.push(fullName);
+        }
+        continue;
+      }
       const providers = resolveProvidersForKey(fullName, allProviderSummaries());
       if (providers.length > 0) {
         dirProviders += 1;
@@ -9479,7 +9503,14 @@ async function executeFallbackRoute(
   }
 
   const terminalFailure = lastFailure as AttemptFailure | null;
-  const status = terminalFailure?.status || 502;
+  // Exhaustion is OUR failure, not the caller's. Returning the last upstream
+  // status (which could be 401 or 429) made an agent believe its own credentials
+  // or quota were at fault, when the router holds every key and the caller only
+  // sent a placeholder that the router never forwards. 503 + `chain_exhausted`
+  // says "the router could not answer" while the detail block still names what
+  // each stage returned, so the truth is not lost — it is relocated from the
+  // status line into evidence.
+  const status = 503;
   const terminalMessage = `Fallback model "${fallbackRoute.id}" exhausted all ${eligible.length} eligible targets across ${DEFAULT_FALLBACK_ROUNDS} retry passes.`;
 
   if (logTracker) {
@@ -9493,7 +9524,12 @@ async function executeFallbackRoute(
 
   return res.status(status).json({
     error: terminalMessage,
+    errorType: 'chain_exhausted',
     provider: 'local-router',
+    // Say plainly that the caller's own key was not the problem, so an agent
+    // harness does not surface a credential prompt for a router-side outage.
+    hint: 'The router holds all provider keys; the caller\'s key was not used upstream. '
+      + 'This is a router/provider failure, not a caller credential problem.',
     fallback: {
       id: fallbackRoute.id,
       configuredTargets: fallbackRoute.models,
@@ -9503,6 +9539,9 @@ async function executeFallbackRoute(
       passesCompleted: DEFAULT_FALLBACK_ROUNDS,
       terminalErrorType: terminalFailure?.errorType || null,
       terminalErrorMessage: terminalFailure?.message || null,
+      // The last upstream status is preserved as evidence, never as the
+      // response status.
+      terminalUpstreamStatus: terminalFailure?.status || null,
       attempts: attemptLog
     }
   });
@@ -10983,6 +11022,15 @@ wss.on('connection', (ws: WebSocket) => {
 });
 
 function handleHttpUpgrade(request: any, socket: any, head: any) {
+  // WebSocket upgrades bypass Express middleware entirely, so the same
+  // inbound verdict that guards HTTP routes guards the upgrade: a public
+  // (tunnel / non-loopback) client needs the access key even for /v1/responses.
+  const verdict = evaluateInboundAccess(request);
+  if (!verdict.allow) {
+    console.log(`[inbound-auth] rejected public upgrade -> ${verdict.status}`);
+    socket.end(inboundUpgradeRejectionResponse(verdict.status, verdict.body));
+    return;
+  }
   const urlObj = new URL(request.url || '', `http://${request.headers.host || 'localhost'}`);
   const pathname = urlObj.pathname;
   if (pathname === '/v1/responses') {
