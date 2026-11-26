@@ -55,8 +55,17 @@ jobs:
             echo "ERROR: Could not resolve a published release tag." >&2
             exit 1
           fi
-          git fetch origin "refs/tags/${TAG}:refs/tags/${TAG}"
-          SHA=$(git rev-list -n 1 "refs/tags/${TAG}")
+          # Resolve the release commit from the remote tag without writing a
+          # local tag. On a tag-push run the checkout already carries the tag,
+          # and re-fetching it into refs/tags is refused with "would clobber
+          # existing tag" — the failure that killed v1.2.2's first promotion.
+          # FETCH_HEAD works in every context (tag run or manual dispatch).
+          git fetch --no-tags origin "refs/tags/${TAG}"
+          SHA=$(git rev-parse 'FETCH_HEAD^{commit}')
+          if [ -z "$SHA" ]; then
+            echo "::error::could not resolve the commit for ${TAG}"
+            exit 1
+          fi
           URL="https://github.com/${GITHUB_REPOSITORY}/releases/tag/${TAG}"
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
           echo "sha=${SHA}" >> "$GITHUB_OUTPUT"
