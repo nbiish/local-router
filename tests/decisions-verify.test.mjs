@@ -205,12 +205,19 @@ test.before(async () => {
 });
 
 test.after(async () => {
-  serverProcess?.kill();
-  keylessProcess?.kill();
+  const waitExit = (proc) => {
+    if (!proc || proc.exitCode !== null || proc.signalCode !== null) return Promise.resolve();
+    return new Promise((resolve) => {
+      const t = setTimeout(resolve, 2000);
+      proc.once('exit', () => { clearTimeout(t); resolve(); });
+      proc.kill();
+    });
+  };
+  await Promise.all([waitExit(serverProcess), waitExit(keylessProcess)]);
   await new Promise((resolve) => openrouterServer?.close(resolve) ?? resolve());
   await new Promise((resolve) => zenmuxServer?.close(resolve) ?? resolve());
   for (const dir of [testHome, keylessHome, receiptDir]) {
-    if (dir) rmSync(dir, { recursive: true, force: true });
+    if (dir) rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
