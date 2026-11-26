@@ -134,6 +134,7 @@ export interface TrajectoryChain {
   degradedTargets?: string[];
   requiredContext: number;
   requiresMultimodal: boolean;
+  requiresTools?: boolean;
   planStageCount: number;
 }
 

@@ -35,9 +35,10 @@ export interface ModelCapabilitySpecs {
 
 export interface SkippedCandidate {
   model: string;
-  reason: 'context_window_too_small' | 'no_multimodal_support' | 'unconfigured_key' | 'no_reasoning_dial';
+  reason: 'context_window_too_small' | 'no_multimodal_support' | 'no_tools_support' | 'unconfigured_key' | 'no_reasoning_dial';
   contextLength: number;
   supportsImages: boolean;
+  supportsTools?: boolean;
 }
 
 export interface FallbackFilterResult {
@@ -53,6 +54,7 @@ export interface FallbackFilterResult {
   skipped: SkippedCandidate[];
   requiredContext: number;
   requiresMultimodal: boolean;
+  requiresTools: boolean;
   /** True when the caller expressed a thinking intent and so needs a real dial. */
   requiresReasoningDial: boolean;
   /**
@@ -60,7 +62,7 @@ export interface FallbackFilterResult {
    * existed; it is no longer produced, because a chain with no dial-capable
    * member now serves the request through `degraded` instead of failing.
    */
-  error?: 'no_multimodal_models' | 'chain_empty' | 'no_reasoning_models';
+  error?: 'no_multimodal_models' | 'no_tools_models' | 'chain_empty' | 'no_reasoning_models';
 }
 
 /**
@@ -194,6 +196,51 @@ export function requestRequiresMultimodal(body: any): boolean {
 }
 
 /**
+ * Returns true when the request needs a model that can call tools.
+ *
+ * Sticky across the session, like `requestRequiresMultimodal`: tool calls and
+ * tool results live in the history, so a chat that started with tools keeps
+ * requiring them on every later turn. A member that cannot call tools must be
+ * skipped rather than handed a tool request it would answer without tools — a
+ * "successful" turn that silently dropped the caller's tool.
+ */
+export function requestRequiresTools(body: unknown): boolean {
+  if (!body || typeof body !== 'object') return false;
+
+  // Tool declarations on the request itself.
+  if ('tools' in body && Array.isArray(body.tools) && body.tools.length > 0) return true;
+  if ('functions' in body && Array.isArray(body.functions) && body.functions.length > 0) return true;
+
+  // Messages examination (history): tool calls, tool results, tool blocks.
+  if ('messages' in body && Array.isArray(body.messages)) {
+    for (const msg of body.messages) {
+      if (!msg || typeof msg !== 'object') continue;
+      if ('role' in msg && (msg.role === 'tool' || msg.role === 'function')) return true;
+      if ('tool_calls' in msg && Array.isArray(msg.tool_calls) && msg.tool_calls.length > 0) return true;
+      if ('function_call' in msg && msg.function_call && typeof msg.function_call === 'object') return true;
+      if ('content' in msg && Array.isArray(msg.content)) {
+        for (const part of msg.content) {
+          if (!part || typeof part !== 'object' || !('type' in part)) continue;
+          const type = part.type;
+          if (
+            type === 'tool_use' ||
+            type === 'tool_result' ||
+            type === 'tool_output' ||
+            type === 'function_call' ||
+            type === 'function_result' ||
+            type === 'function_call_output'
+          ) {
+            return true;
+          }
+        }
+      }
+    }
+  }
+
+  return false;
+}
+
+/**
  * Does the request express a thinking intent that a model without a request dial
  * could not honour?
  *
@@ -233,6 +280,7 @@ export function filterEligibleFallbackModels(
 ): FallbackFilterResult {
   const requiredContext = estimateRequestContext(body);
   const requiresMultimodal = requestRequiresMultimodal(body);
+  const requiresTools = requestRequiresTools(body);
   const requiresReasoningDial = requestRequiresReasoningDial(body);
 
   if (activeModels.length === 0) {
@@ -242,6 +290,7 @@ export function filterEligibleFallbackModels(
       skipped: [],
       requiredContext,
       requiresMultimodal,
+      requiresTools,
       requiresReasoningDial,
       error: 'chain_empty'
     };
@@ -253,6 +302,7 @@ export function filterEligibleFallbackModels(
       modelId,
       contextLength: specs.contextLength || 64000,
       supportsImages: Boolean(specs.supportsImages),
+      supportsTools: Boolean(specs.supportsTools),
       reasoningLevelCount: Number(specs.reasoningLevelCount) || 0
     };
   });
@@ -284,8 +334,43 @@ export function filterEligibleFallbackModels(
         skipped,
         requiredContext,
         requiresMultimodal,
+        requiresTools,
         requiresReasoningDial,
         error: 'no_multimodal_models'
+      };
+    }
+  }
+
+  // Step 1.5: Tools filter — the same hard-skip shape as multimodal. A model
+  // that cannot call tools must not receive a tool request: upstream it either
+  // errors (a wasted attempt) or answers with the caller's tools silently
+  // ignored — the silent downgrade this gate replaces with a recorded skip.
+  if (requiresTools) {
+    const toolCapable: typeof candidatesWithSpecs = [];
+    for (const c of candidates) {
+      if (c.supportsTools) {
+        toolCapable.push(c);
+      } else {
+        skipped.push({
+          model: c.modelId,
+          reason: 'no_tools_support',
+          contextLength: c.contextLength,
+          supportsImages: c.supportsImages,
+          supportsTools: false
+        });
+      }
+    }
+    candidates = toolCapable;
+    if (candidates.length === 0) {
+      return {
+        eligible: [],
+        degraded: [],
+        skipped,
+        requiredContext,
+        requiresMultimodal,
+        requiresTools,
+        requiresReasoningDial,
+        error: 'no_tools_models'
       };
     }
   }
@@ -345,8 +430,9 @@ export function filterEligibleFallbackModels(
   // Step 4: If no candidate has enough context (e.g. prompt is 1.5M tokens),
   // rather than failing with 0 attempts, pick the largest available models
   // in the active chain so we attempt execution on the best-capacity targets.
-  // `candidates` here is already narrowed by the vision and reasoning-dial
-  // gates, so this fallback can never reintroduce a model that fails them.
+  // `candidates` here is already narrowed by the vision, tools, and
+  // reasoning-dial gates, so this fallback can never reintroduce a model that
+  // fails them.
   if (eligible.length === 0 && candidates.length > 0) {
     const maxContext = Math.max(...candidates.map((c) => c.contextLength));
     for (const c of candidates) {
@@ -392,6 +478,7 @@ export function filterEligibleFallbackModels(
     skipped,
     requiredContext,
     requiresMultimodal,
+    requiresTools,
     requiresReasoningDial
   };
 }
