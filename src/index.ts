@@ -8742,6 +8742,7 @@ async function handleEmbeddingRequest(req: Request, res: Response) {
       eligibleTargets: runnableCandidates.map((c) => c.model),
       requiredContext: 0,
       requiresMultimodal: false,
+      requiresTools: false,
       planStageCount: candidates.length
     });
   }
@@ -9101,6 +9102,7 @@ async function executeFallbackRoute(
     ...(filterResult.degraded.length > 0 ? { degradedTargets: filterResult.degraded.slice() } : {}),
     requiredContext: filterResult.requiredContext,
     requiresMultimodal: filterResult.requiresMultimodal,
+    requiresTools: filterResult.requiresTools,
     planStageCount: 0
   };
   const activeSet = new Set(activeModels);
@@ -9130,6 +9132,7 @@ async function executeFallbackRoute(
       supportsImages: s.supportsImages,
       requiredContext: filterResult.requiredContext,
       requiresMultimodal: filterResult.requiresMultimodal,
+      requiresTools: filterResult.requiresTools,
       requiresReasoningDial: filterResult.requiresReasoningDial
     });
   }
@@ -9157,6 +9160,7 @@ async function executeFallbackRoute(
         id: fallbackRoute.id,
         requiredContext: filterResult.requiredContext,
         requiresMultimodal: true,
+        requiresTools: filterResult.requiresTools,
         configuredTargets: fallbackRoute.models,
         attempts: attemptLog
       }
@@ -9178,6 +9182,7 @@ async function executeFallbackRoute(
         id: fallbackRoute.id,
         requiredContext: filterResult.requiredContext,
         requiresMultimodal: filterResult.requiresMultimodal,
+        requiresTools: filterResult.requiresTools,
         configuredTargets: fallbackRoute.models,
         attempts: attemptLog
       }
@@ -9545,6 +9550,7 @@ async function executeFallbackRoute(
       eligibleTargets: eligible,
       requiredContext: filterResult.requiredContext,
       requiresMultimodal: filterResult.requiresMultimodal,
+      requiresTools: filterResult.requiresTools,
       passesCompleted: DEFAULT_FALLBACK_ROUNDS,
       terminalErrorType: terminalFailure?.errorType || null,
       terminalErrorMessage: terminalFailure?.message || null,

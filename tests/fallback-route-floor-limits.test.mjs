@@ -228,3 +228,37 @@ test('disabling the small member raises the floor to the next smallest', async (
   assert.equal(after.context_length, 90000, 'an operator-disabled member cannot serve, so it must not constrain');
   assert.equal(after.max_output_tokens, 5000);
 });
+
+test("the models view tracks the user's chain choice for all four advertised fields", async (t) => {
+  if (skipReason) return t.skip(skipReason);
+
+  await addMember({ model: 'dyn-big', id: 'dyn-model-big', contextLength: 128000, outputTokens: 8192, supportsTools: true, supportsImages: true });
+  await addMember({ model: 'dyn-small', id: 'dyn-model-small', contextLength: 33000, outputTokens: 2048, supportsTools: false, supportsImages: false });
+  await createRoute('dyn-test', ['dyn-model-big', 'dyn-model-small']);
+
+  let entry = await presentedEntry('dyn-test');
+  assert.equal(entry.context_length, 33000, 'context follows the smallest member');
+  assert.equal(entry.max_output_tokens, 2048, 'output follows the smallest member');
+  assert.equal(entry.capabilities.toolCalling, true, 'tools is a union over the chosen members');
+  assert.equal(entry.capabilities.imageInput, true, 'vision is a union over the chosen members');
+
+  // The user disables the capable member: the advertisement must follow.
+  await postJson('/api/fallback-models', {
+    id: 'dyn-test',
+    models: ['dyn-model-big', 'dyn-model-small'],
+    disabledModels: ['dyn-model-big']
+  });
+  entry = await presentedEntry('dyn-test');
+  assert.equal(entry.capabilities.toolCalling, false, 'toolCalling must follow the chain, not the disabled member');
+  assert.equal(entry.capabilities.imageInput, false, 'imageInput must follow the chain, not the disabled member');
+  assert.equal(entry.context_length, 33000);
+
+  // And re-enabling brings the union back — no restart, no cache flush.
+  await postJson('/api/fallback-models', {
+    id: 'dyn-test',
+    models: ['dyn-model-big', 'dyn-model-small']
+  });
+  entry = await presentedEntry('dyn-test');
+  assert.equal(entry.capabilities.toolCalling, true);
+  assert.equal(entry.capabilities.imageInput, true);
+});
