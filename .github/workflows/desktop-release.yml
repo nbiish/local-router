@@ -83,5 +83,51 @@ jobs:
           releaseBody: "Native cross-platform desktop application with corner system tray controls, Ollama drop-in interception, self-healing fallback chains, and 23 built-in model providers."
           releaseDraft: false
           prerelease: false
-          includeUpdaterJson: true
+          uploadUpdaterJson: true
+          uploadUpdaterSignatures: true
           args: ${{ matrix.platform.args }}
+
+  promote:
+    name: Verify updater manifest, then promote to production
+    # Runs only after every platform has uploaded. The release is created with
+    # this workflow's own GITHUB_TOKEN, and GitHub does not start a workflow from
+    # an event that token raised, so the promotion is called here instead of
+    # waiting for `release: published`.
+    needs: build-desktop
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Resolve release tag
+        id: release
+        run: |
+          CONF_VERSION="$(node -p "require('./src-tauri/tauri.conf.json').version")"
+          PKG_VERSION="$(node -p "require('./package.json').version")"
+          TOML_VERSION="$(sed -n 's/^version = "\(.*\)"/\1/p' src-tauri/Cargo.toml | head -1)"
+          LOCK_VERSION="$(awk '/^name = "local-router"$/{f=1; next} f && /^version = /{gsub(/version = |"/, ""); print; exit}' src-tauri/Cargo.lock)"
+          # All four version files must agree (RELEASING.md §1). A release built
+          # with a stale Cargo.lock entry is exactly how v1.2.1 shipped one.
+          if [ "$CONF_VERSION" != "$PKG_VERSION" ] || [ "$CONF_VERSION" != "$TOML_VERSION" ] || [ "$CONF_VERSION" != "$LOCK_VERSION" ]; then
+            echo "::error::version drift: package.json=$PKG_VERSION tauri.conf.json=$CONF_VERSION Cargo.toml=$TOML_VERSION Cargo.lock=$LOCK_VERSION"
+            exit 1
+          fi
+          EXPECTED="v$CONF_VERSION"
+          if [ "$GITHUB_REF_TYPE" = "tag" ] && [ "$GITHUB_REF_NAME" != "$EXPECTED" ]; then
+            echo "::error::pushed tag $GITHUB_REF_NAME does not match the configured version ($EXPECTED)"
+            exit 1
+          fi
+          echo "tag=$EXPECTED" >> "$GITHUB_OUTPUT"
+          echo "release tag: $EXPECTED"
+
+      - name: Verify updater manifest on the release (fail closed)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+        run: node scripts/verify-updater-manifest.mjs "$RELEASE_TAG"
+
+      - name: Fast-forward production and dispatch the website promotion
+        uses: ./.github/workflows/promote-website-release.yml
+        with:
+          tag: ${{ steps.release.outputs.tag }}
+        secrets: inherit
