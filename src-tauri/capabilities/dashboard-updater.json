@@ -1,0 +1,8 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "dashboard-updater",
+  "description": "Lets the router dashboard, served on loopback, drive the signed self-updater through the app's check_updates, update_status and install_update commands.",
+  "windows": ["main"],
+  "remote": { "urls": ["http://127.0.0.1:11434/*", "http://localhost:11434/*"] },
+  "permissions": ["allow-check-updates", "allow-update-status", "allow-install-update"]
+}

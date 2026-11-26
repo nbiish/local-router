@@ -1,7 +1,7 @@
 # Releasing Local Router
 
-Release flow: worktree → verify → merge to `main` → tag → CI builds → publish
-draft. `main` is the only permanent branch; never commit to it directly.
+Release flow: worktree → verify → merge to `main` → tag → CI builds, publishes, verifies the
+updater manifest and promotes it to `production`. `main` is the only permanent branch; never commit to it directly.
 
 ---
 
@@ -36,7 +36,7 @@ npm run build     # tsc
   does not expand `tests/*.integration.test.mjs`. Enumerate test files
   explicitly in `test:integration`.
 
-## 3. Tag → CI → draft release
+## 3. Tag → CI → published release → production
 
 ```bash
 git tag -a vX.Y.Z -m "Local Router vX.Y.Z — <summary>"
@@ -51,8 +51,21 @@ Pushing a `v*` tag triggers `.github/workflows/desktop-release.yml`:
 | macOS universal | macos-latest | `.dmg`, `.app.tar.gz` |
 | Linux x64 | ubuntu-22.04 | AppImage, `.deb`, `.rpm` |
 
-Everything lands in a **draft** GitHub release; nothing is public until an
-operator publishes it.
+The release is **published** by the workflow (`releaseDraft: false`). After the last platform
+uploads, the `promote` job checks the release's `latest.json`: its version equals the tag, and
+`darwin-aarch64`, `darwin-x86_64`, `windows-x86_64` and `linux-x86_64` each name an asset on that
+release with a signature. It then calls `promote-website-release.yml`, which fast-forwards
+`production` to the tagged commit and dispatches `nbiish/local-router-dot-com` to republish
+`https://local-router.com/updates/latest.json`. An incomplete manifest fails the job before anything
+is promoted.
+
+The `release: published` trigger on `promote-website-release.yml` never fires for these releases:
+GitHub does not start a workflow from an event raised by a workflow's own `GITHUB_TOKEN`. If a run
+stops before promotion, repeat it by hand:
+
+```sh
+gh workflow run promote-website-release.yml -f tag=vX.Y.Z
+```
 
 Platform gotchas (all three bit us on v1.1.0):
 - The workflow needs `permissions: contents: write` or tauri-action cannot
@@ -91,10 +104,11 @@ Incident history: v1.1.0 (2026-08-30) — Antigravity client secret blocked
 `main` + tag across 5 commits; bypassed as false positive per operator
 decision. See `.agents/tasks/TASK.2026-08-30.v1.1.0-release-and-pqc-docs.md`.
 
-## 5. Publish
+## 5. After the release
 
-Draft → review assets (exe, msi, dmg, AppImage, deb, rpm all present) → hit
-**Publish release** on GitHub. Then announce/change-log as needed.
+Publishing is automatic. Review the published release: every installer and its `.sig` present,
+`production` at the tagged commit, and `https://local-router.com/updates/latest.json` reporting
+the new version. Then announce/change-log as needed.
 
 ## 6. Self-update manifest (desktop app auto-update)
 
@@ -111,38 +125,42 @@ without item 1 the build ships with no update artifacts at all):
    "A public key has been found, but no private key" AFTER the archive is built.
 
 The desktop app checks `https://local-router.com/updates/latest.json` on startup
-(20s delay) and via the tray **Check for Updates** item. Updates are
-minisign-verified against the public key embedded in `src-tauri/tauri.conf.json`
-(`plugins.updater.pubkey`) — unsigned or tampered updates are rejected.
+(20s delay), from the tray **Check for Updates** item and from the dashboard's **Check for
+updates** control. Updates are minisign-verified against the public key embedded in
+`src-tauri/tauri.conf.json` (`plugins.updater.pubkey`) — unsigned or tampered updates are rejected.
 
-Release steps (after step 5):
+The dashboard is served by the router (`http://127.0.0.1:11434`), which is a remote origin for
+IPC. It may call the app's updater commands only because
+`src-tauri/capabilities/dashboard-updater.json` grants `allow-check-updates`,
+`allow-update-status` and `allow-install-update` to that origin, and `src-tauri/build.rs` declares
+those commands so the permissions are generated. A new command the dashboard should reach needs
+both; without them its button fails with "Update check failed."
 
-1. **Sign the artifacts** — `tauri build` emits `.sig` files next to the
-   updater artifacts when the signing key is available:
-   ```sh
-   export TAURI_SIGNING_PRIVATE_KEY_PATH="$HOME/.config/local-router/tauri-updater.key"
-   export TAURI_SIGNING_PRIVATE_KEY_PASSWORD=""   # key has no passphrase
-   npm run tauri:build
-   ```
-   The private key is operator-owned (`~/.config/local-router/tauri-updater.key`,
-   mode 600). It must be moved into the pqc-secrets vault and injected at build
-   time; never commit it, never paste it into chat. If the key is ever lost,
-   updates must ship with a new keypair (bump `pubkey`, document it).
+Release steps:
 
-2. **Build the manifest**:
+1. **Sign the updater artifacts** — CI does this on every tag: `desktop-release.yml` runs
+   `tauri build` with `TAURI_SIGNING_PRIVATE_KEY` (the key contents; there is no `_PATH`
+   variant) and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` (the key has no passphrase, so empty is
+   correct). The private key is operator-owned and must be injected from the pqc-secrets vault
+   at build time; never commit it, never paste it into chat. If the key is ever lost, updates
+   must ship with a new keypair (bump `pubkey`, document it).
+
+2. **Build the manifest** — `tauri-action` merges each platform into the release's
+   `latest.json` and uploads it with the `.sig` files. To rebuild one by hand:
+
    ```sh
    node scripts/make-update-manifest.mjs \
-     --version 1.2.0 --notes "<changelog>" \
-     --platform darwin-aarch64=<github-release-url-of-.app.tar.gz>=<path-to-.sig> \
-     --platform windows-x86_64=<url-of-.nsis.zip>=<sig> \
+     --version 1.2.1 --notes "<changelog>" \
+     --platform darwin-aarch64=<url-of-.app.tar.gz>=<path-to-.sig> \
+     --platform windows-x86_64=<url-of-installer>=<sig> \
      --out latest.json
    ```
 
-3. **Publish the manifest** — copy `latest.json` into the
-   `local-router-dot-com` repo at `public/updates/latest.json` and deploy
-   (`npx wrangler pages deploy public --project-name local-router-dot-com`).
-   Upload the signed artifacts to the GitHub release (step 5).
+3. **Publish the manifest** — promotion copies the release's `latest.json` asset into the
+   `local-router-dot-com` repo at `public/updates/latest.json` and deploys its `production`
+   branch. By hand: `gh workflow run promote-website-release.yml -f tag=vX.Y.Z`.
 
-4. **Verify** — launch the previous version's app; the tray item should flip to
-   "⬆ Install v<new> Update" within ~20s; click it; the app restarts on the new
-   version (window title / `--version` reflects the bump).
+4. **Verify** — `node scripts/verify-updater-manifest.mjs vX.Y.Z` passes against the release and
+   `https://local-router.com/updates/latest.json` reports the new version. Then launch the
+   previous version's app: the tray item or the dashboard control offers the update; install it;
+   the app restarts on the new version (window title / `--version` reflects the bump).
