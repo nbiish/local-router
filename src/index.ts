@@ -3842,11 +3842,17 @@ function fallbackModelPresentation(model: FallbackModel): ProviderModel {
     .map((target) => findCatalogModel(target) || findProviderModel(target))
     .filter(Boolean) as ProviderModel[];
 
-  const maxContext = resolvedSpecs.length > 0
-    ? Math.max(...resolvedSpecs.map((s) => s.contextLength || 0))
+  // Limits are the chain's FLOOR, not its ceiling: the route sheds to any member
+  // it may still serve (including a last-pass recovery of a quarantined one), so
+  // a harness sized to the smallest member's limits is never interrupted
+  // mid-session. Unknown member specs count as the planner's defaults (64000 /
+  // 4096) — the same values `filterEligibleFallbackModels` plans with — so the
+  // advertisement and the execution plan cannot disagree.
+  const floorContext = resolvedSpecs.length > 0
+    ? Math.min(...resolvedSpecs.map((s) => s.contextLength || DEFAULT_CONTEXT_LENGTH))
     : DEFAULT_CONTEXT_LENGTH;
-  const maxOutput = resolvedSpecs.length > 0
-    ? Math.max(...resolvedSpecs.map((s) => s.outputTokens || 0))
+  const floorOutput = resolvedSpecs.length > 0
+    ? Math.min(...resolvedSpecs.map((s) => s.outputTokens || DEFAULT_OUTPUT_TOKENS))
     : DEFAULT_OUTPUT_TOKENS;
   const anyImages = resolvedSpecs.some((s) => s.supportsImages);
   const anyTools = resolvedSpecs.some((s) => s.supportsTools);
@@ -3861,8 +3867,8 @@ function fallbackModelPresentation(model: FallbackModel): ProviderModel {
     provider: FALLBACK_PROVIDER_NAME,
     model: routeId,
     display: `${presentedId}: ${model.models.join(' -> ')}`,
-    contextLength: maxContext > 0 ? maxContext : DEFAULT_CONTEXT_LENGTH,
-    outputTokens: maxOutput > 0 ? maxOutput : DEFAULT_OUTPUT_TOKENS,
+    contextLength: floorContext > 0 ? floorContext : DEFAULT_CONTEXT_LENGTH,
+    outputTokens: floorOutput > 0 ? floorOutput : DEFAULT_OUTPUT_TOKENS,
     supportsTools: resolvedSpecs.length > 0 ? anyTools : true,
     supportsImages: anyImages,
     supportsCache: anyCache,
