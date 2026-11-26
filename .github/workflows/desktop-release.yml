@@ -87,14 +87,16 @@ jobs:
           uploadUpdaterSignatures: true
           args: ${{ matrix.platform.args }}
 
-  promote:
-    name: Verify updater manifest, then promote to production
+  verify-manifest:
+    name: Verify updater manifest
     # Runs only after every platform has uploaded. The release is created with
     # this workflow's own GITHUB_TOKEN, and GitHub does not start a workflow from
-    # an event that token raised, so the promotion is called here instead of
-    # waiting for `release: published`.
+    # an event that token raised, so `promote` below calls the promotion workflow
+    # directly instead of waiting for `release: published`.
     needs: build-desktop
     runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.release.outputs.tag }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -106,7 +108,7 @@ jobs:
           PKG_VERSION="$(node -p "require('./package.json').version")"
           TOML_VERSION="$(sed -n 's/^version = "\(.*\)"/\1/p' src-tauri/Cargo.toml | head -1)"
           LOCK_VERSION="$(awk '/^name = "local-router"$/{f=1; next} f && /^version = /{gsub(/version = |"/, ""); print; exit}' src-tauri/Cargo.lock)"
-          # All four version files must agree (RELEASING.md §1). A release built
+          # All four version files must agree (RELEASING.md §1): a release built
           # with a stale Cargo.lock entry is exactly how v1.2.1 shipped one.
           if [ "$CONF_VERSION" != "$PKG_VERSION" ] || [ "$CONF_VERSION" != "$TOML_VERSION" ] || [ "$CONF_VERSION" != "$LOCK_VERSION" ]; then
             echo "::error::version drift: package.json=$PKG_VERSION tauri.conf.json=$CONF_VERSION Cargo.toml=$TOML_VERSION Cargo.lock=$LOCK_VERSION"
@@ -126,8 +128,14 @@ jobs:
           RELEASE_TAG: ${{ steps.release.outputs.tag }}
         run: node scripts/verify-updater-manifest.mjs "$RELEASE_TAG"
 
-      - name: Fast-forward production and dispatch the website promotion
-        uses: ./.github/workflows/promote-website-release.yml
-        with:
-          tag: ${{ steps.release.outputs.tag }}
-        secrets: inherit
+  promote:
+    name: Promote to production and the website
+    needs: [build-desktop, verify-manifest]
+    # A reusable workflow is called as a JOB (`uses` + `with` + `secrets`), never
+    # as a step: a step-level `uses` pointing at a workflow file makes the whole
+    # file invalid, and GitHub then fails every push at startup with no jobs —
+    # which is how v1.2.2's first tag attempt died without building anything.
+    uses: ./.github/workflows/promote-website-release.yml
+    with:
+      tag: ${{ needs.verify-manifest.outputs.tag }}
+    secrets: inherit
