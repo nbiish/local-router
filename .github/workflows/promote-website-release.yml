@@ -3,6 +3,15 @@ name: Promote Website Production on Release
 on:
   release:
     types: [published]
+  # `desktop-release.yml` calls this directly once every platform has uploaded.
+  # A release created by a workflow's own GITHUB_TOKEN raises no `release` event,
+  # so the trigger above only fires for releases published by hand.
+  workflow_call:
+    inputs:
+      tag:
+        description: "Release tag to promote"
+        type: string
+        required: true
   workflow_dispatch:
     inputs:
       tag:
