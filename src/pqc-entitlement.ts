@@ -100,7 +100,16 @@ export interface DevicePqcIdentity {
   publicKeyB64: string;
   secretKeyB64: string;
   devicePubHash: string;
+  bridgeKeyEpoch?: number;
   createdAt: string;
+}
+
+export interface MachineBridgeKeyResult {
+  accessKey: string;
+  deviceId: string;
+  devicePubHash: string;
+  epoch: number;
+  fingerprint: string;
 }
 
 export interface LeaseVerificationResult {
@@ -378,11 +387,53 @@ export function ensureDevicePqcIdentity(): DevicePqcIdentity {
     publicKeyB64,
     secretKeyB64,
     devicePubHash,
+    bridgeKeyEpoch: 1,
     createdAt: new Date().toISOString()
   };
   fs.mkdirSync(path.dirname(filePath), { recursive: true, mode: 0o700 });
   fs.writeFileSync(filePath, `${JSON.stringify(identity, null, 2)}\n`, { mode: 0o600 });
   return identity;
+}
+
+/** Short non-secret SHA3-256 fingerprint for any bridge access key (`sha3:<16-hex>`). */
+export function bridgeKeyFingerprint(accessKey: string): string {
+  return `sha3:${sha3Hex(Buffer.from(`lr-bridge-fp-v1:${accessKey.trim()}`, 'utf8')).slice(0, 16)}`;
+}
+
+/**
+ * Derive this machine's built-in 256-bit PQC bridge access key (`lrk_<64-hex>`)
+ * strictly in memory from its local ML-KEM-768 private identity + deviceId +
+ * rotation epoch. Never written in plaintext to disk and requires zero external
+ * `pqc-secrets` setup for new users.
+ */
+export function deriveMachineBridgeAccessKey(identity: DevicePqcIdentity = ensureDevicePqcIdentity()): MachineBridgeKeyResult {
+  const epoch = Number.isInteger(identity.bridgeKeyEpoch) && (identity.bridgeKeyEpoch as number) >= 1
+    ? (identity.bridgeKeyEpoch as number)
+    : 1;
+  const secretBytes = Buffer.from(base64urlDecode(identity.secretKeyB64));
+  const prefix = Buffer.from('lr-machine-bridge-key-v1|', 'utf8');
+  const suffix = Buffer.from(`|${identity.deviceId}|${identity.devicePubHash}|${epoch}`, 'utf8');
+  const accessKey = `lrk_${sha3Hex(Buffer.concat([prefix, secretBytes, suffix]))}`;
+  return {
+    accessKey,
+    deviceId: identity.deviceId,
+    devicePubHash: identity.devicePubHash,
+    epoch,
+    fingerprint: bridgeKeyFingerprint(accessKey)
+  };
+}
+
+/** Increment this machine's bridge key epoch (0600) and derive a fresh key. */
+export function rotateMachineBridgeAccessKey(): MachineBridgeKeyResult {
+  const identity = ensureDevicePqcIdentity();
+  const nextEpoch = (Number.isInteger(identity.bridgeKeyEpoch) && (identity.bridgeKeyEpoch as number) >= 1
+    ? (identity.bridgeKeyEpoch as number)
+    : 1) + 1;
+  const updated: DevicePqcIdentity = { ...identity, bridgeKeyEpoch: nextEpoch };
+  const filePath = deviceIdentityPath();
+  fs.mkdirSync(path.dirname(filePath), { recursive: true, mode: 0o700 });
+  fs.writeFileSync(filePath, `${JSON.stringify(updated, null, 2)}\n`, { mode: 0o600 });
+  return deriveMachineBridgeAccessKey(updated);
 }
 
 export function loadPersistedAccountLease(): PersistedAccountLease | null {

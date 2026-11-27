@@ -46,6 +46,8 @@ Usage:
                                        Pair this running instance with your Google/Apple/Microsoft account on local-router.com
   localrouter account refresh [--json] Renew this machine's ML-DSA-65 entitlement lease
   localrouter account unpair [--json]  Remove this machine's local account lease
+  localrouter bridge-key [--copy] [--raw] [--rotate] [--json]
+                                       Inspect, copy to clipboard (zero-echo), or rotate this machine's PQC bridge key
   localrouter route <set|unset|status|custom ...>
   localrouter version
 
@@ -107,6 +109,18 @@ function parseGlobalOptions(argv) {
     }
     if (token === '--control-plane' && i + 1 < argv.length) {
       options.controlPlaneUrl = argv[++i];
+      continue;
+    }
+    if (token === '--copy') {
+      options.copy = true;
+      continue;
+    }
+    if (token === '--raw') {
+      options.raw = true;
+      continue;
+    }
+    if (token === '--rotate') {
+      options.rotate = true;
       continue;
     }
     if (token === '--port') {
@@ -707,6 +721,103 @@ async function main() {
         return 0;
       }
       throw new Error('Unknown account subcommand. Use: status | pair | refresh | unpair');
+    }
+
+    if (command === 'bridge-key') {
+      const pqcEnt = require(path.join(__dirname, '..', 'build', 'pqc-entitlement.js'));
+      const baseUrl = `http://${options.host}:${options.port}`;
+
+      const copyToClipboard = (text) => {
+        const candidates = process.platform === 'darwin'
+          ? [['pbcopy', []]]
+          : process.platform === 'win32'
+            ? [['clip', []]]
+            : [['clip.exe', []], ['wl-copy', []], ['xclip', ['-selection', 'clipboard']], ['xsel', ['--clipboard', '--input']]];
+        for (const [cmd, cmdArgs] of candidates) {
+          const r = spawnSync(cmd, cmdArgs, { input: text, encoding: 'utf8' });
+          if (r.status === 0) return cmd;
+        }
+        throw new Error('No clipboard tool found (pbcopy / clip / wl-copy / xclip)');
+      };
+
+      if (options.rotate) {
+        let result;
+        try {
+          const res = await fetch(`${baseUrl}/api/bridge-key/rotate`, { method: 'POST' });
+          if (res.ok) result = await res.json();
+        } catch { /* server offline — rotate local identity directly */ }
+        if (!result) {
+          const rotated = pqcEnt.rotateMachineBridgeAccessKey();
+          result = {
+            rotated: true,
+            source: 'machine-pqc',
+            deviceId: rotated.deviceId,
+            epoch: rotated.epoch,
+            fingerprint: rotated.fingerprint
+          };
+        }
+        emitOrJson(options, result, (r) => {
+          console.log(`Rotated machine PQC bridge key: device=${r.deviceId} epoch=${r.epoch} fingerprint=${r.fingerprint}`);
+          if (r.overriddenBy) {
+            console.log(`Note: active key is currently overridden by ${r.overriddenBy}.`);
+          }
+        });
+        return 0;
+      }
+
+      if (options.copy || options.raw) {
+        let revealed = null;
+        try {
+          const res = await fetch(`${baseUrl}/api/bridge-key/reveal`, { method: 'POST' });
+          if (res.ok) revealed = await res.json();
+        } catch { /* fallback to offline local derivation */ }
+        if (!revealed) {
+          const derived = pqcEnt.deriveMachineBridgeAccessKey();
+          const envKey = (process.env.LOCAL_ROUTER_ACCESS_KEY || '').trim();
+          const activeKey = envKey || derived.accessKey;
+          revealed = {
+            accessKey: activeKey,
+            source: envKey ? 'env' : 'machine-pqc',
+            deviceId: derived.deviceId,
+            epoch: derived.epoch,
+            fingerprint: pqcEnt.bridgeKeyFingerprint(activeKey)
+          };
+        }
+        if (options.copy) {
+          const tool = copyToClipboard(revealed.accessKey);
+          if (options.json) {
+            emitJson({ copied: true, clipboardTool: tool, source: revealed.source, deviceId: revealed.deviceId, epoch: revealed.epoch, fingerprint: revealed.fingerprint });
+          } else {
+            console.log(`Copied bridge access key to clipboard via ${tool} (source=${revealed.source}, fingerprint=${revealed.fingerprint}).`);
+          }
+          return 0;
+        }
+        process.stdout.write(`${revealed.accessKey}\n`);
+        return 0;
+      }
+
+      let status = null;
+      try {
+        const res = await fetch(`${baseUrl}/api/bridge-key/status`);
+        if (res.ok) status = await res.json();
+      } catch { /* fallback to local metadata */ }
+      if (!status) {
+        const derived = pqcEnt.deriveMachineBridgeAccessKey();
+        const envKey = (process.env.LOCAL_ROUTER_ACCESS_KEY || '').trim();
+        status = {
+          configured: true,
+          source: envKey ? 'env' : 'machine-pqc',
+          deviceId: derived.deviceId,
+          devicePubHash: derived.devicePubHash,
+          epoch: derived.epoch,
+          fingerprint: envKey ? pqcEnt.bridgeKeyFingerprint(envKey) : derived.fingerprint
+        };
+      }
+      emitOrJson(options, status, (s) => {
+        console.log(`Bridge key source: ${s.source} · device=${s.deviceId} · epoch=${s.epoch} · fingerprint=${s.fingerprint}`);
+        console.log('Use `localrouter bridge-key --copy` to copy it to your clipboard without printing it.');
+      });
+      return 0;
     }
 
     throw new Error(`Unknown command: ${command}`);

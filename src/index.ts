@@ -106,8 +106,10 @@ import {
   inboundAccessControl,
   inboundCors,
   inboundUpgradeRejectionResponse,
+  noteMachineAccessKey,
   noteVaultAccessKey
 } from './inbound-auth';
+import { deriveMachineBridgeAccessKey } from './pqc-entitlement';
 import {
   isInboundAccessKeyName,
   providerKeyAliases,
@@ -5094,6 +5096,17 @@ function loadPqcSecrets(): void {
   ensureDefaultOllamaApiKey(keyStore);
     pruneDisallowedOllamaCloudRouting();
     return;
+  }
+
+  // Built-in per-machine PQC bridge key (ML-KEM-768 + SHA3-256, derived in memory).
+  // Gives every new installation a ready-to-use remote bridge access key with zero
+  // external pqc-secrets setup. Explicit env or pqc-secrets vault keys still win.
+  try {
+    const machineKey = deriveMachineBridgeAccessKey();
+    noteMachineAccessKey(machineKey.accessKey);
+    console.log(`[PQC] Built-in machine bridge key ready (device=${machineKey.deviceId}, epoch=${machineKey.epoch}, fp=${machineKey.fingerprint}).`);
+  } catch (err: any) {
+    console.warn(`[PQC] Could not initialize built-in machine bridge key: ${String(err?.message || err)}`);
   }
 
   const bin = getPqcBinPath();
