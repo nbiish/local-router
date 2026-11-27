@@ -41,6 +41,11 @@ Usage:
   localrouter embedding-env [--shell posix|powershell|cmd|fish] [--dimensions N] [--json]
                                        Print the env vars that point ainish-rag at this router
   localrouter config [--open]          Print or open http://127.0.0.1:11434/config
+  localrouter account status [--json]  Show PQC account pairing, binding hash, and active tier
+  localrouter account pair --code <lrp_...> [--email <addr>] [--label <name>] [--control-plane <url>] [--json]
+                                       Pair this running instance with your Google/Apple/Microsoft account on local-router.com
+  localrouter account refresh [--json] Renew this machine's ML-DSA-65 entitlement lease
+  localrouter account unpair [--json]  Remove this machine's local account lease
   localrouter route <set|unset|status|custom ...>
   localrouter version
 
@@ -86,6 +91,22 @@ function parseGlobalOptions(argv) {
     }
     if (token === '--all') {
       options.catalog = 'all';
+      continue;
+    }
+    if (token === '--code' && i + 1 < argv.length) {
+      options.code = argv[++i];
+      continue;
+    }
+    if (token === '--email' && i + 1 < argv.length) {
+      options.email = argv[++i];
+      continue;
+    }
+    if (token === '--label' && i + 1 < argv.length) {
+      options.label = argv[++i];
+      continue;
+    }
+    if (token === '--control-plane' && i + 1 < argv.length) {
+      options.controlPlaneUrl = argv[++i];
       continue;
     }
     if (token === '--port') {
@@ -634,6 +655,58 @@ async function main() {
 
     if (command === 'config') {
       return cmdConfig(options);
+    }
+
+    if (command === 'account') {
+      const pqcEnt = require(path.join(__dirname, '..', 'build', 'pqc-entitlement.js'));
+      const action = sub || 'status';
+      if (action === 'status') {
+        const status = pqcEnt.evaluateAccountLeaseStatus();
+        emitOrJson(options, status, (s) => {
+          if (!s.paired) {
+            console.log(`Account: not paired (control plane: ${s.controlPlaneUrl})`);
+            console.log('Sign in with Google, Apple, or Microsoft at https://local-router.com/dashboard to generate a pairing code.');
+            return;
+          }
+          console.log(`Account: ${s.email} (${s.provider}) · tier=${s.tier} · valid=${s.valid}${s.reason ? ` (${s.reason})` : ''}`);
+          console.log(`Device:  ${s.deviceId}`);
+          console.log(`PQC Hash: ${s.pqcBindingHash}`);
+          console.log(`Lease:   expires ${s.leaseExpiresAt || 'n/a'} · signer ${s.signingKeyFingerprint || 'n/a'}`);
+        });
+        return status.paired && !status.valid ? 1 : 0;
+      }
+      if (action === 'pair') {
+        const code = options.code || args[1];
+        if (!code) throw new Error('Usage: localrouter account pair --code <lrp_...> [--email <addr>] [--label <name>]');
+        const status = await pqcEnt.pairWithControlPlane({
+          pairingCode: code,
+          email: options.email,
+          label: options.label,
+          controlPlaneUrl: options.controlPlaneUrl
+        });
+        emitOrJson(options, status, (s) => {
+          console.log(`Paired ${s.deviceId} to ${s.email} (${s.provider}) · tier=${s.tier}`);
+          console.log(`PQC Binding Hash: ${s.pqcBindingHash}`);
+          console.log(`Lease expires:    ${s.leaseExpiresAt}`);
+        });
+        return 0;
+      }
+      if (action === 'refresh') {
+        const status = await pqcEnt.refreshLeaseFromControlPlane();
+        emitOrJson(options, status, (s) => {
+          console.log(`Renewed ML-DSA-65 lease for ${s.deviceId} (${s.email}) · tier=${s.tier} · expires ${s.leaseExpiresAt}`);
+        });
+        return 0;
+      }
+      if (action === 'unpair') {
+        const removed = pqcEnt.unpairLocalAccount();
+        const out = { unpaired: true, removed };
+        emitOrJson(options, out, () => {
+          console.log(removed ? 'Local account lease removed.' : 'No local account lease was present.');
+        });
+        return 0;
+      }
+      throw new Error('Unknown account subcommand. Use: status | pair | refresh | unpair');
     }
 
     throw new Error(`Unknown command: ${command}`);

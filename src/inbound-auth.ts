@@ -44,6 +44,7 @@
 
 import { createHash, timingSafeEqual } from 'node:crypto';
 import type { NextFunction, Request, RequestHandler, Response } from 'express';
+import { evaluateAccountLeaseStatus } from './pqc-entitlement';
 
 /** env var / vault name that carries the inbound access key at runtime. */
 export const ACCESS_KEY_ENV_VAR = 'LOCAL_ROUTER_ACCESS_KEY';
@@ -206,7 +207,23 @@ export function evaluateInboundAccess(req: Request): InboundVerdict {
     return { allow: false, status: 503, body: BODY_NOT_CONFIGURED };
   }
   for (const candidate of presentedAccessKey(req)) {
-    if (timingSafeKeyMatch(candidate, configured)) return { allow: true };
+    if (timingSafeKeyMatch(candidate, configured)) {
+      // Tier-gated PQC lease enforcement for remote HTTPS bridge traffic:
+      // - If LOCAL_ROUTER_REQUIRE_LEASE=1, a valid ML-DSA-65 lease bound to
+      //   this machine's ML-KEM-768 identity + verified account is mandatory.
+      // - If this machine IS paired, an expired/tampered/mismatched/revoked
+      //   lease fails closed immediately (no silent downgrade).
+      const leaseStatus = evaluateAccountLeaseStatus();
+      if ((leaseStatus.requireLease || leaseStatus.paired) && !leaseStatus.remoteBridgeEntitled) {
+        const reason = leaseStatus.reason || 'lease_invalid';
+        return {
+          allow: false,
+          status: 403,
+          body: `valid PQC-bound account lease required for remote bridge (${reason})`
+        };
+      }
+      return { allow: true };
+    }
   }
   return { allow: false, status: 401, body: BODY_INVALID_KEY };
 }

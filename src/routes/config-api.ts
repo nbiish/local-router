@@ -70,6 +70,12 @@ import {
 import { durability } from '../durability';
 import { planAutoDisable } from '../auto-disable';
 import { costBandFor, providerCoverageGaps } from '../fallback-topology';
+import {
+  evaluateAccountLeaseStatus,
+  pairWithControlPlane,
+  refreshLeaseFromControlPlane,
+  unpairLocalAccount
+} from '../pqc-entitlement';
 
 export interface ConfigApiDeps {
   agentProxyConfig?: AgentProxyConfig;
@@ -2441,6 +2447,52 @@ function formatUptime(ms: number): string {
   if (minutes > 0) return `${minutes}m ${seconds}s`;
   return `${seconds}s`;
 }
+
+// ---------------------------------------------------------------------------
+// PQC Account Pairing & Tier Entitlement API (loopback-only — 403 remotely)
+// ---------------------------------------------------------------------------
+
+app.get('/api/account/status', (_req: Request, res: Response) => {
+  res.json(evaluateAccountLeaseStatus());
+});
+
+app.post('/api/account/pair', async (req: Request, res: Response) => {
+  try {
+    const body = (req.body && typeof req.body === 'object') ? req.body : {};
+    const status = await pairWithControlPlane({
+      pairingCode: String(body.pairingCode || ''),
+      email: typeof body.email === 'string' ? body.email : undefined,
+      label: typeof body.label === 'string' ? body.label : undefined,
+      clientKind: body.clientKind === 'desktop' || body.clientKind === 'cloud' ? body.clientKind : 'cli',
+      controlPlaneUrl: typeof body.controlPlaneUrl === 'string' ? body.controlPlaneUrl : undefined
+    });
+    res.status(201).json(status);
+  } catch (err: any) {
+    const code = Number.isInteger(err?.status) && err.status >= 400 && err.status < 600 ? err.status : 400;
+    res.status(code).json({
+      error: String(err?.message || 'pairing failed'),
+      ...(err?.code ? { code: String(err.code) } : {})
+    });
+  }
+});
+
+app.post('/api/account/refresh', async (_req: Request, res: Response) => {
+  try {
+    const status = await refreshLeaseFromControlPlane();
+    res.json(status);
+  } catch (err: any) {
+    const code = Number.isInteger(err?.status) && err.status >= 400 && err.status < 600 ? err.status : 400;
+    res.status(code).json({
+      error: String(err?.message || 'lease refresh failed'),
+      ...(err?.code ? { code: String(err.code) } : {})
+    });
+  }
+});
+
+app.delete('/api/account/pair', (_req: Request, res: Response) => {
+  const removed = unpairLocalAccount();
+  res.json({ unpaired: true, removed, status: evaluateAccountLeaseStatus() });
+});
 
 }
 
