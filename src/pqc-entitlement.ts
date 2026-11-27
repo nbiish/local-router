@@ -22,6 +22,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { spawnSync } from 'node:child_process';
 import { createDecipheriv, createHash, timingSafeEqual as nodeTimingSafeEqual } from 'node:crypto';
 import { machineConfigPath } from './config-paths';
 
@@ -64,6 +65,9 @@ export interface AppEntitlementLease {
   deviceId: string;
   devicePubHash: string;
   pqcBindingHash: string;
+  appId?: string;
+  machineIdHash?: string;
+  appMachineHash?: string;
   tier: string;
   tierExpiresAt: string | null;
   entitlements: LeaseEntitlements;
@@ -126,6 +130,8 @@ export interface AccountLeaseStatus {
   remoteBridgeEntitled: boolean;
   deviceId: string | null;
   devicePubHash: string | null;
+  machineIdHash: string;
+  appMachineHash: string | null;
   pqcBindingHash: string | null;
   email: string | null;
   provider: string | null;
@@ -208,6 +214,76 @@ export function computeDevicePubHash(mlKemPublicKeyB64: string): string | null {
   return sha3Hex(Buffer.concat([Buffer.from('lr-mlkem-pub-v1:', 'utf8'), Buffer.from(pk)]));
 }
 
+const SHA3_HEX_RE = /^[0-9a-f]{64}$/;
+let cachedHardwareMachineHash: string | null = null;
+
+function readRawHardwareMachineId(): string | null {
+  try {
+    if (process.platform === 'darwin') {
+      const r = spawnSync('ioreg', ['-rd1', '-c', 'IOPlatformExpertDevice'], { encoding: 'utf8', timeout: 1500 });
+      if (r.status === 0) {
+        const m = String(r.stdout || '').match(/"IOPlatformUUID"\s*=\s*"([^"]+)"/);
+        if (m && m[1]) return m[1].trim();
+      }
+    } else if (process.platform === 'win32') {
+      const r = spawnSync('reg', ['query', 'HKLM\\SOFTWARE\\Microsoft\\Cryptography', '/v', 'MachineGuid'], {
+        encoding: 'utf8',
+        timeout: 1500,
+        windowsHide: true
+      });
+      if (r.status === 0) {
+        const m = String(r.stdout || '').match(/MachineGuid\s+REG_SZ\s+([^\r\n]+)/i);
+        if (m && m[1]) return m[1].trim();
+      }
+    } else {
+      for (const p of ['/etc/machine-id', '/var/lib/dbus/machine-id']) {
+        if (fs.existsSync(p)) {
+          const val = fs.readFileSync(p, 'utf8').trim();
+          if (val.length >= 16) return val;
+        }
+      }
+    }
+  } catch {
+    // Sandboxed environment fallback handled below
+  }
+  return null;
+}
+
+/**
+ * Deterministic one-way SHA3-256 hash of this physical machine's OS hardware ID.
+ * Raw hardware UUIDs are NEVER persisted to disk or sent to the control plane.
+ */
+export function getHardwareMachineIdHash(): string {
+  const override = String(process.env.LOCAL_ROUTER_MACHINE_ID_OVERRIDE || '').trim().toLowerCase();
+  if (override) {
+    return SHA3_HEX_RE.test(override)
+      ? override
+      : sha3Hex(Buffer.from(`lr-hw-machine-v1|${override}`, 'utf8'));
+  }
+  if (cachedHardwareMachineHash) return cachedHardwareMachineHash;
+  const raw = readRawHardwareMachineId();
+  cachedHardwareMachineHash = raw
+    ? sha3Hex(Buffer.from(`lr-hw-machine-v1|${raw.toLowerCase()}`, 'utf8'))
+    : sha3Hex(Buffer.from(`lr-hw-fallback-v1|${os.hostname().toLowerCase()}|${process.platform}|${process.arch}`, 'utf8'));
+  return cachedHardwareMachineHash;
+}
+
+/**
+ * Per-application, per-machine PQC hash mirroring local-router-dot-com/lib/pqc.js.
+ * Ties (appId, machineIdHash, devicePubHash) so each app installation hashes
+ * deterministically to its machine for free-tier anti-abuse & paid tracking.
+ */
+export function computeAppMachineHash(parts: {
+  appId?: string;
+  machineIdHash: string;
+  devicePubHash: string;
+}): string {
+  const appId = String(parts.appId || 'local-router').trim() || 'local-router';
+  const machineIdHash = String(parts.machineIdHash || '').trim().toLowerCase();
+  const devicePubHash = String(parts.devicePubHash || '').trim().toLowerCase();
+  return `app3:${sha3Hex(Buffer.from(`lr-app-machine-v1|${appId}|${machineIdHash}|${devicePubHash}`, 'utf8'))}`;
+}
+
 export function computePqcBindingHash(parts: {
   accountId: string;
   emailHash: string;
@@ -243,10 +319,21 @@ export function verifyAppLease(input: {
   signatureB64: string;
   signingPublicKeyB64: string;
   expectedDevicePubHash?: string | null;
+  expectedMachineIdHash?: string | null;
+  expectedAppMachineHash?: string | null;
   expectedEmail?: string | null;
   now?: Date;
 }): LeaseVerificationResult {
-  const { lease, signatureB64, signingPublicKeyB64, expectedDevicePubHash = null, expectedEmail = null, now = new Date() } = input;
+  const {
+    lease,
+    signatureB64,
+    signingPublicKeyB64,
+    expectedDevicePubHash = null,
+    expectedMachineIdHash = null,
+    expectedAppMachineHash = null,
+    expectedEmail = null,
+    now = new Date()
+  } = input;
   if (!lease || typeof lease !== 'object') return { valid: false, reason: 'missing_lease' };
   if (lease.schema !== 1) return { valid: false, reason: 'unsupported_schema' };
   if (typeof signatureB64 !== 'string' || typeof signingPublicKeyB64 !== 'string') {
@@ -291,6 +378,23 @@ export function verifyAppLease(input: {
 
   if (expectedDevicePubHash && !safeStrEqual(String(lease.devicePubHash || ''), expectedDevicePubHash)) {
     return { valid: false, reason: 'device_key_mismatch' };
+  }
+
+  if (lease.machineIdHash) {
+    const recomputedAppHash = computeAppMachineHash({
+      appId: lease.appId || 'local-router',
+      machineIdHash: lease.machineIdHash,
+      devicePubHash: lease.devicePubHash
+    });
+    if (!safeStrEqual(String(lease.appMachineHash || ''), recomputedAppHash)) {
+      return { valid: false, reason: 'app_machine_hash_mismatch' };
+    }
+    if (expectedMachineIdHash && !safeStrEqual(String(lease.machineIdHash), expectedMachineIdHash.trim().toLowerCase())) {
+      return { valid: false, reason: 'machine_hash_mismatch' };
+    }
+  }
+  if (expectedAppMachineHash && !safeStrEqual(String(lease.appMachineHash || ''), expectedAppMachineHash)) {
+    return { valid: false, reason: 'app_machine_hash_mismatch' };
   }
 
   if (expectedEmail) {
@@ -469,19 +573,31 @@ export function isLeaseRequiredForRemoteBridge(): boolean {
 /** Evaluate this machine's current PQC pairing & ML-DSA-65 lease validity. */
 export function evaluateAccountLeaseStatus(now: Date = new Date()): AccountLeaseStatus {
   const requireLease = isLeaseRequiredForRemoteBridge();
+  const machineIdHash = getHardwareMachineIdHash();
   const defaultUrl = (() => {
     try { return controlPlaneBaseUrl(); } catch { return DEFAULT_CONTROL_PLANE_URL; }
   })();
   const persisted = loadPersistedAccountLease();
   if (!persisted) {
+    let deviceId: string | null = null;
+    let devicePubHash: string | null = null;
+    let appMachineHash: string | null = null;
+    try {
+      const id = ensureDevicePqcIdentity();
+      deviceId = id.deviceId;
+      devicePubHash = id.devicePubHash;
+      appMachineHash = computeAppMachineHash({ appId: 'local-router', machineIdHash, devicePubHash });
+    } catch { /* ignore */ }
     return {
       paired: false,
       valid: false,
       reason: 'not_paired',
       requireLease,
       remoteBridgeEntitled: !requireLease,
-      deviceId: null,
-      devicePubHash: null,
+      deviceId,
+      devicePubHash,
+      machineIdHash,
+      appMachineHash,
       pqcBindingHash: null,
       email: null,
       provider: null,
@@ -506,6 +622,8 @@ export function evaluateAccountLeaseStatus(now: Date = new Date()): AccountLease
       remoteBridgeEntitled: false,
       deviceId: persisted.deviceId || null,
       devicePubHash: null,
+      machineIdHash,
+      appMachineHash: null,
       pqcBindingHash: persisted.lease?.pqcBindingHash || null,
       email: persisted.email || null,
       provider: persisted.provider || null,
@@ -518,11 +636,17 @@ export function evaluateAccountLeaseStatus(now: Date = new Date()): AccountLease
     };
   }
 
+  const appMachineHash = computeAppMachineHash({
+    appId: persisted.lease?.appId || 'local-router',
+    machineIdHash,
+    devicePubHash: localIdentity.devicePubHash
+  });
   const verified = verifyAppLease({
     lease: persisted.lease,
     signatureB64: persisted.signatureB64,
     signingPublicKeyB64: persisted.signingPublicKeyB64,
     expectedDevicePubHash: localIdentity.devicePubHash,
+    expectedMachineIdHash: machineIdHash,
     expectedEmail: persisted.email,
     now
   });
@@ -536,6 +660,8 @@ export function evaluateAccountLeaseStatus(now: Date = new Date()): AccountLease
     remoteBridgeEntitled,
     deviceId: persisted.deviceId,
     devicePubHash: localIdentity.devicePubHash,
+    machineIdHash,
+    appMachineHash,
     pqcBindingHash: persisted.lease?.pqcBindingHash || null,
     email: persisted.email,
     provider: persisted.provider,
@@ -567,6 +693,7 @@ export async function pairWithControlPlane(options: {
   }
   const baseUrl = controlPlaneBaseUrl(options.controlPlaneUrl);
   const identity = ensureDevicePqcIdentity();
+  const machineIdHash = getHardwareMachineIdHash();
   const fetchFn = options.fetchImpl || fetch;
 
   const res = await fetchFn(`${baseUrl}/api/v1/devices/pair`, {
@@ -578,7 +705,9 @@ export async function pairWithControlPlane(options: {
       platform: defaultPlatformName(),
       clientKind: options.clientKind || 'cli',
       label: options.label || os.hostname().slice(0, 80),
-      mlKemPublicKey: identity.publicKeyB64
+      mlKemPublicKey: identity.publicKeyB64,
+      appId: 'local-router',
+      machineIdHash
     })
   });
   const body = (await res.json().catch(() => ({}))) as Record<string, any>;
@@ -595,6 +724,7 @@ export async function pairWithControlPlane(options: {
     signatureB64: String(body.signatureB64),
     signingPublicKeyB64: String(body.signingPublicKeyB64),
     expectedDevicePubHash: identity.devicePubHash,
+    expectedMachineIdHash: machineIdHash,
     expectedEmail: emailToCheck
   });
   if (!check.valid) {
@@ -623,6 +753,7 @@ export async function pairWithControlPlane(options: {
 
 /** Renew the ML-DSA-65 signed lease by decapsulating the ML-KEM-768 renew token in memory. */
 export async function refreshLeaseFromControlPlane(options: {
+  bridgeActive?: boolean;
   fetchImpl?: typeof fetch;
 } = {}): Promise<AccountLeaseStatus> {
   const persisted = loadPersistedAccountLease();
@@ -631,6 +762,7 @@ export async function refreshLeaseFromControlPlane(options: {
     throw new Error('no ML-KEM-768 wrapped renew credential stored — re-pair with a fresh pairing code');
   }
   const identity = ensureDevicePqcIdentity();
+  const machineIdHash = getHardwareMachineIdHash();
   const baseUrl = controlPlaneBaseUrl(persisted.controlPlaneUrl);
   const bearerSecret = unwrapSecretWithClientKey(identity.secretKeyB64, persisted.wrappedAccessSecret);
   const fetchFn = options.fetchImpl || fetch;
@@ -643,7 +775,10 @@ export async function refreshLeaseFromControlPlane(options: {
     },
     body: JSON.stringify({
       deviceId: identity.deviceId,
-      mlKemPublicKey: identity.publicKeyB64
+      mlKemPublicKey: identity.publicKeyB64,
+      appId: 'local-router',
+      machineIdHash,
+      ...(typeof options.bridgeActive === 'boolean' ? { bridgeActive: options.bridgeActive } : {})
     })
   });
   const body = (await res.json().catch(() => ({}))) as Record<string, any>;
@@ -659,6 +794,7 @@ export async function refreshLeaseFromControlPlane(options: {
     signatureB64: String(body.signatureB64),
     signingPublicKeyB64: String(body.signingPublicKeyB64),
     expectedDevicePubHash: identity.devicePubHash,
+    expectedMachineIdHash: machineIdHash,
     expectedEmail: persisted.email
   });
   if (!check.valid) {

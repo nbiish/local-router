@@ -46,8 +46,10 @@ Usage:
                                        Pair this running instance with your Google/Apple/Microsoft account on local-router.com
   localrouter account refresh [--json] Renew this machine's ML-DSA-65 entitlement lease
   localrouter account unpair [--json]  Remove this machine's local account lease
-  localrouter bridge-key [--copy] [--raw] [--rotate] [--json]
-                                       Inspect, copy to clipboard (zero-echo), or rotate this machine's PQC bridge key
+  localrouter bridge-key [--copy] [--raw] [--rotate] [--inject-pqc] [--json]
+                                       Inspect, copy (zero-echo), rotate, or inject this machine's PQC bridge key into pqc-secrets
+  localrouter bridge <status|start|stop|set-token|clear-token|copy-key> [--mode named-token|quick] [--token-stdin] [--json]
+                                       Manage the packaged Cloudflared + PQC remote bridge and inspect hardware/app hashes
   localrouter route <set|unset|status|custom ...>
   localrouter version
 
@@ -121,6 +123,18 @@ function parseGlobalOptions(argv) {
     }
     if (token === '--rotate') {
       options.rotate = true;
+      continue;
+    }
+    if (token === '--inject-pqc') {
+      options.injectPqc = true;
+      continue;
+    }
+    if (token === '--token-stdin') {
+      options.tokenStdin = true;
+      continue;
+    }
+    if (token === '--mode' && i + 1 < argv.length) {
+      options.mode = argv[++i];
       continue;
     }
     if (token === '--port') {
@@ -765,6 +779,33 @@ async function main() {
         return 0;
       }
 
+      if (options.injectPqc) {
+        const derived = pqcEnt.deriveMachineBridgeAccessKey();
+        const pqcBin = process.platform === 'win32' ? 'pqc-secrets.cmd' : 'pqc-secrets';
+        const injectRes = spawnSync(pqcBin, ['set', '--stdin'], {
+          input: `LOCAL_ROUTER_ACCESS_KEY=${derived.accessKey}\n`,
+          encoding: 'utf8',
+          timeout: 15000
+        });
+        if (injectRes.error || injectRes.status !== 0) {
+          const detail = (injectRes.stderr || injectRes.error?.message || `exit ${injectRes.status}`).trim();
+          throw new Error(`Failed to inject LOCAL_ROUTER_ACCESS_KEY into pqc-secrets: ${detail}`);
+        }
+        const out = {
+          injected: true,
+          keyName: 'LOCAL_ROUTER_ACCESS_KEY',
+          source: 'machine-pqc',
+          deviceId: derived.deviceId,
+          epoch: derived.epoch,
+          fingerprint: derived.fingerprint
+        };
+        emitOrJson(options, out, (r) => {
+          console.log(`Injected machine PQC bridge key into pqc-secrets as ${r.keyName} (device=${r.deviceId}, epoch=${r.epoch}, fingerprint=${r.fingerprint}).`);
+          console.log('Restart local-router so the running server picks up the synced vault entry.');
+        });
+        return 0;
+      }
+
       if (options.copy || options.raw) {
         let revealed = null;
         try {
@@ -815,9 +856,101 @@ async function main() {
       }
       emitOrJson(options, status, (s) => {
         console.log(`Bridge key source: ${s.source} · device=${s.deviceId} · epoch=${s.epoch} · fingerprint=${s.fingerprint}`);
-        console.log('Use `localrouter bridge-key --copy` to copy it to your clipboard without printing it.');
+        if (s.machineIdHash) console.log(`Machine hash:      ${s.machineIdHash.slice(0, 16)}… · app=${s.appMachineHash || 'n/a'}`);
+        console.log('Use `localrouter bridge-key --copy` (zero-echo clipboard) or `--inject-pqc` (store in pqc-secrets).');
       });
       return 0;
+    }
+
+    if (command === 'bridge') {
+      const bridgeMod = require(path.join(__dirname, '..', 'build', 'bridge-tunnel.js'));
+      const baseUrl = `http://${options.host}:${options.port}`;
+      const action = sub || 'status';
+
+      if (action === 'copy-key') {
+        process.argv = [process.argv[0], process.argv[1], 'bridge-key', '--copy', ...(options.json ? ['--json'] : [])];
+        return await main();
+      }
+
+      if (action === 'status') {
+        let status = null;
+        try {
+          const res = await fetch(`${baseUrl}/api/bridge/status`);
+          if (res.ok) status = await res.json();
+        } catch { /* fallback to offline inspection */ }
+        if (!status) status = bridgeMod.getBridgeTunnelStatus();
+        emitOrJson(options, status, (s) => {
+          console.log(`Cloudflared Bridge: ${s.running ? `RUNNING (${s.mode}${s.pid ? `, pid ${s.pid}` : ''})` : 'STOPPED'}`);
+          console.log(`Binary:             ${s.cloudflaredInstalled ? `${s.cloudflaredPath} (${s.cloudflaredVersion})` : `not installed (${s.installHint})`}`);
+          if (s.publicUrl) console.log(`Public URL:         ${s.publicUrl}`);
+          console.log(`Device / Tier:      ${s.deviceId} · tier=${s.tier} · paired=${s.paired} · allowed=${s.bridgeAllowed}${s.blockedReason ? ` (${s.blockedReason})` : ''}`);
+          console.log(`Machine Hash:       ${s.machineIdHash}`);
+          console.log(`App Machine Hash:   ${s.appMachineHash}`);
+          console.log(`Bridge Key:         source=${s.bridgeKeySource} · fingerprint=${s.bridgeKeyFingerprint || 'n/a'} · tokenFile=${s.tokenFileConfigured ? 'configured (0600)' : 'not set'}`);
+        });
+        return 0;
+      }
+
+      if (action === 'set-token') {
+        if (!options.tokenStdin) {
+          throw new Error('Pass tunnel token via stdin so it never appears in shell history/argv: printf "%s" "$TOKEN" | localrouter bridge set-token --token-stdin');
+        }
+        const raw = fs.readFileSync(0, 'utf8').trim();
+        let saved = null;
+        try {
+          const res = await fetch(`${baseUrl}/api/bridge/token`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ token: raw })
+          });
+          if (res.ok) saved = await res.json();
+        } catch { /* fallback to local file write */ }
+        if (!saved) {
+          saved = bridgeMod.saveBridgeTunnelToken(raw);
+        }
+        emitOrJson(options, { saved: true, tokenFilePath: saved.tokenFilePath || bridgeMod.bridgeTokenPath() }, (r) => {
+          console.log(`Saved Cloudflare Tunnel token (mode 0600) at ${r.tokenFilePath}`);
+        });
+        return 0;
+      }
+
+      if (action === 'clear-token') {
+        const removed = bridgeMod.clearBridgeTunnelToken();
+        emitOrJson(options, { cleared: true, removed }, () => {
+          console.log(removed ? 'Removed saved Cloudflare Tunnel token.' : 'No saved tunnel token was present.');
+        });
+        return 0;
+      }
+
+      if (action === 'start') {
+        const res = await fetch(`${baseUrl}/api/bridge/start`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(options.mode ? { mode: options.mode } : {})
+        });
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          const err = new Error(body.error || `Failed to start bridge (HTTP ${res.status})`);
+          err.code = body.code || 'BRIDGE_START_FAILED';
+          throw err;
+        }
+        emitOrJson(options, body, (s) => {
+          console.log(`Started Cloudflared bridge (${s.mode}${s.pid ? `, pid ${s.pid}` : ''})${s.publicUrl ? ` -> ${s.publicUrl}` : ''}`);
+        });
+        return 0;
+      }
+
+      if (action === 'stop') {
+        const res = await fetch(`${baseUrl}/api/bridge/stop`, { method: 'POST' });
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(body.error || `Failed to stop bridge (HTTP ${res.status})`);
+        emitOrJson(options, body, (r) => {
+          console.log(r.stopped ? `Stopped Cloudflared bridge (pid ${r.pid}).` : 'No router-managed Cloudflared bridge was running.');
+        });
+        return 0;
+      }
+
+      throw new Error('Unknown bridge subcommand. Use: status | start | stop | set-token | clear-token | copy-key');
     }
 
     throw new Error(`Unknown command: ${command}`);

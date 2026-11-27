@@ -74,25 +74,35 @@ export function renderAgentsPage(params: {
       <div class="card">
         <div class="catalog-meta">
           <div>
-            <h2>Remote Bridge Access Key (Built-in PQC)</h2>
+            <h2>Remote Bridge &amp; Cloudflared (Built-in PQC)</h2>
             <p class="muted">
-              Derived internally per machine from this router's local <code>ML-KEM-768</code> identity via <code>SHA3-256</code>
-              &mdash; no external <code>pqc-secrets</code> setup required. Use this key for remote HTTPS clients such as Warp.
+              Per-machine <code>ML-KEM-768</code> + <code>SHA3-256</code> bridge access key, hardware/app PQC hash binding,
+              and packaged <code>cloudflared</code> tunnel control &mdash; zero external <code>pqc-secrets</code> setup required.
             </p>
           </div>
           <span class="pill catalog" id="bridgeKeySourcePill">checking&hellip;</span>
         </div>
         <div style="margin-top:12px;display:flex;flex-direction:column;gap:10px;">
           <div id="bridgeKeyMeta" class="muted" style="font-size:12px;">Loading machine PQC bridge key metadata&hellip;</div>
+          <div id="bridgeTunnelMeta" class="muted" style="font-size:12px;">Checking Cloudflared bridge &amp; tier entitlement&hellip;</div>
           <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
             <button class="button-primary" id="copyBridgeKeyBtn" type="button" onclick="copyBridgeAccessKey()">Copy Bridge Key</button>
             <button class="button-secondary" id="toggleBridgeKeyBtn" type="button" onclick="toggleRevealBridgeKey()">Show Key</button>
             <button class="button-secondary" id="rotateBridgeKeyBtn" type="button" onclick="rotateBridgeAccessKey()">Rotate Machine Key</button>
+            <button class="button-secondary" id="startBridgeTunnelBtn" type="button" onclick="startCloudflaredBridge()">Start Bridge</button>
+            <button class="button-secondary" id="stopBridgeTunnelBtn" type="button" onclick="stopCloudflaredBridge()" style="display:none;">Stop Bridge</button>
             <span id="bridgeKeyFeedback" class="muted" style="font-size:12px;"></span>
           </div>
           <pre id="bridgeKeyRevealBox" style="display:none;background:var(--log-bg);color:var(--log-text);padding:10px;border-radius:6px;font-size:12px;overflow-x:auto;margin:0;"></pre>
+          <details style="font-size:12px;border:1px solid var(--border);border-radius:6px;padding:8px 10px;background:var(--surface-soft);">
+            <summary style="cursor:pointer;font-weight:600;">Configure Named Cloudflare Tunnel Token (stored 0600, never in argv)</summary>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:8px;">
+              <input id="bridgeTunnelTokenInput" type="password" placeholder="Paste Cloudflare Tunnel token…" autocomplete="off" style="flex:1;min-width:240px;padding:6px 8px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);">
+              <button class="button-secondary" type="button" onclick="saveCloudflaredToken()">Save Token (0600)</button>
+            </div>
+          </details>
           <div class="muted" style="font-size:12px;">
-            CLI equivalent (zero terminal echo): <code>localrouter bridge-key --copy</code> &middot; Remote endpoint path must end in <code>/v1</code> (e.g. <code>https://router.yourdomain.com/v1</code>).
+            CLI: <code>localrouter bridge-key --copy</code> &middot; <code>localrouter bridge-key --inject-pqc</code> &middot; <code>localrouter bridge status</code> &middot; Remote endpoint must end in <code>/v1</code>.
           </div>
         </div>
       </div>
@@ -104,10 +114,16 @@ export function renderAgentsPage(params: {
           async function loadBridgeKeyStatus() {
             const pill = document.getElementById('bridgeKeySourcePill');
             const meta = document.getElementById('bridgeKeyMeta');
+            const tunnelMeta = document.getElementById('bridgeTunnelMeta');
+            const startBtn = document.getElementById('startBridgeTunnelBtn');
+            const stopBtn = document.getElementById('stopBridgeTunnelBtn');
             try {
-              const res = await fetch('/api/bridge-key/status');
-              if (!res.ok) throw new Error('HTTP ' + res.status);
-              const data = await res.json();
+              const [keyRes, bridgeRes] = await Promise.all([
+                fetch('/api/bridge-key/status'),
+                fetch('/api/bridge/status').catch(() => null)
+              ]);
+              if (!keyRes.ok) throw new Error('HTTP ' + keyRes.status);
+              const data = await keyRes.json();
               const labels = {
                 'machine-pqc': 'Built-in Machine PQC',
                 'pqc-vault': 'pqc-secrets Vault',
@@ -119,13 +135,76 @@ export function renderAgentsPage(params: {
                 const overrideNote = data.overriddenBy
                   ? ' (active key overridden by ' + data.overriddenBy + ')'
                   : '';
-                meta.textContent = 'Device: ' + (data.deviceId || 'n/a') + ' · Epoch: ' + (data.epoch || 1) + ' · Fingerprint: ' + (data.fingerprint || 'n/a') + overrideNote;
+                const hwShort = data.machineIdHash ? data.machineIdHash.slice(0, 12) + '…' : 'n/a';
+                const appShort = data.appMachineHash ? data.appMachineHash.slice(0, 17) + '…' : 'n/a';
+                meta.textContent = 'Device: ' + (data.deviceId || 'n/a') + ' · Epoch: ' + (data.epoch || 1) + ' · Fingerprint: ' + (data.fingerprint || 'n/a') + ' · Machine: ' + hwShort + ' · App: ' + appShort + overrideNote;
+              }
+              if (bridgeRes && bridgeRes.ok && tunnelMeta) {
+                const b = await bridgeRes.json();
+                const runText = b.running
+                  ? ('Running (' + b.mode + (b.publicUrl ? ' → ' + b.publicUrl : '') + ')')
+                  : (b.cloudflaredInstalled ? 'Stopped (cloudflared ready)' : 'cloudflared not installed (' + b.installHint + ')');
+                const gateText = b.bridgeAllowed
+                  ? ('Tier: ' + b.tier + (b.paired ? ' (paired)' : ' (local OSS)'))
+                  : ('Blocked: ' + b.blockedReason);
+                tunnelMeta.textContent = 'Cloudflared: ' + runText + ' · Token: ' + (b.tokenFileConfigured ? 'saved (0600)' : 'not set') + ' · ' + gateText;
+                if (startBtn) startBtn.style.display = b.managedByRouter ? 'none' : 'inline-block';
+                if (stopBtn) stopBtn.style.display = b.managedByRouter ? 'inline-block' : 'none';
               }
             } catch (err) {
               if (pill) pill.textContent = 'Unavailable';
               if (meta) meta.textContent = 'Could not load bridge key status.';
             }
           }
+
+          window.startCloudflaredBridge = async function startCloudflaredBridge() {
+            const fb = document.getElementById('bridgeKeyFeedback');
+            if (fb) fb.textContent = 'Starting Cloudflared bridge…';
+            try {
+              const res = await fetch('/api/bridge/start', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
+              const data = await res.json();
+              if (!res.ok) throw new Error(data.error || 'Failed to start bridge');
+              if (fb) fb.textContent = 'Bridge running (' + data.mode + (data.publicUrl ? ' · ' + data.publicUrl : '') + ').';
+              loadBridgeKeyStatus();
+            } catch (err) {
+              if (fb) fb.textContent = 'Error: ' + (err && err.message ? err.message : String(err));
+            }
+          };
+
+          window.stopCloudflaredBridge = async function stopCloudflaredBridge() {
+            const fb = document.getElementById('bridgeKeyFeedback');
+            if (fb) fb.textContent = 'Stopping Cloudflared bridge…';
+            try {
+              const res = await fetch('/api/bridge/stop', { method: 'POST' });
+              const data = await res.json();
+              if (!res.ok) throw new Error(data.error || 'Failed to stop bridge');
+              if (fb) fb.textContent = data.stopped ? 'Bridge stopped.' : 'No managed bridge was running.';
+              loadBridgeKeyStatus();
+            } catch (err) {
+              if (fb) fb.textContent = 'Error: ' + (err && err.message ? err.message : String(err));
+            }
+          };
+
+          window.saveCloudflaredToken = async function saveCloudflaredToken() {
+            const input = document.getElementById('bridgeTunnelTokenInput');
+            const fb = document.getElementById('bridgeKeyFeedback');
+            const token = input ? input.value.trim() : '';
+            if (!token) { if (fb) fb.textContent = 'Paste a tunnel token first.'; return; }
+            try {
+              const res = await fetch('/api/bridge/token', {
+                method: 'POST',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({ token })
+              });
+              const data = await res.json();
+              if (!res.ok) throw new Error(data.error || 'Failed to save token');
+              if (input) input.value = '';
+              if (fb) fb.textContent = 'Saved Cloudflare Tunnel token (0600).';
+              loadBridgeKeyStatus();
+            } catch (err) {
+              if (fb) fb.textContent = 'Error: ' + (err && err.message ? err.message : String(err));
+            }
+          };
 
           window.copyBridgeAccessKey = async function copyBridgeAccessKey() {
             const fb = document.getElementById('bridgeKeyFeedback');

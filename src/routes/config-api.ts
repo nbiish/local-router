@@ -71,14 +71,23 @@ import { durability } from '../durability';
 import { planAutoDisable } from '../auto-disable';
 import { costBandFor, providerCoverageGaps } from '../fallback-topology';
 import {
+  computeAppMachineHash,
   deriveMachineBridgeAccessKey,
   ensureDevicePqcIdentity,
   evaluateAccountLeaseStatus,
+  getHardwareMachineIdHash,
   pairWithControlPlane,
   refreshLeaseFromControlPlane,
   rotateMachineBridgeAccessKey,
   unpairLocalAccount
 } from '../pqc-entitlement';
+import {
+  clearBridgeTunnelToken,
+  getBridgeTunnelStatus,
+  saveBridgeTunnelToken,
+  startBridgeTunnel,
+  stopBridgeTunnel
+} from '../bridge-tunnel';
 import {
   getConfiguredAccessKey,
   getConfiguredAccessKeyFingerprint,
@@ -2511,6 +2520,12 @@ app.get('/api/bridge-key/status', (_req: Request, res: Response) => {
   try {
     const identity = ensureDevicePqcIdentity();
     const derived = deriveMachineBridgeAccessKey(identity);
+    const machineIdHash = getHardwareMachineIdHash();
+    const appMachineHash = computeAppMachineHash({
+      appId: 'local-router',
+      machineIdHash,
+      devicePubHash: derived.devicePubHash
+    });
     const source = getConfiguredAccessKeySource();
     const activeFingerprint = getConfiguredAccessKeyFingerprint();
     res.setHeader('Cache-Control', 'no-store');
@@ -2519,6 +2534,8 @@ app.get('/api/bridge-key/status', (_req: Request, res: Response) => {
       source,
       deviceId: derived.deviceId,
       devicePubHash: derived.devicePubHash,
+      machineIdHash,
+      appMachineHash,
       epoch: derived.epoch,
       fingerprint: activeFingerprint || derived.fingerprint,
       machineFingerprint: derived.fingerprint,
@@ -2568,6 +2585,61 @@ app.post('/api/bridge-key/rotate', (_req: Request, res: Response) => {
     });
   } catch (err: any) {
     res.status(500).json({ error: String(err?.message || 'failed to rotate bridge key') });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Packaged Cloudflared + PQC Remote Bridge API (loopback-only — 403 remotely)
+// ---------------------------------------------------------------------------
+
+app.get('/api/bridge/status', (_req: Request, res: Response) => {
+  try {
+    res.setHeader('Cache-Control', 'no-store');
+    res.json(getBridgeTunnelStatus());
+  } catch (err: any) {
+    res.status(500).json({ error: String(err?.message || 'failed to inspect cloudflared bridge status') });
+  }
+});
+
+app.post('/api/bridge/token', (req: Request, res: Response) => {
+  try {
+    const body = (req.body && typeof req.body === 'object') ? req.body : {};
+    res.setHeader('Cache-Control', 'no-store');
+    if (body.clear === true) {
+      const removed = clearBridgeTunnelToken();
+      res.json({ cleared: true, removed, status: getBridgeTunnelStatus() });
+      return;
+    }
+    const saved = saveBridgeTunnelToken(String(body.token || ''));
+    res.status(201).json({ saved: saved.saved, tokenFilePath: saved.tokenFilePath, status: getBridgeTunnelStatus() });
+  } catch (err: any) {
+    res.status(400).json({ error: String(err?.message || 'failed to save tunnel token') });
+  }
+});
+
+app.post('/api/bridge/start', async (req: Request, res: Response) => {
+  try {
+    const body = (req.body && typeof req.body === 'object') ? req.body : {};
+    const mode = body.mode === 'quick' || body.mode === 'named-token' ? body.mode : undefined;
+    const status = await startBridgeTunnel({ port: PORT, mode });
+    res.setHeader('Cache-Control', 'no-store');
+    res.json(status);
+  } catch (err: any) {
+    const code = Number.isInteger(err?.status) && err.status >= 400 && err.status < 600 ? err.status : 400;
+    res.status(code).json({
+      error: String(err?.message || 'failed to start cloudflared bridge'),
+      ...(err?.code ? { code: String(err.code) } : {})
+    });
+  }
+});
+
+app.post('/api/bridge/stop', (_req: Request, res: Response) => {
+  try {
+    const result = stopBridgeTunnel();
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({ ...result, status: getBridgeTunnelStatus() });
+  } catch (err: any) {
+    res.status(500).json({ error: String(err?.message || 'failed to stop cloudflared bridge') });
   }
 });
 
