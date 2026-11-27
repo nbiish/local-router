@@ -74,6 +74,135 @@ export function renderAgentsPage(params: {
       <div class="card">
         <div class="catalog-meta">
           <div>
+            <h2>Remote Bridge Access Key (Built-in PQC)</h2>
+            <p class="muted">
+              Derived internally per machine from this router's local <code>ML-KEM-768</code> identity via <code>SHA3-256</code>
+              &mdash; no external <code>pqc-secrets</code> setup required. Use this key for remote HTTPS clients such as Warp.
+            </p>
+          </div>
+          <span class="pill catalog" id="bridgeKeySourcePill">checking&hellip;</span>
+        </div>
+        <div style="margin-top:12px;display:flex;flex-direction:column;gap:10px;">
+          <div id="bridgeKeyMeta" class="muted" style="font-size:12px;">Loading machine PQC bridge key metadata&hellip;</div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+            <button class="button-primary" id="copyBridgeKeyBtn" type="button" onclick="copyBridgeAccessKey()">Copy Bridge Key</button>
+            <button class="button-secondary" id="toggleBridgeKeyBtn" type="button" onclick="toggleRevealBridgeKey()">Show Key</button>
+            <button class="button-secondary" id="rotateBridgeKeyBtn" type="button" onclick="rotateBridgeAccessKey()">Rotate Machine Key</button>
+            <span id="bridgeKeyFeedback" class="muted" style="font-size:12px;"></span>
+          </div>
+          <pre id="bridgeKeyRevealBox" style="display:none;background:var(--log-bg);color:var(--log-text);padding:10px;border-radius:6px;font-size:12px;overflow-x:auto;margin:0;"></pre>
+          <div class="muted" style="font-size:12px;">
+            CLI equivalent (zero terminal echo): <code>localrouter bridge-key --copy</code> &middot; Remote endpoint path must end in <code>/v1</code> (e.g. <code>https://router.yourdomain.com/v1</code>).
+          </div>
+        </div>
+      </div>
+
+      <script>
+        (function initBridgeKeyCard() {
+          let revealedKey = null;
+
+          async function loadBridgeKeyStatus() {
+            const pill = document.getElementById('bridgeKeySourcePill');
+            const meta = document.getElementById('bridgeKeyMeta');
+            try {
+              const res = await fetch('/api/bridge-key/status');
+              if (!res.ok) throw new Error('HTTP ' + res.status);
+              const data = await res.json();
+              const labels = {
+                'machine-pqc': 'Built-in Machine PQC',
+                'pqc-vault': 'pqc-secrets Vault',
+                'env': 'Environment Override',
+                'none': 'Not Configured'
+              };
+              if (pill) pill.textContent = labels[data.source] || data.source;
+              if (meta) {
+                const overrideNote = data.overriddenBy
+                  ? ' (active key overridden by ' + data.overriddenBy + ')'
+                  : '';
+                meta.textContent = 'Device: ' + (data.deviceId || 'n/a') + ' · Epoch: ' + (data.epoch || 1) + ' · Fingerprint: ' + (data.fingerprint || 'n/a') + overrideNote;
+              }
+            } catch (err) {
+              if (pill) pill.textContent = 'Unavailable';
+              if (meta) meta.textContent = 'Could not load bridge key status.';
+            }
+          }
+
+          window.copyBridgeAccessKey = async function copyBridgeAccessKey() {
+            const fb = document.getElementById('bridgeKeyFeedback');
+            if (fb) fb.textContent = 'Deriving key in memory…';
+            try {
+              const res = await fetch('/api/bridge-key/reveal', { method: 'POST' });
+              const data = await res.json();
+              if (!res.ok || !data.accessKey) throw new Error(data.error || 'Failed to read bridge key');
+              if (navigator.clipboard && navigator.clipboard.writeText) {
+                await navigator.clipboard.writeText(data.accessKey);
+                if (fb) fb.textContent = 'Copied to clipboard (' + data.source + ', ' + data.fingerprint + ').';
+              } else {
+                const box = document.getElementById('bridgeKeyRevealBox');
+                if (box) { box.style.display = 'block'; box.textContent = data.accessKey; }
+                if (fb) fb.textContent = 'Clipboard API unavailable — key shown below.';
+              }
+            } catch (err) {
+              if (fb) fb.textContent = 'Error: ' + (err && err.message ? err.message : String(err));
+            }
+          };
+
+          window.toggleRevealBridgeKey = async function toggleRevealBridgeKey() {
+            const box = document.getElementById('bridgeKeyRevealBox');
+            const btn = document.getElementById('toggleBridgeKeyBtn');
+            const fb = document.getElementById('bridgeKeyFeedback');
+            if (!box || !btn) return;
+            if (box.style.display !== 'none') {
+              box.style.display = 'none';
+              box.textContent = '';
+              revealedKey = null;
+              btn.textContent = 'Show Key';
+              return;
+            }
+            try {
+              const res = await fetch('/api/bridge-key/reveal', { method: 'POST' });
+              const data = await res.json();
+              if (!res.ok || !data.accessKey) throw new Error(data.error || 'Failed to reveal key');
+              revealedKey = data.accessKey;
+              box.textContent = revealedKey;
+              box.style.display = 'block';
+              btn.textContent = 'Hide Key';
+              if (fb) fb.textContent = 'Source: ' + data.source + ' (' + data.fingerprint + ')';
+            } catch (err) {
+              if (fb) fb.textContent = 'Error: ' + (err && err.message ? err.message : String(err));
+            }
+          };
+
+          window.rotateBridgeAccessKey = async function rotateBridgeAccessKey() {
+            const fb = document.getElementById('bridgeKeyFeedback');
+            const box = document.getElementById('bridgeKeyRevealBox');
+            const btn = document.getElementById('toggleBridgeKeyBtn');
+            if (fb) fb.textContent = 'Rotating machine PQC key…';
+            try {
+              const res = await fetch('/api/bridge-key/rotate', { method: 'POST' });
+              const data = await res.json();
+              if (!res.ok) throw new Error(data.error || 'Rotation failed');
+              if (box) { box.style.display = 'none'; box.textContent = ''; }
+              if (btn) btn.textContent = 'Show Key';
+              revealedKey = null;
+              if (fb) fb.textContent = 'Rotated to epoch ' + data.epoch + ' (' + data.machineFingerprint + ').' + (data.overriddenBy ? ' Note: active key is still overridden by ' + data.overriddenBy + '.' : '');
+              loadBridgeKeyStatus();
+            } catch (err) {
+              if (fb) fb.textContent = 'Error: ' + (err && err.message ? err.message : String(err));
+            }
+          };
+
+          if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', loadBridgeKeyStatus);
+          } else {
+            loadBridgeKeyStatus();
+          }
+        })();
+      </script>
+
+      <div class="card">
+        <div class="catalog-meta">
+          <div>
             <h2>Claude Code CLI Interception</h2>
             <p class="muted">
               Intercept Anthropic's official <code>claude</code> CLI across the entire system.

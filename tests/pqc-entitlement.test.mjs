@@ -289,3 +289,57 @@ test('tier-gated inbound-auth enforcement: loopback always open; remote bridge f
     assert.match(expiredBlocked.body, /lease_expired/);
   });
 });
+
+test('internal per-machine PQC bridge key: deterministic in memory, zero plaintext on disk, rotatable, and respects env > pqc-vault > machine-pqc precedence', async () => {
+  await withTempConfigDir(async () => {
+    try {
+      const k1 = pqcEnt.deriveMachineBridgeAccessKey();
+      const k1Again = pqcEnt.deriveMachineBridgeAccessKey();
+      assert.match(k1.accessKey, /^lrk_[0-9a-f]{64}$/);
+      assert.equal(k1.accessKey, k1Again.accessKey, 'stable derivation for same machine + epoch');
+      assert.equal(k1.epoch, 1);
+      assert.match(k1.fingerprint, /^sha3:[0-9a-f]{16}$/);
+
+      // Plaintext bridge key must NEVER appear in device-pqc-identity.json
+      const identityRaw = fs.readFileSync(pqcEnt.deviceIdentityPath(), 'utf8');
+      assert.equal(identityRaw.includes(k1.accessKey), false, 'bridge key must be derived in memory, never stored in plaintext');
+
+      // Machine key authorizes public inference when noted
+      inboundAuth.noteMachineAccessKey(k1.accessKey);
+      assert.equal(inboundAuth.getConfiguredAccessKeySource(), 'machine-pqc');
+      const okReq = {
+        path: '/v1/models',
+        headers: { 'cf-connecting-ip': '203.0.113.10', authorization: `Bearer ${k1.accessKey}` },
+        socket: { remoteAddress: '127.0.0.1' }
+      };
+      assert.deepEqual(inboundAuth.evaluateInboundAccess(okReq), { allow: true });
+
+      // Rotating epoch generates a brand-new key and immediately invalidates the previous one
+      const k2 = pqcEnt.rotateMachineBridgeAccessKey();
+      assert.equal(k2.epoch, 2);
+      assert.notEqual(k2.accessKey, k1.accessKey);
+      inboundAuth.noteMachineAccessKey(k2.accessKey);
+      assert.equal(inboundAuth.evaluateInboundAccess(okReq).status, 401, 'old epoch key rejected after rotation');
+      assert.deepEqual(
+        inboundAuth.evaluateInboundAccess({
+          path: '/v1/models',
+          headers: { 'cf-connecting-ip': '203.0.113.10', authorization: `Bearer ${k2.accessKey}` },
+          socket: { remoteAddress: '127.0.0.1' }
+        }),
+        { allow: true }
+      );
+
+      // Vault key overrides machine key; env key overrides both
+      inboundAuth.noteVaultAccessKey('vault-key-override-123');
+      assert.equal(inboundAuth.getConfiguredAccessKeySource(), 'pqc-vault');
+      assert.equal(inboundAuth.getConfiguredAccessKey(), 'vault-key-override-123');
+      process.env.LOCAL_ROUTER_ACCESS_KEY = 'env-key-override-456';
+      assert.equal(inboundAuth.getConfiguredAccessKeySource(), 'env');
+      assert.equal(inboundAuth.getConfiguredAccessKey(), 'env-key-override-456');
+    } finally {
+      inboundAuth.noteMachineAccessKey('');
+      inboundAuth.noteVaultAccessKey('');
+      delete process.env.LOCAL_ROUTER_ACCESS_KEY;
+    }
+  });
+});

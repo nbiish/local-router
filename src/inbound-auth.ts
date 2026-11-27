@@ -44,7 +44,7 @@
 
 import { createHash, timingSafeEqual } from 'node:crypto';
 import type { NextFunction, Request, RequestHandler, Response } from 'express';
-import { evaluateAccountLeaseStatus } from './pqc-entitlement';
+import { bridgeKeyFingerprint, evaluateAccountLeaseStatus } from './pqc-entitlement';
 
 /** env var / vault name that carries the inbound access key at runtime. */
 export const ACCESS_KEY_ENV_VAR = 'LOCAL_ROUTER_ACCESS_KEY';
@@ -151,21 +151,45 @@ export function timingSafeKeyMatch(presented: unknown, configured: unknown): boo
 }
 
 /**
- * Access key noted from the pqc-secrets bundle during sync (src/index.ts).
- * `process.env[ACCESS_KEY_ENV_VAR]` always wins; an empty value clears the
- * vault slot so a removed bundle entry stops authenticating after a resync.
+ * Access key slots in descending precedence:
+ *   1. `process.env[ACCESS_KEY_ENV_VAR]` (`env`) — explicit override always wins.
+ *   2. `vaultAccessKey` (`pqc-vault`) — synced from an operator's `pqc-secrets` bundle.
+ *   3. `machineAccessKey` (`machine-pqc`) — derived internally per machine from
+ *      `device-pqc-identity.json` (ML-KEM-768 + SHA3-256) so new users need zero
+ *      external `pqc-secrets` setup.
  */
 let vaultAccessKey: string | null = null;
+let machineAccessKey: string | null = null;
+
+export type AccessKeySource = 'env' | 'pqc-vault' | 'machine-pqc' | 'none';
 
 export function noteVaultAccessKey(value: unknown): void {
   const trimmed = typeof value === 'string' ? value.trim() : '';
   vaultAccessKey = trimmed ? trimmed : null;
 }
 
+export function noteMachineAccessKey(value: unknown): void {
+  const trimmed = typeof value === 'string' ? value.trim() : '';
+  machineAccessKey = trimmed ? trimmed : null;
+}
+
+export function getConfiguredAccessKeySource(): AccessKeySource {
+  if ((process.env[ACCESS_KEY_ENV_VAR] ?? '').trim()) return 'env';
+  if (vaultAccessKey) return 'pqc-vault';
+  if (machineAccessKey) return 'machine-pqc';
+  return 'none';
+}
+
 export function getConfiguredAccessKey(): string | null {
   const envValue = (process.env[ACCESS_KEY_ENV_VAR] ?? '').trim();
   if (envValue) return envValue;
-  return vaultAccessKey;
+  if (vaultAccessKey) return vaultAccessKey;
+  return machineAccessKey;
+}
+
+export function getConfiguredAccessKeyFingerprint(): string | null {
+  const key = getConfiguredAccessKey();
+  return key ? bridgeKeyFingerprint(key) : null;
 }
 
 /**

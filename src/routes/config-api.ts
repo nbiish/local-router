@@ -71,11 +71,20 @@ import { durability } from '../durability';
 import { planAutoDisable } from '../auto-disable';
 import { costBandFor, providerCoverageGaps } from '../fallback-topology';
 import {
+  deriveMachineBridgeAccessKey,
+  ensureDevicePqcIdentity,
   evaluateAccountLeaseStatus,
   pairWithControlPlane,
   refreshLeaseFromControlPlane,
+  rotateMachineBridgeAccessKey,
   unpairLocalAccount
 } from '../pqc-entitlement';
+import {
+  getConfiguredAccessKey,
+  getConfiguredAccessKeyFingerprint,
+  getConfiguredAccessKeySource,
+  noteMachineAccessKey
+} from '../inbound-auth';
 
 export interface ConfigApiDeps {
   agentProxyConfig?: AgentProxyConfig;
@@ -2492,6 +2501,74 @@ app.post('/api/account/refresh', async (_req: Request, res: Response) => {
 app.delete('/api/account/pair', (_req: Request, res: Response) => {
   const removed = unpairLocalAccount();
   res.json({ unpaired: true, removed, status: evaluateAccountLeaseStatus() });
+});
+
+// ---------------------------------------------------------------------------
+// Built-In Per-Machine PQC Bridge Access Key API (loopback-only — 403 remotely)
+// ---------------------------------------------------------------------------
+
+app.get('/api/bridge-key/status', (_req: Request, res: Response) => {
+  try {
+    const identity = ensureDevicePqcIdentity();
+    const derived = deriveMachineBridgeAccessKey(identity);
+    const source = getConfiguredAccessKeySource();
+    const activeFingerprint = getConfiguredAccessKeyFingerprint();
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({
+      configured: source !== 'none',
+      source,
+      deviceId: derived.deviceId,
+      devicePubHash: derived.devicePubHash,
+      epoch: derived.epoch,
+      fingerprint: activeFingerprint || derived.fingerprint,
+      machineFingerprint: derived.fingerprint,
+      overriddenBy: source === 'env' || source === 'pqc-vault' ? source : null
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: String(err?.message || 'failed to read bridge key status') });
+  }
+});
+
+app.post('/api/bridge-key/reveal', (_req: Request, res: Response) => {
+  try {
+    const identity = ensureDevicePqcIdentity();
+    const derived = deriveMachineBridgeAccessKey(identity);
+    if (getConfiguredAccessKeySource() === 'none') {
+      noteMachineAccessKey(derived.accessKey);
+    }
+    const activeKey = getConfiguredAccessKey() || derived.accessKey;
+    const source = getConfiguredAccessKeySource();
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({
+      accessKey: activeKey,
+      source,
+      deviceId: derived.deviceId,
+      epoch: derived.epoch,
+      fingerprint: getConfiguredAccessKeyFingerprint() || derived.fingerprint
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: String(err?.message || 'failed to resolve bridge key') });
+  }
+});
+
+app.post('/api/bridge-key/rotate', (_req: Request, res: Response) => {
+  try {
+    const rotated = rotateMachineBridgeAccessKey();
+    noteMachineAccessKey(rotated.accessKey);
+    const source = getConfiguredAccessKeySource();
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({
+      rotated: true,
+      source,
+      deviceId: rotated.deviceId,
+      epoch: rotated.epoch,
+      fingerprint: getConfiguredAccessKeyFingerprint() || rotated.fingerprint,
+      machineFingerprint: rotated.fingerprint,
+      overriddenBy: source === 'env' || source === 'pqc-vault' ? source : null
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: String(err?.message || 'failed to rotate bridge key') });
+  }
 });
 
 }
