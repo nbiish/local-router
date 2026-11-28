@@ -497,6 +497,7 @@ export function renderLayout(
         <a href="/config/fallback" class="nav-link">Fallback Routes</a>
         <a href="/config/thinking" class="nav-link">Prompt &amp; Thinking</a>
         <a href="/config/agents" class="nav-link">Agents</a>
+        <a href="/config/account" class="nav-link">Account &amp; Machines</a>
         <a href="/config/efficiency" class="nav-link">Token Efficiency</a>
         <a href="/config/trajectories" class="nav-link">Trajectories</a>
       </nav>

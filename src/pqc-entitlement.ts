@@ -854,3 +854,133 @@ export async function refreshLeaseFromControlPlane(options: {
 
   return evaluateAccountLeaseStatus();
 }
+
+export interface RemoteTiedDevice {
+  deviceId: string;
+  platform: string;
+  clientKind: string;
+  label: string | null;
+  devicePubHash?: string | null;
+  pqcBindingHash?: string | null;
+  machineIdHash?: string | null;
+  appMachineHash?: string | null;
+  bridgeActive?: number | null;
+  bridgeLastSeenAt?: string | null;
+  provider?: string | null;
+  leaseExpiresAt?: string | null;
+  firstSeenAt?: string | null;
+  lastSeenAt?: string | null;
+}
+
+export interface RemoteDeviceListResult {
+  devices: RemoteTiedDevice[];
+  usage: { deviceCount: number; maxDevices: number };
+  quotas: { tier: string; maxBlobs: number; maxBlobBytes: number; maxDevices: number };
+}
+
+function unwrapAccountBearer(): { baseUrl: string; bearerSecret: string; currentDeviceId: string } {
+  const persisted = loadPersistedAccountLease();
+  if (!persisted) {
+    const err = new Error('this Local Router instance is not paired to an account') as Error & { status?: number; code?: string };
+    err.status = 401;
+    err.code = 'not_paired';
+    throw err;
+  }
+  if (!persisted.wrappedAccessSecret) {
+    const err = new Error('no ML-KEM-768 wrapped account credential stored — re-pair with a fresh pairing code') as Error & { status?: number; code?: string };
+    err.status = 401;
+    err.code = 'missing_wrapped_secret';
+    throw err;
+  }
+  const identity = ensureDevicePqcIdentity();
+  return {
+    baseUrl: controlPlaneBaseUrl(persisted.controlPlaneUrl),
+    bearerSecret: unwrapSecretWithClientKey(identity.secretKeyB64, persisted.wrappedAccessSecret),
+    currentDeviceId: identity.deviceId
+  };
+}
+
+/** List all machines tied to the paired account (using ML-KEM-768 unwrapped credential in memory). */
+export async function listAccountDevices(options: { fetchImpl?: typeof fetch } = {}): Promise<RemoteDeviceListResult> {
+  const { baseUrl, bearerSecret } = unwrapAccountBearer();
+  const fetchFn = options.fetchImpl || fetch;
+  const res = await fetchFn(`${baseUrl}/api/v1/devices`, {
+    method: 'GET',
+    headers: { authorization: `Bearer ${bearerSecret}` }
+  });
+  const body = (await res.json().catch(() => ({}))) as Record<string, any>;
+  if (!res.ok) {
+    const err = new Error(String(body.error || `failed to list tied devices (HTTP ${res.status})`)) as Error & { status?: number; code?: string };
+    err.status = res.status;
+    if (body.code) err.code = String(body.code);
+    throw err;
+  }
+  return {
+    devices: Array.isArray(body.devices) ? (body.devices as RemoteTiedDevice[]) : [],
+    usage: body.usage || { deviceCount: 0, maxDevices: 3 },
+    quotas: body.quotas || { tier: 'free', maxBlobs: 3, maxBlobBytes: 65536, maxDevices: 3 }
+  };
+}
+
+/** Rename/edit the friendly label of any machine tied to the paired account. */
+export async function renameAccountDevice(
+  deviceId: string,
+  label: string | null,
+  options: { fetchImpl?: typeof fetch } = {}
+): Promise<{ updated: true; deviceId: string; label: string | null }> {
+  const cleanId = String(deviceId || '').trim();
+  if (!/^[a-zA-Z0-9._:-]{3,64}$/.test(cleanId)) {
+    const err = new Error('invalid deviceId') as Error & { status?: number };
+    err.status = 400;
+    throw err;
+  }
+  const { baseUrl, bearerSecret } = unwrapAccountBearer();
+  const fetchFn = options.fetchImpl || fetch;
+  const res = await fetchFn(`${baseUrl}/api/v1/devices/${encodeURIComponent(cleanId)}`, {
+    method: 'PATCH',
+    headers: {
+      'content-type': 'application/json',
+      authorization: `Bearer ${bearerSecret}`
+    },
+    body: JSON.stringify({ label })
+  });
+  const body = (await res.json().catch(() => ({}))) as Record<string, any>;
+  if (!res.ok) {
+    const err = new Error(String(body.error || `failed to rename device (HTTP ${res.status})`)) as Error & { status?: number; code?: string };
+    err.status = res.status;
+    if (body.code) err.code = String(body.code);
+    throw err;
+  }
+  return { updated: true, deviceId: cleanId, label: body.label ?? null };
+}
+
+/** Delete/revoke a machine tied to the paired account (frees its tier quota slot). */
+export async function revokeAccountDevice(
+  deviceId: string,
+  options: { fetchImpl?: typeof fetch } = {}
+): Promise<{ revoked: true; deviceId: string; unpairedLocal: boolean }> {
+  const cleanId = String(deviceId || '').trim();
+  if (!/^[a-zA-Z0-9._:-]{3,64}$/.test(cleanId)) {
+    const err = new Error('invalid deviceId') as Error & { status?: number };
+    err.status = 400;
+    throw err;
+  }
+  const { baseUrl, bearerSecret, currentDeviceId } = unwrapAccountBearer();
+  const fetchFn = options.fetchImpl || fetch;
+  const res = await fetchFn(`${baseUrl}/api/v1/devices/${encodeURIComponent(cleanId)}`, {
+    method: 'DELETE',
+    headers: { authorization: `Bearer ${bearerSecret}` }
+  });
+  const body = (await res.json().catch(() => ({}))) as Record<string, any>;
+  if (!res.ok) {
+    const err = new Error(String(body.error || `failed to delete device (HTTP ${res.status})`)) as Error & { status?: number; code?: string };
+    err.status = res.status;
+    if (body.code) err.code = String(body.code);
+    throw err;
+  }
+  let unpairedLocal = false;
+  if (cleanId === currentDeviceId) {
+    unpairedLocal = unpairLocalAccount();
+  }
+  return { revoked: true, deviceId: cleanId, unpairedLocal };
+}
