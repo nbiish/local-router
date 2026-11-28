@@ -132,7 +132,10 @@ test('pairWithControlPlane sends non-secret bridgeKeyHash and auto-unwraps ML-KE
 
   const siteKeys = ml_dsa65.keygen();
   const signedRecord = makeSignedLease('business', true, hwHash, identity, siteKeys);
-  const plainTunnelToken = 'eyJhIjoiYWNtZS1idXNpbmVzcyIsInQiOiJ0dW4tMDAxIiwicyI6InNlY3JldCJ9';
+  const plainTunnelToken = Buffer.from(
+    JSON.stringify({ a: 'acme-business', t: 'tun-001', s: 'fixture-token' }),
+    'utf8'
+  ).toString('base64');
 
   // Wrap tunnel token to this device's ML-KEM-768 public key (mirrors local-router-dot-com)
   const { sharedSecret, cipherText } = ml_kem768.encapsulate(pqc.base64urlDecode(identity.publicKeyB64));
