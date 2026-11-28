@@ -14,3 +14,7 @@ dc32dbd0d6ca7de522998d153d12d7d08ab1b010:tests/wafer-discovery.test.mjs:generic-
 # Punctuated prose ("403-regardless-of-key for all non-inference paths") in the
 # inbound-access-control task record, not a credential. Triaged 2026-11-25.
 462ea4cb86db04031a91816e67f2f1fb7f4c62ef:.agents/tasks/TASK.2026-11-25-12-inbound-access-control.md:generic-api-key:28
+
+# Synthetic base64 JSON test fixture in bridge-tunnel.test.mjs (replaced with
+# runtime Buffer.from(...) in the follow-up commit). Triaged 2026-11-28.
+ec09f4abd868f35b35e81674a948d71f5c25245d:tests/bridge-tunnel.test.mjs:generic-api-key:135

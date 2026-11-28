@@ -71,6 +71,7 @@ import { durability } from '../durability';
 import { planAutoDisable } from '../auto-disable';
 import { costBandFor, providerCoverageGaps } from '../fallback-topology';
 import {
+  bridgeKeyHash,
   computeAppMachineHash,
   deriveMachineBridgeAccessKey,
   ensureDevicePqcIdentity,
@@ -2573,6 +2574,14 @@ app.post('/api/bridge-key/rotate', (_req: Request, res: Response) => {
     const rotated = rotateMachineBridgeAccessKey();
     noteMachineAccessKey(rotated.accessKey);
     const source = getConfiguredAccessKeySource();
+    const lease = evaluateAccountLeaseStatus();
+    if (lease.paired) {
+      // Sync rotated non-secret SHA3-256 key hash to local-router.com so
+      // inference.local-router.com switches immediately and invalidates the old key.
+      void refreshLeaseFromControlPlane({
+        bridgeKeyHash: bridgeKeyHash(rotated.accessKey)
+      }).catch(() => {});
+    }
     res.setHeader('Cache-Control', 'no-store');
     res.json({
       rotated: true,
@@ -2581,7 +2590,8 @@ app.post('/api/bridge-key/rotate', (_req: Request, res: Response) => {
       epoch: rotated.epoch,
       fingerprint: getConfiguredAccessKeyFingerprint() || rotated.fingerprint,
       machineFingerprint: rotated.fingerprint,
-      overriddenBy: source === 'env' || source === 'pqc-vault' ? source : null
+      overriddenBy: source === 'env' || source === 'pqc-vault' ? source : null,
+      gatewaySynced: lease.paired
     });
   } catch (err: any) {
     res.status(500).json({ error: String(err?.message || 'failed to rotate bridge key') });

@@ -87,6 +87,7 @@ export function renderAgentsPage(params: {
           <div id="bridgeTunnelMeta" class="muted" style="font-size:12px;">Checking Cloudflared bridge &amp; tier entitlement&hellip;</div>
           <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
             <button class="button-primary" id="copyBridgeKeyBtn" type="button" onclick="copyBridgeAccessKey()">Copy Bridge Key</button>
+            <button class="button-secondary" id="copyTeamConfigBtn" type="button" onclick="copyTeamHarnessConfig()">Copy Team / Harness Config</button>
             <button class="button-secondary" id="toggleBridgeKeyBtn" type="button" onclick="toggleRevealBridgeKey()">Show Key</button>
             <button class="button-secondary" id="rotateBridgeKeyBtn" type="button" onclick="rotateBridgeAccessKey()">Rotate Machine Key</button>
             <button class="button-secondary" id="startBridgeTunnelBtn" type="button" onclick="startCloudflaredBridge()">Start Bridge</button>
@@ -201,6 +202,36 @@ export function renderAgentsPage(params: {
               if (input) input.value = '';
               if (fb) fb.textContent = 'Saved Cloudflare Tunnel token (0600).';
               loadBridgeKeyStatus();
+            } catch (err) {
+              if (fb) fb.textContent = 'Error: ' + (err && err.message ? err.message : String(err));
+            }
+          };
+
+          window.copyTeamHarnessConfig = async function copyTeamHarnessConfig() {
+            const fb = document.getElementById('bridgeKeyFeedback');
+            if (fb) fb.textContent = 'Building shareable endpoint & key config…';
+            try {
+              const [revRes, acctRes] = await Promise.all([
+                fetch('/api/bridge-key/reveal', { method: 'POST' }),
+                fetch('/api/account/status').catch(() => null)
+              ]);
+              const rev = await revRes.json();
+              if (!revRes.ok || !rev.accessKey) throw new Error(rev.error || 'Failed to read bridge key');
+              const acct = acctRes && acctRes.ok ? await acctRes.json() : {};
+              const endpoint = acct.inferenceEndpoint || 'https://inference.local-router.com/v1';
+              const snippet = [
+                'Base URL: ' + endpoint,
+                'Model: fallback-models',
+                'API Key: ' + rev.accessKey
+              ].join('\\n');
+              if (navigator.clipboard && navigator.clipboard.writeText) {
+                await navigator.clipboard.writeText(snippet);
+                if (fb) fb.textContent = 'Copied endpoint + key config for employee chat / agent harnesses (' + rev.fingerprint + ').';
+              } else {
+                const box = document.getElementById('bridgeKeyRevealBox');
+                if (box) { box.style.display = 'block'; box.textContent = snippet; }
+                if (fb) fb.textContent = 'Clipboard API unavailable — snippet shown below.';
+              }
             } catch (err) {
               if (fb) fb.textContent = 'Error: ' + (err && err.message ? err.message : String(err));
             }

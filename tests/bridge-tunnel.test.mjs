@@ -7,6 +7,8 @@ import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
 const { ml_dsa65 } = require('@noble/post-quantum/ml-dsa.js');
+const { ml_kem768 } = require('@noble/post-quantum/ml-kem.js');
+const { createCipheriv, randomBytes } = require('node:crypto');
 
 const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lr-bridge-tunnel-test-'));
 process.env.LOCAL_ROUTER_CONFIG_DIR = tmpDir;
@@ -118,4 +120,69 @@ test('bridge tunnel token validation enforces 0600 file custody and rejects whit
   assert.equal(bridge.hasSavedBridgeToken(), true);
   assert.equal(bridge.clearBridgeTunnelToken(), true);
   assert.equal(bridge.hasSavedBridgeToken(), false);
+});
+
+test('pairWithControlPlane sends non-secret bridgeKeyHash and auto-unwraps ML-KEM-768 wrappedTunnelToken into 0600 token file', async () => {
+  const identity = pqc.ensureDevicePqcIdentity();
+  const hwHash = pqc.getHardwareMachineIdHash();
+  const derived = pqc.deriveMachineBridgeAccessKey(identity);
+  const expectedKeyHash = pqc.bridgeKeyHash(derived.accessKey);
+  assert.match(expectedKeyHash, /^[0-9a-f]{64}$/);
+  assert.equal(pqc.bridgeKeyFingerprint(derived.accessKey), `sha3:${expectedKeyHash.slice(0, 16)}`);
+
+  const siteKeys = ml_dsa65.keygen();
+  const signedRecord = makeSignedLease('business', true, hwHash, identity, siteKeys);
+  const plainTunnelToken = Buffer.from(
+    JSON.stringify({ a: 'acme-business', t: 'tun-001', s: 'fixture-token' }),
+    'utf8'
+  ).toString('base64');
+
+  // Wrap tunnel token to this device's ML-KEM-768 public key (mirrors local-router-dot-com)
+  const { sharedSecret, cipherText } = ml_kem768.encapsulate(pqc.base64urlDecode(identity.publicKeyB64));
+  const nonce = randomBytes(12);
+  const cipher = createCipheriv('aes-256-gcm', Buffer.from(sharedSecret), nonce);
+  const wrapped = Buffer.concat([cipher.update(plainTunnelToken, 'utf8'), cipher.final(), cipher.getAuthTag()]);
+
+  let sentBody = null;
+  const mockFetch = async (_url, init) => {
+    sentBody = JSON.parse(String(init.body || '{}'));
+    return new Response(JSON.stringify({
+      paired: true,
+      deviceId: identity.deviceId,
+      email: 'operator@gmail.com',
+      provider: 'google',
+      inferenceEndpoint: 'https://inference.local-router.com/v1',
+      tunnelHostname: 't-acme-01.tunnels.local-router.com',
+      wrappedTunnelToken: {
+        encapsulationB64: pqc.base64urlEncode(cipherText),
+        wrappedB64: pqc.base64urlEncode(wrapped),
+        nonceB64: pqc.base64urlEncode(nonce)
+      },
+      lease: signedRecord.lease,
+      signatureB64: signedRecord.signatureB64,
+      signingPublicKeyB64: signedRecord.signingPublicKeyB64,
+      signingKeyFingerprint: signedRecord.signingKeyFingerprint
+    }), { status: 201, headers: { 'content-type': 'application/json' } });
+  };
+
+  const status = await pqc.pairWithControlPlane({
+    pairingCode: 'lrp_test_business_pairing_code_1234567890',
+    controlPlaneUrl: 'https://local-router.com',
+    fetchImpl: mockFetch
+  });
+
+  // Never sends plaintext lrk_ key — only the 64-hex SHA3-256 hash
+  assert.equal(sentBody.bridgeKeyHash, expectedKeyHash);
+  assert.equal(JSON.stringify(sentBody).includes(derived.accessKey), false);
+
+  // Persisted status reflects Business tier + managed inference endpoint
+  assert.equal(status.tier, 'business');
+  assert.equal(status.remoteBridgeEntitled, true);
+  assert.equal(status.inferenceEndpoint, 'https://inference.local-router.com/v1');
+  assert.equal(status.tunnelHostname, 't-acme-01.tunnels.local-router.com');
+
+  // Auto-unwrapped token saved to 0600 cloudflared-bridge.token
+  assert.equal(bridge.hasSavedBridgeToken(), true);
+  assert.equal(fs.readFileSync(bridge.bridgeTokenPath(), 'utf8').trim(), plainTunnelToken);
+  bridge.clearBridgeTunnelToken();
 });
