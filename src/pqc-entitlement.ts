@@ -93,6 +93,8 @@ export interface PersistedAccountLease {
   signingPublicKeyB64: string;
   signingKeyFingerprint: string;
   wrappedAccessSecret?: WrappedSecretPayload | null;
+  inferenceEndpoint?: string | null;
+  tunnelHostname?: string | null;
   pairedAt: string;
   updatedAt: string;
 }
@@ -140,6 +142,8 @@ export interface AccountLeaseStatus {
   leaseExpiresAt: string | null;
   entitlements: LeaseEntitlements | null;
   signingKeyFingerprint: string | null;
+  inferenceEndpoint: string | null;
+  tunnelHostname: string | null;
   controlPlaneUrl: string;
 }
 
@@ -499,9 +503,14 @@ export function ensureDevicePqcIdentity(): DevicePqcIdentity {
   return identity;
 }
 
+/** Full 64-char SHA3-256 hash of a bridge access key (matches local-router-dot-com). */
+export function bridgeKeyHash(accessKey: string): string {
+  return sha3Hex(Buffer.from(`lr-bridge-fp-v1:${accessKey.trim()}`, 'utf8'));
+}
+
 /** Short non-secret SHA3-256 fingerprint for any bridge access key (`sha3:<16-hex>`). */
 export function bridgeKeyFingerprint(accessKey: string): string {
-  return `sha3:${sha3Hex(Buffer.from(`lr-bridge-fp-v1:${accessKey.trim()}`, 'utf8')).slice(0, 16)}`;
+  return `sha3:${bridgeKeyHash(accessKey).slice(0, 16)}`;
 }
 
 /**
@@ -606,6 +615,8 @@ export function evaluateAccountLeaseStatus(now: Date = new Date()): AccountLease
       leaseExpiresAt: null,
       entitlements: null,
       signingKeyFingerprint: null,
+      inferenceEndpoint: null,
+      tunnelHostname: null,
       controlPlaneUrl: defaultUrl
     };
   }
@@ -632,6 +643,8 @@ export function evaluateAccountLeaseStatus(now: Date = new Date()): AccountLease
       leaseExpiresAt: persisted.lease?.expiresAt || null,
       entitlements: persisted.lease?.entitlements || null,
       signingKeyFingerprint: persisted.signingKeyFingerprint || null,
+      inferenceEndpoint: persisted.inferenceEndpoint || null,
+      tunnelHostname: persisted.tunnelHostname || null,
       controlPlaneUrl: persisted.controlPlaneUrl || defaultUrl
     };
   }
@@ -670,6 +683,8 @@ export function evaluateAccountLeaseStatus(now: Date = new Date()): AccountLease
     leaseExpiresAt: persisted.lease?.expiresAt || null,
     entitlements: verified.valid ? persisted.lease.entitlements : null,
     signingKeyFingerprint: persisted.signingKeyFingerprint || null,
+    inferenceEndpoint: remoteBridgeEntitled ? (persisted.inferenceEndpoint || 'https://inference.local-router.com/v1') : null,
+    tunnelHostname: persisted.tunnelHostname || null,
     controlPlaneUrl: persisted.controlPlaneUrl || defaultUrl
   };
 }
@@ -679,12 +694,22 @@ export function evaluateAccountLeaseStatus(now: Date = new Date()): AccountLease
  * single-use OAuth pairing code (`lrp_...`). Verifies the returned ML-DSA-65
  * signature and SHA3-256 PQC binding hash BEFORE saving to disk.
  */
+function persistUnwrappedTunnelToken(identity: DevicePqcIdentity, wrapped: WrappedSecretPayload | null | undefined): void {
+  if (!wrapped || !wrapped.encapsulationB64 || !wrapped.wrappedB64 || !wrapped.nonceB64) return;
+  const plainToken = unwrapSecretWithClientKey(identity.secretKeyB64, wrapped).trim();
+  if (plainToken.length < 20 || plainToken.length > 4096 || /\s/.test(plainToken)) return;
+  const tokenPath = machineConfigPath('cloudflared-bridge.token');
+  fs.mkdirSync(path.dirname(tokenPath), { recursive: true, mode: 0o700 });
+  fs.writeFileSync(tokenPath, `${plainToken}\n`, { mode: 0o600 });
+}
+
 export async function pairWithControlPlane(options: {
   pairingCode: string;
   email?: string;
   label?: string;
   clientKind?: 'desktop' | 'cli' | 'cloud';
   controlPlaneUrl?: string;
+  bridgeKeyHashOverride?: string;
   fetchImpl?: typeof fetch;
 }): Promise<AccountLeaseStatus> {
   const pairingCode = String(options.pairingCode || '').trim();
@@ -694,6 +719,7 @@ export async function pairWithControlPlane(options: {
   const baseUrl = controlPlaneBaseUrl(options.controlPlaneUrl);
   const identity = ensureDevicePqcIdentity();
   const machineIdHash = getHardwareMachineIdHash();
+  const derivedKeyHash = options.bridgeKeyHashOverride || bridgeKeyHash(deriveMachineBridgeAccessKey(identity).accessKey);
   const fetchFn = options.fetchImpl || fetch;
 
   const res = await fetchFn(`${baseUrl}/api/v1/devices/pair`, {
@@ -707,7 +733,8 @@ export async function pairWithControlPlane(options: {
       label: options.label || os.hostname().slice(0, 80),
       mlKemPublicKey: identity.publicKeyB64,
       appId: 'local-router',
-      machineIdHash
+      machineIdHash,
+      bridgeKeyHash: derivedKeyHash
     })
   });
   const body = (await res.json().catch(() => ({}))) as Record<string, any>;
@@ -731,6 +758,10 @@ export async function pairWithControlPlane(options: {
     throw new Error(`control plane returned an invalid PQC lease (${check.reason})`);
   }
 
+  if (body.wrappedTunnelToken) {
+    persistUnwrappedTunnelToken(identity, body.wrappedTunnelToken as WrappedSecretPayload);
+  }
+
   const nowIso = new Date().toISOString();
   savePersistedAccountLease({
     schema: 1,
@@ -744,6 +775,8 @@ export async function pairWithControlPlane(options: {
     signingPublicKeyB64: String(body.signingPublicKeyB64),
     signingKeyFingerprint: String(body.signingKeyFingerprint || body.lease.keyId),
     wrappedAccessSecret: body.wrappedAccessSecret || null,
+    inferenceEndpoint: typeof body.inferenceEndpoint === 'string' ? body.inferenceEndpoint : null,
+    tunnelHostname: typeof body.tunnelHostname === 'string' ? body.tunnelHostname : null,
     pairedAt: nowIso,
     updatedAt: nowIso
   });
@@ -754,6 +787,7 @@ export async function pairWithControlPlane(options: {
 /** Renew the ML-DSA-65 signed lease by decapsulating the ML-KEM-768 renew token in memory. */
 export async function refreshLeaseFromControlPlane(options: {
   bridgeActive?: boolean;
+  bridgeKeyHash?: string;
   fetchImpl?: typeof fetch;
 } = {}): Promise<AccountLeaseStatus> {
   const persisted = loadPersistedAccountLease();
@@ -763,6 +797,7 @@ export async function refreshLeaseFromControlPlane(options: {
   }
   const identity = ensureDevicePqcIdentity();
   const machineIdHash = getHardwareMachineIdHash();
+  const currentKeyHash = options.bridgeKeyHash || bridgeKeyHash(deriveMachineBridgeAccessKey(identity).accessKey);
   const baseUrl = controlPlaneBaseUrl(persisted.controlPlaneUrl);
   const bearerSecret = unwrapSecretWithClientKey(identity.secretKeyB64, persisted.wrappedAccessSecret);
   const fetchFn = options.fetchImpl || fetch;
@@ -778,6 +813,7 @@ export async function refreshLeaseFromControlPlane(options: {
       mlKemPublicKey: identity.publicKeyB64,
       appId: 'local-router',
       machineIdHash,
+      bridgeKeyHash: currentKeyHash,
       ...(typeof options.bridgeActive === 'boolean' ? { bridgeActive: options.bridgeActive } : {})
     })
   });
@@ -801,12 +837,18 @@ export async function refreshLeaseFromControlPlane(options: {
     throw new Error(`renewed PQC lease failed verification (${check.reason})`);
   }
 
+  if (body.wrappedTunnelToken) {
+    persistUnwrappedTunnelToken(identity, body.wrappedTunnelToken as WrappedSecretPayload);
+  }
+
   savePersistedAccountLease({
     ...persisted,
     lease: body.lease as AppEntitlementLease,
     signatureB64: String(body.signatureB64),
     signingPublicKeyB64: String(body.signingPublicKeyB64),
     signingKeyFingerprint: String(body.signingKeyFingerprint || body.lease.keyId),
+    inferenceEndpoint: typeof body.inferenceEndpoint === 'string' ? body.inferenceEndpoint : (persisted.inferenceEndpoint ?? null),
+    tunnelHostname: typeof body.tunnelHostname === 'string' ? body.tunnelHostname : (persisted.tunnelHostname ?? null),
     updatedAt: new Date().toISOString()
   });
 
