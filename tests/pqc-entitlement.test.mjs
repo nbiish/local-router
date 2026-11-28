@@ -206,8 +206,39 @@ test('pairWithControlPlane + refreshLeaseFromControlPlane verify ML-DSA-65 and u
     assert.equal(refreshed.tier, 'pro');
     assert.equal(refreshed.entitlements.maxDevices, 10);
 
-    // Unpair removes the lease cleanly
-    assert.equal(pqcEnt.unpairLocalAccount(), true);
+    // List, rename, and delete tied devices via in-memory ML-KEM-768 unwrapped credential
+    const deviceMockFetch = async (url, init) => {
+      assert.equal(init.headers.authorization, `Bearer ${renewSecret}`);
+      if (String(url).endsWith('/api/v1/devices') && init.method === 'GET') {
+        return new Response(JSON.stringify({
+          devices: [{ deviceId: paired.deviceId, platform: 'macos', clientKind: 'cli', label: 'Mac Studio' }],
+          usage: { deviceCount: 1, maxDevices: 10 },
+          quotas: { tier: 'pro', maxBlobs: 50, maxBlobBytes: 262144, maxDevices: 10 }
+        }), { status: 200, headers: { 'content-type': 'application/json' } });
+      }
+      if (init.method === 'PATCH') {
+        const b = JSON.parse(String(init.body || '{}'));
+        return new Response(JSON.stringify({ updated: true, deviceId: paired.deviceId, label: b.label }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' }
+        });
+      }
+      if (init.method === 'DELETE') {
+        return new Response(JSON.stringify({ revoked: true, deviceId: paired.deviceId }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' }
+        });
+      }
+      throw new Error(`unexpected ${init.method} ${url}`);
+    };
+    const listed = await pqcEnt.listAccountDevices({ fetchImpl: deviceMockFetch });
+    assert.equal(listed.devices.length, 1);
+    assert.equal(listed.usage.maxDevices, 10);
+    const renamed = await pqcEnt.renameAccountDevice(paired.deviceId, 'Renamed Mac', { fetchImpl: deviceMockFetch });
+    assert.equal(renamed.label, 'Renamed Mac');
+    const deleted = await pqcEnt.revokeAccountDevice(paired.deviceId, { fetchImpl: deviceMockFetch });
+    assert.equal(deleted.revoked, true);
+    assert.equal(deleted.unpairedLocal, true);
     assert.equal(pqcEnt.evaluateAccountLeaseStatus().paired, false);
   });
 });

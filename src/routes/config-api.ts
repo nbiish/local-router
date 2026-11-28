@@ -20,6 +20,7 @@ import { renderProvidersPage } from '../ui/pages/providers';
 import { renderFallbackPage } from '../ui/pages/fallback';
 import { renderThinkingPage } from '../ui/pages/thinking';
 import { renderAgentsPage } from '../ui/pages/agents';
+import { renderAccountPage } from '../ui/pages/account';
 import { renderEfficiencyPage } from '../ui/pages/efficiency';
 import { renderTrajectoriesPage } from '../ui/pages/trajectories';
 import {
@@ -77,8 +78,11 @@ import {
   ensureDevicePqcIdentity,
   evaluateAccountLeaseStatus,
   getHardwareMachineIdHash,
+  listAccountDevices,
   pairWithControlPlane,
   refreshLeaseFromControlPlane,
+  renameAccountDevice,
+  revokeAccountDevice,
   rotateMachineBridgeAccessKey,
   unpairLocalAccount
 } from '../pqc-entitlement';
@@ -339,6 +343,14 @@ export function registerConfigApiRoutes(app: express.Express, deps: ConfigApiDep
       defaultFallbackModelsText: DEFAULT_FALLBACK_MODELS_TEXT
     });
     // Config pages are live state (keys, catalog, routes) — never cacheable.
+    res.setHeader('Cache-Control', 'no-store');
+    res.send(html);
+  });
+
+  app.get('/config/account', (req: Request, res: Response) => {
+    const html = renderAccountPage({
+      defaultFallbackModelsText: DEFAULT_FALLBACK_MODELS_TEXT
+    });
     res.setHeader('Cache-Control', 'no-store');
     res.send(html);
   });
@@ -2511,6 +2523,50 @@ app.post('/api/account/refresh', async (_req: Request, res: Response) => {
 app.delete('/api/account/pair', (_req: Request, res: Response) => {
   const removed = unpairLocalAccount();
   res.json({ unpaired: true, removed, status: evaluateAccountLeaseStatus() });
+});
+
+app.get('/api/account/devices', async (_req: Request, res: Response) => {
+  try {
+    res.setHeader('Cache-Control', 'no-store');
+    const result = await listAccountDevices();
+    res.json(result);
+  } catch (err: any) {
+    const code = Number.isInteger(err?.status) && err.status >= 400 && err.status < 600 ? err.status : 400;
+    res.status(code).json({
+      error: String(err?.message || 'failed to list tied devices'),
+      ...(err?.code ? { code: String(err.code) } : {})
+    });
+  }
+});
+
+app.patch('/api/account/devices/:id', async (req: Request, res: Response) => {
+  try {
+    const body = (req.body && typeof req.body === 'object') ? req.body : {};
+    const label = body.label === null || body.label === undefined ? null : String(body.label);
+    const result = await renameAccountDevice(String(req.params.id || ''), label);
+    res.setHeader('Cache-Control', 'no-store');
+    res.json(result);
+  } catch (err: any) {
+    const code = Number.isInteger(err?.status) && err.status >= 400 && err.status < 600 ? err.status : 400;
+    res.status(code).json({
+      error: String(err?.message || 'failed to rename tied device'),
+      ...(err?.code ? { code: String(err.code) } : {})
+    });
+  }
+});
+
+app.delete('/api/account/devices/:id', async (req: Request, res: Response) => {
+  try {
+    const result = await revokeAccountDevice(String(req.params.id || ''));
+    res.setHeader('Cache-Control', 'no-store');
+    res.json(result);
+  } catch (err: any) {
+    const code = Number.isInteger(err?.status) && err.status >= 400 && err.status < 600 ? err.status : 400;
+    res.status(code).json({
+      error: String(err?.message || 'failed to delete tied device'),
+      ...(err?.code ? { code: String(err.code) } : {})
+    });
+  }
 });
 
 // ---------------------------------------------------------------------------
